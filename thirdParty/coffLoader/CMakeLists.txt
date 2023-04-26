@@ -1,0 +1,2 @@
+add_subdirectory(coffLoader)
+add_subdirectory(coffPacker)
