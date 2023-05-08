@@ -78,13 +78,16 @@ bool Server::sendData(std::string& data)
 		return false;
 	}
 
-	sendSocketTcp(m_socketTcp, (char*)&data[0], nbBytes, &m_error);
-
-	if(m_error)
+	if(nbBytes!=0)
 	{
-		// std::cerr << "send failed: " << m_error << std::endl;
-		reset();
-		return false;
+		sendSocketTcp(m_socketTcp, (char*)&data[0], nbBytes, &m_error);
+
+		if(m_error)
+		{
+			// std::cerr << "send failed: " << m_error << std::endl;
+			reset();
+			return false;
+		}
 	}
 
 	return true;
@@ -110,14 +113,16 @@ bool Server::receive(std::string& data)
 		return false;
 	}
 
-	readSocketTcp(m_socketTcp, &data[0], nbBytes, &m_error);
-
-
-	if(m_error)
+	if(nbBytes!=0)
 	{
-		// std::cerr << "receive failed: " << m_error.message() << std::endl;
-		reset();
-		return false;
+		readSocketTcp(m_socketTcp, &data[0], nbBytes, &m_error);
+
+		if(m_error)
+		{
+			// std::cerr << "receive failed: " << m_error.message() << std::endl;
+			reset();
+			return false;
+		}
 	}
 
 	return true;
@@ -174,13 +179,16 @@ bool Client::sendData(std::string& data)
 		return false;
 	}
 
-	sendSocketTcp(m_socketTcp, (char*)&data[0], nbBytes, &m_error);
-
-	if(m_error)
+	if(nbBytes!=0)
 	{
-		// std::cerr << "send failed: " << m_error << std::endl;
-		reset();
-		return false;
+		sendSocketTcp(m_socketTcp, (char*)&data[0], nbBytes, &m_error);
+
+		if(m_error)
+		{
+			// std::cerr << "send failed: " << m_error << std::endl;
+			reset();
+			return false;
+		}
 	}
 
 	return true;
@@ -200,14 +208,16 @@ bool Client::receive(std::string& data)
 		return false;
 	}
 
-	readSocketTcp(m_socketTcp, &data[0], nbBytes, &m_error);
-
-
-	if(m_error)
+	if(nbBytes!=0)
 	{
-		// std::cerr << "receive failed: " << m_error.message() << std::endl;
-		reset();
-		return false;
+		readSocketTcp(m_socketTcp, &data[0], nbBytes, &m_error);
+
+		if(m_error)
+		{
+			// std::cerr << "receive failed: " << m_error.message() << std::endl;
+			reset();
+			return false;
+		}
 	}
 
 	return true;
