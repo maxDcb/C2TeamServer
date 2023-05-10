@@ -20,18 +20,18 @@ public:
 	Server(int port);
 	~Server();
 
+	void initServer();
+
 	bool sendData(std::string& data);
 	bool receive(std::string& data);
 
 private:
 	void reset();
-	void initServer();
+	
 	void creatServerTcp(int port);
 
 	bool m_initDone;
 	int m_port;
-
-	std::thread* threadInit;
 
 	boost::asio::io_service m_ioService;
 	boost::asio::ip::tcp::socket* m_socketTcp;
@@ -46,12 +46,15 @@ public:
 	Client(std::string& ip, int port);
 	~Client();
 
+	bool initConnection();
+	void closeConnection();
+
 	bool sendData(std::string& data);
 	bool receive(std::string& data);
 
 private:
-	void reset();
-	void creatClientTcp(int port, std::string& ip);
+	bool reset();
+	bool creatClientTcp(int port, std::string& ip);
 
 	std::string m_ipServer;
 	int m_port;

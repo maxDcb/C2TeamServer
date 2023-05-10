@@ -25,7 +25,6 @@ Server::Server(int port)
 {
 	m_port = port;
 	m_initDone=false;
-	threadInit = new std::thread(&Server::initServer, this);
 }
 
 
@@ -35,7 +34,6 @@ void Server::reset()
 		delete m_socketTcp;
 
 	m_initDone=false;
-	threadInit = new std::thread(&Server::initServer, this);
 }
 
 
@@ -47,7 +45,6 @@ void Server::initServer()
 
 Server::~Server()
 {
-	threadInit->join();
 	delete m_socketTcp;
 }
 
@@ -133,37 +130,58 @@ Client::Client(std::string& ip, int port)
 {
 	m_ipServer = ip;
 	m_port = port;
-
-	creatClientTcp(m_port, m_ipServer);
 }
 
 
 Client::~Client()
 {
-	delete m_socketTcp;
+	if(m_socketTcp)
+	{
+		delete m_socketTcp;
+		m_socketTcp=nullptr;
+	}
 }
 
 
-void Client::reset()
+bool Client::reset()
 {
 	if(m_socketTcp)
+	{
 		delete m_socketTcp;
+		m_socketTcp=nullptr;
+	}
 
-	creatClientTcp(m_port, m_ipServer);
+	bool res = creatClientTcp(m_port, m_ipServer);
+	return res;
 }
 
 
-void Client::creatClientTcp(int port, std::string& ip)
+bool Client::initConnection()
+{
+	bool res = reset();
+	return res;
+}
+
+
+void Client::closeConnection()
+{
+	if(m_socketTcp)
+	{
+		delete m_socketTcp;
+		m_socketTcp=nullptr;
+	}
+}
+
+
+bool Client::creatClientTcp(int port, std::string& ip)
 {
 	boost::system::error_code error;
 	m_socketTcp=new tcp::socket(m_ioService);
 	m_socketTcp->connect( tcp::endpoint( boost::asio::ip::address::from_string(ip), port ), error);
-	while(error)
-	{
-		m_socketTcp->connect( tcp::endpoint( boost::asio::ip::address::from_string(ip), port ), error);
-		std::this_thread::sleep_for(std::chrono::milliseconds((int)(500)));
-	}
+	if(error)
+		return false;
 
+	return true;
 }
 
 
@@ -175,7 +193,6 @@ bool Client::sendData(std::string& data)
 	if(m_error)
 	{
 		// std::cerr << "send failed: " << m_error.message() << std::endl;
-		reset();
 		return false;
 	}
 
@@ -186,7 +203,6 @@ bool Client::sendData(std::string& data)
 		if(m_error)
 		{
 			// std::cerr << "send failed: " << m_error << std::endl;
-			reset();
 			return false;
 		}
 	}
@@ -204,7 +220,6 @@ bool Client::receive(std::string& data)
 	if(m_error)
 	{
 		// std::cerr << "receive failed: " << m_error.message() << std::endl;
-		reset();
 		return false;
 	}
 
@@ -215,7 +230,6 @@ bool Client::receive(std::string& data)
 		if(m_error)
 		{
 			// std::cerr << "receive failed: " << m_error.message() << std::endl;
-			reset();
 			return false;
 		}
 	}
