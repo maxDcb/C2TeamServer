@@ -243,7 +243,8 @@ completerData = [
     ('end',[]),
     ('listener',[
              ('start', [
-                         ('127.0.0.1',[])
+                         ('smb pipename',[]),
+                         ('tcp 127.0.0.1 4444',[])
                         ]),
              ('stop',  [])
              ]),
