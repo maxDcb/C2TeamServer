@@ -275,6 +275,8 @@ completerData = [
     ('cd',[]),
     ('ls',[]),
     ('ps',[]),
+    ('cat',[]),
+    ('tree',[]),
     ('makeToken',[]),
     ('rev2self',[]),
     ('stealToken',[]),
@@ -392,6 +394,8 @@ completerData = [
              ('KerberosUseTicket.dll',  []),
              ('Chisel.dll',  []),
              ('SpawnAs.dll',  []),
+             ('Cat.dll',  []),
+             ('Tree.dll',  []),
              ('Evasion.dll',  [])
              ]),
 ]
