@@ -21,6 +21,8 @@
 #include "modules/Chisel/Chisel.hpp"
 #include "modules/SpawnAs/SpawnAs.hpp"
 #include "modules/Evasion/Evasion.hpp"
+#include "modules/Cat/Cat.hpp"
+#include "modules/Tree/Tree.hpp"
 
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>

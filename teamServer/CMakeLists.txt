@@ -31,6 +31,8 @@ set(SOURCES_TEAMSERVER
 	../core/modules/Chisel/Chisel.cpp
 	../core/modules/SpawnAs/SpawnAs.cpp
 	../core/modules/Evasion/Evasion.cpp
+	../core/modules/Cat/Cat.cpp
+	../core/modules/Tree/Tree.cpp
 )
 
 ## TeamServer
