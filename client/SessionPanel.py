@@ -29,7 +29,7 @@ class Session():
 
 class Sessions(QWidget):
 
-    interactWithSession = pyqtSignal(str)
+    interactWithSession = pyqtSignal(str, str, str)
 
     idSession = 0
     listSessionObject = []
@@ -101,7 +101,7 @@ class Sessions(QWidget):
             id = self.item
             for sessionStore in self.listSessionObject:
                 if sessionStore.id == int(id):
-                    self.interactWithSession.emit(sessionStore.beaconHash)
+                    self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.hostname, sessionStore.username)
         elif action.text() == "Stop":
             id = self.item
             for sessionStore in self.listSessionObject:
