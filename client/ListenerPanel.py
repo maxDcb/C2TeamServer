@@ -49,11 +49,11 @@ class Listeners(QWidget):
         self.listListener.setShowGrid(False)
         self.listListener.setSelectionBehavior(QTableView.SelectRows)
         self.listListener.setRowCount(0)
-        self.listListener.setColumnCount(6)
+        self.listListener.setColumnCount(5)
         self.listListener.cellPressed.connect(self.listListenerClicked)
         self.listListener.verticalHeader().setVisible(False)
         header = self.listListener.horizontalHeader()      
-        for i in range(6): 
+        for i in range(5): 
             header.setSectionResizeMode(i, QHeaderView.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.layout.addWidget(self.listListener)
@@ -163,7 +163,7 @@ class Listeners(QWidget):
 
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["ID", "Listener ID", "Type", "Host", "Port", "Nb Session"])
+        self.listListener.setHorizontalHeaderLabels(["ID", "Listener ID", "Type", "Host", "Port"])
         for ix, listenerStore in enumerate(self.listListenerObject):
             id = QTableWidgetItem(str(listenerStore.id))
             self.listListener.setItem(ix, 0, id)
@@ -175,9 +175,6 @@ class Listeners(QWidget):
             self.listListener.setItem(ix, 3, host)
             port = QTableWidgetItem(str(listenerStore.port))
             self.listListener.setItem(ix, 4, port)
-            nbSession = QTableWidgetItem(str(listenerStore.nbSession))
-            self.listListener.setItem(ix, 5, nbSession)
-
 
 
 class CreateListner(QWidget):
