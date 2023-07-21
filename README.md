@@ -56,7 +56,7 @@ Two side projects could be used to deliver the beacons:
 
 The Teamserver is a stand alone application which communicates with a client with GRPC channel (SSL). The Teamserver handle listeners.  
 Implant run on the target host. Each implant or beacon which connect back to the TeamServer open a session. The session is used to control the implant, send commands and receive results.  
-Listener and implant/beacon can run on TCP, HTTP and HTTPS   
+Listener and implant/beacon can run on TCP, SMB, HTTP and HTTPS   
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ListenersAndSessions.png?raw=true)
 
@@ -97,10 +97,10 @@ Coff Module is used to run Coff files.
 | psExec           | 
 | spawnAs          | 
 | chisel           | 
+| tree             | 
 
 
 TODO:  
 - Donut only take 256 char for args, which is not enough for Rubeus.
-- BeaconSmb.
 
 

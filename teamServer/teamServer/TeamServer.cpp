@@ -79,6 +79,9 @@ TeamServer::TeamServer()
 	std::unique_ptr<Tree> tree = std::make_unique<Tree>();
 	m_moduleCmd.push_back(std::move(tree));
 
+	std::unique_ptr<WmiExec> wmiExec = std::make_unique<WmiExec>();
+	m_moduleCmd.push_back(std::move(wmiExec));
+
 	// BOOST_LOG_TRIVIAL(trace) << "A trace severity message";
     // BOOST_LOG_TRIVIAL(debug) << "A debug severity message";
     // BOOST_LOG_TRIVIAL(info) << "An informational severity message";

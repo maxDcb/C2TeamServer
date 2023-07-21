@@ -33,6 +33,7 @@ set(SOURCES_TEAMSERVER
 	../core/modules/Evasion/Evasion.cpp
 	../core/modules/Cat/Cat.cpp
 	../core/modules/Tree/Tree.cpp
+	../core/modules/WmiExec/WmiExec.cpp
 )
 
 ## TeamServer

