@@ -454,8 +454,8 @@ completerData = [
              ('SpawnAs.dll',  []),
              ('Cat.dll',  []),
              ('Tree.dll',  []),
-             ('Evasion.dll',  [])
-             ('WmiExec.dll',  [])
+             ('Evasion.dll',  []),
+             ('WmiExec.dll',  []),
              ]),
 ]
 
