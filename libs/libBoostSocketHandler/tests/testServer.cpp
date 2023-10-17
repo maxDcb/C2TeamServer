@@ -13,35 +13,26 @@ int main()
 
     while(1)
     {
-        std::cout << "InitServer" << std::endl;
-
-        // Wait a connection
         server->initServer();
-
-        std::cout << "Receiving" << std::endl;
 
         string ret;
         bool res = server->receive(ret);
         if(res)
         {
-            std::cout << "Received" << std::endl;
+            std::cout << "Server received - " << ret << std::endl;
 
-            std::cout << "Server - " << ret << std::endl;
-
-            std::cout << "Sending" << std::endl;
-
-            string out="{}";
+            string out="Hello from server.";
             res = server->sendData(out);
             if(res)
             {
-                std::cout << "Sent" << std::endl;
             }
             else
-                std::cout << "send failed" << std::endl;
+                std::cout << "Server send failed" << std::endl;
         }
         else
-            std::cout << "Receive failed" << std::endl;
-  
+            std::cout << "Server receive failed" << std::endl;
+
+        server->closeConnection();
     }
     
     delete server;
