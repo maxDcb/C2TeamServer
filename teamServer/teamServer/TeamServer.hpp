@@ -55,6 +55,7 @@ public:
     grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::CommandResponse* commandResponse);
 
 protected:
+    bool isListenerAlive(std::string listenerHash);
     int prepMsg(std::vector<std::string>& splitedCmd, C2Message& c2Message);
 
 private:

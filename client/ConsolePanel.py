@@ -37,19 +37,19 @@ class ConsolesTab(QWidget):
         for currentQTableWidgetItem in self.tableWidget.selectedItems():
             print(currentQTableWidgetItem.row(), currentQTableWidgetItem.column(), currentQTableWidgetItem.text())
 
-    def addConsole(self, key, listenerHash, hostname, username):
+    def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False
         for idx in range(0,self.tabs.count()):
             openTabKey = self.tabs.tabText(idx)
-            if openTabKey==key[0:8]:
+            if openTabKey==beaconHash[0:8]:
                 self.tabs.setCurrentIndex(idx)
                 tabAlreadyOpen=True
 
         if tabAlreadyOpen==False:
             tab = QWidget()
-            self.tabs.addTab(tab, key[0:8])
+            self.tabs.addTab(tab, beaconHash[0:8])
             tab.layout = QVBoxLayout(self.tabs)
-            console = Console(self, self.ip, self.port, key, listenerHash, hostname, username)
+            console = Console(self, self.ip, self.port, beaconHash, listenerHash, hostname, username)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -62,23 +62,23 @@ class ConsolesTab(QWidget):
 
 class Console(QWidget):
     tabPressed = pyqtSignal()
-    key=""
+    beaconHash=""
     hostname=""
     username=""
     logFileName=""
     listenerHash=""
 
-    def __init__(self, parent, ip, port, key, listenerHash, hostname, username):
+    def __init__(self, parent, ip, port, beaconHash, listenerHash, hostname, username):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
 
         self.grpcClient = GrpcClient(ip, port)
 
-        self.key=key
+        self.beaconHash=beaconHash
         self.listenerHash=listenerHash
         self.hostname=hostname.replace("\\", "_").replace(" ", "_")
         self.username=username.replace("\\", "_").replace(" ", "_")
-        self.logFileName=self.hostname+"_"+self.username+"_"+self.key+".log"
+        self.logFileName=self.hostname+"_"+self.username+"_"+self.beaconHash+".log"
 
         self.editorOutput = QPlainTextEdit()
         self.editorOutput.setFont(QFont("Courier"));
@@ -151,7 +151,7 @@ class Console(QWidget):
                 line = '\n';
                 self.editorOutput.insertPlainText(line)
                 command = TeamServerApi_pb2.Command(
-                    beaconHash=self.key,
+                    beaconHash=self.beaconHash,
                     listenerHash=self.listenerHash,
                     cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
@@ -161,7 +161,7 @@ class Console(QWidget):
         self.setCursorEditorAtEnd()
 
     def displayResponse(self):
-        session = TeamServerApi_pb2.Session(beaconHash=self.key)
+        session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash)
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()

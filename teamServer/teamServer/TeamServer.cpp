@@ -96,12 +96,15 @@ TeamServer::~TeamServer()
 }
 
 
+// Get the list of liseteners from primary listeners
+// and from listeners runing on beacon through sessionListener
 grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer)
 {
 	BOOST_LOG_TRIVIAL(trace) << "GetListeners";
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
+		// For each primary listeners get the informations
 		teamserverapi::Listener listener;
 		listener.set_listenerhash(m_listeners[i]->getListenerHash());
 		listener.set_type(m_listeners[i]->getType());
@@ -111,16 +114,28 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 
 		writer->Write(listener);
 
-		std::vector<SessionListener> sessionListener = m_listeners[i]->getSessionListenerInfos();
-		for (int j = 0; j < sessionListener.size(); j++)
+		// check for each sessions alive from this listener check if their is listeners
+		int nbSession = m_listeners[i]->getNumberOfSession();
+		for(int kk=0; kk<nbSession; kk++)
 		{
-			teamserverapi::Listener listener;
-			listener.set_listenerhash(sessionListener[j].getListenerHash());
-			listener.set_type(sessionListener[j].getType());
-			listener.set_port(sessionListener[j].getPort());
-			listener.set_ip(sessionListener[j].getHost());
+			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			writer->Write(listener);
+			std::vector<SessionListener> sessionListenerList;
+			if(!session->isSessionKilled())
+			{
+				sessionListenerList.insert(sessionListenerList.end(), session->getListener().begin(), session->getListener().end());
+
+				for (int j = 0; j < sessionListenerList.size(); j++)
+				{
+					teamserverapi::Listener listener;
+					listener.set_listenerhash(sessionListenerList[j].getListenerHash());
+					listener.set_type(sessionListenerList[j].getType());
+					listener.set_port(sessionListenerList[j].getPort());
+					listener.set_ip(sessionListenerList[j].getHost());
+
+					writer->Write(listener);
+				}
+			}
 		}
 	}
 
@@ -128,6 +143,8 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 }
 
 
+// Add listener that will run on the C2
+// To add a listener to a beacon the process it to send a command to the beacon
 grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate,  teamserverapi::Response* response)
 {
 	BOOST_LOG_TRIVIAL(trace) << "AddListener";
@@ -174,7 +191,7 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 {
 	BOOST_LOG_TRIVIAL(trace) << "StopListener";
 
-	// Stop normal listener
+	// Stop primary listener
 	std::string listenerHash=listenerToStop->listenerhash();
 
 	std::vector<unique_ptr<Listener>>::iterator object = 
@@ -188,7 +205,7 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 		std::move(*object);
 	}
 
-	// Stop SessionListener
+	// Stop listerners runing on beacon by sending a messsage to this beacon
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
 		int nbSession = m_listeners[i]->getNumberOfSession();
@@ -234,6 +251,46 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 }
 
 
+bool TeamServer::isListenerAlive(std::string listenerHash)
+{
+	bool result=false;
+	for (int i = 0; i < m_listeners.size(); i++)
+	{
+		if(m_listeners[i]->getListenerHash()==listenerHash)
+		{
+			result=true;
+			return result;
+		}
+
+		// check for each sessions alive from this listener check if their is listeners
+		int nbSession = m_listeners[i]->getNumberOfSession();
+		for(int kk=0; kk<nbSession; kk++)
+		{
+			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+
+			std::vector<SessionListener> sessionListenerList;
+			if(!session->isSessionKilled())
+			{
+				sessionListenerList.insert(sessionListenerList.end(), session->getListener().begin(), session->getListener().end());
+
+				for (int j = 0; j < sessionListenerList.size(); j++)
+				{
+					if(sessionListenerList[j].getListenerHash()==listenerHash)
+					{
+						result=true;
+						return result;
+					}
+				}
+			}
+		}
+	}
+
+	return result;
+}
+
+
+// Get the list of sessions on the primary listeners
+// Primary listers old all the information about beacons linked to themeself and linked to beacon listerners
 grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
 {
 	BOOST_LOG_TRIVIAL(trace) << "GetSessions";
@@ -260,34 +317,9 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 			sessionTmp.set_lastproofoflife(session->getLastProofOfLife());
 			sessionTmp.set_killed(session->isSessionKilled());
 
-			// check if the session still have a listener runing
-			bool haveAliveListener=false;
-			for (int i = 0; i < m_listeners.size(); i++)
-			{
-				if(m_listeners[i]->getListenerHash()==session->getListenerHash())
-				{
-					haveAliveListener=true;
-					break;
-				}
+			bool result = isListenerAlive(session->getListenerHash());
 
-				std::vector<SessionListener> sessionListener = m_listeners[i]->getSessionListenerInfos();
-				for (int j = 0; j < sessionListener.size(); j++)
-				{
-					if(sessionListener[j].getListenerHash()==session->getListenerHash())
-					{
-						haveAliveListener=true;
-						break;
-					}
-				}
-			}
-
-			if(!haveAliveListener)
-			{
-				sessionTmp.set_lastproofoflife("-1");
-				session->setSessionKilled();
-			}
-
-			if(!session->isSessionKilled())
+			if(!session->isSessionKilled() && result)
 				writer->Write(sessionTmp);
 		}
 	}
@@ -350,6 +382,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 	{
 		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 		{
+			BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession: beaconHash " << beaconHash << " listenerHash " << listenerHash;
 			if (!input.empty())
 			{
 				std::vector<std::string> splitedCmd;
