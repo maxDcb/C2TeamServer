@@ -65,14 +65,15 @@ message Session
 
 message Command 
 {
-  string sessionId = 1;
-  string cmd = 2;
+  string beaconHash = 1;
+  string listenerHash = 2;
+  string cmd = 3;
 }
 
 
 message CommandResponse 
 {
-  string sessionId = 1;
+  string beaconHash = 1;
   string instruction = 2;
   string cmd = 3;
   bytes response = 4;

@@ -29,7 +29,7 @@ class Session():
 
 class Sessions(QWidget):
 
-    interactWithSession = pyqtSignal(str, str, str)
+    interactWithSession = pyqtSignal(str, str, str, str)
 
     idSession = 0
     listSessionObject = []
@@ -101,12 +101,12 @@ class Sessions(QWidget):
             id = self.item
             for sessionStore in self.listSessionObject:
                 if sessionStore.id == int(id):
-                    self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.hostname, sessionStore.username)
+                    self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
         elif action.text() == "Stop":
             id = self.item
             for sessionStore in self.listSessionObject:
                 if sessionStore.id == int(id):
-                    self.stopSession(sessionStore.beaconHash)
+                    self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
         elif action.text() == "Delete":
             id = self.item
             for ix, sessionStore in enumerate(self.listSessionObject):
@@ -114,9 +114,9 @@ class Sessions(QWidget):
                     self.listSessionObject.pop(ix)
             self.printSessions()
 
-    def stopSession(self, message):
+    def stopSession(self, beaconHash, listenerHash):
         session = TeamServerApi_pb2.Session(
-            beaconHash=message)
+            beaconHash=beaconHash, listenerHash=listenerHash)
         self.grpcClient.stopSession(session)
         self.getSessions()
 
@@ -141,8 +141,8 @@ class Sessions(QWidget):
             inStore=False
             for sessionStore in self.listSessionObject:
                 #maj
-                #if session.listenerHash == sessionStore.listenerHash and session.beaconHash == sessionStore.beaconHash:
-                if session.beaconHash == sessionStore.beaconHash:
+                if session.listenerHash == sessionStore.listenerHash and session.beaconHash == sessionStore.beaconHash:
+                #if session.beaconHash == sessionStore.beaconHash:
                     inStore=True
                     sessionStore.lastProofOfLife=session.lastProofOfLife
                     sessionStore.listenerHash=session.listenerHash

