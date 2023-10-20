@@ -56,7 +56,7 @@ public:
 
 protected:
     bool isListenerAlive(std::string listenerHash);
-    int prepMsg(std::vector<std::string>& splitedCmd, C2Message& c2Message);
+    int prepMsg(std::string& input, C2Message& c2Message);
 
 private:
     std::vector<std::unique_ptr<Listener>> m_listeners;

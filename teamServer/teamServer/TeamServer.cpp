@@ -223,12 +223,8 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 
 					if (!input.empty())
 					{
-						std::vector<std::string> splitedCmd;
-						std::string delimiter = " ";
-						splitList(input, delimiter, splitedCmd);
-
 						C2Message c2Message;
-						int res = prepMsg(splitedCmd, c2Message);
+						int res = prepMsg(input, c2Message);
 
 						// echec init message
 						if(res!=0)
@@ -341,8 +337,8 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 		{
 			if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 			{
-				std::vector<std::string> endCmd;
-				endCmd.push_back(EndCmd);
+				std::string endCmd;
+				endCmd = EndCmd;
 
 				C2Message c2Message;
 				int res = prepMsg(endCmd, c2Message);
@@ -385,12 +381,8 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 			BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession: beaconHash " << beaconHash << " listenerHash " << listenerHash;
 			if (!input.empty())
 			{
-				std::vector<std::string> splitedCmd;
-				std::string delimiter = " ";
-				splitList(input, delimiter, splitedCmd);
-
 				C2Message c2Message;
-				int res = prepMsg(splitedCmd, c2Message);
+				int res = prepMsg(input, c2Message);
 
 				BOOST_LOG_TRIVIAL(debug) << "SendCmdToSession " << beaconHash << " " << c2Message.instruction() << " " << c2Message.cmd();
 
@@ -551,9 +543,49 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 }
 
 
-int TeamServer::prepMsg(std::vector<std::string>& splitedCmd, C2Message& c2Message)
+// Split input based on spaces and single quotes
+// Use single quote to passe aguments as a single parameters even if it's contain spaces
+// Singles quotes are removed
+void static inline splitInputCmd(const std::string& input, std::vector<std::string>& splitedList)
+{
+	std::string tmp="";
+	for( size_t i=0; i<input.size(); i++)
+	{
+		char c = input[i];
+		if( c == ' ' )
+		{
+			if(!tmp.empty())
+				splitedList.push_back(tmp);
+			tmp="";
+		}
+		else if(c == '\'' )
+		{
+			i++;
+			while( input[i] != '\'' )
+			{ tmp+=input[i]; i++; }
+		}
+		else
+		{
+			tmp+=c;
+		}
+	}
+
+	if(!tmp.empty())
+		splitedList.push_back(tmp);
+}
+
+
+int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 {
 	BOOST_LOG_TRIVIAL(trace) << "prepMsg";
+
+	std::vector<std::string> splitedCmd;
+	splitInputCmd(input, splitedCmd);
+
+	for( size_t i=0; i<splitedCmd.size(); i++)
+	{
+		std::cout << splitedCmd[i] << std::endl;
+	}
 
 	if(splitedCmd.empty())
 		return 0;
