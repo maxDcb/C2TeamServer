@@ -582,11 +582,6 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 	std::vector<std::string> splitedCmd;
 	splitInputCmd(input, splitedCmd);
 
-	for( size_t i=0; i<splitedCmd.size(); i++)
-	{
-		std::cout << splitedCmd[i] << std::endl;
-	}
-
 	if(splitedCmd.empty())
 		return 0;
 
