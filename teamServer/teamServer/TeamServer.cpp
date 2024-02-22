@@ -148,15 +148,14 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate,  teamserverapi::Response* response)
 {
 	BOOST_LOG_TRIVIAL(trace) << "AddListener";
-
-	int localPort = listenerToCreate->port();
-	string localHost = listenerToCreate->ip();
 	string type = listenerToCreate->type();
 
 	try 
 	{
 		if (type == ListenerTcpType)
 		{
+			int localPort = listenerToCreate->port();
+			string localHost = listenerToCreate->ip();
 			std::unique_ptr<ListenerTcp> listenerTcp = make_unique<ListenerTcp>(localHost, localPort);
 			m_listeners.push_back(std::move(listenerTcp));
 
@@ -164,6 +163,8 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		}
 		else if (type == ListenerHttpType)
 		{
+			int localPort = listenerToCreate->port();
+			string localHost = listenerToCreate->ip();
 			std::unique_ptr<ListenerHttp> listenerHttp = make_unique<ListenerHttp>(localHost, localPort);
 			m_listeners.push_back(std::move(listenerHttp));
 
@@ -171,10 +172,21 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		}
 		else if (type == ListenerHttpsType)
 		{
+			int localPort = listenerToCreate->port();
+			string localHost = listenerToCreate->ip();
 			std::unique_ptr<ListenerHttp> listenerHttps = make_unique<ListenerHttp>(localHost, localPort, true);
 			m_listeners.push_back(std::move(listenerHttps));
 
 			BOOST_LOG_TRIVIAL(info) << "AddListener Https " << localHost << ":" << std::to_string(localPort);
+		}
+		else if (type == ListenerGithubType)
+		{
+			std::string token = listenerToCreate->token();
+			std::string project = listenerToCreate->project();
+			std::unique_ptr<ListenerGithub> listenerGithub = make_unique<ListenerGithub>(project, token);
+			m_listeners.push_back(std::move(listenerGithub));
+
+			BOOST_LOG_TRIVIAL(info) << "AddListener Github " << project << ":" << token;
 		}
 
 	}

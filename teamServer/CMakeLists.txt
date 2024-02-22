@@ -7,6 +7,7 @@ set(SOURCES_TEAMSERVER
 	../core/listener/Listener.cpp
 	../core/listener/ListenerTcp.cpp	
 	../core/listener/ListenerHttp.cpp
+	../core/listener/ListenerGithub.cpp
 
 	../core/modules/ModuleCmd/ModuleCmd.cpp
 	../../thirdParty/base64/base64.cpp

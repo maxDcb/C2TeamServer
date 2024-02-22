@@ -114,10 +114,16 @@ class Listeners(QWidget):
 
     # send message for adding a listener
     def addListener(self, message):
-        listener = TeamServerApi_pb2.Listener(
-        type=message[0],
-        ip=message[1],
-        port=int(message[2]))
+        if message[0]=="github":
+            listener = TeamServerApi_pb2.Listener(
+            type=message[0],
+            project=message[1],
+            token=message[2])
+        else:
+            listener = TeamServerApi_pb2.Listener(
+            type=message[0],
+            ip=message[1],
+            port=int(message[2]))
         self.grpcClient.addListener(listener)
 
     # send message for stoping a listener
@@ -155,8 +161,10 @@ class Listeners(QWidget):
             # add
             # if listener is not yet already on our list
             if not inStore:
-                self.listListenerObject.append(Listener(self.idListener,
-                listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
+                if listener.type == "github":
+                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
+                else:
+                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
                 self.idListener = self.idListener+1
 
         self.printListeners()
@@ -186,16 +194,19 @@ class CreateListner(QWidget):
         
         layout = QFormLayout()
         self.labelType = QLabel("Type")
-        self.type = QLineEdit()
+        self.qcombo = QComboBox(self)
+        self.qcombo.addItems(["http" , "https" , "tcp" , "github"])
+        self.qcombo.currentTextChanged.connect(self.changeLabels)
+        self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
         self.labelIP = QLabel("IP")
-        self.ip = QLineEdit()
-        layout.addRow(self.labelIP, self.ip)
+        self.param1 = QLineEdit()
+        layout.addRow(self.labelIP, self.param1)
 
         self.labelPort = QLabel("Port")
-        self.port = QLineEdit()
-        layout.addRow(self.labelPort, self.port)
+        self.param2 = QLineEdit()
+        layout.addRow(self.labelPort, self.param2)
 
         self.buttonOk = QPushButton('&OK', clicked=self.checkAndSend)
         layout.addRow(self.buttonOk)
@@ -203,12 +214,28 @@ class CreateListner(QWidget):
         self.setLayout(layout)
         self.setWindowTitle("Input Dialog demo")
 
-    def checkAndSend(self):
-        type = self.type.text()
-        ip = self.ip.text()
-        port = self.port.text()
 
-        result = [type, ip, port]
+    def changeLabels(self):
+        if self.qcombo.currentText() == "http":
+            self.labelIP.setText("IP")
+            self.labelPort.setText("Port")
+        elif self.qcombo.currentText() == "https":
+            self.labelIP.setText("IP")
+            self.labelPort.setText("Port")
+        elif self.qcombo.currentText() == "tcp":
+            self.labelIP.setText("IP")
+            self.labelPort.setText("Port")
+        elif self.qcombo.currentText() == "github":
+            self.labelIP.setText("Project")
+            self.labelPort.setText("Token")
+
+
+    def checkAndSend(self):
+        type = self.type.currentText()
+        param1 = self.param1.text()
+        param2 = self.param2.text()
+
+        result = [type, param1, param2]
 
         self.procDone.emit(result)
         self.close()

@@ -45,6 +45,8 @@ message Listener
   string type = 2;
 	int32 port = 3;
 	string ip = 4;
+  string project = 6;
+  string token = 7;
   int32 numberOfSession = 5;
 }
 
