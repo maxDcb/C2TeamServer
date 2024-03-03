@@ -9,13 +9,26 @@ if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
 
 include(${CMAKE_BINARY_DIR}/conan.cmake)
-conan_cmake_run(SETTINGS REQUIRES protobuf/3.21.4 boost/1.79.0 openssl/3.0.0 zlib/1.2.12 grpc/1.50.1 BASIC_SETUP CMAKE_TARGETS BUILD missing CONFIGURATION_TYPES "Release;" OPTIONS *:shared=False)
 
-find_package(Protobuf REQUIRED)
-include_directories(${CMAKE_INCLUDE_PATH})
-Set(Boost_INSTALL_DIR ${CONAN_BOOST_ROOT})
-find_package(Boost REQUIRED)
+conan_cmake_configure(REQUIRES protobuf/3.21.12 boost/1.79.0 openssl/3.2.1 zlib/1.2.12 grpc/1.54.3 GENERATORS CMakeDeps)
+
+conan_cmake_autodetect(settings)
+
+conan_cmake_install(PATH_OR_REFERENCE .
+                    BUILD missing
+                    REMOTE conancenter
+                    SETTINGS ${settings})
+
+set(CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
+
+find_package(Boost REQUIRED)  
+find_package(gRPC REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
+
+include_directories(${CMAKE_INCLUDE_PATH})
+
 
 add_subdirectory(libs)
 

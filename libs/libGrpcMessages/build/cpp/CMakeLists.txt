@@ -9,10 +9,10 @@ file(GLOB_RECURSE SOURCE_FILES ${CMAKE_CURRENT_BINARY_DIR}/src/*.pb.cc)
 
 include_directories(
 ./src/
-${Protobuf_INCLUDE_DIRS}
+${protobuf_INCLUDE_DIRS}
+${gRPC_INCLUDE_DIRS}
+${absl_INCLUDE_DIRS}
 )
 
 add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/src)
-
-message(${CMAKE_CURRENT_BINARY_DIR}/src)
