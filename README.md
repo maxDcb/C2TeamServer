@@ -22,19 +22,33 @@ This development is an educational exercise to tackle well know red teaming conc
 
 #### Build the TeamServer
 
-* apt install cmake 
-* apt install golang-cfssl #(self sign cert for client server grpc communications)
-* pip install conan==1.59
-* pip install grpcio
-* pip install PyQt5
-* pip install pyqtdarktheme
-* pip install protobuf
+```
+sudo apt install gcc-mingw-w64
+sudo apt install g++-mingw-w64
+pip3 install pycryptodome
 
-git submodule update --init  
-mkdir buildLinux  
-cd buildLinux  
-cmake ..   
-make -j4  
+sudo apt install golang-cfssl
+sudo apt install cmake 
+
+pip install conan
+pip install grpcio
+pip install PyQt5
+pip install pyqtdarktheme
+pip install protobuf
+
+export PATH=$PATH:/home/kali/.local/bin/
+conan profile detect
+
+sudo updatedb
+
+git clone https://github.com/maxDcb/C2TeamServer.git
+cd C2TeamServer
+git submodule update --init
+mkdir buildLinux
+cd buildLinux
+cmake ..
+make -j4
+```
 
 The TeamServer binary is in Release/TeamServer  
 it's launched using './TeamServer'  
