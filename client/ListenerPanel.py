@@ -212,7 +212,7 @@ class CreateListner(QWidget):
         layout.addRow(self.buttonOk)
 
         self.setLayout(layout)
-        self.setWindowTitle("Input Dialog demo")
+        self.setWindowTitle("Add Listener")
 
 
     def changeLabels(self):
