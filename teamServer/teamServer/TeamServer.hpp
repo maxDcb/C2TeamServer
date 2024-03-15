@@ -35,12 +35,14 @@
 #include "TeamServerApi.pb.h"
 #include "TeamServerApi.grpc.pb.h"
 
+#include <json.hpp>
+
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service 
 {
 
 public:
-	explicit TeamServer();
+	explicit TeamServer(const nlohmann::json& config);
 	~TeamServer();
 
     grpc::Status GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer);
@@ -60,6 +62,8 @@ protected:
     int prepMsg(std::string& input, C2Message& c2Message);
 
 private:
+    nlohmann::json m_config;
+
     std::vector<std::unique_ptr<Listener>> m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;

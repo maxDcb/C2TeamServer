@@ -1,0 +1,78 @@
+{
+    "//LogLevelValues": "trace, debug, info, warning, error, fatal",
+    "LogLevel": "trace",
+    "ServerGRPCAdd": "0.0.0.0",
+    "ServerGRPCPort": "50051",
+    "ServCrtFile": "server.crt",
+    "ServKeyFile": "server.key",
+    "RootCA": "rootCA.crt",
+    "xorKey": "dfsdgferhzdzxczevre5595485sdg",
+    "ListenerHttpConfig": [
+        {
+            "uri": [
+                "/MicrosoftUpdate/ShellEx/KB242742/default.aspx",
+                "/MicrosoftUpdate/ShellEx/KB242742/admin.aspx",
+                "/MicrosoftUpdate/ShellEx/KB242742/download.aspx"
+            ],
+            "server": [
+                {
+                    "headers": [
+                        {
+                            "Access-Control-Allow-Origin": "true"
+                        },
+                        {
+                            "Connection": "Keep-Alive"
+                        },
+                        {
+                            "Content-Type": "application/json"
+                        },
+                        {
+                            "Server": "Server"
+                        },
+                        {
+                            "Strict-Transport-Security": "max-age=47474747; includeSubDomains; preload"
+                        },
+                        {
+                            "Vary": "Origin,Content-Type,Accept-Encoding,User-Agent"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "ListenerHttpsConfig": [
+        {
+            "ServHttpsListenerCrtFile": "localhost.crt",
+            "ServHttpsListenerKeyFile": "localhost.key",
+            "uri": [
+                "/MicrosoftUpdate/ShellEx/KB242742/default.aspx",
+                "/MicrosoftUpdate/ShellEx/KB242742/upload.aspx",
+                "/MicrosoftUpdate/ShellEx/KB242742/config.aspx"
+            ],
+            "server": [
+                {
+                    "headers": [
+                        {
+                            "Access-Control-Allow-Origin": "true"
+                        },
+                        {
+                            "Connection": "Keep-Alive"
+                        },
+                        {
+                            "Content-Type": "application/json"
+                        },
+                        {
+                            "Server": "Server"
+                        },
+                        {
+                            "Strict-Transport-Security": "max-age=47474747; includeSubDomains; preload"
+                        },
+                        {
+                            "Vary": "Origin,Content-Type,Accept-Encoding,User-Agent"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

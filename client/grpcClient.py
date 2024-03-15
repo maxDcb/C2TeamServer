@@ -14,7 +14,7 @@ class GrpcClient:
 
     def __init__(self, ip, port):
 
-        ca_cert = './ca.pem'
+        ca_cert = './rootCA.crt'
         root_certs = open(ca_cert, 'rb').read()
 
         credentials = grpc.ssl_channel_credentials(root_certs)

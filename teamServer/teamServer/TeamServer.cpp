@@ -1,6 +1,7 @@
 #include "TeamServer.hpp"
 
 #include <functional>
+#include <fstream>
 
 #include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
@@ -9,9 +10,11 @@
 using namespace std;
 using namespace std::placeholders;
 namespace logging = boost::log;
+using json = nlohmann::json;
 
 
-TeamServer::TeamServer() 
+TeamServer::TeamServer(const nlohmann::json& config) 
+: m_config(config)
 {
 	std::unique_ptr<AssemblyExec> assemblyExec = std::make_unique<AssemblyExec>();
 	m_moduleCmd.push_back(std::move(assemblyExec));
@@ -163,18 +166,22 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		}
 		else if (type == ListenerHttpType)
 		{
+			json configHttp = m_config["ListenerHttpConfig"];
+			
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
-			std::unique_ptr<ListenerHttp> listenerHttp = make_unique<ListenerHttp>(localHost, localPort);
+			std::unique_ptr<ListenerHttp> listenerHttp = make_unique<ListenerHttp>(localHost, localPort, configHttp, false);
 			m_listeners.push_back(std::move(listenerHttp));
 
 			BOOST_LOG_TRIVIAL(info) << "AddListener Http " << localHost << ":" << std::to_string(localPort);
 		}
 		else if (type == ListenerHttpsType)
 		{
+			json configHttps = m_config["ListenerHttpsConfig"];
+
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
-			std::unique_ptr<ListenerHttp> listenerHttps = make_unique<ListenerHttp>(localHost, localPort, true);
+			std::unique_ptr<ListenerHttp> listenerHttps = make_unique<ListenerHttp>(localHost, localPort, configHttps, true);
 			m_listeners.push_back(std::move(listenerHttps));
 
 			BOOST_LOG_TRIVIAL(info) << "AddListener Https " << localHost << ":" << std::to_string(localPort);
@@ -627,37 +634,65 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 }
 
 
+
+
 int main(int argc, char* argv[])
 {
+	std::ifstream f("TeamServerConfig.json");
+	json config = json::parse(f);
+
+	std::string logLevel = config["LogLevel"].get<std::string>();
+	logging::trivial::severity_level sev = logging::trivial::trace;
+	if(logLevel=="trace")
+		sev = logging::trivial::trace;
+	else if(logLevel=="debug")
+		sev = logging::trivial::debug;
+	else if(logLevel=="info")
+		sev = logging::trivial::info;
+	else if(logLevel=="warning")
+		sev = logging::trivial::warning;
+	else if(logLevel=="error")
+		sev = logging::trivial::error;
+	else if(logLevel=="fatal")
+		sev = logging::trivial::fatal;
+
 	logging::core::get()->set_filter
-    (
-        logging::trivial::severity >= logging::trivial::trace
+    (		
+		logging::trivial::severity >= sev
     );
 	
-	std::string serverAddress("0.0.0.0:50051");
-	TeamServer service;
+	std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
+	std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
+	std::string serverAddress = serverGRPCAdd;
+	serverAddress += ':';
+	serverAddress += ServerGRPCPort;
+
+	TeamServer service(config);
 
 	// TSL Connection configuration
-	std::ifstream servCrtFile("server.pem", std::ios::binary);
+	std::string servCrtFilePath = config["ServCrtFile"].get<std::string>();
+	std::ifstream servCrtFile(servCrtFilePath, std::ios::binary);
 	if(!servCrtFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "File server.pem not found.";
+		BOOST_LOG_TRIVIAL(fatal) << "Server ceritifcat file not found.";
 		return -1;
 	}
 	std::string cert(std::istreambuf_iterator<char>(servCrtFile), {});
 
-	std::ifstream ServKeyFile("server-key.pem", std::ios::binary);
-	if(!ServKeyFile.good())
+	std::string servKeyFilePath = config["ServKeyFile"].get<std::string>();
+	std::ifstream servKeyFile(servKeyFilePath, std::ios::binary);
+	if(!servKeyFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "File server-key.pem not found.";
+		BOOST_LOG_TRIVIAL(fatal) << "Server key file not found.";
 		return -1;
 	}
-	std::string key(std::istreambuf_iterator<char>(ServKeyFile), {});
+	std::string key(std::istreambuf_iterator<char>(servKeyFile), {});
 
-	std::ifstream rootFile("ca.pem", std::ios::binary);
+	std::string rootCA = config["RootCA"].get<std::string>();
+	std::ifstream rootFile(rootCA, std::ios::binary);
 	if(!rootFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "File sca.pem not found.";
+		BOOST_LOG_TRIVIAL(fatal) << "Root CA file not found.";
 		return -1;
 	}
 	std::string root(std::istreambuf_iterator<char>(rootFile), {});
