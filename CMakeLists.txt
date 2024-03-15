@@ -46,3 +46,6 @@ add_subdirectory(teamServer)
 
 add_subdirectory(client)
 
+# tests
+add_subdirectory(core/modules/ModuleCmd)
+

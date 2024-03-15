@@ -155,6 +155,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 	try 
 	{
+		// TODO check if constructor completed befor the push_back
 		if (type == ListenerTcpType)
 		{
 			int localPort = listenerToCreate->port();
