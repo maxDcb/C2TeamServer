@@ -42,7 +42,7 @@ include_directories(thirdParty/cpp-httplib)
 
 add_subdirectory(teamServer)
 
-add_subdirectory(certs)
+#add_subdirectory(certs)
 
 add_subdirectory(client)
 
