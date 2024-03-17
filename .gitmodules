@@ -19,3 +19,6 @@
 [submodule "thirdParty/cpp-httplib"]
 	path = thirdParty/cpp-httplib
 	url = https://github.com/yhirose/cpp-httplib.git
+[submodule "libs/libDns"]
+	path = libs/libDns
+	url = https://github.com/maxDcb/Dnscommunication

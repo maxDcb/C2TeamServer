@@ -196,6 +196,15 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 			BOOST_LOG_TRIVIAL(info) << "AddListener Github " << project << ":" << token;
 		}
+		else if (type == ListenerDnsType)
+		{
+			std::string domain = listenerToCreate->domain();
+			int port = listenerToCreate->port();
+			std::unique_ptr<ListenerDns> listenerDns = make_unique<ListenerDns>(domain, port);
+			m_listeners.push_back(std::move(listenerDns));
+
+			BOOST_LOG_TRIVIAL(info) << "AddListener Dns " << domain << ":" << std::to_string(port);
+		}
 
 	}
 	catch (const std::exception &exc)

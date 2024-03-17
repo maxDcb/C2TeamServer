@@ -29,11 +29,11 @@ find_package(ZLIB REQUIRED)
 
 include_directories(${CMAKE_INCLUDE_PATH})
 
+include_directories(thirdParty/nlohmann/single_include/nlohmann)
 
 add_subdirectory(libs)
 
 add_subdirectory(thirdParty)
-include_directories(thirdParty/nlohmann/single_include/nlohmann)
 include_directories(thirdParty/base64)
 include_directories(thirdParty/donut/include)
 include_directories(thirdParty/coffLoader/coffLoader)

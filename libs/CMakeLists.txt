@@ -17,3 +17,5 @@ add_subdirectory(libGrpcMessages)
 
 ## libs/libBoostSocketHandler
 add_subdirectory(libBoostSocketHandler)
+
+add_subdirectory(libDns)

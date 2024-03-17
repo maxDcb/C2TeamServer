@@ -47,6 +47,7 @@ message Listener
 	string ip = 4;
   string project = 6;
   string token = 7;
+  string domain = 8;
   int32 numberOfSession = 5;
 }
 

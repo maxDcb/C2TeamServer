@@ -119,6 +119,11 @@ class Listeners(QWidget):
             type=message[0],
             project=message[1],
             token=message[2])
+        elif message[0]=="dns":
+            listener = TeamServerApi_pb2.Listener(
+            type=message[0],
+            domain=message[1],
+            port=int(message[2]))
         else:
             listener = TeamServerApi_pb2.Listener(
             type=message[0],
@@ -163,6 +168,8 @@ class Listeners(QWidget):
             if not inStore:
                 if listener.type == "github":
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
+                elif listener.type == "dns":
+                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
                 else:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
                 self.idListener = self.idListener+1
@@ -195,7 +202,7 @@ class CreateListner(QWidget):
         layout = QFormLayout()
         self.labelType = QLabel("Type")
         self.qcombo = QComboBox(self)
-        self.qcombo.addItems(["http" , "https" , "tcp" , "github"])
+        self.qcombo.addItems(["http" , "https" , "tcp" , "github" , "dns"])
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
@@ -228,6 +235,9 @@ class CreateListner(QWidget):
         elif self.qcombo.currentText() == "github":
             self.labelIP.setText("Project")
             self.labelPort.setText("Token")
+        elif self.qcombo.currentText() == "dns":
+            self.labelIP.setText("Domain")
+            self.labelPort.setText("Port")
 
 
     def checkAndSend(self):
