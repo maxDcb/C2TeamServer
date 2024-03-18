@@ -47,5 +47,12 @@ add_subdirectory(teamServer)
 add_subdirectory(client)
 
 # tests
-add_subdirectory(core/modules/ModuleCmd)
+enable_testing()
+
+add_subdirectory(core/beacon/tests)
+add_subdirectory(core/listener/tests)
+add_subdirectory(core/modules)
+
+
+
 

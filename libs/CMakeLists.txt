@@ -19,3 +19,5 @@ add_subdirectory(libGrpcMessages)
 add_subdirectory(libBoostSocketHandler)
 
 add_subdirectory(libDns)
+
+add_subdirectory(libPipeHandlerDumy)
