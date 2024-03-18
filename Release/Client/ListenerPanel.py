@@ -170,6 +170,8 @@ class Listeners(QWidget):
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
                 elif listener.type == "dns":
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
+                elif listener.type == "smb":
+                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, "", listener.numberOfSession))
                 else:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
                 self.idListener = self.idListener+1

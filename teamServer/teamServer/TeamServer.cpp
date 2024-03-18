@@ -156,27 +156,24 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			std::vector<SessionListener> sessionListenerList;
 			if(!session->isSessionKilled())
 			{
-				sessionListenerList.insert(sessionListenerList.end(), session->getListener().begin(), session->getListener().end());
-
-				for (int j = 0; j < sessionListenerList.size(); j++)
+				for(auto it = session->getListener().begin() ; it != session->getListener().end(); ++it )
 				{
-					teamserverapi::Listener listener;
-					listener.set_listenerhash(sessionListenerList[j].getListenerHash());
-					listener.set_type(sessionListenerList[j].getType());
+					BOOST_LOG_TRIVIAL(trace) << " |-> sessionListenerList " << " " << it->getType() << " " << it->getParam1() << " " << it->getParam2();
 
-					std::string type = sessionListenerList[i].getType();
+					teamserverapi::Listener listener;
+					listener.set_listenerhash(it->getListenerHash());
+					std::string type = it->getType();
 					listener.set_type(type);
 					if(type == ListenerTcpType )
 					{
-						listener.set_ip(sessionListenerList[i].getParam1());
-						listener.set_port(std::stoi(sessionListenerList[i].getParam2()));
+						listener.set_ip(it->getParam1());
+						listener.set_port(std::stoi(it->getParam2()));
 					}
 					else if(type == ListenerSmbType )
 					{
-						listener.set_domain(m_listeners[i]->getParam1());
+						listener.set_domain(it->getParam1());
 					}
 
 					writer->Write(listener);
