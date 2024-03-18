@@ -3,13 +3,22 @@
 #include <functional>
 #include <fstream>
 
-#include <boost/log/core.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
+#include <boost/log/sources/severity_logger.hpp>
+#include <boost/log/sources/record_ostream.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/support/date_time.hpp>
+
+namespace logging = boost::log;
+namespace src = boost::log::sources;
+namespace expr = boost::log::expressions;
+namespace keywords = boost::log::keywords;
 
 using namespace std;
 using namespace std::placeholders;
-namespace logging = boost::log;
+
 using json = nlohmann::json;
 
 
@@ -110,9 +119,33 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 		// For each primary listeners get the informations
 		teamserverapi::Listener listener;
 		listener.set_listenerhash(m_listeners[i]->getListenerHash());
-		listener.set_type(m_listeners[i]->getType());
-		listener.set_port(m_listeners[i]->getPort());
-		listener.set_ip(m_listeners[i]->getHost());
+
+		std::string type = m_listeners[i]->getType();
+		listener.set_type(type);
+		if(type == ListenerHttpType || type == ListenerHttpsType )
+		{
+			listener.set_ip(m_listeners[i]->getParam1());
+			listener.set_port(std::stoi(m_listeners[i]->getParam2()));
+		}
+		else if(type == ListenerTcpType )
+		{
+			listener.set_ip(m_listeners[i]->getParam1());
+			listener.set_port(std::stoi(m_listeners[i]->getParam2()));
+		}
+		else if(type == ListenerSmbType )
+		{
+			listener.set_domain(m_listeners[i]->getParam1());
+		}
+		else if(type == ListenerGithubType )
+		{
+			listener.set_project(m_listeners[i]->getParam1());
+			listener.set_token(m_listeners[i]->getParam2());
+		}
+		else if(type == ListenerDnsType )
+		{
+			listener.set_domain(m_listeners[i]->getParam1());
+			listener.set_port(std::stoi(m_listeners[i]->getParam2()));
+		}
 		listener.set_numberofsession(m_listeners[i]->getNumberOfSession());	
 
 		writer->Write(listener);
@@ -133,14 +166,26 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 					teamserverapi::Listener listener;
 					listener.set_listenerhash(sessionListenerList[j].getListenerHash());
 					listener.set_type(sessionListenerList[j].getType());
-					listener.set_port(sessionListenerList[j].getPort());
-					listener.set_ip(sessionListenerList[j].getHost());
+
+					std::string type = sessionListenerList[i].getType();
+					listener.set_type(type);
+					if(type == ListenerTcpType )
+					{
+						listener.set_ip(sessionListenerList[i].getParam1());
+						listener.set_port(std::stoi(sessionListenerList[i].getParam2()));
+					}
+					else if(type == ListenerSmbType )
+					{
+						listener.set_domain(m_listeners[i]->getParam1());
+					}
 
 					writer->Write(listener);
 				}
 			}
 		}
 	}
+
+	BOOST_LOG_TRIVIAL(trace) << "GetListeners end";
 
 	return grpc::Status::OK;
 }
@@ -212,6 +257,8 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		BOOST_LOG_TRIVIAL(error) << "Error: " << exc.what() << std::endl;
 	}
 
+	BOOST_LOG_TRIVIAL(trace) << "AddListener End";
+
 	return grpc::Status::OK;
 }
 
@@ -272,12 +319,16 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 		}
 	}
 
+	BOOST_LOG_TRIVIAL(trace) << "StopListener End";
+
 	return grpc::Status::OK;
 }
 
 
 bool TeamServer::isListenerAlive(std::string listenerHash)
 {
+	BOOST_LOG_TRIVIAL(trace) << "isListenerAlive";
+
 	bool result=false;
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
@@ -310,6 +361,8 @@ bool TeamServer::isListenerAlive(std::string listenerHash)
 		}
 	}
 
+	BOOST_LOG_TRIVIAL(trace) << "isListenerAlive end";
+
 	return result;
 }
 
@@ -322,14 +375,14 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
-		BOOST_LOG_TRIVIAL(trace) << "Listener " << m_listeners[i]->getListenerHash();
+		BOOST_LOG_TRIVIAL(info) << "Listener " << m_listeners[i]->getListenerHash();
 
 		int nbSession = m_listeners[i]->getNumberOfSession();
 		for(int kk=0; kk<nbSession; kk++)
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			BOOST_LOG_TRIVIAL(trace) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
+			BOOST_LOG_TRIVIAL(info) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
 
 			teamserverapi::Session sessionTmp;
 			sessionTmp.set_listenerhash(session->getListenerHash());
@@ -348,6 +401,8 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 				writer->Write(sessionTmp);
 		}
 	}
+
+	BOOST_LOG_TRIVIAL(trace) << "GetSessions end";
 
 	return grpc::Status::OK;
 }
@@ -391,6 +446,8 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 		}
 	}
 
+	BOOST_LOG_TRIVIAL(trace) << "StopSession end";
+
 	return grpc::Status::OK;
 }
 
@@ -431,6 +488,8 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 			}
 		}
 	}
+
+	BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession end";
 
 	return grpc::Status::OK;
 }
@@ -494,6 +553,8 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 			}
 		}
 	}
+
+	BOOST_LOG_TRIVIAL(trace) << "GetResponseFromSession end";
 
 	return grpc::Status::OK;
 }
@@ -568,6 +629,8 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 
 	*commandResponse = commandResponseTmp;
 
+	BOOST_LOG_TRIVIAL(trace) << "GetHelp end";
+
 	return grpc::Status::OK;
 }
 
@@ -639,6 +702,8 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 	{
 		BOOST_LOG_TRIVIAL(warning) << "Module " << instruction << " not found.";
 	}
+
+	BOOST_LOG_TRIVIAL(trace) << "prepMsg end";
 
 	return res;
 }
