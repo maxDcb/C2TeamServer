@@ -10,7 +10,6 @@ set(SOURCES_TEAMSERVER
 	../core/listener/ListenerGithub.cpp
 	../core/listener/ListenerDns.cpp
 
-	../core/modules/ModuleCmd/ModuleCmd.cpp
 	../../thirdParty/base64/base64.cpp
 
 	../core/modules/AssemblyExec/AssemblyExec.cpp

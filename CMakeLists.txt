@@ -40,18 +40,18 @@ include_directories(thirdParty/coffLoader/coffLoader)
 include_directories(thirdParty/coffLoader/coffPacker)
 include_directories(thirdParty/cpp-httplib)
 
+enable_testing()
+
 add_subdirectory(teamServer)
 
 #add_subdirectory(certs)
 
 add_subdirectory(client)
 
-# tests
-enable_testing()
-
+add_subdirectory(core/modules)
+add_subdirectory(core/beacon)
 add_subdirectory(core/beacon/tests)
 add_subdirectory(core/listener/tests)
-add_subdirectory(core/modules)
 
 
 

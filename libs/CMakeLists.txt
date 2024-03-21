@@ -20,4 +20,5 @@ add_subdirectory(libBoostSocketHandler)
 
 add_subdirectory(libDns)
 
+add_subdirectory(libMemoryModuleDumy)
 add_subdirectory(libPipeHandlerDumy)
