@@ -96,7 +96,7 @@ class Listeners(QWidget):
         return super(Listeners, self).eventFilter(source, event)
 
     # catch stopListener menu click
-    def  actionClicked(self, action):
+    def actionClicked(self, action):
         if action.text() == "Add":
             self.listenerForm()
         elif action.text() == "Stop":         

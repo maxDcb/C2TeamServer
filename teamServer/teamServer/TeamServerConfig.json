@@ -15,6 +15,7 @@
                 "/MicrosoftUpdate/ShellEx/KB242742/download.aspx"
             ],
             "uriFileDownload": "/images/commun/1.084.4584/serv/",
+            "downloadFolder": "../www",
             "server": [
                 {
                     "headers": [
@@ -51,6 +52,7 @@
                 "/MicrosoftUpdate/ShellEx/KB242742/config.aspx"
             ],
             "uriFileDownload": "/images/commun/1.084.4584/serv/",
+            "downloadFolder": "../www",
             "server": [
                 {
                     "headers": [

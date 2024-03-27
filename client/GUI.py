@@ -9,6 +9,7 @@ from grpcClient import *
 from ListenerPanel import *
 from SessionPanel import *
 from ConsolePanel import *
+from PayloadPanel import *
 
 import qdarktheme
 
@@ -22,6 +23,8 @@ class App(QMainWindow):
 
         self.ip = ip
         self.port = port
+
+        self.createPayloadWindow = None
         
         self.title = 'Exploration C2'
         self.left = 0
@@ -38,12 +41,18 @@ class App(QMainWindow):
         self.m_w12 = QWidget()
         self.m_w21 = QWidget()
 
+        config_button = QPushButton("Payload")
+        config_button.clicked.connect(self.payloadForm)
+
         lay = QGridLayout(central_widget)
-        lay.setRowStretch(0, 3)
-        lay.setRowStretch(1, 7)
-        lay.addWidget(self.m_w11, 0, 0, 1, 1)
-        lay.addWidget(self.m_w12, 0, 1, 1, 1)
-        lay.addWidget(self.m_w21, 1, 0, 1, 2)
+        lay.setRowStretch(1, 3)
+        lay.setRowStretch(2, 7)
+        # TODO complet PayloadPanel
+        # row: int, column: int, rowSpan: int, columnSpan: int, alignment
+        #lay.addWidget(config_button, 0, 0, 1, 1)
+        lay.addWidget(self.m_w11, 1, 0, 1, 1)
+        lay.addWidget(self.m_w12, 1, 1, 1, 1)
+        lay.addWidget(self.m_w21, 2, 0, 1, 2)
 
         lay = QVBoxLayout(self.m_w11)
         sessionsWidget = Sessions(self, ip, port)
@@ -64,6 +73,10 @@ class App(QMainWindow):
     def __del__(self):
         print("Exit")
 
+    def payloadForm(self):
+        if self.createPayloadWindow is None:
+            self.createPayloadWindow = CreatePayload()
+        self.createPayloadWindow.show()
 
 if __name__ == '__main__':
 
