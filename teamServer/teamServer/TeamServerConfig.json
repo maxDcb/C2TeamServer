@@ -1,6 +1,6 @@
 {
     "//LogLevelValues": "trace, debug, info, warning, error, fatal",
-    "LogLevel": "trace",
+    "LogLevel": "info",
     "ServerGRPCAdd": "0.0.0.0",
     "ServerGRPCPort": "50051",
     "ServCrtFile": "server.crt",
@@ -14,6 +14,7 @@
                 "/MicrosoftUpdate/ShellEx/KB242742/admin.aspx",
                 "/MicrosoftUpdate/ShellEx/KB242742/download.aspx"
             ],
+            "uriFileDownload": "/images/commun/1.084.4584/serv/",
             "server": [
                 {
                     "headers": [
@@ -49,6 +50,7 @@
                 "/MicrosoftUpdate/ShellEx/KB242742/upload.aspx",
                 "/MicrosoftUpdate/ShellEx/KB242742/config.aspx"
             ],
+            "uriFileDownload": "/images/commun/1.084.4584/serv/",
             "server": [
                 {
                     "headers": [

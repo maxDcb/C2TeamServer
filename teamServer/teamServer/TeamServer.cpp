@@ -93,13 +93,6 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
 	std::unique_ptr<WmiExec> wmiExec = std::make_unique<WmiExec>();
 	m_moduleCmd.push_back(std::move(wmiExec));
-
-	// BOOST_LOG_TRIVIAL(trace) << "A trace severity message";
-    // BOOST_LOG_TRIVIAL(debug) << "A debug severity message";
-    // BOOST_LOG_TRIVIAL(info) << "An informational severity message";
-    // BOOST_LOG_TRIVIAL(warning) << "A warning severity message";
-    // BOOST_LOG_TRIVIAL(error) << "An error severity message";
-    // BOOST_LOG_TRIVIAL(fatal) << "A fatal severity message";
 }
 
 
@@ -372,14 +365,14 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
-		BOOST_LOG_TRIVIAL(info) << "Listener " << m_listeners[i]->getListenerHash();
+		BOOST_LOG_TRIVIAL(debug) << "Listener " << m_listeners[i]->getListenerHash();
 
 		int nbSession = m_listeners[i]->getNumberOfSession();
 		for(int kk=0; kk<nbSession; kk++)
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			BOOST_LOG_TRIVIAL(info) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
+			BOOST_LOG_TRIVIAL(debug) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
 
 			teamserverapi::Session sessionTmp;
 			sessionTmp.set_listenerhash(session->getListenerHash());
