@@ -23,6 +23,11 @@ jobs:
     - name: Git Sumbodule Update
       run: |
         git submodule update --init
+
+    # Needed to generate certificates
+    - uses: ConorMacBride/install-package@v1
+      with:
+        apt: golang-cfssl
     
     - name: Get Conan
       # You may pin to the exact commit or the version.
