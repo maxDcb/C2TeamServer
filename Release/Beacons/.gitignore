@@ -1,6 +1,3 @@
 *
 !.gitignore
-!BeaconHttp.exe
-!BeaconHttpDll.dll
-!BeaconTcp.exe
-!BeaconGithub.exe
+
