@@ -25,6 +25,9 @@ jobs:
       # You may pin to the exact commit or the version.
       # uses: turtlebrowser/get-conan@c171f295f3f507360ee018736a6608731aa2109d
       uses: turtlebrowser/get-conan@v1.2
+
+    - name: Create default profile
+      run: conan profile new default --detect
       
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
