@@ -10,12 +10,12 @@ endif()
 
 include(${CMAKE_BINARY_DIR}/conan.cmake)
 
-conan_cmake_configure(REQUIRES protobuf/3.21.12 boost/1.79.0 openssl/3.2.1 zlib/1.2.12 grpc/1.54.3 GENERATORS CMakeDeps)
+conan_cmake_configure(REQUIRES protobuf/3.21.12 boost/1.84.0 openssl/3.2.1 zlib/1.3.1 grpc/1.54.3 GENERATORS CMakeDeps)
 
-conan_cmake_autodetect(settings)
+#conan_cmake_autodetect(settings)
 
 conan_cmake_install(PATH_OR_REFERENCE .
-                    BUILD missing
+                    BUILD never
                     SETTINGS ${settings})
 
 set(CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
