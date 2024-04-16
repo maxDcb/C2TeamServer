@@ -36,7 +36,7 @@ jobs:
 
     - name: Build
       # Build your program with the given configuration
-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}} -j 8
 
     - name: Run unit tests
       uses: HorstBaerbel/action-ctest@1.1
@@ -45,4 +45,5 @@ jobs:
         builddir: 'build'
         cmakeoptions: '--config Release'
         ctestoptions: ''
+
 
