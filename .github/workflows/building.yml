@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     # Update references
     - name: Git Sumbodule Update
@@ -68,7 +68,7 @@ jobs:
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: Release/TeamServer/Release.tar.gz
+        file: Release.tar.gz
         asset_name: Release.tar.gz
         tag: ${{ github.ref }}
         overwrite: true
