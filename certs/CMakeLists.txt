@@ -34,5 +34,5 @@ else()
 
 	# server.crt for client
 	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server.pem DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
-	file(RENAME ${CMAKE_SOURCE_DIR}/Release/Client/server.pem ${CMAKE_SOURCE_DIR}/Release/Client/rootCA.crt)
+	file(RENAME ${CMAKE_SOURCE_DIR}/Release/Client/server.pem ${CMAKE_SOURCE_DIR}/Release/Client/server.crt)
 endif()
