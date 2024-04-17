@@ -1,4 +1,4 @@
-name: Building
+name: Release
 
 on: workflow_dispatch
 
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:      
-  build:
+  buildAndRelease:
     # The CMake configure and build commands are platform agnostic and should work equally well on Windows or Mac.
     # You can convert this to a matrix build if you need cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
@@ -62,6 +62,8 @@ jobs:
         rm -f Release/TeamServer/.gitignore
         rm -f Release/Tools/.gitignore
         rm -f Release/www/.gitignore
+        wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2Implant/releases/latest' | jq -r '.assets[] | select(.name=="Release.zip").browser_download_url') -O ./C2Implant.zip
+        unzip -o C2Implant.zip
         tar -zcvf Release.tar.gz Release
 
     - name: Upload release
@@ -72,4 +74,4 @@ jobs:
         asset_name: Release.tar.gz
         tag: ${{ github.ref }}
         overwrite: true
-        body: "test release"
+        body: "C2TeamServer client and server, include the release of C2Implant with the windows beacons and modules" 

