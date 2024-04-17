@@ -4,7 +4,7 @@
 
 Exploration is a rudimentary redteam Command and Control framework.  
 This repository contains the TeamServer and the Client.  
-The release includes the TeamServer the Client with preconfigured certificate as well as the beacon and module for windows for [C2Implant](https://github.com/maxDcb/C2Implant).
+The release includes the TeamServer the Client with preconfigured certificate as well as the beacons and modules for windows from [C2Implant](https://github.com/maxDcb/C2Implant).
 
 ```
 wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz
