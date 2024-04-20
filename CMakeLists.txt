@@ -4,6 +4,13 @@ project(C2TeamServer VERSION 0.0.0 LANGUAGES CXX C)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 17)
 
+option(WITH_TESTS "Compile for tests" ON)
+
+add_definitions(-DBUILD_TEAMSERVER)
+if(WITH_TESTS)
+  add_definitions(-DBUILD_TESTS)
+endif()
+
 if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
 	file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake" "${CMAKE_BINARY_DIR}/conan.cmake")
 endif()
@@ -39,7 +46,9 @@ include_directories(thirdParty/coffLoader/coffLoader)
 include_directories(thirdParty/coffLoader/coffPacker)
 include_directories(thirdParty/cpp-httplib)
 
-enable_testing()
+if(WITH_TESTS)
+    enable_testing()
+endif()
 
 add_subdirectory(teamServer)
 
@@ -47,10 +56,12 @@ add_subdirectory(certs)
 
 add_subdirectory(client)
 
-add_subdirectory(core/modules)
-add_subdirectory(core/beacon)
-add_subdirectory(core/beacon/tests)
-add_subdirectory(core/listener/tests)
+if(WITH_TESTS)
+    add_subdirectory(core/modules)
+    add_subdirectory(core/beacon)
+    add_subdirectory(core/beacon/tests)
+    add_subdirectory(core/listener/tests)
+endif()
 
 
 
