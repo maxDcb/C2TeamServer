@@ -49,3 +49,12 @@ $<TARGET_FILE:TeamServer> "${CMAKE_SOURCE_DIR}/Release/TeamServer/$<TARGET_FILE_
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
 ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.json "${CMAKE_SOURCE_DIR}/Release/TeamServer/TeamServerConfig.json")
 
+if(WITH_TESTS)
+add_executable(testsTestServer tests/testsTestServer.cpp )
+target_link_libraries(testsTestServer boost::boost )
+
+add_custom_command(TARGET testsTestServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+$<TARGET_FILE:testsTestServer> "${CMAKE_SOURCE_DIR}/Tests/$<TARGET_FILE_NAME:testsTestServer>")
+
+add_test(NAME testsTestServer COMMAND "${CMAKE_SOURCE_DIR}/Tests/$<TARGET_FILE_NAME:testsTestServer>")
+endif()
