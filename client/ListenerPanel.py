@@ -28,12 +28,12 @@ class Listeners(QWidget):
     idListener = 0
     listListenerObject = []
 
-    def __init__(self, parent, ip, port):
+    def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
 
         self.ip = ip
         self.port = port
-        self.grpcClient = GrpcClient(ip, port)
+        self.grpcClient = GrpcClient(ip, port, devMode)
                 
         self.createListenerWindow = None
 

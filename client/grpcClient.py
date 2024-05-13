@@ -12,13 +12,16 @@ import TeamServerApi_pb2_grpc
 
 class GrpcClient:
 
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, devMode):
 
         ca_cert = './server.crt'
         root_certs = open(ca_cert, 'rb').read()
 
         credentials = grpc.ssl_channel_credentials(root_certs)
-        self.channel = grpc.secure_channel(ip + ':' + str(port), credentials)
+        if devMode:
+            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=(('grpc.ssl_target_name_override', "localhost",),))
+        else:
+            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials)
         grpc.channel_ready_future(self.channel).result()
         self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
 

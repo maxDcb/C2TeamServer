@@ -34,12 +34,12 @@ class Sessions(QWidget):
     idSession = 0
     listSessionObject = []
 
-    def __init__(self, parent, ip, port):
+    def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
 
         self.ip = ip
         self.port = port
-        self.grpcClient = GrpcClient(ip, port)
+        self.grpcClient = GrpcClient(ip, port, devMode)
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)

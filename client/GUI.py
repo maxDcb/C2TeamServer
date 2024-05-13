@@ -1,5 +1,6 @@
 import sys
 import signal
+import argparse
 from threading import Thread, Lock
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -18,7 +19,7 @@ signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 class App(QMainWindow):
 
-    def __init__(self, ip, port):
+    def __init__(self, ip, port, devMode):
         super().__init__()
 
         self.ip = ip
@@ -55,15 +56,15 @@ class App(QMainWindow):
         lay.addWidget(self.m_w21, 2, 0, 1, 2)
 
         lay = QVBoxLayout(self.m_w11)
-        sessionsWidget = Sessions(self, ip, port)
+        sessionsWidget = Sessions(self, ip, port, devMode)
         lay.addWidget(sessionsWidget)
 
         lay = QVBoxLayout(self.m_w12)
-        listenersWidget = Listeners(self, ip, port)
+        listenersWidget = Listeners(self, ip, port, devMode)
         lay.addWidget(listenersWidget)
 
         lay = QVBoxLayout(self.m_w21)
-        consoleWidget = ConsolesTab(self, ip, port)
+        consoleWidget = ConsolesTab(self, ip, port, devMode)
         lay.addWidget(consoleWidget)
 
         sessionsWidget.interactWithSession.connect(consoleWidget.addConsole)
@@ -80,11 +81,15 @@ class App(QMainWindow):
 
 if __name__ == '__main__':
 
-    ip = "localhost"
-    port = 50051
+    parser = argparse.ArgumentParser(description='TeamServer IP and port.')
+    parser.add_argument('--ip', default='127.0.0.1', help='IP address (default: 127.0.0.1)')
+    parser.add_argument('--port', type=int, default=50051, help='Port number (default: 50051)')
+    parser.add_argument('--dev', action='store_true', help='Enable developer mode to disable the SSL hostname check.')
+
+    args = parser.parse_args()
 
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet())
 
-    ex = App(ip, port)
+    ex = App(args.ip, args.port, args.dev)
     sys.exit(app.exec_())

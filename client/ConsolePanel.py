@@ -14,13 +14,14 @@ from grpcClient import *
 #
 class ConsolesTab(QWidget):
     
-    def __init__(self, parent, ip, port):
+    def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
         widget = QWidget(self)
         self.layout = QHBoxLayout(widget)
 
         self.ip = ip
         self.port = port
+        self.devMode = devMode
         
         # Initialize tab screen
         self.tabs = QTabWidget()
@@ -49,7 +50,7 @@ class ConsolesTab(QWidget):
             tab = QWidget()
             self.tabs.addTab(tab, beaconHash[0:8])
             tab.layout = QVBoxLayout(self.tabs)
-            console = Console(self, self.ip, self.port, beaconHash, listenerHash, hostname, username)
+            console = Console(self, self.ip, self.port, self.devMode, beaconHash, listenerHash, hostname, username)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -68,11 +69,11 @@ class Console(QWidget):
     logFileName=""
     listenerHash=""
 
-    def __init__(self, parent, ip, port, beaconHash, listenerHash, hostname, username):
+    def __init__(self, parent, ip, port, devMode, beaconHash, listenerHash, hostname, username):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
 
-        self.grpcClient = GrpcClient(ip, port)
+        self.grpcClient = GrpcClient(ip, port, devMode)
 
         self.beaconHash=beaconHash
         self.listenerHash=listenerHash
