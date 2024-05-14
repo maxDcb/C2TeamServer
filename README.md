@@ -36,7 +36,9 @@ It's launched using 'python3 GUI.py'
 
 ```
 cd  Release/Client 
-python3 GUI.py
+# --dev is to specify that the GRPC hostname in the SSL certificat will not be checked
+# --ip is the ip of the TeamServer
+python3 GUI.py --ip 127.0.0.0 --port 50051 --dev
 ```
 
 ## TeamServer Listeners
