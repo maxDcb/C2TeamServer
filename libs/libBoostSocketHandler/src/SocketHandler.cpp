@@ -117,7 +117,10 @@ void Server::closeConnection()
 	DEBUG("closeConnection");
 
 	if(m_socketTcp)
+	{
 		delete m_socketTcp;
+		m_socketTcp=nullptr;
+	}
 }
 
 
