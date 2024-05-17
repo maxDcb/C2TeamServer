@@ -9,9 +9,10 @@ set(SOURCE_FILES
 src/SocketHandler.cpp
 )
 
-include_directories(../src ${Boost_INCLUDE_DIRS})
+include_directories(../src)
 
 add_library(${PROJECT_NAME} STATIC ${SOURCE_FILES})
+target_link_libraries(${PROJECT_NAME} boost::boost spdlog::spdlog)
 set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_include_directories(${PROJECT_NAME} PUBLIC src)
 

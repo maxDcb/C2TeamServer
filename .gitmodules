@@ -1,9 +1,6 @@
 [submodule "thirdParty/base64"]
 	path = thirdParty/base64
 	url = https://github.com/ReneNyffenegger/cpp-base64.git
-[submodule "thirdParty/nlohmann"]
-	path = thirdParty/nlohmann
-	url = https://github.com/nlohmann/json.git
 [submodule "thirdParty/donut"]
 	path = thirdParty/donut
 	url = https://github.com/maxDcb/donut.git
@@ -16,9 +13,6 @@
 [submodule "core"]
 	path = core
 	url = https://github.com/maxDcb/C2Core.git
-[submodule "thirdParty/cpp-httplib"]
-	path = thirdParty/cpp-httplib
-	url = https://github.com/yhirose/cpp-httplib.git
 [submodule "libs/libDns"]
 	path = libs/libDns
 	url = https://github.com/maxDcb/Dnscommunication

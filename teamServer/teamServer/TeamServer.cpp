@@ -3,19 +3,6 @@
 #include <functional>
 #include <fstream>
 
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/sources/severity_logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/utility/setup/file.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/support/date_time.hpp>
-
-namespace logging = boost::log;
-namespace src = boost::log::sources;
-namespace expr = boost::log::expressions;
-namespace keywords = boost::log::keywords;
-
 using namespace std;
 using namespace std::placeholders;
 
@@ -93,6 +80,36 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
 	std::unique_ptr<WmiExec> wmiExec = std::make_unique<WmiExec>();
 	m_moduleCmd.push_back(std::move(wmiExec));
+
+	// Logger
+	std::vector<spdlog::sink_ptr> sinks;
+
+	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	console_sink->set_level(spdlog::level::info);
+    sinks.push_back(console_sink);
+
+	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
+	file_sink->set_level(spdlog::level::trace);
+	sinks.push_back(file_sink);
+
+    m_logger = std::make_shared<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
+
+	std::string logLevel = config["LogLevel"].get<std::string>();
+	m_logger->set_level(spdlog::level::trace);
+
+	// TODO if we want to set the logger level we need to propagate the value to the listeners as well
+	// if(logLevel=="trace")
+	// 	m_logger->set_level(spdlog::level::trace);
+	// else if(logLevel=="debug")
+	// 	m_logger->set_level(spdlog::level::debug);
+	// else if(logLevel=="info")
+	// 	m_logger->set_level(spdlog::level::info);
+	// else if(logLevel=="warning")
+	// 	m_logger->set_level(spdlog::level::warn);
+	// else if(logLevel=="error")
+	// 	m_logger->set_level(spdlog::level::err);
+	// else if(logLevel=="fatal")
+	// 	m_logger->set_level(spdlog::level::critical);
 }
 
 
@@ -105,7 +122,7 @@ TeamServer::~TeamServer()
 // and from listeners runing on beacon through sessionListener
 grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer)
 {
-	BOOST_LOG_TRIVIAL(trace) << "GetListeners";
+	m_logger->trace("GetListeners");
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
@@ -153,7 +170,7 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 			{
 				for(auto it = session->getListener().begin() ; it != session->getListener().end(); ++it )
 				{
-					BOOST_LOG_TRIVIAL(trace) << " |-> sessionListenerList " << " " << it->getType() << " " << it->getParam1() << " " << it->getParam2();
+					m_logger->trace(" |-> sessionListenerList {0} {1} {0}", it->getType(), it->getParam1(), it->getParam2());
 
 					teamserverapi::Listener listener;
 					listener.set_listenerhash(it->getListenerHash());
@@ -175,7 +192,7 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "GetListeners end";
+	m_logger->trace("GetListeners end");
 
 	return grpc::Status::OK;
 }
@@ -185,7 +202,7 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 // To add a listener to a beacon the process it to send a command to the beacon
 grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate,  teamserverapi::Response* response)
 {
-	BOOST_LOG_TRIVIAL(trace) << "AddListener";
+	m_logger->trace("AddListener");
 	string type = listenerToCreate->type();
 
 	try 
@@ -198,7 +215,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::unique_ptr<ListenerTcp> listenerTcp = make_unique<ListenerTcp>(localHost, localPort);
 			m_listeners.push_back(std::move(listenerTcp));
 
-			BOOST_LOG_TRIVIAL(info) << "AddListener Tcp " << localHost << ":" << std::to_string(localPort);
+			m_logger->info("AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
 		}
 		else if (type == ListenerHttpType)
 		{
@@ -209,7 +226,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::unique_ptr<ListenerHttp> listenerHttp = make_unique<ListenerHttp>(localHost, localPort, configHttp, false);
 			m_listeners.push_back(std::move(listenerHttp));
 
-			BOOST_LOG_TRIVIAL(info) << "AddListener Http " << localHost << ":" << std::to_string(localPort);
+			m_logger->info("AddListener Http {0}:{1}", localHost, std::to_string(localPort));
 		}
 		else if (type == ListenerHttpsType)
 		{
@@ -220,7 +237,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::unique_ptr<ListenerHttp> listenerHttps = make_unique<ListenerHttp>(localHost, localPort, configHttps, true);
 			m_listeners.push_back(std::move(listenerHttps));
 
-			BOOST_LOG_TRIVIAL(info) << "AddListener Https " << localHost << ":" << std::to_string(localPort);
+			m_logger->info("AddListener Https {0}:{1}", localHost, std::to_string(localPort));
 		}
 		else if (type == ListenerGithubType)
 		{
@@ -229,7 +246,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::unique_ptr<ListenerGithub> listenerGithub = make_unique<ListenerGithub>(project, token);
 			m_listeners.push_back(std::move(listenerGithub));
 
-			BOOST_LOG_TRIVIAL(info) << "AddListener Github " << project << ":" << token;
+			m_logger->info("AddListener Github {0}:{1}", project, token);
 		}
 		else if (type == ListenerDnsType)
 		{
@@ -238,16 +255,16 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::unique_ptr<ListenerDns> listenerDns = make_unique<ListenerDns>(domain, port);
 			m_listeners.push_back(std::move(listenerDns));
 
-			BOOST_LOG_TRIVIAL(info) << "AddListener Dns " << domain << ":" << std::to_string(port);
+			m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
 		}
 
 	}
 	catch (const std::exception &exc)
 	{
-		BOOST_LOG_TRIVIAL(error) << "Error: " << exc.what() << std::endl;
+		m_logger->error("Error: {0}", exc.what());
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "AddListener End";
+	m_logger->trace("AddListener End");
 
 	return grpc::Status::OK;
 }
@@ -255,7 +272,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop,  teamserverapi::Response* response)
 {
-	BOOST_LOG_TRIVIAL(trace) << "StopListener";
+	m_logger->trace("StopListener");
 
 	// Stop primary listener
 	std::string listenerHash=listenerToStop->listenerhash();
@@ -309,7 +326,7 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "StopListener End";
+	m_logger->trace("StopListener End");
 
 	return grpc::Status::OK;
 }
@@ -317,7 +334,7 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 
 bool TeamServer::isListenerAlive(std::string listenerHash)
 {
-	BOOST_LOG_TRIVIAL(trace) << "isListenerAlive";
+	m_logger->trace("isListenerAlive");
 
 	bool result=false;
 	for (int i = 0; i < m_listeners.size(); i++)
@@ -351,7 +368,7 @@ bool TeamServer::isListenerAlive(std::string listenerHash)
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "isListenerAlive end";
+	m_logger->trace("isListenerAlive end");
 
 	return result;
 }
@@ -361,18 +378,18 @@ bool TeamServer::isListenerAlive(std::string listenerHash)
 // Primary listers old all the information about beacons linked to themeself and linked to beacon listerners
 grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
 {
-	BOOST_LOG_TRIVIAL(trace) << "GetSessions";
+	m_logger->trace("GetSessions");
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
-		BOOST_LOG_TRIVIAL(debug) << "Listener " << m_listeners[i]->getListenerHash();
+		m_logger->debug("Listener {0}", m_listeners[i]->getListenerHash());
 
 		int nbSession = m_listeners[i]->getNumberOfSession();
 		for(int kk=0; kk<nbSession; kk++)
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			BOOST_LOG_TRIVIAL(debug) << "	Session " << session->getBeaconHash() << " From " << session->getListenerHash() << " " << session->getLastProofOfLife();
+			m_logger->debug("	Session {0} From {1} {2}", session->getBeaconHash(), session->getListenerHash(), session->getLastProofOfLife());
 
 			teamserverapi::Session sessionTmp;
 			sessionTmp.set_listenerhash(session->getListenerHash());
@@ -392,7 +409,7 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "GetSessions end";
+	m_logger->trace("GetSessions end");
 
 	return grpc::Status::OK;
 }
@@ -400,7 +417,7 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop,  teamserverapi::Response* response)
 {
-	BOOST_LOG_TRIVIAL(trace) << "StopSession";
+	m_logger->trace("StopSession");
 
 	std::string beaconHash=sessionToStop->beaconhash();
 	std::string listenerHash=sessionToStop->listenerhash();
@@ -436,7 +453,7 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "StopSession end";
+	m_logger->trace("StopSession end");
 
 	return grpc::Status::OK;
 }
@@ -444,7 +461,7 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::Response* response)
 {
-	BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession";
+	m_logger->trace("SendCmdToSession");
 
 	std::string input = command->cmd();
 	std::string beaconHash = command->beaconhash();
@@ -454,13 +471,13 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 	{
 		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 		{
-			BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession: beaconHash " << beaconHash << " listenerHash " << listenerHash;
+			m_logger->trace("SendCmdToSession: beaconHash {0} listenerHash {1}", beaconHash, listenerHash);
 			if (!input.empty())
 			{
 				C2Message c2Message;
 				int res = prepMsg(input, c2Message);
 
-				BOOST_LOG_TRIVIAL(debug) << "SendCmdToSession " << beaconHash << " " << c2Message.instruction() << " " << c2Message.cmd();
+				m_logger->debug("SendCmdToSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
 				// echec init message
 				if(res!=0)
@@ -470,7 +487,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 					response->set_message(hint);
 					response->set_status(teamserverapi::KO);
 
-					BOOST_LOG_TRIVIAL(debug) << "SendCmdToSession Fail prepMsg " << hint;
+					m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
 				}
 
 				if(!c2Message.instruction().empty())
@@ -479,7 +496,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "SendCmdToSession end";
+	m_logger->trace("SendCmdToSession end");
 
 	return grpc::Status::OK;
 }
@@ -488,7 +505,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 // TODO how do the followUp necessary for download
 grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session,  grpc::ServerWriter<teamserverapi::CommandResponse>* writer)
 {
-	BOOST_LOG_TRIVIAL(trace) << "GetResponseFromSession";
+	m_logger->trace("GetResponseFromSession");
 
 	std::string targetSession=session->beaconhash();
 
@@ -510,7 +527,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 					{
 						if (instruction == (*it)->getName())
 						{
-							BOOST_LOG_TRIVIAL(debug) << "Call followUp";
+							m_logger->debug("Call followUp");
 
 							// TODO to put in a separate thread
 							(*it)->followUp(c2Message);
@@ -519,8 +536,8 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 					if(instruction==ListenerPolCmd)
 					{
-						BOOST_LOG_TRIVIAL(debug) << "beaconHash " << beaconHash;
-						BOOST_LOG_TRIVIAL(debug) << "returnvalue " << c2Message.returnvalue();
+						m_logger->debug("beaconHash {0}", beaconHash);
+						m_logger->debug("returnvalue {0}", c2Message.returnvalue());
 						c2Message = m_listeners[i]->getTaskResult(beaconHash);
 						continue;
 					}
@@ -531,10 +548,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 					commandResponseTmp.set_cmd(c2Message.cmd());
 					commandResponseTmp.set_response(c2Message.returnvalue());
 
-					BOOST_LOG_TRIVIAL(debug) << "GetResponseFromSession " 
-					<< beaconHash << " " 
-					<< c2Message.instruction() << " " 
-					<< c2Message.cmd();
+					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
 					writer->Write(commandResponseTmp);
 
@@ -544,7 +558,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 		}
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "GetResponseFromSession end";
+	m_logger->trace("GetResponseFromSession end");
 
 	return grpc::Status::OK;
 }
@@ -552,7 +566,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::CommandResponse* commandResponse)
 {
-	BOOST_LOG_TRIVIAL(trace) << "GetHelp";
+	m_logger->trace("GetHelp");
 
 	std::string input = command->cmd();
 
@@ -619,7 +633,7 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 
 	*commandResponse = commandResponseTmp;
 
-	BOOST_LOG_TRIVIAL(trace) << "GetHelp end";
+	m_logger->trace("GetHelp end");
 
 	return grpc::Status::OK;
 }
@@ -659,7 +673,7 @@ void static inline splitInputCmd(const std::string& input, std::vector<std::stri
 
 int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 {
-	BOOST_LOG_TRIVIAL(trace) << "prepMsg";
+	m_logger->trace("prepMsg");
 
 	std::vector<std::string> splitedCmd;
 	splitInputCmd(input, splitedCmd);
@@ -690,10 +704,10 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 
 	if(!isModuleFound)
 	{
-		BOOST_LOG_TRIVIAL(warning) << "Module " << instruction << " not found.";
+		m_logger->warn("Module {0} not found.", instruction);
 	}
 
-	BOOST_LOG_TRIVIAL(trace) << "prepMsg end";
+	m_logger->trace("prepMsg end");
 
 	return res;
 }
@@ -703,28 +717,27 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 
 int main(int argc, char* argv[])
 {
+	//
+    // Logger
+	//
+	std::vector<spdlog::sink_ptr> sinks;
+
+	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+	console_sink->set_level(spdlog::level::info);
+    sinks.push_back(console_sink);
+
+	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
+	file_sink->set_level(spdlog::level::trace);
+	sinks.push_back(file_sink);
+
+   	std::unique_ptr logger = std::make_unique<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
+	logger->set_level(spdlog::level::trace);
+
+	//
+	// TeamServer Config
+	//
 	std::ifstream f("TeamServerConfig.json");
 	json config = json::parse(f);
-
-	std::string logLevel = config["LogLevel"].get<std::string>();
-	logging::trivial::severity_level sev = logging::trivial::trace;
-	if(logLevel=="trace")
-		sev = logging::trivial::trace;
-	else if(logLevel=="debug")
-		sev = logging::trivial::debug;
-	else if(logLevel=="info")
-		sev = logging::trivial::info;
-	else if(logLevel=="warning")
-		sev = logging::trivial::warning;
-	else if(logLevel=="error")
-		sev = logging::trivial::error;
-	else if(logLevel=="fatal")
-		sev = logging::trivial::fatal;
-
-	logging::core::get()->set_filter
-    (		
-		logging::trivial::severity >= sev
-    );
 	
 	std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
 	std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
@@ -739,7 +752,7 @@ int main(int argc, char* argv[])
 	std::ifstream servCrtFile(servCrtFilePath, std::ios::binary);
 	if(!servCrtFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "Server ceritifcat file not found.";
+		logger->critical("Server ceritifcat file not found.");
 		return -1;
 	}
 	std::string cert(std::istreambuf_iterator<char>(servCrtFile), {});
@@ -748,7 +761,7 @@ int main(int argc, char* argv[])
 	std::ifstream servKeyFile(servKeyFilePath, std::ios::binary);
 	if(!servKeyFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "Server key file not found.";
+		logger->critical("Server key file not found.");
 		return -1;
 	}
 	std::string key(std::istreambuf_iterator<char>(servKeyFile), {});
@@ -757,7 +770,7 @@ int main(int argc, char* argv[])
 	std::ifstream rootFile(rootCA, std::ios::binary);
 	if(!rootFile.good())
 	{
-		BOOST_LOG_TRIVIAL(fatal) << "Root CA file not found.";
+		logger->critical("Root CA file not found.");
 		return -1;
 	}
 	std::string root(std::istreambuf_iterator<char>(rootFile), {});
@@ -778,7 +791,7 @@ int main(int argc, char* argv[])
 	builder.RegisterService(&service);
 	std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
 
-	BOOST_LOG_TRIVIAL(info) << "Team Server listening on " << serverAddress;
+	logger->info("Team Server listening on {0}", serverAddress);
 
 	server->Wait();
 }

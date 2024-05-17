@@ -36,7 +36,12 @@
 #include "TeamServerApi.pb.h"
 #include "TeamServerApi.grpc.pb.h"
 
-#include <json.hpp>
+#include "spdlog/spdlog.h"
+#include "spdlog/sinks/stdout_color_sinks.h"
+#include "spdlog/sinks/rotating_file_sink.h"
+#include "spdlog/sinks/basic_file_sink.h"
+
+#include "nlohmann/json.hpp"
 
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service 
@@ -64,6 +69,8 @@ protected:
 
 private:
     nlohmann::json m_config;
+
+    std::shared_ptr<spdlog::logger> m_logger;
 
     std::vector<std::unique_ptr<Listener>> m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;

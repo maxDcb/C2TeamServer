@@ -2,14 +2,7 @@
 
 #include <iostream>
 
-#define DEBUG_BUILD
-
-#ifdef DEBUG_BUILD
-#define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
-#define DEBUG(x) do { std::cout << __FILENAME__ << " - " << __func__ << ": " << x << std::endl; } while (0)
-#else
-#define DEBUG(x) do {} while (0)
-#endif
+#include "spdlog/spdlog.h"
 
 using boost::asio::ip::tcp;
 using namespace SocketHandler;
@@ -43,7 +36,7 @@ Server::~Server()
 
 void Server::initServer()
 {
-	DEBUG("initServer");
+	SPDLOG_TRACE("initServer");
 
 	tcp::acceptor acceptor_(m_ioService, tcp::endpoint(tcp::v4(), m_port));
 	m_socketTcp=new tcp::socket(m_ioService);
@@ -53,14 +46,14 @@ void Server::initServer()
 
 bool Server::sendData(std::string& data)
 {
-	DEBUG("sendData");
+	SPDLOG_TRACE("sendData");
 
 	int nbBytes = data.size();
 	sendSocketTcp(m_socketTcp, (char*)&nbBytes, sizeof(int), &m_error);
 
 	if(m_error)
 	{
-		DEBUG("sendData failed: " << m_error.message());
+		SPDLOG_ERROR("sendData failed: {0}", m_error.message());
 		closeConnection();
 		return false;
 	}
@@ -71,7 +64,7 @@ bool Server::sendData(std::string& data)
 
 		if(m_error)
 		{
-			DEBUG("sendData failed: " << m_error.message());
+			SPDLOG_ERROR("sendData failed: {0}", m_error.message());
 			closeConnection();
 			return false;
 		}
@@ -83,7 +76,7 @@ bool Server::sendData(std::string& data)
 
 bool Server::receive(std::string& data)
 {
-	DEBUG("receive");
+	SPDLOG_TRACE("receive");
 
 	int nbBytes=0;
 	readSocketTcp(m_socketTcp, (char*)&nbBytes, sizeof(int), &m_error);
@@ -91,7 +84,7 @@ bool Server::receive(std::string& data)
 
 	if(m_error)
 	{
-		DEBUG("receive failed: " << m_error.message());
+		SPDLOG_ERROR("receive failed: {0}", m_error.message());
 		closeConnection();
 		return false;
 	}
@@ -102,7 +95,7 @@ bool Server::receive(std::string& data)
 
 		if(m_error)
 		{
-			DEBUG("receive failed: " << m_error.message());
+			SPDLOG_ERROR("receive failed: {0}", m_error.message());
 			closeConnection();
 			return false;
 		}
@@ -114,7 +107,7 @@ bool Server::receive(std::string& data)
 
 void Server::closeConnection()
 {
-	DEBUG("closeConnection");
+	SPDLOG_TRACE("closeConnection");
 
 	if(m_socketTcp)
 	{
@@ -143,7 +136,7 @@ Client::~Client()
 
 bool Client::initConnection()
 {
-	DEBUG("initConnection");
+	SPDLOG_TRACE("initConnection");
 
 	boost::system::error_code error;
 	m_socketTcp=new tcp::socket(m_ioService);
@@ -157,14 +150,14 @@ bool Client::initConnection()
 
 bool Client::sendData(std::string& data)
 {
-	DEBUG("sendData");
+	SPDLOG_TRACE("sendData");
 
 	int nbBytes = data.size();
 	sendSocketTcp(m_socketTcp, (char*)&nbBytes, sizeof(int), &m_error);
 
 	if(m_error)
 	{
-		DEBUG("sendData failed: " << m_error.message());
+		SPDLOG_ERROR("sendData failed: {0}", m_error.message());
 		closeConnection();
 		return false;
 	}
@@ -175,7 +168,7 @@ bool Client::sendData(std::string& data)
 
 		if(m_error)
 		{
-			DEBUG("sendData failed: " << m_error.message());
+			SPDLOG_ERROR("sendData failed: {0}", m_error.message());
 			closeConnection();
 			return false;
 		}
@@ -187,7 +180,7 @@ bool Client::sendData(std::string& data)
 
 bool Client::receive(std::string& data)
 {
-	DEBUG("receive");
+	SPDLOG_TRACE("receive");
 
 	int nbBytes=0;
 	readSocketTcp(m_socketTcp, (char*)&nbBytes, sizeof(int), &m_error);
@@ -195,7 +188,7 @@ bool Client::receive(std::string& data)
 
 	if(m_error)
 	{
-		DEBUG("receive failed: " << m_error.message());
+		SPDLOG_ERROR("receive failed: {0}", m_error.message());
 		closeConnection();
 		return false;
 	}
@@ -206,7 +199,7 @@ bool Client::receive(std::string& data)
 
 		if(m_error)
 		{
-			DEBUG("receive failed: " << m_error.message());
+			SPDLOG_ERROR("receive failed: {0}", m_error.message());
 			closeConnection();
 			return false;
 		}
@@ -218,7 +211,7 @@ bool Client::receive(std::string& data)
 
 void Client::closeConnection()
 {
-	DEBUG("closeConnection");
+	SPDLOG_TRACE("closeConnection");
 
 	if(m_socketTcp)
 	{
