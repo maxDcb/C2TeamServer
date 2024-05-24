@@ -212,7 +212,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		{
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
-			std::unique_ptr<ListenerTcp> listenerTcp = make_unique<ListenerTcp>(localHost, localPort);
+			std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort);
 			m_listeners.push_back(std::move(listenerTcp));
 
 			m_logger->info("AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
@@ -223,7 +223,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
-			std::unique_ptr<ListenerHttp> listenerHttp = make_unique<ListenerHttp>(localHost, localPort, configHttp, false);
+			std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, configHttp, false);
 			m_listeners.push_back(std::move(listenerHttp));
 
 			m_logger->info("AddListener Http {0}:{1}", localHost, std::to_string(localPort));
@@ -234,7 +234,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
-			std::unique_ptr<ListenerHttp> listenerHttps = make_unique<ListenerHttp>(localHost, localPort, configHttps, true);
+			std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, configHttps, true);
 			m_listeners.push_back(std::move(listenerHttps));
 
 			m_logger->info("AddListener Https {0}:{1}", localHost, std::to_string(localPort));
@@ -243,7 +243,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		{
 			std::string token = listenerToCreate->token();
 			std::string project = listenerToCreate->project();
-			std::unique_ptr<ListenerGithub> listenerGithub = make_unique<ListenerGithub>(project, token);
+			std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token);
 			m_listeners.push_back(std::move(listenerGithub));
 
 			m_logger->info("AddListener Github {0}:{1}", project, token);
@@ -252,7 +252,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		{
 			std::string domain = listenerToCreate->domain();
 			int port = listenerToCreate->port();
-			std::unique_ptr<ListenerDns> listenerDns = make_unique<ListenerDns>(domain, port);
+			std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port);
 			m_listeners.push_back(std::move(listenerDns));
 
 			m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
@@ -277,15 +277,15 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 	// Stop primary listener
 	std::string listenerHash=listenerToStop->listenerhash();
 
-	std::vector<unique_ptr<Listener>>::iterator object = 
+	std::vector<shared_ptr<Listener>>::iterator object = 
 		find_if(m_listeners.begin(), m_listeners.end(),
-				[&](unique_ptr<Listener> & obj){ return obj->getListenerHash() == listenerHash;}
+				[&](shared_ptr<Listener> & obj){ return obj->getListenerHash() == listenerHash;}
 				);
 
 	if(object!=m_listeners.end())
 	{
 		m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object));
-		std::move(*object);
+		// std::move(*object);
 	}
 
 	// Stop listerners runing on beacon by sending a messsage to this beacon
@@ -459,6 +459,191 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 }
 
 
+// Launch a socks5 server on the TeamServer
+// Then upon connection to the socks5 server, send an init message to the target beacon 
+// Upon positive response of the beacon for the binding of the ip/port finalise the handshack 
+// Then we relay the data send to the socks5 server to the requested beacon
+void TeamServer::runSocksServer(int port, const std::string& listenerHash, const std::string& beaconHash)
+{
+	// TODO handle the fail
+	SocksServer socksServer(port);
+	socksServer.launch();
+
+	m_logger->info("Start SocksServer {}", port);
+
+	std::shared_ptr<Listener> socksListener;
+	for (int i = 0; i < m_listeners.size(); i++)
+	{
+		if(listenerHash==m_listeners[i]->getListenerHash())
+			socksListener = m_listeners[i];
+	}
+
+	std::shared_ptr<Session> session;
+	for(int kk=0; kk<socksListener->getNumberOfSession(); kk++)
+	{
+		if(socksListener->getSessionPtr(kk)->getBeaconHash()==beaconHash)
+			session = socksListener->getSessionPtr(kk);
+	}
+
+	m_logger->info("Force sleep at 0 to allow socks communication");
+	C2Message c2MessageToSend;
+	c2MessageToSend.set_instruction(SleepCmd);
+	c2MessageToSend.set_cmd("0.1");
+
+	if(!c2MessageToSend.instruction().empty())
+		socksListener->queueTask(beaconHash, c2MessageToSend);
+	
+	// TODO handle the stop
+	std::string dataIn;
+    std::string dataOut;
+	while(1)
+    {
+		if(session->isSessionKilled())
+			break;
+
+		C2Message c2Message = socksListener->getSocksTaskResult(beaconHash);
+
+        for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
+        {
+            if(socksServer.m_socksTunnelServers[i]!=nullptr)
+            {
+				int id = socksServer.m_socksTunnelServers[i]->getId();
+				SocksState state = socksServer.m_socksTunnelServers[i]->getState();
+				if(state == SocksState::INIT)
+				{
+					int ip = socksServer.m_socksTunnelServers[i]->getIpDst();
+					int port = socksServer.m_socksTunnelServers[i]->getPort();
+					
+					m_logger->info("Socks5 to {}:{}", std::to_string(ip), std::to_string(port));
+
+					C2Message c2MessageToSend;
+					c2MessageToSend.set_instruction(Socks5);
+					c2MessageToSend.set_cmd("init");
+					c2MessageToSend.set_data(std::to_string(ip));
+					c2MessageToSend.set_args(std::to_string(port));
+					c2MessageToSend.set_pid(id);
+
+					if(!c2MessageToSend.instruction().empty())
+						socksListener->queueTask(beaconHash, c2MessageToSend);
+
+					socksServer.m_socksTunnelServers[i]->setState(SocksState::HANDSHAKE);
+				}
+				else if(state == SocksState::HANDSHAKE)
+				{
+					m_logger->info("Socks5 wait handshake {}", id);
+
+					if(c2Message.instruction() == Socks5 && c2Message.cmd() == "init" && c2Message.pid() == id)
+					{
+						m_logger->info("Socks5 handshake received {}", id);
+
+						if(c2Message.data() == "fail")
+						{
+							m_logger->info("Socks5 handshake failed {}", id);
+							socksServer.m_socksTunnelServers[i].reset(nullptr);
+						}
+						else
+						{
+							m_logger->info("Socks5 handshake succed {}", id);
+							socksServer.m_socksTunnelServers[i]->finishHandshack();
+							socksServer.m_socksTunnelServers[i]->setState(SocksState::RUN);
+
+							dataIn="";
+							int res = socksServer.m_socksTunnelServers[i]->process(dataIn, dataOut);
+
+							if(res<=0)
+							{
+								m_logger->info("Socks5 stop");
+
+								socksServer.m_socksTunnelServers[i].reset(nullptr);
+
+								C2Message c2MessageToSend;
+								c2MessageToSend.set_instruction(Socks5);
+								c2MessageToSend.set_cmd("stop");
+								c2MessageToSend.set_pid(id);
+
+								if(!c2MessageToSend.instruction().empty())
+									socksListener->queueTask(beaconHash, c2MessageToSend);
+							}
+							else
+							{
+								m_logger->info("Socks5 send data to beacon");
+
+								C2Message c2MessageToSend;
+								c2MessageToSend.set_instruction(Socks5);
+								c2MessageToSend.set_cmd("run");
+								c2MessageToSend.set_pid(id);
+								c2MessageToSend.set_data(dataOut);
+
+								if(!c2MessageToSend.instruction().empty())
+									socksListener->queueTask(beaconHash, c2MessageToSend);
+							}
+						}
+					}
+				}
+				else if(state == SocksState::RUN)
+				{
+					m_logger->info("Socks5 run {}", id);
+
+					dataIn="";
+					if(c2Message.instruction() == Socks5 && c2Message.cmd() == "run" && c2Message.pid() == id)
+					{
+						m_logger->info("Socks5 {}: data received from beacon", id);
+
+						dataIn=c2Message.data();
+					
+						int res = socksServer.m_socksTunnelServers[i]->process(dataIn, dataOut);
+
+						m_logger->info("Socks5 process, res {}, dataIn {}, dataOut {}", res, dataIn.size(), dataOut.size());
+
+						// TODO do we stop if dataOut.size()==0 ????
+						// if(res<=0 || dataOut.size()==0)
+						if(res<=0)
+						{
+							m_logger->info("Socks5 stop");
+
+							socksServer.m_socksTunnelServers[i].reset(nullptr);
+
+							C2Message c2MessageToSend;
+							c2MessageToSend.set_instruction(Socks5);
+							c2MessageToSend.set_cmd("stop");
+							c2MessageToSend.set_pid(id);
+
+							if(!c2MessageToSend.instruction().empty())
+								socksListener->queueTask(beaconHash, c2MessageToSend);
+						}
+						else
+						{
+							m_logger->info("Socks5 send data to beacon");
+
+							C2Message c2MessageToSend;
+							c2MessageToSend.set_instruction(Socks5);
+							c2MessageToSend.set_cmd("run");
+							c2MessageToSend.set_pid(id);
+							c2MessageToSend.set_data(dataOut);
+
+							if(!c2MessageToSend.instruction().empty())
+								socksListener->queueTask(beaconHash, c2MessageToSend);
+						}
+					}
+				}
+
+            }
+        }
+
+		// Remove ended tunnels
+		socksServer.m_socksTunnelServers.erase(std::remove_if(socksServer.m_socksTunnelServers.begin(), socksServer.m_socksTunnelServers.end(),
+                             [](const std::unique_ptr<SocksTunnelServer>& ptr) { return ptr == nullptr; }),
+              socksServer.m_socksTunnelServers.end());
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+	m_logger->info("End SocksServer {}", port);
+
+    return;
+}
+
+
 grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::Response* response)
 {
 	m_logger->trace("SendCmdToSession");
@@ -488,6 +673,15 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 					response->set_status(teamserverapi::KO);
 
 					m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
+				}
+
+				if(c2Message.instruction() == Socks5)
+				{
+					// TODO, start the server and launch a thread to handle socks messages
+					int port = std::atoi(c2Message.data().c_str());
+
+					std::thread t(&TeamServer::runSocksServer, this, port, listenerHash, beaconHash);
+            		t.detach();
 				}
 
 				if(!c2Message.instruction().empty())

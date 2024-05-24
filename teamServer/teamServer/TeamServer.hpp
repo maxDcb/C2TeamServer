@@ -27,6 +27,8 @@
 #include "modules/Tree/Tree.hpp"
 #include "modules/WmiExec/WmiExec.hpp"
 
+#include "SocksServer.hpp"
+
 #include <grpc/grpc.h>
 #include <grpcpp/security/server_credentials.h>
 #include <grpcpp/server.h>
@@ -68,11 +70,13 @@ protected:
     int prepMsg(std::string& input, C2Message& c2Message);
 
 private:
+    void runSocksServer(int port, const std::string& listenerHash, const std::string& beaconHash);
+
     nlohmann::json m_config;
 
     std::shared_ptr<spdlog::logger> m_logger;
 
-    std::vector<std::unique_ptr<Listener>> m_listeners;
+    std::vector<std::shared_ptr<Listener>> m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
 };

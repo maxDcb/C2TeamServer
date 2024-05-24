@@ -16,3 +16,6 @@
 [submodule "libs/libDns"]
 	path = libs/libDns
 	url = https://github.com/maxDcb/Dnscommunication
+[submodule "libs/libSocks5"]
+	path = libs/libSocks5
+	url = https://github.com/maxDcb/libSocks5.git
