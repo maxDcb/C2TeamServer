@@ -579,6 +579,10 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 							}
 						}
 					}
+					else if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					{
+						socksServer.m_socksTunnelServers[i].reset(nullptr);
+					}
 				}
 				else if(state == SocksState::RUN)
 				{
@@ -625,8 +629,11 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 								socksListener->queueTask(beaconHash, c2MessageToSend);
 						}
 					}
+					else if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					{
+						socksServer.m_socksTunnelServers[i].reset(nullptr);
+					}
 				}
-
             }
         }
 
