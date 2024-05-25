@@ -7,4 +7,4 @@
 
 typedef void *HMEMORYMODULE;
 
-HMEMORYMODULE MemoryLoadLibrary(const void *, size_t);
+HMEMORYMODULE MemoryLoadLibrary(const void *moduleData, size_t size);
