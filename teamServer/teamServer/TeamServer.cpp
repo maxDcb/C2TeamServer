@@ -11,6 +11,7 @@ using json = nlohmann::json;
 
 TeamServer::TeamServer(const nlohmann::json& config) 
 : m_config(config)
+, m_isSocksServerRunning(false)
 {
 	std::unique_ptr<AssemblyExec> assemblyExec = std::make_unique<AssemblyExec>();
 	m_moduleCmd.push_back(std::move(assemblyExec));
@@ -285,7 +286,6 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 	if(object!=m_listeners.end())
 	{
 		m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object));
-		// std::move(*object);
 	}
 
 	// Stop listerners runing on beacon by sending a messsage to this beacon
@@ -460,16 +460,31 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 
 
 // Launch a socks5 server on the TeamServer
+// Only one socksServer at a time
 // Then upon connection to the socks5 server, send an init message to the target beacon 
 // Upon positive response of the beacon for the binding of the ip/port finalise the handshack 
 // Then we relay the data send to the socks5 server to the requested beacon
 void TeamServer::runSocksServer(int port, const std::string& listenerHash, const std::string& beaconHash)
 {
-	// TODO handle the fail
+	// Start SocksServer
 	SocksServer socksServer(port);
 	socksServer.launch();
 
-	m_logger->info("Start SocksServer {}", port);
+	while(!socksServer.isServerLaunched())
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		m_logger->info("Wait for SocksServer to start on port {}", port);
+	}
+
+	if(socksServer.isServerStoped())
+	{
+		m_logger->warn("Start SocksServer failed on port {}", port);
+		return;
+	}
+
+	m_isSocksServerRunning=true;
+
+	m_logger->info("Start SocksServer succeed on port {}", port);
 
 	std::shared_ptr<Listener> socksListener;
 	for (int i = 0; i < m_listeners.size(); i++)
@@ -485,36 +500,44 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 			session = socksListener->getSessionPtr(kk);
 	}
 
-	m_logger->info("Force sleep at 0 to allow socks communication");
-	C2Message c2MessageToSend;
-	c2MessageToSend.set_instruction(SleepCmd);
-	c2MessageToSend.set_cmd("0.1");
+	// Start socks beacon side
+	C2Message c2MessageStartSocks;
+	c2MessageStartSocks.set_instruction(SleepCmd);
+	c2MessageStartSocks.set_cmd(StartCmd);
+	c2MessageStartSocks.set_pid(port);
+	socksListener->queueTask(beaconHash, c2MessageStartSocks);
 
-	if(!c2MessageToSend.instruction().empty())
-		socksListener->queueTask(beaconHash, c2MessageToSend);
+	m_logger->info("Force sleep to 10ms to allow socks communication");
+	C2Message c2MessageControlSleep;
+	c2MessageControlSleep.set_instruction(SleepCmd);
+	c2MessageControlSleep.set_cmd("0.01");
+	socksListener->queueTask(beaconHash, c2MessageControlSleep);
 	
-	// TODO handle the stop
 	std::string dataIn;
     std::string dataOut;
-	while(1)
+	bool isSocksServerRunning=true;
+	while(isSocksServerRunning)
     {
 		// if session is killed (beacon probably dead) we end the server
 		if(session->isSessionKilled())
-			break;
+		{
+			socksServer.stop();
+			isSocksServerRunning=false;
+
+			for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
+				socksServer.m_socksTunnelServers[i].reset(nullptr);
+		}
 
 		C2Message c2Message = socksListener->getSocksTaskResult(beaconHash);
 
 		// if the beacon request stopSocks we end the server
 		if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stopSocks")
 		{	
+			socksServer.stop();
+			isSocksServerRunning=false;
+
 			for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
 				socksServer.m_socksTunnelServers[i].reset(nullptr);
-
-			socksServer.m_socksTunnelServers.erase(std::remove_if(socksServer.m_socksTunnelServers.begin(), socksServer.m_socksTunnelServers.end(),
-                             [](const std::unique_ptr<SocksTunnelServer>& ptr) { return ptr == nullptr; }),
-              socksServer.m_socksTunnelServers.end());
-
-			break;
 		}
 
         for(int i=0; i<socksServer.m_socksTunnelServers.size(); i++)
@@ -652,13 +675,12 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
         }
 
 		// Remove ended tunnels
-		socksServer.m_socksTunnelServers.erase(std::remove_if(socksServer.m_socksTunnelServers.begin(), socksServer.m_socksTunnelServers.end(),
-                             [](const std::unique_ptr<SocksTunnelServer>& ptr) { return ptr == nullptr; }),
-              socksServer.m_socksTunnelServers.end());
+		socksServer.cleanTunnel();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
 
+	m_isSocksServerRunning = false;
 	m_logger->info("End SocksServer {}", port);
 
     return;
@@ -696,13 +718,24 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 					m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
 				}
 
+				// Start a thread that handle all the communication with the beacon
 				if(c2Message.instruction() == Socks5 && c2Message.cmd() == StartCmd)
 				{
-					// start the server and launch a thread to handle socks messages
-					int port = std::atoi(c2Message.data().c_str());
+					if(m_isSocksServerRunning==true)
+					{
+						m_logger->warn("A SockServer is already running");
+					}
+					else
+					{
+						// start the server and launch a thread to handle socks messages
+						int port = std::atoi(c2Message.data().c_str());
 
-					std::thread t(&TeamServer::runSocksServer, this, port, listenerHash, beaconHash);
-            		t.detach();
+						std::thread t(&TeamServer::runSocksServer, this, port, listenerHash, beaconHash);
+						t.detach();
+					}
+
+					// the start cmd is send by the thread to be sur that the server started succesfully
+					continue;
 				}
 
 				if(!c2Message.instruction().empty())

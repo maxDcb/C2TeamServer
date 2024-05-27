@@ -205,16 +205,19 @@ class CreateListner(QWidget):
         self.labelType = QLabel("Type")
         self.qcombo = QComboBox(self)
         self.qcombo.addItems(["http" , "https" , "tcp" , "github" , "dns"])
+        self.qcombo.setCurrentIndex(1)
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
         self.labelIP = QLabel("IP")
         self.param1 = QLineEdit()
+        self.param1.setText("0.0.0.0")
         layout.addRow(self.labelIP, self.param1)
 
         self.labelPort = QLabel("Port")
         self.param2 = QLineEdit()
+        self.param2.setText("8443")
         layout.addRow(self.labelPort, self.param2)
 
         self.buttonOk = QPushButton('&OK', clicked=self.checkAndSend)

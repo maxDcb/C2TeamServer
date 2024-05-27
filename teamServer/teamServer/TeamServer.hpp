@@ -70,6 +70,7 @@ protected:
     int prepMsg(std::string& input, C2Message& c2Message);
 
 private:
+    bool m_isSocksServerRunning;
     void runSocksServer(int port, const std::string& listenerHash, const std::string& beaconHash);
 
     nlohmann::json m_config;

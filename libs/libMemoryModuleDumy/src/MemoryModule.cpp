@@ -1,20 +1,32 @@
 #include "MemoryModule.h"
 
-#include <vector>
 #include <fstream>
 
 #include <dlfcn.h>
 #include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
-#define SHM_NAME "testshm"
+
+void generateRandomShmName(char *name, size_t length) 
+{
+    // Define the character set to choose from
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    size_t charsetSize = sizeof(charset) - 1;
+
+    // Seed the random number generator (if not already done)
+    srand(time(NULL));
+
+    // Generate random characters
+    for (size_t i = 0; i < length; i++) {
+        int randomIndex = rand() % charsetSize;
+        name[i] = charset[randomIndex];
+    }
+
+    // Null-terminate the string
+    name[length] = '\0';
+}
 
 
 int kernel_version() 
@@ -54,86 +66,74 @@ int kernel_version()
 }
 
 
-int open_ramfs(void) 
-{
-	int shm_fd;
-
-	//If we have a kernel < 3.17
-	if (kernel_version() == 0) 
-	{
-		// https://man7.org/linux/man-pages/man3/shm_open.3.html
-		shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, S_IRWXU);
-		if (shm_fd < 0) 
-		{
-			fprintf(stderr, "[-] Could not open file descriptor\n");
-			exit(-1);
-		}
-	}
-	// If we have a kernel >= 3.17
-	else 
-	{
-		// https://man7.org/linux/man-pages/man2/memfd_create.2.html
-		shm_fd = memfd_create(SHM_NAME, 1);
-		if (shm_fd < 0) 
-		{
-			fprintf(stderr, "[-] Could not open file descriptor\n");
-			exit(-1);
-		}
-	}
-	return shm_fd;
-}
-
-
 HMEMORYMODULE MemoryLoadLibrary(const void *moduleData, size_t size)
 {
+	char shmName[6];
+	generateRandomShmName(shmName, 5);
+
 	// 
 	// create the shms
 	//
 	int shm_fd;
 
-	std::cout << "kernel_version() " << kernel_version() << std::endl;
+	// std::cout << "kernel_version() " << kernel_version() << std::endl;
 
 	//If we have a kernel < 3.17
 	if (kernel_version() == 0) 
 	{
-		shm_fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, S_IRWXU);
+		shm_fd = shm_open(shmName, O_RDWR | O_CREAT, S_IRWXU);
 		if (shm_fd < 0) 
 		{ 
-			fprintf(stderr, "[-] Could not open file descriptor\n");
+			// fprintf(stderr, "[-] Could not open file descriptor\n");
 			return nullptr;
 		}
 	}
 	// If we have a kernel >= 3.17
 	else 
 	{
-		shm_fd = memfd_create(SHM_NAME, 1);
+		shm_fd = memfd_create(shmName, 1);
 		if (shm_fd < 0) 
 		{
-			fprintf(stderr, "[-] Could not open file descriptor\n");
+			// fprintf(stderr, "[-] Could not open file descriptor\n");
 			return nullptr;
 		}
 	}
 
 	// memcpy in shm
 	write(shm_fd, moduleData, size);
-
-	char path[1024];
+	
 	void *handle=NULL;
 
-	printf("[+] Trying to load Shared Object!\n");
-	if (kernel_version() == 1) 
+	// printf("[+] Trying to load Shared Object!\n");
+	if(kernel_version() == 0) 
 	{
-		snprintf(path, 1024, "/proc/%d/fd/%d", getpid(), shm_fd);
+		std::string path = "/dev/shm/";
+		path+=shmName;
+
+		handle = dlopen(path.c_str(), RTLD_LAZY);
+
+		close(shm_fd);
+		shm_unlink(path.c_str());
 	} 
 	else 
-	{
+	{	
+		// When we pass the file descriptor, as the number is alwayse the same dlopen give use the same handle everytime
+		// We create a syslink with a random name to bypass this restriction
+		std::string path = "/proc/";
+		path+=std::to_string(getpid());
+		path+="/fd/";
+		path+=std::to_string(shm_fd);
+
+		std::string symlinkPath = "/tmp/";
+		symlinkPath+=shmName;
+
+		symlink(path.c_str(), symlinkPath.c_str());
+
+		handle = dlopen(symlinkPath.c_str(), RTLD_LAZY);
+
+		unlink(symlinkPath.c_str());
 		close(shm_fd);
-		snprintf(path, 1024, "/dev/shm/%s", SHM_NAME);
-	}
-
-	handle = dlopen(path, RTLD_LAZY);
-
-	close(shm_fd);
+	}	
 
 	return handle;
 }

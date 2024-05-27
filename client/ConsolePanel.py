@@ -431,6 +431,10 @@ completerData = [
     ('spawnAs',[
         ('user password implant.exe',  []),
     ]),
+    ('socks',[
+        ('start 1080',  []),
+        ('stop',  []),
+    ]),
     ('evasion',[
         ('CheckHooks',  []),
         ('Unhook',  []),
