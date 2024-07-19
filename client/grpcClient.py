@@ -59,4 +59,8 @@ class GrpcClient:
         response = self.stub.GetHelp(command)
         return response
 
+    def sendTermCmd(self, command):
+        response = self.stub.SendTermCmd(command)
+        return response
+
 

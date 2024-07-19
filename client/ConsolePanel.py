@@ -8,6 +8,8 @@ from PyQt5.QtCore import *
 
 from grpcClient import *
 
+from TerminalPanel import *
+
 
 #
 # Consoles
@@ -31,6 +33,14 @@ class ConsolesTab(QWidget):
         # Add tabs to widget
         self.layout.addWidget(self.tabs)
         self.setLayout(self.layout)
+
+        tab = QWidget()
+        self.tabs.addTab(tab, "Terminal")
+        tab.layout = QVBoxLayout(self.tabs)
+        terminal = Terminal(self, self.ip, self.port, self.devMode)
+        tab.layout.addWidget(terminal)
+        tab.setLayout(tab.layout)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
         
     @pyqtSlot()
     def on_click(self):
@@ -57,6 +67,8 @@ class ConsolesTab(QWidget):
 
     def closeTab(self, currentIndex):
         currentQWidget = self.tabs.widget(currentIndex)
+        if currentIndex==0:
+            return
         currentQWidget.deleteLater()
         self.tabs.removeTab(currentIndex)
 

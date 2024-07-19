@@ -13,10 +13,11 @@ service TeamServerApi
   rpc GetSessions(Empty) returns (stream Session) {}
   rpc StopSession(Session) returns (Response) {}
 
+  rpc GetHelp(Command) returns (CommandResponse) {}
   rpc SendCmdToSession(Command) returns (Response) {}
   rpc GetResponseFromSession(Session) returns (stream CommandResponse) {}
 
-  rpc GetHelp(Command) returns (CommandResponse) {}
+  rpc SendTermCmd(TermCommand) returns (TermCommand) {}
 }
 
 
@@ -80,4 +81,12 @@ message CommandResponse
   string instruction = 2;
   string cmd = 3;
   bytes response = 4;
+}
+
+
+message TermCommand 
+{
+  string cmd = 1;
+  string result = 2;
+  bytes data = 3;
 }

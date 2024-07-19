@@ -887,6 +887,22 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 }
 
 
+grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
+{
+	m_logger->trace("SendTermCmd");
+
+	std::string cmd = command->cmd();
+	std::cout << "cmd " << cmd << std::endl;
+
+	teamserverapi::TermCommand responseTmp;
+	responseTmp.set_result("OK");
+
+	*response = responseTmp;
+
+	return grpc::Status::OK;
+}
+
+
 // Split input based on spaces and single quotes
 // Use single quote to passe aguments as a single parameters even if it's contain spaces
 // Singles quotes are removed

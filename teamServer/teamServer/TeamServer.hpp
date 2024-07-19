@@ -65,6 +65,8 @@ public:
 
     grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::CommandResponse* commandResponse);
 
+    grpc::Status SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response);
+    
 protected:
     bool isListenerAlive(std::string listenerHash);
     int prepMsg(std::string& input, C2Message& c2Message);
