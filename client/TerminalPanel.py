@@ -127,6 +127,8 @@ exemple:
                 portDownload = results[2]
                 downloadPath = results[3]
                 if not downloadPath:
+                    error = "Error: Download listener must be of type http or https."
+                    self.editorOutput.insertPlainText(error)
                     return
 
                 if downloadPath[0]=="/":
