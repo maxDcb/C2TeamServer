@@ -7,4 +7,5 @@ foreach(ClientFile ${ClientFiles})
             copy ${ClientFile} ${CMAKE_SOURCE_DIR}/Release/Client/)
 endforeach()
 
+file(COPY PowershellWebDelivery DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 

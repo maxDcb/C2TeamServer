@@ -1,6 +1,8 @@
 {
     "//LogLevelValues": "trace, debug, info, warning, error, fatal",
     "LogLevel": "info",
+    "IpInterface": "eth0",
+    "DomainName": "",
     "ServerGRPCAdd": "0.0.0.0",
     "ServerGRPCPort": "50051",
     "ServCrtFile": "server.crt",

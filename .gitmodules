@@ -19,3 +19,6 @@
 [submodule "libs/libSocks5"]
 	path = libs/libSocks5
 	url = https://github.com/maxDcb/libSocks5.git
+[submodule "client/PowershellWebDelivery"]
+	path = client/PowershellWebDelivery
+	url = https://github.com/maxDcb/PowershellWebDelivery.git
