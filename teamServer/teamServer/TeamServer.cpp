@@ -1034,6 +1034,13 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					responseTmp.set_result(result);
 				}
 			}
+
+			if(responseTmp.result().empty())
+			{
+				responseTmp.set_result("Error: Listener not found.");
+				*response = responseTmp;
+				return grpc::Status::OK;
+			}
 		}
 		else
 		{
@@ -1055,43 +1062,49 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 				if (hash.find(listenerHash) != std::string::npos) 
 				{
 					std::string type = m_listeners[i]->getType();
-
+					std::string beaconFilePath = "";
 					if(type == ListenerHttpType || type == ListenerHttpsType )
 					{
-						std::ifstream input( "../Beacons/BeaconHttp.exe", std::ios::binary );
-						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-
-						responseTmp.set_data(binaryData);
+						beaconFilePath = "../Beacons/BeaconHttp.exe";
 					}
 					else if(type == ListenerTcpType )
 					{
-						std::ifstream input( "../Beacons/BeaconTcp.exe", std::ios::binary );
-						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-
-						responseTmp.set_data(binaryData);
+						beaconFilePath = "../Beacons/BeaconTcp.exe";
 					}
 					else if(type == ListenerSmbType )
 					{
-						std::ifstream input( "../Beacons/BeaconSmb.exe", std::ios::binary );
-						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-
-						responseTmp.set_data(binaryData);
+						beaconFilePath = "../Beacons/BeaconSmb.exe";
 					}
 					else if(type == ListenerGithubType )
 					{
-						std::ifstream input( "../Beacons/BeaconGithub.exe", std::ios::binary );
-						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-
-						responseTmp.set_data(binaryData);
+						beaconFilePath = "../Beacons/BeaconGithub.exe";
 					}
 					else if(type == ListenerDnsType )
 					{
-						std::ifstream input( "../Beacons/BeaconDns.exe", std::ios::binary );
-						std::string binaryData((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+						beaconFilePath = "../Beacons/BeaconDns.exe";
+					}
 
+					std::ifstream beaconFile(beaconFilePath, std::ios::binary );
+					if (beaconFile.good()) 
+					{
+						std::string binaryData((std::istreambuf_iterator<char>(beaconFile)), std::istreambuf_iterator<char>());
 						responseTmp.set_data(binaryData);
+						responseTmp.set_result("ok");
+					}
+					else
+					{
+						responseTmp.set_result("Error: Beacons not found.");
+						*response = responseTmp;
+						return grpc::Status::OK;
 					}
 				}
+			}
+
+			if(responseTmp.result().empty())
+			{
+				responseTmp.set_result("Error: Listener not found.");
+				*response = responseTmp;
+				return grpc::Status::OK;
 			}
 		}
 		else
@@ -1126,23 +1139,30 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 				{
 					std::string type = m_listeners[i]->getType();
 
-					if (type == ListenerHttpType)
+					try 
 					{
-						json configHttp = m_config["ListenerHttpConfig"];
+						if (type == ListenerHttpType)
+						{
+							json configHttp = m_config["ListenerHttpConfig"];
 
-						auto it = configHttp[0].find("downloadFolder");
-						if(it != configHttp[0].end())
-							downloadFolder = configHttp[0]["downloadFolder"].get<std::string>();;
-										
+							auto it = configHttp[0].find("downloadFolder");
+							if(it != configHttp[0].end())
+								downloadFolder = configHttp[0]["downloadFolder"].get<std::string>();;
+											
+						}
+						else if (type == ListenerHttpsType)
+						{
+							json configHttps = m_config["ListenerHttpsConfig"];
+
+							auto it = configHttps[0].find("downloadFolder");
+							if(it != configHttps[0].end())
+								downloadFolder = configHttps[0]["downloadFolder"].get<std::string>();;
+						}
 					}
-					else if (type == ListenerHttpsType)
+					catch(...) 
 					{
-						json configHttps = m_config["ListenerHttpsConfig"];
-
-						auto it = configHttps[0].find("downloadFolder");
-						if(it != configHttps[0].end())
-							downloadFolder = configHttps[0]["downloadFolder"].get<std::string>();;
-					}
+						responseTmp.set_result("Error: Value not found in config file.");
+					} 
 				}
 			}
 
@@ -1152,11 +1172,11 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 				filePath+="/";
 				filePath+=filename;
 
-				ofstream wf(filePath, ios::out | ios::binary);
-				if (wf) 
+				ofstream outputFile(filePath, ios::out | ios::binary);
+				if (outputFile.good()) 
 				{
-					wf << data;
-					wf.close();
+					outputFile << data;
+					outputFile.close();
 					responseTmp.set_result("ok");
 				}
 				else
