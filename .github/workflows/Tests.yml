@@ -44,7 +44,7 @@ jobs:
       run: ctest --test-dir build 
 
     - name: Configure CMake like the release
-      run: cmake -B ${{github.workspace}}/buildRelease -DWITH_TESTS=OFF
+      run: cmake -B ${{github.workspace}}/buildRelease -DWITH_TESTS=OFF -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
 
     - name: Build like the release
       run: cmake --build ${{github.workspace}}/buildRelease -j 18
