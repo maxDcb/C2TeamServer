@@ -1,5 +1,9 @@
 # Exploration C2
 
+<p align="center">
+<img src="https://github.com/maxDcb/C2TeamServer/blob/master/images/Exploration1.png?raw=true" />
+</p>
+
 ## What it is
 
 Exploration is a rudimentary redteam Command and Control framework.  
@@ -53,6 +57,19 @@ python3 GUI.py --ip 127.0.0.0 --port 50051 --dev
 
 
 ## Beacons
+
+### Delivery
+
+Beacons can be deliver using the integrated methodes:  
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/GenerateDropper.png?raw=true)  
+
+| Mehode           | Description      |
+| :--------------- | :--------------- |
+| Host             | Upload a file on the teamserver to be downloaded by a web request from a web listener (http/https). |
+| Generate         | Mode available: <br>WindowsExecutable generate 2 droppers, an EXE and a DLL from the appropriate beacon link to the given listener. |
+| GenerateAndHost  | Mode available: <br>PowershellWebDelivery generate a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https), and the oneliner in powershell to deliver the payload. |
+
 
 ### Windows Beacon
 
@@ -119,9 +136,9 @@ Two side projects can be used to deliver the beacons:
 
 ### Linux Beacon
 
-A very basic Linux Beacons coded in python and can be found here: [C2ImplantPy](https://github.com/maxDcb/C2ImplantPy).
+A very basic Linux Beacons coded in python can be found here: [C2ImplantPy](https://github.com/maxDcb/C2ImplantPy).
 
-An other very basic Linux Beacons coded in Nim and can be found here: [C2ImplantPy](https://github.com/maxDcb/C2ImplantNim).
+An other very basic Linux Beacons coded in Nim can be found here: [C2ImplantPy](https://github.com/maxDcb/C2ImplantNim).
 
 
 ## Build the TeamServer

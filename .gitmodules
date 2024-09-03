@@ -22,3 +22,6 @@
 [submodule "client/PowershellWebDelivery"]
 	path = client/PowershellWebDelivery
 	url = https://github.com/maxDcb/PowershellWebDelivery.git
+[submodule "client/PeDropper"]
+	path = client/PeDropper
+	url = https://github.com/maxDcb/PeDropper.git
