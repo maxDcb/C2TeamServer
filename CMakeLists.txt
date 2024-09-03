@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14.0 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 project(C2TeamServer VERSION 0.0.0 LANGUAGES CXX C)
 set(CMAKE_BUILD_TYPE Release)
@@ -9,17 +9,6 @@ set(CMAKE_CXX_STANDARD 17)
 ## Conan Dependencies
 ##
 
-if(NOT EXISTS "${CMAKE_BINARY_DIR}/conan.cmake")
-	file(DOWNLOAD "https://raw.githubusercontent.com/conan-io/cmake-conan/master/conan.cmake" "${CMAKE_BINARY_DIR}/conan.cmake")
-endif()
-
-include(${CMAKE_BINARY_DIR}/conan.cmake)
-
-conan_cmake_configure(REQUIRES protobuf/3.21.12 boost/1.84.0 openssl/3.2.1 zlib/1.3.1 grpc/1.54.3 spdlog/1.14.1 nlohmann_json/3.11.3 cpp-httplib/0.15.3 GENERATORS CMakeDeps)
-
-conan_cmake_install(PATH_OR_REFERENCE .
-                    BUILD never
-                    SETTINGS ${settings})
 
 set(CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
 

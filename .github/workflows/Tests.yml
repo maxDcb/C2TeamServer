@@ -35,7 +35,7 @@ jobs:
       run: conan profile detect
       
     - name: Configure CMake for tests
-      run: cmake -B ${{github.workspace}}/build
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
 
     - name: Build for test
       run: cmake --build ${{github.workspace}}/build -j 18

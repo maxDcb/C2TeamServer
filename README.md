@@ -163,11 +163,11 @@ sudo apt install golang-cfssl
 sudo apt install cmake 
 
 pip3 install pycryptodome
-pip install conan
-pip install grpcio
-pip install PyQt5
-pip install pyqtdarktheme
-pip install protobuf
+pip3 install conan==2.1.0
+pip3 install grpcio==1.66.1
+pip3 install PyQt5
+pip3 install pyqtdarktheme
+pip3 install protobuf==5.27.0
 
 conan profile detect
 
