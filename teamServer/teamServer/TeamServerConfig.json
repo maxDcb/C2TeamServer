@@ -1,8 +1,10 @@
 {
     "//LogLevelValues": "trace, debug, info, warning, error, fatal",
     "LogLevel": "info",
-    "IpInterface": "eth0",
+    "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
+    "ExposedIp": "",
+    "IpInterface": "eth0",
     "ServerGRPCAdd": "0.0.0.0",
     "ServerGRPCPort": "50051",
     "ServCrtFile": "server.crt",

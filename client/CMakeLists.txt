@@ -8,4 +8,5 @@ foreach(ClientFile ${ClientFiles})
 endforeach()
 
 file(COPY PowershellWebDelivery DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY PeDropper DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 

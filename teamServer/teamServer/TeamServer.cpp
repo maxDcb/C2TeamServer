@@ -978,21 +978,26 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 				{
 					std::string type = m_listeners[i]->getType();
 
-					std::string interface="";
-					auto it = m_config.find("IpInterface");
-					if(it != m_config.end())
-						interface = m_config["IpInterface"].get<std::string>();
-
 					std::string domainName="";
-					it = m_config.find("DomainName");
+					auto it = m_config.find("DomainName");
 					if(it != m_config.end())
 						domainName = m_config["DomainName"].get<std::string>();
+
+					std::string exposedIp="";
+					it = m_config.find("ExposedIp");
+					if(it != m_config.end())
+						exposedIp = m_config["ExposedIp"].get<std::string>();
+
+					std::string interface="";
+					it = m_config.find("IpInterface");
+					if(it != m_config.end())
+						interface = m_config["IpInterface"].get<std::string>();
 
 					std::string ip = "";
 					if(!interface.empty())
 						ip = getIPAddress(interface);
 
-					if(ip.empty() && domainName.empty())
+					if(ip.empty() && domainName.empty() && exposedIp.empty())
 					{
 						responseTmp.set_result("Error: No IP or Hostname in config.");
 						*response = responseTmp;
@@ -1024,6 +1029,8 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					result+="\n";
 					if(!domainName.empty())
 						result+=domainName;
+					else if(!exposedIp.empty())
+						result+=exposedIp;
 					else if(!ip.empty())
 						result+=ip;
 					result+="\n";

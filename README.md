@@ -186,7 +186,7 @@ git submodule update --init
 
 mkdir build
 cd build
-cmake ..
+cmake .. -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake
 make -j4
 ```
 
