@@ -11,11 +11,13 @@ from ListenerPanel import *
 from SessionPanel import *
 from ConsolePanel import *
 from PayloadPanel import *
+from GraphPanel import *
 
 import qdarktheme
 
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
+
 
 class App(QMainWindow):
 
@@ -24,6 +26,7 @@ class App(QMainWindow):
 
         self.ip = ip
         self.port = port
+        self.devMode = devMode
 
         self.createPayloadWindow = None
         
@@ -38,46 +41,59 @@ class App(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        self.m_w11 = QWidget()
-        self.m_w12 = QWidget()
-        self.m_w21 = QWidget()
-
         config_button = QPushButton("Payload")
         config_button.clicked.connect(self.payloadForm)
 
-        lay = QGridLayout(central_widget)
-        lay.setRowStretch(1, 3)
-        lay.setRowStretch(2, 7)
-        # TODO complet PayloadPanel
-        # row: int, column: int, rowSpan: int, columnSpan: int, alignment
-        #lay.addWidget(config_button, 0, 0, 1, 1)
-        lay.addWidget(self.m_w11, 1, 0, 1, 1)
-        lay.addWidget(self.m_w12, 1, 1, 1, 1)
-        lay.addWidget(self.m_w21, 2, 0, 1, 2)
+        self.mainLayout = QGridLayout(central_widget)
+        self.mainLayout.setContentsMargins(0, 0, 0, 0)
+        self.mainLayout.setRowStretch(1, 3)
+        self.mainLayout.setRowStretch(2, 7)
 
-        lay = QVBoxLayout(self.m_w11)
-        sessionsWidget = Sessions(self, ip, port, devMode)
-        lay.addWidget(sessionsWidget)
+        self.topLayout()
+        self.botLayout()
 
-        lay = QVBoxLayout(self.m_w12)
-        listenersWidget = Listeners(self, ip, port, devMode)
-        lay.addWidget(listenersWidget)
-
-        lay = QVBoxLayout(self.m_w21)
-        consoleWidget = ConsolesTab(self, ip, port, devMode)
-        lay.addWidget(consoleWidget)
-
-        sessionsWidget.interactWithSession.connect(consoleWidget.addConsole)
+        self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
         
         self.show()
 
+
+    def topLayout(self):
+
+        self.topWidget = QTabWidget()
+
+        self.m_main = QWidget()
+
+        self.m_main.layout = QHBoxLayout(self.m_main)
+        self.m_main.layout.setContentsMargins(0, 0, 0, 0)
+        self.sessionsWidget = Sessions(self, self.ip, self.port, self.devMode)
+        self.m_main.layout.addWidget(self.sessionsWidget)
+        self.listenersWidget = Listeners(self, self.ip, self.port, self.devMode)
+        self.m_main.layout.addWidget( self.listenersWidget)
+
+        self.topWidget.addTab(self.m_main, "Main")
+
+        self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
+
+        self.topWidget.addTab(self.graphWidget, "Graph")
+
+        self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
+
+
+    def botLayout(self):
+
+        self.consoleWidget = ConsolesTab(self, self.ip, self.port, self.devMode)
+        self.mainLayout.addWidget(self.consoleWidget, 2, 0, 1, 2)
+
+
     def __del__(self):
         print("Exit")
+
 
     def payloadForm(self):
         if self.createPayloadWindow is None:
             self.createPayloadWindow = CreatePayload()
         self.createPayloadWindow.show()
+
 
 if __name__ == '__main__':
 

