@@ -19,9 +19,9 @@ class GrpcClient:
 
         credentials = grpc.ssl_channel_credentials(root_certs)
         if devMode:
-            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=(('grpc.ssl_target_name_override', "localhost",),))
+            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=[('grpc.ssl_target_name_override', "localhost",), ('grpc.max_send_message_length', 512 * 1024 * 1024), ('grpc.max_receive_message_length', 512 * 1024 * 1024)])
         else:
-            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials)
+            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=[('grpc.max_send_message_length', 512 * 1024 * 1024), ('grpc.max_receive_message_length', 512 * 1024 * 1024)])
         grpc.channel_ready_future(self.channel).result()
         self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
 
