@@ -18,7 +18,6 @@ find_package(OpenSSL REQUIRED)
 find_package(protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
-find_package(nlohmann_json REQUIRED)
 find_package(httplib REQUIRED)
 
 include_directories(${CMAKE_INCLUDE_PATH})
@@ -40,6 +39,8 @@ endif()
 ##
 ## Build
 ##
+
+include_directories(thirdParty)
 
 add_subdirectory(libs)
 

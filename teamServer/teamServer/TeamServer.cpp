@@ -1,87 +1,25 @@
 #include "TeamServer.hpp"
 
+#include <dlfcn.h>
+
 #include <functional>
 #include <fstream>
+#include <filesystem>
 
 using namespace std;
 using namespace std::placeholders;
+namespace fs = std::filesystem;
 
 using json = nlohmann::json;
+
+
+typedef ModuleCmd* (*constructProc)();
 
 
 TeamServer::TeamServer(const nlohmann::json& config) 
 : m_config(config)
 , m_isSocksServerRunning(false)
 {
-	std::unique_ptr<AssemblyExec> assemblyExec = std::make_unique<AssemblyExec>();
-	m_moduleCmd.push_back(std::move(assemblyExec));
-
-	std::unique_ptr<Upload> upload = std::make_unique<Upload>();
-	m_moduleCmd.push_back(std::move(upload));
-
-	std::unique_ptr<Run> run = std::make_unique<Run>();
-	m_moduleCmd.push_back(std::move(run));
-
-	std::unique_ptr<Download> download = std::make_unique<Download>();
-	m_moduleCmd.push_back(std::move(download));
-
-	std::unique_ptr<Inject> inject = std::make_unique<Inject>();
-	m_moduleCmd.push_back(std::move(inject));
-	
-	std::unique_ptr<Script> script = std::make_unique<Script>();
-	m_moduleCmd.push_back(std::move(script));
-
-	std::unique_ptr<PrintWorkingDirectory> printWorkingDirectory = std::make_unique<PrintWorkingDirectory>();
-	m_moduleCmd.push_back(std::move(printWorkingDirectory));
-
-	std::unique_ptr<ChangeDirectory> changeDirectory = std::make_unique<ChangeDirectory>();
-	m_moduleCmd.push_back(std::move(changeDirectory));
-
-	std::unique_ptr<ListDirectory> listDirectory = std::make_unique<ListDirectory>();
-	m_moduleCmd.push_back(std::move(listDirectory));
-
-	std::unique_ptr<ListProcesses> listProcesses = std::make_unique<ListProcesses>();
-	m_moduleCmd.push_back(std::move(listProcesses));
-
-	std::unique_ptr<MakeToken> makeToken = std::make_unique<MakeToken>();
-	m_moduleCmd.push_back(std::move(makeToken));
-	
-	std::unique_ptr<Rev2self> rev2self = std::make_unique<Rev2self>();
-	m_moduleCmd.push_back(std::move(rev2self));
-
-	std::unique_ptr<StealToken> stealToken = std::make_unique<StealToken>();
-	m_moduleCmd.push_back(std::move(stealToken));
-
-	std::unique_ptr<CoffLoader> coffLoader = std::make_unique<CoffLoader>();
-	m_moduleCmd.push_back(std::move(coffLoader));
-
-	std::unique_ptr<KerberosUseTicket> kerberosUseTicket = std::make_unique<KerberosUseTicket>();
-	m_moduleCmd.push_back(std::move(kerberosUseTicket));
-
-	std::unique_ptr<Powershell> powershell = std::make_unique<Powershell>();
-	m_moduleCmd.push_back(std::move(powershell));
-
-	std::unique_ptr<PsExec> psExec = std::make_unique<PsExec>();
-	m_moduleCmd.push_back(std::move(psExec));
-
-	std::unique_ptr<Chisel> chisel = std::make_unique<Chisel>();
-	m_moduleCmd.push_back(std::move(chisel));
-
-	std::unique_ptr<SpawnAs> spawnAs = std::make_unique<SpawnAs>();
-	m_moduleCmd.push_back(std::move(spawnAs));
-
-	std::unique_ptr<Evasion> evasion = std::make_unique<Evasion>();
-	m_moduleCmd.push_back(std::move(evasion));
-
-	std::unique_ptr<Cat> cat = std::make_unique<Cat>();
-	m_moduleCmd.push_back(std::move(cat));
-
-	std::unique_ptr<Tree> tree = std::make_unique<Tree>();
-	m_moduleCmd.push_back(std::move(tree));
-
-	std::unique_ptr<WmiExec> wmiExec = std::make_unique<WmiExec>();
-	m_moduleCmd.push_back(std::move(wmiExec));
-
 	// Logger
 	std::vector<spdlog::sink_ptr> sinks;
 
@@ -98,19 +36,52 @@ TeamServer::TeamServer(const nlohmann::json& config)
 	std::string logLevel = config["LogLevel"].get<std::string>();
 	m_logger->set_level(spdlog::level::trace);
 
-	// TODO if we want to set the logger level we need to propagate the value to the listeners as well
-	// if(logLevel=="trace")
-	// 	m_logger->set_level(spdlog::level::trace);
-	// else if(logLevel=="debug")
-	// 	m_logger->set_level(spdlog::level::debug);
-	// else if(logLevel=="info")
-	// 	m_logger->set_level(spdlog::level::info);
-	// else if(logLevel=="warning")
-	// 	m_logger->set_level(spdlog::level::warn);
-	// else if(logLevel=="error")
-	// 	m_logger->set_level(spdlog::level::err);
-	// else if(logLevel=="fatal")
-	// 	m_logger->set_level(spdlog::level::critical);
+	// Modules
+	std::string directoryPath = "../Modules/";
+	try 
+	{
+        for (const auto& entry : fs::recursive_directory_iterator(directoryPath)) 
+		{
+            if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
+			{
+				m_logger->info("Trying to load {0}", entry.path().c_str());
+
+				void *handle = dlopen(entry.path().c_str(), RTLD_LAZY);
+
+				if (!handle) 
+				{
+					m_logger->warn("Failed to load {0}", entry.path().c_str());
+					continue;
+				}
+
+				std::string funcName = entry.path().filename();
+				funcName = funcName.substr(3); 							// remove lib
+				funcName = funcName.substr(0, funcName.length() - 3);	// remove .so
+				funcName += "Constructor";								// add Constructor
+
+				m_logger->info("Looking for construtor function {0}", funcName);
+
+				constructProc construct = (constructProc)dlsym(handle, funcName.c_str());
+				if(construct == NULL) 
+				{
+					m_logger->warn("Failed to find construtor");
+					dlclose(handle);
+					continue;
+				}
+
+				ModuleCmd* moduleCmd = construct();
+
+				std::unique_ptr<ModuleCmd> moduleCmd_(moduleCmd);
+				m_moduleCmd.push_back(std::move(moduleCmd_));
+
+				m_logger->info("Module {0} loaded", entry.path().filename().c_str());
+            }
+        }
+    }
+	catch (const std::filesystem::filesystem_error& e) 
+	{
+		m_logger->warn("Error accessing module directory");
+    }	
 }
 
 
@@ -1202,6 +1173,11 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 			*response = responseTmp;
 			return grpc::Status::OK;
 		}
+	}
+	// TODO
+	else if(instruction=="reloadModules")
+	{
+		// reload all the modules of the ../Modules directory
 	}
 	else
 	{
