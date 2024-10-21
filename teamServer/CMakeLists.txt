@@ -16,9 +16,9 @@ set(SOURCES_TEAMSERVER
 ## TeamServer
 add_executable(TeamServer ${SOURCES_TEAMSERVER})
 if(WIN32)
-	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages ${Donut} CoffLoader CoffPacker openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog SocksServer)
+	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog SocksServer)
 else()
-	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages ${Donut} ${aplib64} pthread CoffLoader CoffPacker openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib SocksServer)
+	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib SocksServer)
 endif()
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
 $<TARGET_FILE:TeamServer> "${CMAKE_SOURCE_DIR}/Release/TeamServer/$<TARGET_FILE_NAME:TeamServer>")

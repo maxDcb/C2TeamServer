@@ -742,6 +742,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 				while(!c2Message.instruction().empty())
 				{
 					std::string instruction = c2Message.instruction();
+					std::string errorMsg;
 					for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
 					{
 						if (instruction == (*it)->getName())
@@ -750,6 +751,8 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 							// TODO to put in a separate thread
 							(*it)->followUp(c2Message);
+
+							(*it)->errorCodeToMsg(c2Message, errorMsg);
 						}
 					}
 
@@ -764,8 +767,11 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 					teamserverapi::CommandResponse commandResponseTmp;
 					commandResponseTmp.set_beaconhash(beaconHash);
 					commandResponseTmp.set_instruction(c2Message.instruction());
-					commandResponseTmp.set_cmd(c2Message.cmd());
-					commandResponseTmp.set_response(c2Message.returnvalue());
+					commandResponseTmp.set_cmd(c2Message.cmd());		
+					if(!errorMsg.empty())
+						commandResponseTmp.set_response(errorMsg);
+					else
+						commandResponseTmp.set_response(c2Message.returnvalue());
 
 					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 

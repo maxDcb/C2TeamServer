@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 project(C2TeamServer VERSION 0.0.0 LANGUAGES CXX C)
 set(CMAKE_BUILD_TYPE Release)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 
 ##
@@ -49,7 +49,6 @@ include_directories(thirdParty/base64)
 include_directories(thirdParty/donut/include)
 include_directories(thirdParty/coffLoader/coffLoader)
 include_directories(thirdParty/coffLoader/coffPacker)
-# include_directories(thirdParty/cpp-httplib)
 
 if(WITH_TESTS)
     enable_testing()
