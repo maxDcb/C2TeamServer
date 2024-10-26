@@ -156,7 +156,7 @@ class Console(QWidget):
                 response = self.grpcClient.getHelp(command)
                 line = '<p style=\"color:orange;white-space:pre\">[+] ' + response.cmd + '</p>'
                 self.editorOutput.appendHtml(line)
-                line = '\n' + response.response.decode(encoding="ascii", errors="ignore")  + '\n';
+                line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n';
                 self.editorOutput.insertPlainText(line)
             else:
                 line = '<p style=\"color:orange;white-space:pre\">[+] send: \"' + commandLine + '\"</p>'
@@ -169,7 +169,7 @@ class Console(QWidget):
                     cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
                 if result.message:
-                    line = result.message + '\n';
+                    line = result.message.decode(encoding="latin1", errors="ignore") + '\n';
                     self.editorOutput.insertPlainText(line)
         self.setCursorEditorAtEnd()
 
@@ -180,13 +180,13 @@ class Console(QWidget):
             self.setCursorEditorAtEnd()
             line = '<p style=\"color:red;white-space:pre\">[+] result: \"' + response.instruction + " " + response.cmd + '\"</p>'
             self.editorOutput.appendHtml(line)
-            line = '\n' + response.response.decode(encoding="ascii", errors="ignore")  + '\n'
+            line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n'
             self.editorOutput.insertPlainText(line)
             self.setCursorEditorAtEnd()
 
             logFile = open("./logs/"+self.logFileName, 'a')
             logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
-            logFile.write('\n' + response.response.decode(encoding="ascii", errors="ignore")  + '\n')
+            logFile.write('\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n')
             logFile.write('\n')
             logFile.close()
 

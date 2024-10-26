@@ -741,12 +741,15 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 				C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				while(!c2Message.instruction().empty())
 				{
-					std::string instruction = c2Message.instruction();
+					std::string instruction = c2Message.instruction();					
 					std::string errorMsg;
 					for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
 					{
-						if (instruction == (*it)->getName())
+						// TODO djb2 don't produce the same result in windows and linux compilation....
+						if (instruction == (*it)->getName() || instruction == std::to_string((*it)->getHash()))
 						{
+							instruction = (*it)->getName();
+
 							m_logger->debug("Call followUp");
 
 							// TODO to put in a separate thread
@@ -764,18 +767,26 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 						continue;
 					}
 					
-					teamserverapi::CommandResponse commandResponseTmp;
-					commandResponseTmp.set_beaconhash(beaconHash);
-					commandResponseTmp.set_instruction(c2Message.instruction());
-					commandResponseTmp.set_cmd(c2Message.cmd());		
-					if(!errorMsg.empty())
-						commandResponseTmp.set_response(errorMsg);
-					else
-						commandResponseTmp.set_response(c2Message.returnvalue());
-
 					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
-					writer->Write(commandResponseTmp);
+					teamserverapi::CommandResponse commandResponseTmp;
+					commandResponseTmp.set_beaconhash(beaconHash);
+					commandResponseTmp.set_instruction(instruction);
+					commandResponseTmp.set_cmd(c2Message.cmd());		
+					if(!errorMsg.empty())
+					{
+						commandResponseTmp.set_response(errorMsg);
+						writer->Write(commandResponseTmp);
+					}
+					else if(!c2Message.returnvalue().empty())
+					{
+						commandResponseTmp.set_response(c2Message.returnvalue());
+						writer->Write(commandResponseTmp);
+					}
+					else
+					{
+						m_logger->debug("GetResponseFromSession no output");
+					}
 
 					c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				}
