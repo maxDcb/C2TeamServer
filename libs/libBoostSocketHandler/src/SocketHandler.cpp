@@ -2,7 +2,13 @@
 
 #include <iostream>
 
-#include "spdlog/spdlog.h"
+#ifdef spdlog_FOUND
+	#include "spdlog/spdlog.h"
+#else 
+	#define SPDLOG_TRACE(...) (void)0
+	#define SPDLOG_DEBUG(...) (void)0
+	#define SPDLOG_ERROR(...) (void)0
+#endif
 
 using boost::asio::ip::tcp;
 using namespace SocketHandler;
