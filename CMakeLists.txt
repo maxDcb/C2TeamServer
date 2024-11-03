@@ -55,13 +55,13 @@ if(WITH_TESTS)
 endif()
 
 add_subdirectory(teamServer)
+add_subdirectory(core/modules)
 
 add_subdirectory(certs)
 
 add_subdirectory(client)
 
 if(WITH_TESTS)
-    add_subdirectory(core/modules)
     add_subdirectory(core/beacon)
     add_subdirectory(core/beacon/tests)
     add_subdirectory(core/listener/tests)
