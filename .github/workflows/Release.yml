@@ -62,6 +62,10 @@ jobs:
         rm -f Release/www/.gitignore
         wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2Implant/releases/latest' | jq -r '.assets[] | select(.name=="Release.zip").browser_download_url') -O ./C2Implant.zip
         unzip -o C2Implant.zip
+        rm -f C2Implant.zip
+        wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2LinuxImplant/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2LinuxImplant.tar.gz
+        tar -zxvf C2LinuxImplant.tar.gz
+        rm -f C2LinuxImplant.tar.gz
         tar -zcvf Release.tar.gz Release
 
     - name: Upload release
