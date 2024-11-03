@@ -50,7 +50,7 @@ jobs:
 
     - name: Prep release
       run: |
-        rm -f Release/Beacons
+        rm -rf Release/Beacons
         rm -f Release/Client/.gitignore
         rm -f Release/Client/logs/.gitignore
         rm -f Release/Client/libGrpcMessages/build/py/.gitignore
