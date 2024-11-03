@@ -60,4 +60,12 @@ private:
     std::vector<std::shared_ptr<Listener>> m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
+
+    std::string m_teamServerModulesDirectoryPath;
+    std::string m_linuxModulesDirectoryPath;
+    std::string m_windowsModulesDirectoryPath;
+    std::string m_linuxBeaconsDirectoryPath;
+    std::string m_windowsBeaconsDirectoryPath;
+    std::string m_toolsDirectoryPath;
+    std::string m_scriptsDirectoryPath;
 };

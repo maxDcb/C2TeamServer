@@ -36,11 +36,56 @@ TeamServer::TeamServer(const nlohmann::json& config)
 	std::string logLevel = config["LogLevel"].get<std::string>();
 	m_logger->set_level(spdlog::level::trace);
 
+	// Config directory
+	m_teamServerModulesDirectoryPath = config["TeamServerModulesDirectoryPath"].get<std::string>();
+	m_linuxModulesDirectoryPath = config["LinuxModulesDirectoryPath"].get<std::string>();
+	m_windowsModulesDirectoryPath = config["WindowsModulesDirectoryPath"].get<std::string>();
+	m_linuxBeaconsDirectoryPath = config["LinuxBeaconsDirectoryPath"].get<std::string>();
+	m_windowsBeaconsDirectoryPath = config["WindowsBeaconsDirectoryPath"].get<std::string>();
+	m_toolsDirectoryPath = config["ToolsDirectoryPath"].get<std::string>();
+	m_scriptsDirectoryPath = config["ScriptsDirectoryPath"].get<std::string>();
+
+	fs::path checkPath = m_teamServerModulesDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("TeamServer modules directory path don't exist: {0}", m_teamServerModulesDirectoryPath.c_str());
+
+	checkPath = m_linuxModulesDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Linux modules directory path don't exist: {0}", m_linuxModulesDirectoryPath.c_str());
+
+	checkPath = m_windowsModulesDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Windows modules directory path don't exist: {0}", m_windowsModulesDirectoryPath.c_str());
+
+	checkPath = m_linuxBeaconsDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Linux beacon directory path don't exist: {0}", m_linuxBeaconsDirectoryPath.c_str());
+
+	checkPath = m_windowsBeaconsDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Windows beacon directory path don't exist: {0}", m_windowsBeaconsDirectoryPath.c_str());
+
+	checkPath = m_toolsDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Tools directory path don't exist: {0}", m_toolsDirectoryPath.c_str());
+
+	checkPath = m_scriptsDirectoryPath;
+	if (!fs::exists(checkPath))
+		m_logger->error("Script directory path don't exist: {0}", m_scriptsDirectoryPath.c_str());
+
+	m_commonCommands.setDirectories(m_teamServerModulesDirectoryPath,
+		m_linuxModulesDirectoryPath,
+		m_windowsModulesDirectoryPath,
+		m_linuxBeaconsDirectoryPath,
+		m_windowsBeaconsDirectoryPath,
+		m_toolsDirectoryPath,
+		m_scriptsDirectoryPath);
+
 	// Modules
-	std::string directoryPath = "../Modules/";
+	m_logger->info("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
 	try 
 	{
-        for (const auto& entry : fs::recursive_directory_iterator(directoryPath)) 
+        for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
 		{
             if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
 			{
@@ -73,6 +118,14 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
 				std::unique_ptr<ModuleCmd> moduleCmd_(moduleCmd);
 				m_moduleCmd.push_back(std::move(moduleCmd_));
+
+				m_moduleCmd.back()->setDirectories(m_teamServerModulesDirectoryPath,
+					m_linuxModulesDirectoryPath,
+					m_windowsModulesDirectoryPath,
+					m_linuxBeaconsDirectoryPath,
+					m_windowsBeaconsDirectoryPath,
+					m_toolsDirectoryPath,
+					m_scriptsDirectoryPath);
 
 				m_logger->info("Module {0} loaded", entry.path().filename().c_str());
             }
@@ -1060,23 +1113,28 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					std::string beaconFilePath = "";
 					if(type == ListenerHttpType || type == ListenerHttpsType )
 					{
-						beaconFilePath = "../Beacons/BeaconHttp.exe";
+						beaconFilePath  = m_windowsBeaconsDirectoryPath;
+						beaconFilePath += "BeaconHttp.exe";
 					}
 					else if(type == ListenerTcpType )
 					{
-						beaconFilePath = "../Beacons/BeaconTcp.exe";
+						beaconFilePath  = m_windowsBeaconsDirectoryPath;
+						beaconFilePath += "BeaconTcp.exe";
 					}
 					else if(type == ListenerSmbType )
 					{
-						beaconFilePath = "../Beacons/BeaconSmb.exe";
+						beaconFilePath  = m_windowsBeaconsDirectoryPath;
+						beaconFilePath += "BeaconSmb.exe";
 					}
 					else if(type == ListenerGithubType )
 					{
-						beaconFilePath = "../Beacons/BeaconGithub.exe";
+						beaconFilePath  = m_windowsBeaconsDirectoryPath;
+						beaconFilePath += "BeaconGithub.exe";
 					}
 					else if(type == ListenerDnsType )
 					{
-						beaconFilePath = "../Beacons/BeaconDns.exe";
+						beaconFilePath  = m_windowsBeaconsDirectoryPath;
+						beaconFilePath += "BeaconDns.exe";
 					}
 
 					std::ifstream beaconFile(beaconFilePath, std::ios::binary );

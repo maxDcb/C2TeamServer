@@ -1,6 +1,13 @@
 {
     "//LogLevelValues": "trace, debug, info, warning, error, fatal",
     "LogLevel": "info",
+    "TeamServerModulesDirectoryPath": "../TeamServerModules/",
+    "LinuxModulesDirectoryPath": "../LinuxModules/",
+    "WindowsModulesDirectoryPath": "../WindowsModules/",
+    "LinuxBeaconsDirectoryPath": "../LinuxBeacons/",
+    "WindowsBeaconsDirectoryPath": "../WindowsBeacons/",
+    "ToolsDirectoryPath": "../Tools/",
+    "ScriptsDirectoryPath": "../Scripts/",
     "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
     "ExposedIp": "",
