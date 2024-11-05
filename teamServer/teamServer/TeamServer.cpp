@@ -238,6 +238,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
 			std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort);
+			listenerTcp->setIsPrimary();
 			m_listeners.push_back(std::move(listenerTcp));
 
 			m_logger->info("AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
@@ -249,6 +250,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
 			std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, configHttp, false);
+			listenerHttp->setIsPrimary();
 			m_listeners.push_back(std::move(listenerHttp));
 
 			m_logger->info("AddListener Http {0}:{1}", localHost, std::to_string(localPort));
@@ -260,6 +262,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			int localPort = listenerToCreate->port();
 			string localHost = listenerToCreate->ip();
 			std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, configHttps, true);
+			listenerHttps->setIsPrimary();
 			m_listeners.push_back(std::move(listenerHttps));
 
 			m_logger->info("AddListener Https {0}:{1}", localHost, std::to_string(localPort));
@@ -269,6 +272,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::string token = listenerToCreate->token();
 			std::string project = listenerToCreate->project();
 			std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token);
+			listenerGithub->setIsPrimary();
 			m_listeners.push_back(std::move(listenerGithub));
 
 			m_logger->info("AddListener Github {0}:{1}", project, token);
@@ -278,6 +282,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			std::string domain = listenerToCreate->domain();
 			int port = listenerToCreate->port();
 			std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port);
+			listenerDns->setIsPrimary();
 			m_listeners.push_back(std::move(listenerDns));
 
 			m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
@@ -517,12 +522,16 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 			socksListener = m_listeners[i];
 	}
 
+	m_logger->info("SocksListener ok");
+
 	std::shared_ptr<Session> session;
 	for(int kk=0; kk<socksListener->getNumberOfSession(); kk++)
 	{
 		if(socksListener->getSessionPtr(kk)->getBeaconHash()==beaconHash)
 			session = socksListener->getSessionPtr(kk);
 	}
+
+	m_logger->info("Session ok");
 
 	// Start socks beacon side
 	C2Message c2MessageStartSocks;
@@ -754,7 +763,7 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 						// start the server and launch a thread to handle socks messages
 						int port = std::atoi(c2Message.data().c_str());
 
-						std::thread t(&TeamServer::runSocksServer, this, port, listenerHash, beaconHash);
+						std::thread t(&TeamServer::runSocksServer, this, port, m_listeners[i]->getListenerHash(), beaconHash);
 						t.detach();
 					}
 
