@@ -20,8 +20,8 @@ class Graph(QWidget):
         width = self.frameGeometry().width()
         height = self.frameGeometry().height()
 
-        print("width", width)
-        print("height", height)
+        # print("width", width)
+        # print("height", height)
 
         self.ip = ip
         self.port = port

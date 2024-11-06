@@ -497,12 +497,22 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 {
 	// Start SocksServer
 	SocksServer socksServer(port);
-	socksServer.launch();
 
+	int maxAttempt=10;
+	int attempts=0;
+	// TODO crash when relanching too fast..
 	while(!socksServer.isServerLaunched())
 	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		socksServer.stop();
+		socksServer.launch();
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 		m_logger->info("Wait for SocksServer to start on port {}", port);
+		attempts++;
+		if(attempts>maxAttempt)
+		{
+			m_logger->error("Unable to start the SocksServer on port {} after {} attempts", port, maxAttempt);
+			return;
+		}
 	}
 
 	if(socksServer.isServerStoped())
@@ -763,8 +773,18 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 						// start the server and launch a thread to handle socks messages
 						int port = std::atoi(c2Message.data().c_str());
 
-						std::thread t(&TeamServer::runSocksServer, this, port, m_listeners[i]->getListenerHash(), beaconHash);
-						t.detach();
+						bool isPortInUse = port_in_use(port);
+						if(!isPortInUse)
+						{
+							std::thread t(&TeamServer::runSocksServer, this, port, m_listeners[i]->getListenerHash(), beaconHash);
+							t.detach();
+						}
+						else
+						{
+							m_logger->warn("Socket already used.");
+							response->set_message("Socks5: Socket already used.");
+							response->set_status(teamserverapi::KO);
+						}
 					}
 
 					// the start cmd is send by the thread to be sur that the server started succesfully
