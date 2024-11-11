@@ -25,3 +25,6 @@
 [submodule "client/PeDropper"]
 	path = client/PeDropper
 	url = https://github.com/maxDcb/PeDropper.git
+[submodule "client/GoDroplets"]
+	path = client/GoDroplets
+	url = https://github.com/almounah/GoDroplets

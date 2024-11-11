@@ -16,6 +16,8 @@ sys.path.insert(1, './PowershellWebDelivery/')
 import GeneratePowershellLauncher
 sys.path.insert(1, './PeDropper/')
 import GenerateDropperBinary
+sys.path.insert(1, './GoDroplets/')
+import GoDroplets.scripts.GenerateGoDroplets as GenerateGoDroplets
 
 if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
     sys.path.insert(1, './PeInjectorSyscall/')
@@ -86,6 +88,9 @@ class Terminal(QWidget):
                 self.runHelp()
 
             elif instructions[0]=="Generate" or instructions[0]=="gen":
+                self.runGenerate(commandLine, instructions)
+
+            elif instructions[0]=="GenerateGoDroplets" or instructions[0]=="gen-go":
                 self.runGenerate(commandLine, instructions)
 
             elif instructions[0]=="GenerateAndHost" or instructions[0]=="gah":
@@ -203,6 +208,15 @@ exemple:
 - Generate WindowsExecutable listenerHash exe/dll/service"""
 # - Generate MsOfficeMcaro listenerHash
 # - Generate HTMLApplication listenerHash
+            if instructions[0] == "GenerateGoDroplets" or instructions[0] == "gen-go":
+                helpMsg = """ GenerateGoDroplets:
+Generate payload to deploy beacon using Go and store it on the client. Running it without go will crash the UI.
+Example:
+- GenerateGoDroplets WindowsExecutable listenerHash exe
+- gen-go WindowsExecutable listenerHash dll
+- GenerateGoDroplets WindowsExecutable listenerHash all
+- gen-go WindowsExecutable listenerHash svc
+                """
 
             line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
@@ -265,6 +279,23 @@ exemple:
             beaconArg = ip+" "+port
             if scheme=="http" or scheme=="https":
                 beaconArg = beaconArg+" "+scheme
+
+            if instructions[0] == "GenerateGoDroplets" or instructions[0] == "gen-go":
+                formatOutput = instructions[3]
+                if not instructions[3] or not (instructions[3] in ["exe","dll","svc","all"]) :
+                    formatOutput = "exe"
+                print(formatOutput)
+                print(instructions[3])
+                exeName = listener+"_"+scheme
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line += "\n Generating GoDroplets Please Wait ....."
+
+                res = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
+                toprint = "\nGenerated the Following:\n"
+                toprint += ("\n").join(res)
+                self.editorOutput.insertPlainText(toprint)
+                return
 
             # launch PeDropper
             dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
@@ -708,6 +739,9 @@ completerData = [
     ('help',[]),
     ('Host',[]),
     ('Generate',[
+            ('WindowsExecutable',[]),
+             ]),
+    ('GenerateGoDroplets',[
             ('WindowsExecutable',[]),
              ]),
     ('GenerateAndHost',[
