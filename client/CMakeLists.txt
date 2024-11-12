@@ -9,4 +9,5 @@ endforeach()
 
 file(COPY PowershellWebDelivery DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 file(COPY PeDropper DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY GoDroplets DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 

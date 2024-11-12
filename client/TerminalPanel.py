@@ -90,9 +90,6 @@ class Terminal(QWidget):
             elif instructions[0]=="Generate" or instructions[0]=="gen":
                 self.runGenerate(commandLine, instructions)
 
-            elif instructions[0]=="GenerateGoDroplets" or instructions[0]=="gen-go":
-                self.runGenerate(commandLine, instructions)
-
             elif instructions[0]=="GenerateAndHost" or instructions[0]=="gah":
                 self.runGenerateAndHost(commandLine, instructions)
             
@@ -194,7 +191,8 @@ exemple:
 
 
     # Generate gen
-    #   Generate WindowsExecutable listener exe/dll/service 
+    #   Generate WindowsExecutable listener exe/dll/svc 
+    #   Generate GoWindowsExecutable listener exe/dll/svc 
     #   Generate MsOfficeMcaro listener
     #   Generate HTMLApplication listener
     #   Generate ...
@@ -205,33 +203,35 @@ exemple:
             helpMsg = """Generate:
 Generate generate a payload to deploy a beacon and store it on the client:
 exemple:
-- Generate WindowsExecutable listenerHash exe/dll/service"""
+- Generate WindowsExecutable listenerHash exe/dll/svc
+- Generate GoWindowsExecutable listenerHash exe/dll/svc"""
 # - Generate MsOfficeMcaro listenerHash
 # - Generate HTMLApplication listenerHash
-            if instructions[0] == "GenerateGoDroplets" or instructions[0] == "gen-go":
-                helpMsg = """ GenerateGoDroplets:
-Generate payload to deploy beacon using Go and store it on the client. Running it without go will crash the UI.
-Example:
-- GenerateGoDroplets WindowsExecutable listenerHash exe
-- gen-go WindowsExecutable listenerHash dll
-- GenerateGoDroplets WindowsExecutable listenerHash all
-- gen-go WindowsExecutable listenerHash svc
-                """
-
             line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
             return; 
 
         mode = instructions[1]
-        
-        if mode == "WindowsExecutable":
-            if len(instructions) < 3:
+        if mode == "WindowsExecutable" or mode == "GoWindowsExecutable":
+            if len(instructions) < 3 and mode == "WindowsExecutable":
                 line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
                 self.editorOutput.appendHtml(line)
                 helpMsg = """Generate WindowsExecutable:
 Generate WindowsExecutable, generate 2 modules dropper, one EXE and one DLL from the appropriate beacon link to the given listener:
 exemple:
 - Generate WindowsExecutable listenerHash"""
+
+                line = '\n' + helpMsg  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return; 
+            
+            elif len(instructions) < 3 and mode == "GoWindowsExecutable":
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                helpMsg = """Generate GoWindowsExecutable:
+Generate GoWindowsExecutable, generate 3 modules dropper compiled with go, one EXE, one DLL and one SVC from the appropriate beacon link to the given listener:
+exemple:
+- Generate GoWindowsExecutable listenerHash"""
 
                 line = '\n' + helpMsg  + '\n';
                 self.editorOutput.insertPlainText(line)
@@ -280,32 +280,41 @@ exemple:
             if scheme=="http" or scheme=="https":
                 beaconArg = beaconArg+" "+scheme
 
-            if instructions[0] == "GenerateGoDroplets" or instructions[0] == "gen-go":
-                formatOutput = instructions[3]
-                if not instructions[3] or not (instructions[3] in ["exe","dll","svc","all"]) :
-                    formatOutput = "exe"
-                print(formatOutput)
-                print(instructions[3])
+            if mode == "GoWindowsExecutable":
+                formatOutput = "all"                    
+                if len(instructions) >= 4 and (instructions[3] in ["exe","dll","svc","all"]) :
+                    formatOutput = instructions[3]
+
                 exeName = listener+"_"+scheme
                 line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
                 self.editorOutput.appendHtml(line)
                 line += "\n Generating GoDroplets Please Wait ....."
 
                 res = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
+
+                print("res ", res)
+
+                if not "".join(res):
+                    line = '\n' + "Error: GoWindowsExecutable failed. Check if go is correctly installed."  + '\n';
+                    self.editorOutput.insertPlainText(line)
+                    return   
+
                 toprint = "\nGenerated the Following:\n"
                 toprint += ("\n").join(res)
                 self.editorOutput.insertPlainText(toprint)
                 return
 
-            # launch PeDropper
-            dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
+            elif mode == "WindowsExecutable":
+                # launch PeDropper
+                dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
 
-            result =  "Dropper EXE path: " + dropperExePath + "\n"
-            result += "Dropper DLL path: " + dropperDllPath 
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+                result =  "Dropper EXE path: " + dropperExePath + "\n"
+                result += "Dropper DLL path: " + dropperDllPath 
+                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+                self.editorOutput.appendHtml(line)
+                line = '\n' + result  + '\n';
+                self.editorOutput.insertPlainText(line)
+                return
             
         # elif mode == "MsOfficeMcaro":
         # elif mode == "HTMLApplication":
@@ -740,9 +749,7 @@ completerData = [
     ('Host',[]),
     ('Generate',[
             ('WindowsExecutable',[]),
-             ]),
-    ('GenerateGoDroplets',[
-            ('WindowsExecutable',[]),
+            ('GoWindowsExecutable',[]),
              ]),
     ('GenerateAndHost',[
             ('PowershellWebDelivery',[]),
