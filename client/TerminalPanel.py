@@ -372,7 +372,7 @@ exemple:
 
             self.GenerateAndHostPowershellWebDelivery(commandLine, listenerDownload, listenerBeacon)
 
-        if mode == "PeInjectorSyscall":
+        elif mode == "PeInjectorSyscall":
             if len(instructions) < 4:
                 line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
                 self.editorOutput.appendHtml(line)
