@@ -87,6 +87,9 @@ class Terminal(QWidget):
             if instructions[0]=="help":
                 self.runHelp()
 
+            elif instructions[0]=="Batcave":
+                self.runBatcave(commandLine, instructions)
+
             elif instructions[0]=="Generate" or instructions[0]=="gen":
                 self.runGenerate(commandLine, instructions)
 
@@ -111,6 +114,49 @@ class Terminal(QWidget):
         self.editorOutput.appendHtml(line)
         line = '\n' + helpText  + '\n';
         self.editorOutput.insertPlainText(line)
+
+
+    def runBatcave(self, commandLine, instructions):
+        if len(instructions) < 3:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            helpMsg = """Batcave:
+Install the given module localy or on the team server:
+exemple:
+- Batcave install rubeuse
+- Batcave localinstall rubeuse"""
+
+            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return;
+
+        cmd = instructions[1]
+        module = instructions[2]
+
+        if cmd == "install":
+            commandTeamServer = "batcave "+module
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+            result = resultTermCommand.result
+
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return    
+
+        elif cmd == "localinstall":
+
+            # todo
+            toto = 0;
+
+        else:
+            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
+            self.editorOutput.appendHtml(line)
+            line = '\n' + "unkown instrution"  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return     
 
 
     # Host

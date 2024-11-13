@@ -574,7 +574,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 		C2Message c2Message = socksListener->getSocksTaskResult(beaconHash);
 
 		// if the beacon request stopSocks we end the server
-		if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stopSocks")
+		if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd)
 		{	
 			socksServer.stop();
 			isSocksServerRunning=false;
@@ -598,7 +598,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 					C2Message c2MessageToSend;
 					c2MessageToSend.set_instruction(Socks5Cmd);
-					c2MessageToSend.set_cmd("init");
+					c2MessageToSend.set_cmd(InitCmd);
 					c2MessageToSend.set_data(std::to_string(ip));
 					c2MessageToSend.set_args(std::to_string(port));
 					c2MessageToSend.set_pid(id);
@@ -612,7 +612,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 				{
 					m_logger->info("Socks5 wait handshake {}", id);
 
-					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "init" && c2Message.pid() == id)
+					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == InitCmd && c2Message.pid() == id)
 					{
 						m_logger->info("Socks5 handshake received {}", id);
 
@@ -638,7 +638,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 								C2Message c2MessageToSend;
 								c2MessageToSend.set_instruction(Socks5Cmd);
-								c2MessageToSend.set_cmd("stop");
+								c2MessageToSend.set_cmd(StopCmd);
 								c2MessageToSend.set_pid(id);
 
 								if(!c2MessageToSend.instruction().empty())
@@ -650,7 +650,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 								C2Message c2MessageToSend;
 								c2MessageToSend.set_instruction(Socks5Cmd);
-								c2MessageToSend.set_cmd("run");
+								c2MessageToSend.set_cmd(RunCmd);
 								c2MessageToSend.set_pid(id);
 								c2MessageToSend.set_data(dataOut);
 
@@ -659,7 +659,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 							}
 						}
 					}
-					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
 					{
 						socksServer.m_socksTunnelServers[i].reset(nullptr);
 					}
@@ -669,7 +669,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 					m_logger->info("Socks5 run {}", id);
 
 					dataIn="";
-					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "run" && c2Message.pid() == id)
+					if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == RunCmd && c2Message.pid() == id)
 					{
 						m_logger->info("Socks5 {}: data received from beacon", id);
 
@@ -689,7 +689,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 							C2Message c2MessageToSend;
 							c2MessageToSend.set_instruction(Socks5Cmd);
-							c2MessageToSend.set_cmd("stop");
+							c2MessageToSend.set_cmd(StopCmd);
 							c2MessageToSend.set_pid(id);
 
 							if(!c2MessageToSend.instruction().empty())
@@ -701,7 +701,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 
 							C2Message c2MessageToSend;
 							c2MessageToSend.set_instruction(Socks5Cmd);
-							c2MessageToSend.set_cmd("run");
+							c2MessageToSend.set_cmd(RunCmd);
 							c2MessageToSend.set_pid(id);
 							c2MessageToSend.set_data(dataOut);
 
@@ -709,7 +709,7 @@ void TeamServer::runSocksServer(int port, const std::string& listenerHash, const
 								socksListener->queueTask(beaconHash, c2MessageToSend);
 						}
 					}
-					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == "stop" && c2Message.pid() == id)
+					else if(c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
 					{
 						socksServer.m_socksTunnelServers[i].reset(nullptr);
 					}
@@ -827,7 +827,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 					std::string errorMsg;
 					for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
 					{
-						// TODO djb2 don't produce the same result in windows and linux compilation....
+						// djb2 produce a unsigne long long 
 						if (instruction == (*it)->getName() || instruction == std::to_string((*it)->getHash()))
 						{
 							instruction = (*it)->getName();
@@ -838,6 +838,13 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 							(*it)->followUp(c2Message);
 
 							(*it)->errorCodeToMsg(c2Message, errorMsg);
+						}
+					}
+					for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
+					{
+						if(instruction == m_commonCommands.getCommand(i))
+						{
+							m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
 						}
 					}
 
@@ -880,6 +887,9 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 	return grpc::Status::OK;
 }
+
+
+const std::string HelpCmd = "help";
 
 
 grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::CommandResponse* commandResponse)
@@ -1016,6 +1026,14 @@ std::string getIPAddress(std::string &interface)
 }
 
 
+const std::string InfoListenerInstruction = "infoListener";
+const std::string GetBeaconBinaryInstruction = "getBeaconBinary";
+const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
+const std::string ReloadModulesInstruction = "reloadModules";
+const std::string BatcaveInstruction = "batcave";
+const std::string InstallInstruction = "install";
+
+
 grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
 {
 	m_logger->trace("SendTermCmd");
@@ -1033,7 +1051,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	responseTmp.set_data(none);
 
 	string instruction = splitedCmd[0];
-	if(instruction=="infoListener")
+	if(instruction==InfoListenerInstruction)
 	{
 		m_logger->info("infoListener {0}", cmd);
 
@@ -1126,7 +1144,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 			return grpc::Status::OK;
 		}
 	}
-	else if(instruction=="getBeaconBinary")
+	else if(instruction==GetBeaconBinaryInstruction)
 	{
 		m_logger->info("getBeaconBinary {0}", cmd);
 
@@ -1196,7 +1214,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 			return grpc::Status::OK;
 		}
 	}
-	else if(instruction=="putIntoUploadDir")
+	else if(instruction==PutIntoUploadDirInstruction)
 	{
 		m_logger->info("putIntoUploadDir {0}", cmd);
 
@@ -1278,8 +1296,49 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 			return grpc::Status::OK;
 		}
 	}
-	// TODO
-	else if(instruction=="reloadModules")
+	else if(instruction==BatcaveInstruction)
+	{
+		// if(splitedCmd.size()==2)
+		// {
+		// 	// Get the url from a batcave config file
+
+		// 	// download
+		// 	std::string url = "https://github.com";
+		// 	httplib::Client cli(url);
+		// 	cli.set_follow_location(true);
+
+		// 	std::string path = "/exploration-batcave/Rubeus/releases/download/v2.0.2/Rubeus.zip";
+		// 	auto res = cli.Get(path);
+
+		// 	std::string filePath = m_toolsDirectoryPath;
+		// 	filePath+="/";
+		// 	filePath+="Rubeus.zip";
+
+		// 	if(res->status==200)
+		// 	{
+		// 		ofstream outputFile(filePath, ios::out | ios::binary);
+		// 		if (outputFile.good()) 
+		// 		{
+		// 			outputFile << res->body;
+		// 			outputFile.close();
+		// 			responseTmp.set_result("ok");
+		// 		}
+		// 		else
+		// 		{
+		// 			responseTmp.set_result("Error: Cannot write file.");
+		// 		}
+		// 	}
+			
+		// }
+		// // TODO
+		// else
+		// {
+		// 	responseTmp.set_result("Error: batcave take 2 arguements.");
+		// 	*response = responseTmp;
+		// 	return grpc::Status::OK;
+		// }
+	}
+	else if(instruction==ReloadModulesInstruction)
 	{
 		// reload all the modules of the ../Modules directory
 	}
@@ -1336,8 +1395,6 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 
 	return res;
 }
-
-
 
 
 int main(int argc, char* argv[])
