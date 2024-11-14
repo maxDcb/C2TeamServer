@@ -361,7 +361,7 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 }
 
 
-bool TeamServer::isListenerAlive(std::string listenerHash)
+bool TeamServer::isListenerAlive(const std::string& listenerHash)
 {
 	m_logger->trace("isListenerAlive");
 
@@ -457,11 +457,8 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 		{
 			if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 			{
-				std::string endCmd;
-				endCmd = EndCmd;
-
 				C2Message c2Message;
-				int res = prepMsg(endCmd, c2Message);
+				int res = prepMsg(EndInstruction, c2Message);
 
 				if(res!=0)
 				{
@@ -742,11 +739,17 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 	{
 		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
 		{
+			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
+			std::string os = session->getOs();
+			bool isWindows=false;
+			if(os == "Windows")
+				isWindows=true;
+
 			m_logger->trace("SendCmdToSession: beaconHash {0} listenerHash {1}", beaconHash, listenerHash);
 			if (!input.empty())
 			{
 				C2Message c2Message;
-				int res = prepMsg(input, c2Message);
+				int res = prepMsg(input, c2Message, isWindows);
 
 				m_logger->debug("SendCmdToSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
@@ -820,17 +823,26 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 			if(targetSession==beaconHash)
 			{
+				// loop through all the messages that match the query Beacon hash
 				C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				while(!c2Message.instruction().empty())
 				{
-					std::string instruction = c2Message.instruction();					
+					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+
+					std::string instructionCmd = c2Message.instruction();					
 					std::string errorMsg;
+					std::string instructionString;
+
+					// check if the message is from a loaded module and handle:
+					// - resolution of the name 
+					// - followup
+					// - the resoltion of the error code
 					for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
 					{
 						// djb2 produce a unsigne long long 
-						if (instruction == (*it)->getName() || instruction == std::to_string((*it)->getHash()))
+						if (instructionCmd == (*it)->getName() || instructionCmd == std::to_string((*it)->getHash()))
 						{
-							instruction = (*it)->getName();
+							instructionString = (*it)->getName();
 
 							m_logger->debug("Call followUp");
 
@@ -840,27 +852,43 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 							(*it)->errorCodeToMsg(c2Message, errorMsg);
 						}
 					}
+
+					// check if the message is from a common module and handle:
+					// - resolution of the name 
+					// - the resoltion of the error code
+					std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
 					for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
 					{
-						if(instruction == m_commonCommands.getCommand(i))
+						if(ccInstructionString == m_commonCommands.getCommand(i))
 						{
+							instructionString = ccInstructionString;
+
 							m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
 						}
 					}
 
-					if(instruction==ListenerPollCmd)
+					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+
+					// check if the message is just a listener polling mean to update listener informations
+					if(instructionCmd==ListenerPollCmd)
 					{
 						m_logger->debug("beaconHash {0}", beaconHash);
 						m_logger->debug("returnvalue {0}", c2Message.returnvalue());
+
+						// Do nothing and continue with the next item
 						c2Message = m_listeners[i]->getTaskResult(beaconHash);
 						continue;
 					}
 					
-					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+					if(instructionString.empty())
+					{
+						instructionString = instructionCmd;
+						m_logger->warn("Instruction is raw {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+					}
 
 					teamserverapi::CommandResponse commandResponseTmp;
 					commandResponseTmp.set_beaconhash(beaconHash);
-					commandResponseTmp.set_instruction(instruction);
+					commandResponseTmp.set_instruction(instructionString);
 					commandResponseTmp.set_cmd(c2Message.cmd());		
 					if(!errorMsg.empty())
 					{
@@ -1355,7 +1383,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 }
 
 
-int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
+int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows)
 {
 	m_logger->trace("prepMsg");
 
@@ -1372,7 +1400,59 @@ int TeamServer::prepMsg(std::string& input, C2Message& c2Message)
 	{
 		if(instruction == m_commonCommands.getCommand(i))
 		{
-			res = m_commonCommands.init(splitedCmd, c2Message);
+			// check the path / file name / instruction given for translation
+			if(instruction == LoadModuleInstruction)
+			{
+				if (splitedCmd.size() == 2)
+				{
+					std::string param = splitedCmd[1];
+					if(param.size() >= 3 && param.substr(param.size() - 3) == ".so")
+					{
+						
+					}
+					else if(param.size() >= 4 && param.substr(param.size() - 3) == ".dll")
+					{
+
+					}
+					else
+					{
+						m_logger->info("Translate instruction to module name to load in {0}", m_teamServerModulesDirectoryPath.c_str());
+						try 
+						{
+							for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
+							{
+								if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
+								{
+	
+									std::string moduleName = entry.path().filename();
+									moduleName = moduleName.substr(3); 							// remove lib
+									moduleName = moduleName.substr(0, moduleName.length() - 3);	// remove .so
+
+									if(param == moduleName)
+									{
+										if(isWindows)
+										{
+											splitedCmd[1] = moduleName;
+											splitedCmd[1] += ".dll";
+										}
+										else
+										{
+											splitedCmd[1] = entry.path().filename();
+										}
+
+										m_logger->info("Found module to load {0}", splitedCmd[1]);
+									}
+								}
+							}
+						}
+						catch (const std::filesystem::filesystem_error& e) 
+						{
+							m_logger->warn("Error accessing module directory");
+						}	
+					}
+				}
+			}
+			res = m_commonCommands.init(splitedCmd, c2Message, isWindows);
 			isModuleFound=true;
 		}
 	}
