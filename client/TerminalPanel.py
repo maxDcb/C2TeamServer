@@ -11,20 +11,123 @@ from PyQt5.QtCore import *
 from grpcClient import *
 
 
-import sys
-sys.path.insert(1, './PowershellWebDelivery/')
-import GeneratePowershellLauncher
-sys.path.insert(1, './PeDropper/')
-import GenerateDropperBinary
-sys.path.insert(1, './GoDroplets/')
-import GoDroplets.scripts.GenerateGoDroplets as GenerateGoDroplets
+#
+# Dropper modules
+#
+if os.path.exists(os.path.join(os.getcwd(), 'PowershellWebDelivery')):
+    sys.path.insert(1, './PowershellWebDelivery/')
+    import GeneratePowershellLauncher
+
+if os.path.exists(os.path.join(os.getcwd(), 'PeDropper')):
+    sys.path.insert(1, './PeDropper/')
+    import GenerateDropperBinary
+
+if os.path.exists(os.path.join(os.getcwd(), 'GoDroplets')):
+    sys.path.insert(1, './GoDroplets/')
+    import GoDroplets.scripts.GenerateGoDroplets as GenerateGoDroplets
 
 if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
     sys.path.insert(1, './PeInjectorSyscall/')
     import GenerateInjector
 
+#
+# Constant
+#
+LogFileName = "Terminal.log"
+HistoryFileName = ".termHistory"
+
+HttpType = "http"
+HttpsType = "https"
+
+GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
+GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
+GrpcInfoListenerInstruction = "infoListener"
+
+BeaconHttpFile = "BeaconHttp.exe"
+
+ErrorInstruction = "Error"
+
+HelpInstruction = "help"
+
+BatcaveInstruction = "Batcave"
+BatcaveHelp = """Batcave:
+Install the given module localy or on the team server:
+exemple:
+- Batcave install rubeuse
+- Batcave localinstall rubeuse"""
+
+GenerateInstruction = "Generate"
+GenerateHelp = """Generate:
+Generate a payload to deploy a beacon and store it on the client:
+exemple:
+- Generate WindowsExecutable listenerHash exe/dll/svc
+- Generate GoWindowsExecutable listenerHash exe/dll/svc"""
+
+WindowsExecutableInstruction = "WindowsExecutable"
+WindowsExecutableHelp = """Generate WindowsExecutable:
+Generate WindowsExecutable, generate 2 modules dropper, one EXE and one DLL from the appropriate beacon link to the given listener:
+exemple:
+- Generate WindowsExecutable listenerHash"""
+
+GoWindowsExecutableInstruction = "GoWindowsExecutable"
+GoWindowsExecutableHelp = """Generate GoWindowsExecutable:
+Generate GoWindowsExecutable, generate 3 modules dropper compiled with go, one EXE, one DLL and one SVC from the appropriate beacon link to the given listener:
+exemple:
+- Generate GoWindowsExecutable listenerHash"""
+
+GenerateAndHostInstruction = "GenerateAndHost"
+GenerateAndHostHelp = """GenerateAndHost:
+GenerateAndHost a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https):
+exemple:
+- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
+
+PowershellWebDeliveryInstruction = "PowershellWebDelivery"
+PowershellWebDeliveryHelp = """GenerateAndHost PowershellWebDelivery:
+Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
+exemple:
+- GenerateAndHost PowershellWebDelivery listenerHash
+- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
+
+PeInjectorSyscallInstruction = "PeInjectorSyscall"
+PeInjectorSyscallHelp = """GenerateAndHost PeInjectorSyscall:
+exemple:
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash
+- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
+
+HostInstruction = "Host"
+HostHelp="""Host:
+Host upload a file on the teamserver to be downloaded by a web request from a web listener (http/https):
+exemple:
+- Host file hostListenerHash"""
+
+def getHelpMsg():
+    helpText  = HelpInstruction+"\n"
+    helpText += HostInstruction+"\n"
+    helpText += GenerateInstruction+"\n"
+    helpText += GenerateAndHostInstruction+"\n"
+    return helpText
+
+completerData = [
+    (HelpInstruction,[]),
+    (HostInstruction,[]),
+    (GenerateInstruction,[
+            (WindowsExecutableInstruction,[]),
+            (GoWindowsExecutableInstruction,[]),
+             ]),
+    (GenerateAndHostInstruction,[
+            (PowershellWebDeliveryInstruction,[]),
+            ('PeInjectorSyscall',[]),
+             ]),
+]
+
+orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
+redText = '<p style=\"color:red;white-space:pre\">[+] {} </p>'
 
 
+#
+# Terminal tab implementation
+#
 class Terminal(QWidget):
     tabPressed = pyqtSignal()
     logFileName=""
@@ -36,7 +139,7 @@ class Terminal(QWidget):
 
         self.grpcClient = GrpcClient(ip, port, devMode)
 
-        self.logFileName="Terminal.log"
+        self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
         self.editorOutput.setFont(QFont("Courier"));
@@ -69,7 +172,7 @@ class Terminal(QWidget):
             line = '\n';
             self.editorOutput.insertPlainText(line)
         else:
-            cmdHistoryFile = open('.termHistory', 'a')
+            cmdHistoryFile = open(HistoryFileName, 'a')
             cmdHistoryFile.write(commandLine)
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
@@ -84,24 +187,23 @@ class Terminal(QWidget):
             if len(instructions) < 1:
                 return;
 
-            if instructions[0]=="help":
+            if instructions[0]==HelpInstruction:
                 self.runHelp()
 
-            elif instructions[0]=="Batcave":
+            elif instructions[0]==BatcaveInstruction:
                 self.runBatcave(commandLine, instructions)
 
-            elif instructions[0]=="Generate" or instructions[0]=="gen":
+            elif instructions[0]==GenerateInstruction:
                 self.runGenerate(commandLine, instructions)
 
-            elif instructions[0]=="GenerateAndHost" or instructions[0]=="gah":
+            elif instructions[0]==GenerateAndHostInstruction:
                 self.runGenerateAndHost(commandLine, instructions)
             
-            elif instructions[0]=="Host":
+            elif instructions[0]==HostInstruction:
                 self.runHost(commandLine, instructions)
             
             else:
-                line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+                self.editorOutput.appendHtml(redText.format(commandLine))
                 line = '\n' + "Error: Command Unknown"  + '\n';
                 self.editorOutput.insertPlainText(line)
 
@@ -109,24 +211,15 @@ class Terminal(QWidget):
 
 
     def runHelp(self):
-        helpText = getHelpMsg()
-        line = '<p style=\"color:orange;white-space:pre\">[+] ' + "help" + '</p>'
-        self.editorOutput.appendHtml(line)
-        line = '\n' + helpText  + '\n';
+        self.editorOutput.appendHtml(orangeText.format("help"))
+        line = '\n' + getHelpMsg()  + '\n';
         self.editorOutput.insertPlainText(line)
 
 
     def runBatcave(self, commandLine, instructions):
         if len(instructions) < 3:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
-            helpMsg = """Batcave:
-Install the given module localy or on the team server:
-exemple:
-- Batcave install rubeuse
-- Batcave localinstall rubeuse"""
-
-            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = '\n' + BatcaveHelp  + '\n';
             self.editorOutput.insertPlainText(line)
             return;
 
@@ -140,8 +233,7 @@ exemple:
 
             result = resultTermCommand.result
 
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return    
@@ -152,39 +244,32 @@ exemple:
             toto = 0;
 
         else:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + "unkown instrution"  + '\n';
             self.editorOutput.insertPlainText(line)
             return     
 
 
+    #
     # Host
-    #   Host file hostListenerHash
+    # 
     def runHost(self, commandLine, instructions):
         if len(instructions) < 3:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
-            helpMsg = """Host:
-Host upload a file on the teamserver to be downloaded by a web request from a web listener (http/https):
-exemple:
-- Host file hostListenerHash"""
-
-            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = '\n' + HostHelp  + '\n';
             self.editorOutput.insertPlainText(line)
             return;
 
         filePath = instructions[1]
         hostListenerHash = instructions[2]
 
-        commandTeamServer = "infoListener "+hostListenerHash
+        commandTeamServer = GrpcInfoListenerInstruction+" "+hostListenerHash
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return        
@@ -211,88 +296,61 @@ exemple:
             with open(filePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + "Error: File does not appear to exist." + '\n';
             self.editorOutput.insertPlainText(line)
             return  
 
-        commandTeamServer = "putIntoUploadDir "+hostListenerHash+" "+filename
+        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+hostListenerHash+" "+filename
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
                 
         result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
-        line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-        self.editorOutput.appendHtml(line)
+        self.editorOutput.appendHtml(orangeText.format(commandLine))
         line = '\n' + result  + '\n';
         self.editorOutput.insertPlainText(line)
 
 
-    # Generate gen
-    #   Generate WindowsExecutable listener exe/dll/svc 
-    #   Generate GoWindowsExecutable listener exe/dll/svc 
-    #   Generate MsOfficeMcaro listener
-    #   Generate HTMLApplication listener
-    #   Generate ...
+    #
+    # runGenerate
+    #   
     def runGenerate(self, commandLine, instructions):
         if len(instructions) < 2:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
-            helpMsg = """Generate:
-Generate generate a payload to deploy a beacon and store it on the client:
-exemple:
-- Generate WindowsExecutable listenerHash exe/dll/svc
-- Generate GoWindowsExecutable listenerHash exe/dll/svc"""
-# - Generate MsOfficeMcaro listenerHash
-# - Generate HTMLApplication listenerHash
-            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = '\n' + GenerateHelp  + '\n';
             self.editorOutput.insertPlainText(line)
             return; 
 
         mode = instructions[1]
-        if mode == "WindowsExecutable" or mode == "GoWindowsExecutable":
-            if len(instructions) < 3 and mode == "WindowsExecutable":
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
-                helpMsg = """Generate WindowsExecutable:
-Generate WindowsExecutable, generate 2 modules dropper, one EXE and one DLL from the appropriate beacon link to the given listener:
-exemple:
-- Generate WindowsExecutable listenerHash"""
-
-                line = '\n' + helpMsg  + '\n';
+        if mode == WindowsExecutableInstruction or mode == GoWindowsExecutableInstruction:
+            if len(instructions) < 3 and mode == WindowsExecutableInstruction:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + WindowsExecutableHelp  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return; 
             
-            elif len(instructions) < 3 and mode == "GoWindowsExecutable":
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
-                helpMsg = """Generate GoWindowsExecutable:
-Generate GoWindowsExecutable, generate 3 modules dropper compiled with go, one EXE, one DLL and one SVC from the appropriate beacon link to the given listener:
-exemple:
-- Generate GoWindowsExecutable listenerHash"""
-
-                line = '\n' + helpMsg  + '\n';
+            elif len(instructions) < 3 and mode == GoWindowsExecutableInstruction:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + GoWindowsExecutableHelp  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return; 
 
             listener = instructions[2]
 
-            commandTeamServer = "infoListener "+listener
+            commandTeamServer = GrpcInfoListenerInstruction+" "+listener
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
 
             result = resultTermCommand.result
-            if "Error" in result:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+            if ErrorInstruction in result:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n' + result  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return   
@@ -305,40 +363,36 @@ exemple:
             ip = results[1]
             port = results[2]
 
-            commandTeamServer = "getBeaconBinary "+listener
+            commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listener
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
-            if "Error" in result:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+            if ErrorInstruction in result:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n' + result  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return   
 
             print("Beacon size", len(resultTermCommand.data))
-            beaconFilePath = "./BeaconHttp.exe"
+            beaconFilePath = "./"+BeaconHttpFile
             beaconFile = open(beaconFilePath, "wb")
             beaconFile.write(resultTermCommand.data)
 
             beaconArg = ip+" "+port
-            if scheme=="http" or scheme=="https":
+            if scheme==HttpType or scheme==HttpsType:
                 beaconArg = beaconArg+" "+scheme
 
-            if mode == "GoWindowsExecutable":
+            if mode == GoWindowsExecutableInstruction:
                 formatOutput = "all"                    
                 if len(instructions) >= 4 and (instructions[3] in ["exe","dll","svc","all"]) :
                     formatOutput = instructions[3]
 
                 exeName = listener+"_"+scheme
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line += "\n Generating GoDroplets Please Wait ....."
 
                 res = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
-
-                print("res ", res)
 
                 if not "".join(res):
                     line = '\n' + "Error: GoWindowsExecutable failed. Check if go is correctly installed."  + '\n';
@@ -350,23 +404,19 @@ exemple:
                 self.editorOutput.insertPlainText(toprint)
                 return
 
-            elif mode == "WindowsExecutable":
+            elif mode == WindowsExecutableInstruction:
                 # launch PeDropper
                 dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
 
                 result =  "Dropper EXE path: " + dropperExePath + "\n"
                 result += "Dropper DLL path: " + dropperDllPath 
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n' + result  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return
             
-        # elif mode == "MsOfficeMcaro":
-        # elif mode == "HTMLApplication":
         else:
-            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(redText.format(commandLine))
             helpMsg = """Error: Mode not recognised"""
 
             line = '\n' + helpMsg  + '\n';
@@ -374,36 +424,22 @@ exemple:
             return;
 
 
-    # GenerateAndHost gah
-    #   GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
-    #   GenerateAndHost cmd listenerHash hostListenerHash
+    #
+    # GenerateAndHost 
+    #
     def runGenerateAndHost(self, commandLine, instructions):
         if len(instructions) < 2:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
-            helpMsg = """GenerateAndHost:
-GenerateAndHost generate a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https):
-exemple:
-- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
-
-            line = '\n' + helpMsg  + '\n';
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = '\n' + GenerateAndHostHelp  + '\n';
             self.editorOutput.insertPlainText(line)
             return;
 
         mode = instructions[1]
 
-        if mode == "PowershellWebDelivery":
+        if mode == PowershellWebDeliveryInstruction:
             if len(instructions) < 3:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
-                PowershellWebDeliveryHelpMsg = """GenerateAndHost PowershellWebDelivery:
-Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
-exemple:
-- GenerateAndHost PowershellWebDelivery listenerHash
-- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
-
-                line = '\n' + PowershellWebDeliveryHelpMsg  + '\n';
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + PowershellWebDeliveryHelp  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return;
             
@@ -418,17 +454,10 @@ exemple:
 
             self.GenerateAndHostPowershellWebDelivery(commandLine, listenerDownload, listenerBeacon)
 
-        elif mode == "PeInjectorSyscall":
+        elif mode == PeInjectorSyscallInstruction:
             if len(instructions) < 4:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
-                helpMsg = """GenerateAndHost PeInjectorSyscall:
-Generate a ....
-exemple:
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
-
-                line = '\n' + helpMsg  + '\n';
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + PeInjectorSyscallHelp  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return;
             
@@ -445,8 +474,7 @@ exemple:
             self.GenerateAndHostPeInjectorSyscall(commandLine, listenerDownload, listenerBeacon, processToInject)
     
         else:
-            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(redText.format(commandLine))
             helpMsg = """Error: Mode not recognised"""
 
             line = '\n' + helpMsg  + '\n';
@@ -454,16 +482,17 @@ exemple:
             return;
 
 
-    # Implementation de GenerateAndHost PowershellWebDelivery
+    #
+    # GenerateAndHostPowershellWebDelivery
+    #
     def GenerateAndHostPowershellWebDelivery(self, commandLine,  listenerDownload, listenerBeacon):
-        commandTeamServer = "infoListener "+listenerDownload
+        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return        
@@ -485,14 +514,13 @@ exemple:
             downloadPath = downloadPath[1:]
 
         if  listenerBeacon != listenerDownload:
-            commandTeamServer = "infoListener "+listenerBeacon
+            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
 
             result = resultTermCommand.result
-            if "Error" in result:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+            if ErrorInstruction in result:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n' + result  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return   
@@ -509,25 +537,24 @@ exemple:
             ip=ipDownload
             port=portDownload
 
-        commandTeamServer = "getBeaconBinary "+listenerBeacon
+        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return   
 
         print("Beacon size", len(resultTermCommand.data))
-        beaconFilePath = "./BeaconHttp.exe"
+        beaconFilePath = "./"+BeaconHttpFile
         beaconFile = open(beaconFilePath, "wb")
         beaconFile.write(resultTermCommand.data)
 
         beaconArg = ip+" "+port
-        if scheme=="http" or scheme=="https":
+        if scheme==HttpType or scheme==HttpsType:
             beaconArg = beaconArg+" "+scheme
 
         # Generate the 2 files
@@ -537,14 +564,13 @@ exemple:
         filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
         pathAmsiBypass = downloadPath
         pathAmsiBypass = pathAmsiBypass + filename
-        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadAmsi.encode("utf-8"))
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
@@ -552,14 +578,13 @@ exemple:
         filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
         pathShellcodeRunner = downloadPath
         pathShellcodeRunner = pathShellcodeRunner + filename
-        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadShellcodeRunner.encode("utf-8"))
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
@@ -568,22 +593,22 @@ exemple:
         # generate the oneliner
         oneLiner = GeneratePowershellLauncher.generateOneLiner(ipDownload, portDownload, scheme, pathAmsiBypass, pathShellcodeRunner)
 
-        line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-        self.editorOutput.appendHtml(line)
+        self.editorOutput.appendHtml(orangeText.format(commandLine))
         line = '\n' + oneLiner  + '\n';
         self.editorOutput.insertPlainText(line)
 
 
-    # Implementation de GenerateAndHost PeInjectorSyscall
+    #
+    # GenerateAndHostPeInjectorSyscall
+    #
     def GenerateAndHostPeInjectorSyscall(self, commandLine,  listenerDownload, listenerBeacon, processToInject):
-        commandTeamServer = "infoListener "+listenerDownload
+        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return        
@@ -605,14 +630,13 @@ exemple:
             downloadPath = downloadPath[1:]
 
         if  listenerBeacon != listenerDownload:
-            commandTeamServer = "infoListener "+listenerBeacon
+            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
 
             result = resultTermCommand.result
-            if "Error" in result:
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-                self.editorOutput.appendHtml(line)
+            if ErrorInstruction in result:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n' + result  + '\n';
                 self.editorOutput.insertPlainText(line)
                 return   
@@ -629,25 +653,24 @@ exemple:
             ip=ipDownload
             port=portDownload
 
-        commandTeamServer = "getBeaconBinary "+listenerBeacon
+        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return   
 
         print("Beacon size", len(resultTermCommand.data))
-        beaconFilePath = "./BeaconHttp.exe"
+        beaconFilePath = "./"+BeaconHttpFile
         beaconFile = open(beaconFilePath, "wb")
         beaconFile.write(resultTermCommand.data)
 
         beaconArg = ip+" "+port
-        if scheme=="http" or scheme=="https":
+        if scheme==HttpType or scheme==HttpsType:
             beaconArg = beaconArg+" "+scheme
 
         # Generate the 2 files
@@ -656,8 +679,7 @@ exemple:
         urlStage =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
 
         if not os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + "PeInjectorSyscall module not found"  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
@@ -669,20 +691,18 @@ exemple:
             with open(dropperExePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(redText.format(commandLine))
             line = '\n' + "Error: File does not appear to exist." + '\n';
             self.editorOutput.insertPlainText(line)
             return  
 
-        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+"onschuldig.exe"
+        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+"onschuldig.exe"
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
@@ -691,27 +711,24 @@ exemple:
             with open(shellcodePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            line = '<p style=\"color:red;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(redText.format(commandLine))
             line = '\n' + "Error: File does not appear to exist." + '\n';
             self.editorOutput.insertPlainText(line)
             return  
 
-        commandTeamServer = "putIntoUploadDir "+listenerDownload+" "+filename
+        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
         result = resultTermCommand.result
-        if "Error" in result:
-            line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-            self.editorOutput.appendHtml(line)
+        if ErrorInstruction in result:
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return  
                 
         result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + "onschuldig.exe"
-        line = '<p style=\"color:orange;white-space:pre\">[+] ' + commandLine + '</p>'
-        self.editorOutput.appendHtml(line)
+        self.editorOutput.appendHtml(orangeText.format(commandLine))
         line = '\n' + result  + '\n';
         self.editorOutput.insertPlainText(line)
 
@@ -729,8 +746,8 @@ class CommandEditor(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        if(os.path.isfile('.termHistory')):
-            cmdHistoryFile = open('.termHistory')
+        if(os.path.isfile(HistoryFileName)):
+            cmdHistoryFile = open(HistoryFileName)
             self.cmdHistory = cmdHistoryFile.readlines()
             self.idx=len(self.cmdHistory)-1
             cmdHistoryFile.close()
@@ -780,28 +797,6 @@ class CommandEditor(QLineEdit):
 
     def onActivated(self):
         QTimer.singleShot(0, self.clear)
-
-
-def getHelpMsg():
-    helpText  = "help\n"
-    helpText += "Host\n"
-    helpText += "Generate\n"
-    helpText += "GenerateAndHost\n"
-    return helpText
-
-
-completerData = [
-    ('help',[]),
-    ('Host',[]),
-    ('Generate',[
-            ('WindowsExecutable',[]),
-            ('GoWindowsExecutable',[]),
-             ]),
-    ('GenerateAndHost',[
-            ('PowershellWebDelivery',[]),
-            ('PeInjectorSyscall',[]),
-             ]),
-]
 
 
 class CodeCompleter(QCompleter):
