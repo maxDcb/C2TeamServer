@@ -10,7 +10,6 @@ from grpcClient import *
 from ListenerPanel import *
 from SessionPanel import *
 from ConsolePanel import *
-from PayloadPanel import *
 from GraphPanel import *
 
 import qdarktheme
@@ -72,9 +71,8 @@ class App(QMainWindow):
 
         self.topWidget.addTab(self.m_main, "Main")
 
-        self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
-
-        self.topWidget.addTab(self.graphWidget, "Graph")
+        # self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
+        # self.topWidget.addTab(self.graphWidget, "Graph")
 
         self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
 

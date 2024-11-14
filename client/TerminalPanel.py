@@ -418,7 +418,6 @@ class Terminal(QWidget):
         else:
             self.editorOutput.appendHtml(redText.format(commandLine))
             helpMsg = """Error: Mode not recognised"""
-
             line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
             return;
@@ -476,7 +475,6 @@ class Terminal(QWidget):
         else:
             self.editorOutput.appendHtml(redText.format(commandLine))
             helpMsg = """Error: Mode not recognised"""
-
             line = '\n' + helpMsg  + '\n';
             self.editorOutput.insertPlainText(line)
             return;

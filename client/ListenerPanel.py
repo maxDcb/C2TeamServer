@@ -10,7 +10,28 @@ from grpcClient import *
 
 
 #
-# Listeners
+# Constant
+#
+ListenerTabTitle = "Listeners"
+AddListenerWindowTitle = "Add Listener"
+
+TypeLabel = "Type"
+IpLabel = "IP"
+PortLabel = "Port"
+DomainLabel = "Domain"
+ProjectLabel = "Project"
+TokenLabel = "Token"
+
+HttpType = "http"
+HttpsType = "https"
+TcpType = "tcp"
+GithubType = "github"
+DnsType = "dns"
+SmbType = "smb"
+
+
+#
+# Listener tab implementation
 #
 class Listener():
 
@@ -40,7 +61,7 @@ class Listeners(QWidget):
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
 
-        self.label = QLabel('Listeners')
+        self.label = QLabel(ListenerTabTitle)
         self.layout.addWidget(self.label)
 
         # List of sessions
@@ -166,11 +187,11 @@ class Listeners(QWidget):
             # add
             # if listener is not yet already on our list
             if not inStore:
-                if listener.type == "github":
+                if listener.type == GithubType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
-                elif listener.type == "dns":
+                elif listener.type == DnsType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
-                elif listener.type == "smb":
+                elif listener.type == SmbType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, "", listener.numberOfSession))
                 else:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
@@ -202,20 +223,20 @@ class CreateListner(QWidget):
         super().__init__()
         
         layout = QFormLayout()
-        self.labelType = QLabel("Type")
+        self.labelType = QLabel(TypeLabel)
         self.qcombo = QComboBox(self)
-        self.qcombo.addItems(["http" , "https" , "tcp" , "github" , "dns"])
+        self.qcombo.addItems([HttpType , HttpsType, TcpType, GithubType, DnsType])
         self.qcombo.setCurrentIndex(1)
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
-        self.labelIP = QLabel("IP")
+        self.labelIP = QLabel(IpLabel)
         self.param1 = QLineEdit()
         self.param1.setText("0.0.0.0")
         layout.addRow(self.labelIP, self.param1)
 
-        self.labelPort = QLabel("Port")
+        self.labelPort = QLabel(PortLabel)
         self.param2 = QLineEdit()
         self.param2.setText("8443")
         layout.addRow(self.labelPort, self.param2)
@@ -224,25 +245,25 @@ class CreateListner(QWidget):
         layout.addRow(self.buttonOk)
 
         self.setLayout(layout)
-        self.setWindowTitle("Add Listener")
+        self.setWindowTitle(AddListenerWindowTitle)
 
 
     def changeLabels(self):
-        if self.qcombo.currentText() == "http":
-            self.labelIP.setText("IP")
-            self.labelPort.setText("Port")
-        elif self.qcombo.currentText() == "https":
-            self.labelIP.setText("IP")
-            self.labelPort.setText("Port")
-        elif self.qcombo.currentText() == "tcp":
-            self.labelIP.setText("IP")
-            self.labelPort.setText("Port")
-        elif self.qcombo.currentText() == "github":
-            self.labelIP.setText("Project")
-            self.labelPort.setText("Token")
-        elif self.qcombo.currentText() == "dns":
-            self.labelIP.setText("Domain")
-            self.labelPort.setText("Port")
+        if self.qcombo.currentText() == HttpType:
+            self.labelIP.setText(IpLabel)
+            self.labelPort.setText(PortLabel)
+        elif self.qcombo.currentText() == HttpsType:
+            self.labelIP.setText(IpLabel)
+            self.labelPort.setText(PortLabel)
+        elif self.qcombo.currentText() == TcpType:
+            self.labelIP.setText(IpLabel)
+            self.labelPort.setText(PortLabel)
+        elif self.qcombo.currentText() == GithubType:
+            self.labelIP.setText(ProjectLabel)
+            self.labelPort.setText(TokenLabel)
+        elif self.qcombo.currentText() == DnsType:
+            self.labelIP.setText(DomainLabel)
+            self.labelPort.setText(PortLabel)
 
 
     def checkAndSend(self):

