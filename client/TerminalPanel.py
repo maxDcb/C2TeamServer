@@ -54,10 +54,11 @@ HelpInstruction = "help"
 
 BatcaveInstruction = "Batcave"
 BatcaveHelp = """Batcave:
-Install the given module localy or on the team server:
+Install the given module locally or on the team server:
 exemple:
-- Batcave install rubeus
-- Batcave localinstall rubeus"""
+- Batcave Install rubeus
+- Batcave BundleInstall recon
+- Batcave Search rec"""
 
 GenerateInstruction = "Generate"
 GenerateHelp = """Generate:
@@ -122,6 +123,11 @@ completerData = [
             (PowershellWebDeliveryInstruction,[]),
             ('PeInjectorSyscall',[]),
              ]),
+    (BatcaveInstruction, [
+            ("Install", []),
+            ("BundleInstall", []),
+            ("Search", [])
+             ])
 ]
 
 orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
