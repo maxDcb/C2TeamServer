@@ -229,15 +229,15 @@ class Terminal(QWidget):
         cmd = instructions[1]
         batgadget = instructions[2]
 
-        if cmd == "install":
+        if cmd == "Install":
+            filePath = batcave.downloadBatGadget(batgadget)
             try:
-                filePath = "/tmp/rudeus"
                 filename = os.path.basename(filePath)
                 with open(filePath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
                 self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + "Error: File does not appear to exist." + '\n';
+                line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
                 self.editorOutput.insertPlainText(line)
                 return  
 
@@ -247,19 +247,48 @@ class Terminal(QWidget):
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
+            print(result)
 
             self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
+            if result == "":
+                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules.\n"
             self.editorOutput.insertPlainText(line)
             return    
 
-        elif cmd == "localinstall":
+        elif cmd == "BundleInstall":
 
-            # todo
-            toto = 0;
+            filePathList = batcave.downloadBatBundle(batgadget)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = "\n"
+            for filePath in filePathList:
+                try:
+                    filename = os.path.basename(filePath)
+                    with open(filePath, mode='rb') as fileDesc:
+                        payload = fileDesc.read()
+                except IOError:
+                    self.editorOutput.appendHtml(orangeText.format(commandLine))
+                    line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
+                    self.editorOutput.insertPlainText(line)
+                    return  
 
-        elif cmd == "search":
-            result = batcave.searchForGadget(batgadget)
+                commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+                print("Sent " + commandTeamServer)
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+                print(result)
+
+                if result == "":
+                    line += f" - Added {filename} to TeamServer Tools. You can now use it with other modules. \n"
+                else:
+                    line += result  + '\n'
+            self.editorOutput.insertPlainText(line)
+            self.editorOutput.insertPlainText(f"BatBundle {batgadget} successfully installed !")
+
+        elif cmd == "Search":
+            result = batcave.searchTheBatcave(batgadget)
             self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
