@@ -256,9 +256,9 @@ class Terminal(QWidget):
             print(result)
 
             self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
+            line = result  + '\n';
             if result == "":
-                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules.\n"
+                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules."
             self.editorOutput.insertPlainText(line)
             return    
 
@@ -280,18 +280,16 @@ class Terminal(QWidget):
 
                 commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
                 termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-                print("Sent " + commandTeamServer)
                 resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
                 result = resultTermCommand.result
-                print(result)
 
                 if result == "":
                     line += f" - Added {filename} to TeamServer Tools. You can now use it with other modules. \n"
                 else:
                     line += result  + '\n'
             self.editorOutput.insertPlainText(line)
-            self.editorOutput.insertPlainText(f"BatBundle {batgadget} successfully installed !")
+            self.editorOutput.insertPlainText(f"BatBundle {batgadget} successfully installed !\n")
 
         elif cmd == "Search":
             result = batcave.searchTheBatcave(batgadget)
