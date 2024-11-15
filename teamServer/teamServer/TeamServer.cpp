@@ -1058,7 +1058,7 @@ const std::string InfoListenerInstruction = "infoListener";
 const std::string GetBeaconBinaryInstruction = "getBeaconBinary";
 const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
 const std::string ReloadModulesInstruction = "reloadModules";
-const std::string BatcaveInstruction = "batcave";
+const std::string BatcaveInstruction = "batcaveUpload";
 const std::string InstallInstruction = "install";
 
 
@@ -1326,45 +1326,32 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	}
 	else if(instruction==BatcaveInstruction)
 	{
-		// if(splitedCmd.size()==2)
-		// {
-		// 	// Get the url from a batcave config file
+		m_logger->info("batcaveUpload {0}", cmd);
+		std::string filename = splitedCmd[1];
+		m_logger->info("batcaveUpload {0}", filename);
+		if (filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") != std::string::npos)
+		{
+			responseTmp.set_result("Error: filename not allowed.");
+			*response = responseTmp;
+			return grpc::Status::OK;
+		}
+		std::string data = command->data();
+		std::string filePath = m_toolsDirectoryPath;
+		filePath+="/";
+		filePath+=filename;
 
-		// 	// download
-		// 	std::string url = "https://github.com";
-		// 	httplib::Client cli(url);
-		// 	cli.set_follow_location(true);
-
-		// 	std::string path = "/exploration-batcave/Rubeus/releases/download/v2.0.2/Rubeus.zip";
-		// 	auto res = cli.Get(path);
-
-		// 	std::string filePath = m_toolsDirectoryPath;
-		// 	filePath+="/";
-		// 	filePath+="Rubeus.zip";
-
-		// 	if(res->status==200)
-		// 	{
-		// 		ofstream outputFile(filePath, ios::out | ios::binary);
-		// 		if (outputFile.good()) 
-		// 		{
-		// 			outputFile << res->body;
-		// 			outputFile.close();
-		// 			responseTmp.set_result("ok");
-		// 		}
-		// 		else
-		// 		{
-		// 			responseTmp.set_result("Error: Cannot write file.");
-		// 		}
-		// 	}
-			
-		// }
-		// // TODO
-		// else
-		// {
-		// 	responseTmp.set_result("Error: batcave take 2 arguements.");
-		// 	*response = responseTmp;
-		// 	return grpc::Status::OK;
-		// }
+		ofstream outputFile(filePath, ios::out | ios::binary);
+		if (outputFile.good()) 
+		{
+			outputFile << data;
+			outputFile.close();
+			responseTmp.set_result("ok");
+		}
+		else
+		{
+			responseTmp.set_result("Error: Cannot write file.");
+		}
+		return grpc::Status::OK;
 	}
 	else if(instruction==ReloadModulesInstruction)
 	{
