@@ -258,7 +258,7 @@ class Terminal(QWidget):
             self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = result  + '\n';
             if result == "":
-                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules."
+                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules.\n"
             self.editorOutput.insertPlainText(line)
             return    
 
