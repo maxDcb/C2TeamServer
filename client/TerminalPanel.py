@@ -30,6 +30,8 @@ if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
     sys.path.insert(1, './PeInjectorSyscall/')
     import GenerateInjector
 
+sys.path.insert(1, './Batcave')
+import batcave
 #
 # Constant
 #
@@ -42,6 +44,7 @@ HttpsType = "https"
 GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
 GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
+GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 
 BeaconHttpFile = "BeaconHttp.exe"
 
@@ -53,8 +56,8 @@ BatcaveInstruction = "Batcave"
 BatcaveHelp = """Batcave:
 Install the given module localy or on the team server:
 exemple:
-- Batcave install rubeuse
-- Batcave localinstall rubeuse"""
+- Batcave install rubeus
+- Batcave localinstall rubeus"""
 
 GenerateInstruction = "Generate"
 GenerateHelp = """Generate:
@@ -224,11 +227,23 @@ class Terminal(QWidget):
             return;
 
         cmd = instructions[1]
-        module = instructions[2]
+        batgadget = instructions[2]
 
         if cmd == "install":
-            commandTeamServer = "batcave "+module
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            try:
+                filePath = "/tmp/rudeus"
+                filename = os.path.basename(filePath)
+                with open(filePath, mode='rb') as fileDesc:
+                    payload = fileDesc.read()
+            except IOError:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + "Error: File does not appear to exist." + '\n';
+                self.editorOutput.insertPlainText(line)
+                return  
+
+            commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+            print("Sent " + commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
@@ -242,6 +257,13 @@ class Terminal(QWidget):
 
             # todo
             toto = 0;
+
+        elif cmd == "search":
+            result = batcave.searchForGadget(batgadget)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = '\n' + result  + '\n';
+            self.editorOutput.insertPlainText(line)
+            return    
 
         else:
             self.editorOutput.appendHtml(orangeText.format(commandLine))
