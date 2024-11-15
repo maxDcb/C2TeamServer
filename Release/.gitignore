@@ -1,0 +1,11 @@
+*
+
+!.gitignore
+
+!www
+!Tools
+!TeamServer
+!Modules
+!Scripts
+!Client
+!Beacons
