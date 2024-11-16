@@ -30,6 +30,8 @@ if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
     sys.path.insert(1, './PeInjectorSyscall/')
     import GenerateInjector
 
+sys.path.insert(1, './Batcave')
+import batcave
 #
 # Constant
 #
@@ -42,6 +44,7 @@ HttpsType = "https"
 GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
 GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
+GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 
 BeaconHttpFile = "BeaconHttp.exe"
 
@@ -51,10 +54,11 @@ HelpInstruction = "help"
 
 BatcaveInstruction = "Batcave"
 BatcaveHelp = """Batcave:
-Install the given module localy or on the team server:
+Install the given module locally or on the team server:
 exemple:
-- Batcave install rubeuse
-- Batcave localinstall rubeuse"""
+- Batcave Install rubeus
+- Batcave BundleInstall recon
+- Batcave Search rec"""
 
 GenerateInstruction = "Generate"
 GenerateHelp = """Generate:
@@ -119,6 +123,11 @@ completerData = [
             (PowershellWebDeliveryInstruction,[]),
             ('PeInjectorSyscall',[]),
              ]),
+    (BatcaveInstruction, [
+            ("Install", []),
+            ("BundleInstall", []),
+            ("Search", [])
+             ])
 ]
 
 orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
@@ -224,24 +233,70 @@ class Terminal(QWidget):
             return;
 
         cmd = instructions[1]
-        module = instructions[2]
+        batgadget = instructions[2]
 
-        if cmd == "install":
-            commandTeamServer = "batcave "+module
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        if cmd == "Install":
+            filePath = batcave.downloadBatGadget(batgadget)
+            try:
+                filename = os.path.basename(filePath)
+                with open(filePath, mode='rb') as fileDesc:
+                    payload = fileDesc.read()
+            except IOError:
+                self.editorOutput.appendHtml(orangeText.format(commandLine))
+                line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
+                self.editorOutput.insertPlainText(line)
+                return  
+
+            commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+            print("Sent " + commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
+            print(result)
 
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = result  + '\n';
+            if result == "":
+                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules.\n"
+            self.editorOutput.insertPlainText(line)
+            return    
+
+        elif cmd == "BundleInstall":
+
+            filePathList = batcave.downloadBatBundle(batgadget)
+            self.editorOutput.appendHtml(orangeText.format(commandLine))
+            line = "\n"
+            for filePath in filePathList:
+                try:
+                    filename = os.path.basename(filePath)
+                    with open(filePath, mode='rb') as fileDesc:
+                        payload = fileDesc.read()
+                except IOError:
+                    self.editorOutput.appendHtml(orangeText.format(commandLine))
+                    line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
+                    self.editorOutput.insertPlainText(line)
+                    return  
+
+                commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
+                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+                result = resultTermCommand.result
+
+                if result == "":
+                    line += f" - Added {filename} to TeamServer Tools. You can now use it with other modules. \n"
+                else:
+                    line += result  + '\n'
+            self.editorOutput.insertPlainText(line)
+            self.editorOutput.insertPlainText(f"BatBundle {batgadget} successfully installed !\n")
+
+        elif cmd == "Search":
+            result = batcave.searchTheBatcave(batgadget)
             self.editorOutput.appendHtml(orangeText.format(commandLine))
             line = '\n' + result  + '\n';
             self.editorOutput.insertPlainText(line)
             return    
-
-        elif cmd == "localinstall":
-
-            # todo
-            toto = 0;
 
         else:
             self.editorOutput.appendHtml(orangeText.format(commandLine))
