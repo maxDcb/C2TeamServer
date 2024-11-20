@@ -445,7 +445,7 @@ class Terminal(QWidget):
 
                 exeName = listener+"_"+scheme
                 self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line += "\n Generating GoDroplets Please Wait ....."
+                line = "\n Generating GoDroplets Please Wait ....."
 
                 res = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
 
