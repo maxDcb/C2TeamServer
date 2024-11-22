@@ -112,7 +112,7 @@ def getHelpMsg():
     helpText  = HelpInstruction+"\n"
     helpText += HostInstruction+"\n"
     helpText += GenerateInstruction+"\n"
-    helpText += GenerateAndHostInstruction+"\n"
+    helpText += GenerateAndHostInstruction
     return helpText
 
 completerData = [
