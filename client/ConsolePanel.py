@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+from datetime import datetime
 from threading import Thread, Lock
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -258,9 +259,6 @@ completerData = [
              ]),
 ]
 
-orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
-redText = '<p style=\"color:red;white-space:pre\">[+] {} </p>'
-
 
 #
 # Consoles Tab Implementation
@@ -380,14 +378,29 @@ class Console(QWidget):
             return True
         return super().event(event)
 
+    def printInTerminal(self, cmdSent, cmdReived, result):
+        now = datetime.now()
+        sendFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:orange;"> [&gt;&gt;] </span>'+'<span style="color:orange;">{}</span>'+'</p>'
+        receiveFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [&lt;&lt;] </span>'+'<span style="color:red;">{}</span>'+'</p>'
+
+        if cmdSent:
+            self.editorOutput.appendHtml(sendFormater.format(cmdSent))
+            self.editorOutput.insertPlainText("\n")
+        elif cmdReived:
+            self.editorOutput.appendHtml(receiveFormater.format(cmdReived))
+            self.editorOutput.insertPlainText("\n")
+        if result:
+            self.editorOutput.insertPlainText(result)
+            self.editorOutput.insertPlainText("\n")
+
     def runCommand(self):
         commandLine = self.commandEditor.displayText()
         self.commandEditor.clearLine()
         self.setCursorEditorAtEnd()
 
         if commandLine == "":
-            line = '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal("", "", "")
+
         else:
             cmdHistoryFile = open(CmdHistoryFileName, 'a')
             cmdHistoryFile.write(commandLine)
@@ -402,24 +415,18 @@ class Console(QWidget):
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
             if instructions[0]==HelpInstruction:
-                command = TeamServerApi_pb2.Command(
-                cmd=commandLine)
+                command = TeamServerApi_pb2.Command(cmd=commandLine)
                 response = self.grpcClient.getHelp(command)
-                self.editorOutput.appendHtml(orangeText.format(response.cmd))
-                line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(response.cmd, "", "")
+                self.printInTerminal("", response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
+
             else:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n';
-                self.editorOutput.insertPlainText(line)
-                command = TeamServerApi_pb2.Command(
-                    beaconHash=self.beaconHash,
-                    listenerHash=self.listenerHash,
-                    cmd=commandLine)
+                self.printInTerminal(commandLine, "", "")
+                command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
                 if result.message:
-                    line = result.message.decode(encoding="latin1", errors="ignore") + '\n';
-                    self.editorOutput.insertPlainText(line)
+                    self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
         self.setCursorEditorAtEnd()
 
     def displayResponse(self):
@@ -427,9 +434,7 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
-            self.editorOutput.appendHtml(redText.format(response.instruction + " " + response.cmd))
-            line = '\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n'
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
 
             logFile = open("./logs/"+self.logFileName, 'a')

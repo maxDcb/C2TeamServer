@@ -3,6 +3,8 @@ import os
 import time
 import random
 import string 
+from datetime import datetime
+from threading import Thread
 from threading import Thread, Lock
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -32,6 +34,7 @@ if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
 
 sys.path.insert(1, './Batcave')
 import batcave
+
 #
 # Constant
 #
@@ -130,8 +133,10 @@ completerData = [
              ])
 ]
 
-orangeText = '<p style=\"color:orange;white-space:pre\">[+] {} </p>'
-redText = '<p style=\"color:red;white-space:pre\">[+] {} </p>'
+InfoProcessing = "Processing..." 
+ErrorCmdUnknow = "Error: Command Unknown"
+ErrorFileNotFound = "Error: File doesn't exist."
+ErrorListener = "Error: Download listener must be of type http or https."
 
 
 #
@@ -159,6 +164,7 @@ class Terminal(QWidget):
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
+
     def nextCompletion(self):
         index = self._compl.currentIndex()
         self._compl.popup().setCurrentIndex(index)
@@ -166,11 +172,25 @@ class Terminal(QWidget):
         if not self._compl.setCurrentRow(start + 1):
             self._compl.setCurrentRow(0)
 
+
     def event(self, event):
         if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
+
+
+    def printInTerminal(self, cmd, result):
+        now = datetime.now()
+        formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
+
+        if cmd:
+            self.editorOutput.appendHtml(formater.format(cmd))
+            self.editorOutput.insertPlainText("\n")
+        if result:
+            self.editorOutput.insertPlainText(result)
+            self.editorOutput.insertPlainText("\n")
+
 
     def runCommand(self):
         commandLine = self.commandEditor.displayText()
@@ -178,8 +198,8 @@ class Terminal(QWidget):
         self.setCursorEditorAtEnd()
 
         if commandLine == "":
-            line = '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal("", "")
+
         else:
             cmdHistoryFile = open(HistoryFileName, 'a')
             cmdHistoryFile.write(commandLine)
@@ -212,24 +232,18 @@ class Terminal(QWidget):
                 self.runHost(commandLine, instructions)
             
             else:
-                self.editorOutput.appendHtml(redText.format(commandLine))
-                line = '\n' + "Error: Command Unknown"  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, ErrorCmdUnknow)
 
         self.setCursorEditorAtEnd()
 
 
     def runHelp(self):
-        self.editorOutput.appendHtml(orangeText.format("help"))
-        line = '\n' + getHelpMsg()  + '\n';
-        self.editorOutput.insertPlainText(line)
+        self.printInTerminal("help", getHelpMsg())
 
 
     def runBatcave(self, commandLine, instructions):
         if len(instructions) < 3:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + BatcaveHelp  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, BatcaveHelp)
             return;
 
         cmd = instructions[1]
@@ -242,9 +256,7 @@ class Terminal(QWidget):
                 with open(filePath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, ErrorFileNotFound)
                 return  
 
             commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
@@ -253,29 +265,24 @@ class Terminal(QWidget):
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
-            print(result)
+            if ErrorInstruction in result:
+                self.printInTerminal(commandLine, result)
+                return   
 
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = result  + '\n';
-            if result == "":
-                line += f"Added {filename} to TeamServer Tools. You can now use it with other modules.\n"
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, f"Added {filename} to TeamServer Tools.")
             return    
 
         elif cmd == "BundleInstall":
 
             filePathList = batcave.downloadBatBundle(batgadget)
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = "\n"
+            line = ""
             for filePath in filePathList:
                 try:
                     filename = os.path.basename(filePath)
                     with open(filePath, mode='rb') as fileDesc:
                         payload = fileDesc.read()
                 except IOError:
-                    self.editorOutput.appendHtml(orangeText.format(commandLine))
-                    line = '\n' + "Error: File or BatGadget does not appear to exist." + '\n';
-                    self.editorOutput.insertPlainText(line)
+                    self.printInTerminal(commandLine, ErrorFileNotFound)
                     return  
 
                 commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
@@ -283,25 +290,21 @@ class Terminal(QWidget):
                 resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
                 result = resultTermCommand.result
+                if ErrorInstruction in result:
+                    self.printInTerminal(commandLine, result)
+                    return  
 
-                if result == "":
-                    line += f" - Added {filename} to TeamServer Tools. You can now use it with other modules. \n"
-                else:
-                    line += result  + '\n'
-            self.editorOutput.insertPlainText(line)
-            self.editorOutput.insertPlainText(f"BatBundle {batgadget} successfully installed !\n")
+                line += f"Added {filename} to TeamServer Tools.\n"
+            line += f"BatBundle {batgadget} successfully installed!"
+            self.printInTerminal(commandLine, line)
 
         elif cmd == "Search":
             result = batcave.searchTheBatcave(batgadget)
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return    
 
         else:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + "unkown instrution"  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
             return     
 
 
@@ -310,9 +313,7 @@ class Terminal(QWidget):
     # 
     def runHost(self, commandLine, instructions):
         if len(instructions) < 3:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + HostHelp  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, HostHelp)
             return;
 
         filePath = instructions[1]
@@ -324,9 +325,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return        
 
         results = result.split("\n")
@@ -338,8 +337,7 @@ class Terminal(QWidget):
         portDownload = results[2]
         downloadPath = results[3]
         if not downloadPath:
-            error = "Error: Download listener must be of type http or https."
-            self.editorOutput.insertPlainText(error)
+            self.printInTerminal(commandLine, ErrorListener)
             return
 
         if downloadPath[0]=="/":
@@ -351,9 +349,7 @@ class Terminal(QWidget):
             with open(filePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + "Error: File does not appear to exist." + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorFileNotFound)
             return  
 
         commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+hostListenerHash+" "+filename
@@ -362,15 +358,11 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return  
                 
         result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
-        self.editorOutput.appendHtml(orangeText.format(commandLine))
-        line = '\n' + result  + '\n';
-        self.editorOutput.insertPlainText(line)
+        self.printInTerminal(commandLine, result)
 
 
     #
@@ -378,23 +370,17 @@ class Terminal(QWidget):
     #   
     def runGenerate(self, commandLine, instructions):
         if len(instructions) < 2:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + GenerateHelp  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, GenerateHelp)
             return; 
 
         mode = instructions[1]
         if mode == WindowsExecutableInstruction or mode == GoWindowsExecutableInstruction:
             if len(instructions) < 3 and mode == WindowsExecutableInstruction:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + WindowsExecutableHelp  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, WindowsExecutableHelp)
                 return; 
             
             elif len(instructions) < 3 and mode == GoWindowsExecutableInstruction:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + GoWindowsExecutableHelp  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, GoWindowsExecutableHelp)
                 return; 
 
             listener = instructions[2]
@@ -405,9 +391,7 @@ class Terminal(QWidget):
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + result  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, result)
                 return   
 
             results = result.split("\n")
@@ -424,9 +408,7 @@ class Terminal(QWidget):
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + result  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, result)
                 return   
 
             print("Beacon size", len(resultTermCommand.data))
@@ -444,57 +426,61 @@ class Terminal(QWidget):
                     formatOutput = instructions[3]
 
                 exeName = listener+"_"+scheme
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = "\n Generating GoDroplets Please Wait ....."
 
-                res = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
-
-                if not "".join(res):
-                    line = '\n' + "Error: GoWindowsExecutable failed. Check if go is correctly installed."  + '\n';
-                    self.editorOutput.insertPlainText(line)
-                    return   
-
-                toprint = "\nGenerated the Following:\n"
-                toprint += ("\n").join(res)
-                self.editorOutput.insertPlainText(toprint)
+                self.printInTerminal(commandLine, InfoProcessing)
+                thread = Thread(target = self.GenerateGoDroplets, args = (commandLine, beaconFilePath, beaconArg, formatOutput, exeName))
+                thread.start()
                 return
 
             elif mode == WindowsExecutableInstruction:
-                # launch PeDropper
-                dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
-
-                result =  "Dropper EXE path: " + dropperExePath + "\n"
-                result += "Dropper DLL path: " + dropperDllPath 
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + result  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, InfoProcessing)
+                thread = Thread(target = self.GenerateDropperBinary, args = (commandLine, beaconFilePath, beaconArg))
+                thread.start()
                 return
             
         else:
-            self.editorOutput.appendHtml(redText.format(commandLine))
-            helpMsg = """Error: Mode not recognised"""
-            line = '\n' + helpMsg  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
             return;
 
+    #
+    # GenerateGoDroplets
+    #
+    def GenerateGoDroplets(self, commandLine,  beaconFilePath, beaconArg, formatOutput, exeName):
+        dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
+
+        result = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
+
+        if not "".join(result):
+            self.printInTerminal(commandLine, "Error: GoWindowsExecutable failed. Check if go is correctly installed.")
+            return   
+        
+        self.printInTerminal(commandLine, ("\n").join(result))
+        return
+
+    #
+    # GenerateDropperBinary
+    #
+    def GenerateDropperBinary(self, commandLine,  beaconFilePath, beaconArg):
+        dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
+
+        result =  "Dropper EXE path: " + dropperExePath + "\n"
+        result += "Dropper DLL path: " + dropperDllPath 
+        self.printInTerminal(commandLine, result)
+        return
 
     #
     # GenerateAndHost 
     #
     def runGenerateAndHost(self, commandLine, instructions):
         if len(instructions) < 2:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + GenerateAndHostHelp  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, GenerateAndHostHelp)
             return;
 
         mode = instructions[1]
 
         if mode == PowershellWebDeliveryInstruction:
             if len(instructions) < 3:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + PowershellWebDeliveryHelp  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, PowershellWebDeliveryHelp)
                 return;
             
             # should take 2 listeners: 
@@ -506,13 +492,13 @@ class Terminal(QWidget):
             else:
                 listenerDownload = listenerBeacon
 
-            self.GenerateAndHostPowershellWebDelivery(commandLine, listenerDownload, listenerBeacon)
+            self.printInTerminal(commandLine, InfoProcessing)
+            thread = Thread(target = self.GenerateAndHostPowershellWebDelivery, args = (commandLine, listenerDownload, listenerBeacon))
+            thread.start()
 
         elif mode == PeInjectorSyscallInstruction:
             if len(instructions) < 4:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + PeInjectorSyscallHelp  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, PeInjectorSyscallHelp)
                 return;
             
             # should take 2 listeners: 
@@ -525,13 +511,12 @@ class Terminal(QWidget):
             else:
                 listenerDownload = listenerBeacon
 
-            self.GenerateAndHostPeInjectorSyscall(commandLine, listenerDownload, listenerBeacon, processToInject)
+            self.printInTerminal(commandLine, InfoProcessing)
+            thread = Thread(target = self.GenerateAndHostPeInjectorSyscall, args = (commandLine, listenerDownload, listenerBeacon, processToInject))
+            thread.start()
     
         else:
-            self.editorOutput.appendHtml(redText.format(commandLine))
-            helpMsg = """Error: Mode not recognised"""
-            line = '\n' + helpMsg  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
             return;
 
 
@@ -545,9 +530,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return        
 
         results = result.split("\n")
@@ -559,8 +542,7 @@ class Terminal(QWidget):
         portDownload = results[2]
         downloadPath = results[3]
         if not downloadPath:
-            error = "Error: Download listener must be of type http or https."
-            self.editorOutput.insertPlainText(error)
+            self.printInTerminal(commandLine, ErrorListener)
             return
 
         if downloadPath[0]=="/":
@@ -573,9 +555,7 @@ class Terminal(QWidget):
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + result  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, result)
                 return   
 
             results = result.split("\n")
@@ -596,9 +576,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return   
 
         print("Beacon size", len(resultTermCommand.data))
@@ -623,9 +601,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return  
 
         filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
@@ -637,18 +613,13 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return  
 
         # upload the 2 file to the server, get the url to reach them
         # generate the oneliner
         oneLiner = GeneratePowershellLauncher.generateOneLiner(ipDownload, portDownload, scheme, pathAmsiBypass, pathShellcodeRunner)
-
-        self.editorOutput.appendHtml(orangeText.format(commandLine))
-        line = '\n' + oneLiner  + '\n';
-        self.editorOutput.insertPlainText(line)
+        self.printInTerminal(commandLine, oneLiner)
 
 
     #
@@ -661,9 +632,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return        
 
         results = result.split("\n")
@@ -675,8 +644,7 @@ class Terminal(QWidget):
         portDownload = results[2]
         downloadPath = results[3]
         if not downloadPath:
-            error = "Error: Download listener must be of type http or https."
-            self.editorOutput.insertPlainText(error)
+            self.printInTerminal(commandLine, ErrorListener)
             return
 
         if downloadPath[0]=="/":
@@ -689,9 +657,7 @@ class Terminal(QWidget):
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.editorOutput.appendHtml(orangeText.format(commandLine))
-                line = '\n' + result  + '\n';
-                self.editorOutput.insertPlainText(line)
+                self.printInTerminal(commandLine, result)
                 return   
 
             results = result.split("\n")
@@ -712,9 +678,7 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return   
 
         print("Beacon size", len(resultTermCommand.data))
@@ -732,9 +696,7 @@ class Terminal(QWidget):
         urlStage =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
 
         if not os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + "PeInjectorSyscall module not found"  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, "PeInjectorSyscall module not found")
             return  
 
         dropperExePath, shellcodePath = GenerateInjector.generatePayloads(beaconFilePath, beaconArg, "", process, urlStage)
@@ -744,9 +706,7 @@ class Terminal(QWidget):
             with open(dropperExePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            self.editorOutput.appendHtml(redText.format(commandLine))
-            line = '\n' + "Error: File does not appear to exist." + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorFileNotFound)
             return  
 
         commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+"onschuldig.exe"
@@ -755,18 +715,14 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return  
                 
         try:
             with open(shellcodePath, mode='rb') as fileDesc:
                 payload = fileDesc.read()
         except IOError:
-            self.editorOutput.appendHtml(redText.format(commandLine))
-            line = '\n' + "Error: File does not appear to exist." + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, ErrorFileNotFound)
             return  
 
         commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
@@ -775,15 +731,11 @@ class Terminal(QWidget):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.editorOutput.appendHtml(orangeText.format(commandLine))
-            line = '\n' + result  + '\n';
-            self.editorOutput.insertPlainText(line)
+            self.printInTerminal(commandLine, result)
             return  
                 
         result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + "onschuldig.exe"
-        self.editorOutput.appendHtml(orangeText.format(commandLine))
-        line = '\n' + result  + '\n';
-        self.editorOutput.insertPlainText(line)
+        self.printInTerminal(commandLine, result)
 
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
