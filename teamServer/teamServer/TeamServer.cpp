@@ -199,6 +199,7 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 
 					teamserverapi::Listener listener;
 					listener.set_listenerhash(it->getListenerHash());
+					listener.set_beaconhash(session->getBeaconHash());
 					std::string type = it->getType();
 					listener.set_type(type);
 					if(type == ListenerTcpType )

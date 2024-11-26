@@ -10,10 +10,7 @@ from PyQt5.QtGui import QPixmap, QTransform
 from grpcClient import *
 
 
-# https://www.pythonguis.com/tutorials/pyqt-qgraphics-vector-graphics/
-# https://github.com/HavocFramework/Havoc/blob/a3f36e843b4df7f7f9124c68e61c137811c87ee5/client/include/UserInterface/Widgets/SessionGraph.hpp#L87
-
-
+# needed to send the message of mouseMoveEvent because QGraphicsPixmapItem doesn't herit from QObject
 class Signaller(QObject):
     signal = pyqtSignal()
 
@@ -21,17 +18,39 @@ class Signaller(QObject):
         self.signal.emit()
 
 
-class MovablePixmapItem(QGraphicsPixmapItem):
+class NodeItem(QGraphicsPixmapItem):
     # Signal to notify position changes
     signaller = Signaller()
 
-    def __init__(self, pixmap, parent=None):
+    def __init__(self, type, hash, parent=None):
+        if type == "Listener":
+            self.type = "Listener"
+            pixmap = QPixmap("firewall.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.beaconHash = ""
+            self.connectedListenerHash = ""
+            self.listenerHash = []
+            self.listenerHash.append(hash)
+        elif type == "Beacon":
+            self.type = "Beacon"
+            pixmap = QPixmap("pc.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.beaconHash=hash
+            self.connectedListenerHash = ""
+            self.listenerHash=[]
+
         super().__init__(pixmap)
 
+    def print(self):
+        print("NodeItem", self.type, "beaconHash", self.beaconHash, "listenerHash", self.listenerHash, "connectedListenerHash", self.connectedListenerHash)
+
+    def isResponsableForListener(self, hash):
+        if hash in self.listenerHash:
+            return True      
+        else:
+            return False
+
     def mouseMoveEvent(self, event):
-        print(event)
         super().mouseMoveEvent(event)
-        self.signaller.trigger()  # Emit signal when moved
+        self.signaller.trigger() 
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
@@ -40,9 +59,32 @@ class MovablePixmapItem(QGraphicsPixmapItem):
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         self.setCursor(Qt.ArrowCursor)
+        
 
+class Connector(QGraphicsLineItem):
 
+    def __init__(self, listener, beacon, pen=None):
+        super().__init__()
+        self.listener = listener
+        self.beacon = beacon
+
+        self.pen = pen or QPen(QColor("black"), 2)
+        self.setPen(self.pen)
+        self.update_line()
+
+    def print(self):
+        print("Connector", "beaconHash", self.beacon.beaconHash, "connectedListenerHash", self.beacon.connectedListenerHash, "listenerHash", self.listener.listenerHash)
+
+    def update_line(self):
+        center1 = self.listener.pos() + self.listener.boundingRect().center()
+        center2 = self.beacon.pos() + self.beacon.boundingRect().center()
+        self.setLine(QLineF(center1, center2))
+        
+        
 class Graph(QWidget):
+    listNodeItem = []
+    listNodeItem = []
+    listConnector = []
 
     def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
@@ -56,7 +98,6 @@ class Graph(QWidget):
 
         self.scene = QGraphicsScene()
 
-
         self.view = QGraphicsView(self.scene)
         self.view.setRenderHint(QPainter.Antialiasing)  
 
@@ -66,9 +107,6 @@ class Graph(QWidget):
 
         self.setLayout(self.vbox)
 
-
-        # Thread to get listeners every second
-        # https://realpython.com/python-pyqt-qthread/
         self.thread = QThread()
         self.getGraphInfoWorker = GetGraphInfoWorker()
         self.getGraphInfoWorker.moveToThread(self.thread)
@@ -76,7 +114,7 @@ class Graph(QWidget):
         self.getGraphInfoWorker.checkin.connect(self.updateGraph)
         self.thread.start()
 
-        self.updateScene()
+        # self.updateScene()
         
 
     def __del__(self):
@@ -84,58 +122,133 @@ class Graph(QWidget):
         self.thread.quit()
         self.thread.wait()
 
+ 
+    def updateConnectors(self):
+        for connector in self.listConnector:
+            connector.update_line()
 
-    def updateScene(self):
-        # Create the first movable QPixmap
-        pixmap1 = QPixmap("firewall.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.item1 = MovablePixmapItem(pixmap1)
-        self.item1.setPos(100, 50)
-        self.scene.addItem(self.item1)
 
-        # Create the second movable QPixmap
-        pixmap2 = QPixmap("pc.png").scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.item2 = MovablePixmapItem(pixmap2)
-        self.item2.setPos(300, 150)
-        self.scene.addItem(self.item2)
+    # Update the graphe every X sec with information from the team server
+    def updateGraph(self):
 
-        # Draw the line between the centers of the two pixmaps
-        self.line = self.scene.addLine(0, 0, 0, 0, QPen(Qt.black, 2))
-        self.update_line()
+        #
+        # Update beacons
+        #
+        responses = self.grpcClient.getSessions()
+        sessions = list()
+        for response in responses:
+            sessions.append(response)
 
-        # Connect the positionChanged signal to update_line
-        self.item1.signaller.signal.connect(self.update_line)
-        self.item2.signaller.signal.connect(self.update_line)
+        # delete beacon
+        for ix, nodeItem in enumerate(self.listNodeItem):
+            runing=False
+            for session in sessions:
+                if session.beaconHash == nodeItem.beaconHash:
+                    runing=True
+            if not runing and self.listNodeItem[ix].type == "Beacon":
+                for ix2, connector in enumerate(self.listConnector):
+                    if connector.beacon.beaconHash == nodeItem.beaconHash:
+                        print("[-] delete connector")
+                        self.scene.removeItem(self.listConnector[ix2])
+                        del self.listConnector[ix2]
+                print("[-] delete beacon", nodeItem.beaconHash)
+                self.scene.removeItem(self.listNodeItem[ix])
+                del self.listNodeItem[ix]
 
-        # Set all items as moveable and selectable.
-        for item in self.scene.items():
+        # add beacon
+        for session in sessions:
+            inStore=False
+            for ix, nodeItem in enumerate(self.listNodeItem):
+                if session.beaconHash == nodeItem.beaconHash:
+                    inStore=True
+            if not inStore:
+                item = NodeItem("Beacon", session.beaconHash)
+                item.connectedListenerHash = session.listenerHash
+                item.signaller.signal.connect(self.updateConnectors)
+                self.scene.addItem(item)
+                self.listNodeItem.append(item)
+                print("[+] add beacon", session.beaconHash)
+
+        #
+        # Update listener
+        #
+        responses= self.grpcClient.getListeners()
+        listeners = list()
+        for listener in responses:
+            listeners.append(listener)
+
+        # delete listener
+        for ix, nodeItem in enumerate(self.listNodeItem):
+            runing=False
+            for listener in listeners:
+                if nodeItem.isResponsableForListener(listener.listenerHash):
+                    runing=True
+            if not runing:
+                # primary listener
+                if self.listNodeItem[ix].type == "Listener":
+                    for ix2, connector in enumerate(self.listConnector):
+                        if self.listNodeItem[ix2].listenerHash in connector.listener.listenerHash:
+                            print("[-] delete connector")
+                            self.scene.removeItem(self.listConnector[ix2])
+                            del self.listConnector[ix2]
+                    print("[-] delete primary listener", nodeItem.listenerHash)
+                    self.scene.removeItem(self.listNodeItem[ix])
+                    del self.listNodeItem[ix]
+                    
+                # beacon listener
+                elif self.listNodeItem[ix].type == "Beacon":
+                    if listener.listenerHash in self.listNodeItem[ix].listenerHash:
+                        for ix2, connector in enumerate(self.listConnector):
+                            if self.listNodeItem[ix2].listenerHash in connector.listener.listenerHash:
+                                print("[-] delete connector")
+                                self.scene.removeItem(self.listConnector[ix2])
+                                del self.listConnector[ix2]
+                        print("[-] delete secondary listener", nodeItem.listenerHash)
+                        self.listNodeItem[ix].listenerHash.remove(listener.listenerHash)
+
+        # add listener
+        for listener in listeners:
+            inStore=False
+            for ix, nodeItem in enumerate(self.listNodeItem):
+                if nodeItem.isResponsableForListener(listener.listenerHash):
+                    inStore=True
+            if not inStore:
+                if not listener.beaconHash:
+                    item = NodeItem("Listener", listener.listenerHash)
+                    item.signaller.signal.connect(self.updateConnectors)
+                    self.scene.addItem(item)
+                    self.listNodeItem.append(item)
+                    print("[+] add primary listener", listener.listenerHash)
+                else:
+                    for nodeItem2 in self.listNodeItem:
+                        if nodeItem2.beaconHash == listener.beaconHash:
+                            nodeItem2.listenerHash.append(listener.listenerHash)
+                            print("[+] add secondary listener", listener.listenerHash)
+
+        #
+        # Update connectors
+        #        
+        for nodeItem in self.listNodeItem:
+            if nodeItem.type == "Beacon":
+                inStore=False
+                beaconHash = nodeItem.beaconHash
+                listenerHash = nodeItem.connectedListenerHash
+                for connector in self.listConnector:
+                    if connector.listener.isResponsableForListener(listenerHash) and connector.beacon.beaconHash == beaconHash:
+                        inStore=True
+                if not inStore:
+                    for listener in self.listNodeItem:
+                        if listener.isResponsableForListener(listenerHash)==True:
+                            connector = Connector(listener, nodeItem)
+                            self.scene.addItem(connector)
+                            self.listConnector.append(connector)
+                            print("[+] add connector listener:", listenerHash, "beacon", beaconHash)
+
+        for item in self.listNodeItem:
             item.setFlag(QGraphicsItem.ItemIsMovable)
             item.setFlag(QGraphicsItem.ItemIsSelectable)
 
- 
-    def update_line(self):
-        # Update the line to connect the centers of the two pixmaps
-        center1 = self.item1.pos() + self.item1.boundingRect().center()
-        center2 = self.item2.pos() + self.item2.boundingRect().center()
-        self.line.setLine(center1.x(), center1.y(), center2.x(), center2.y())
-
-
-    # query the server to get the list of listeners
-    def updateGraph(self):
-        listeners = self.grpcClient.getListeners()
-
-        sessions = self.grpcClient.getSessions()
-
-        # pixmap = QPixmap("pc.png")
-        # pixmap = pixmap.scaled(64, 64)
-        # pixmapitem = self.scene.addPixmap(pixmap)
-        # # pixmapitem.setPos(250, 70)
-
-        # # Set all items as moveable and selectable.
-        # for item in self.scene.items():
-        #     item.setFlag(QGraphicsItem.ItemIsMovable)
-        #     item.setFlag(QGraphicsItem.ItemIsSelectable)
-
-
+        
 class GetGraphInfoWorker(QObject):
     checkin = pyqtSignal()
 
@@ -144,7 +257,7 @@ class GetGraphInfoWorker(QObject):
     def run(self):
         while self.exit==False:
             self.checkin.emit()
-            time.sleep(1)
+            time.sleep(5)
 
     def quit(self):
         self.exit=True
