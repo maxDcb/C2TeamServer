@@ -7,6 +7,9 @@ foreach(ClientFile ${ClientFiles})
             copy ${ClientFile} ${CMAKE_SOURCE_DIR}/Release/Client/)
 endforeach()
 
+file(COPY Batcave DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY images DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+
 file(COPY PowershellWebDelivery DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 file(COPY PeDropper DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 file(COPY GoDroplets DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
