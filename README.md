@@ -21,7 +21,12 @@ The TeamServer is a stand alone application, coded in c++, that handle listeners
 Beacons run on the victime host. Each Beacons which connects back to the TeamServer open a new session. This session is used to control the Beacon, send commands and receive results.  
 Listener and Beacons can communicate through TCP, SMB, HTTP ,HTTPS and Github issues depending on the situation.
 
+
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ListenersAndSessions.png?raw=true)
+
+
+![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/ListenersAndSessions2.png?raw=true)
+
 
 A compiled version of the TeamServer is ready to use in the Releases, with some default certificats for GRPC communication and HTTP Listener:
 
@@ -40,7 +45,6 @@ It's launched using 'python3 GUI.py'
 
 ```
 pip3 install pycryptodome
-pip3 install conan==2.1.0
 pip3 install grpcio==1.66.1
 pip3 install PyQt5
 pip3 install pyqtdarktheme

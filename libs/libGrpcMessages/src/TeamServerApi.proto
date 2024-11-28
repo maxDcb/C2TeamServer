@@ -50,6 +50,7 @@ message Listener
   string token = 7;
   string domain = 8;
   int32 numberOfSession = 5;
+  string beaconHash = 9;
 }
 
 
