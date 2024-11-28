@@ -1489,8 +1489,14 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 }
 
 
-int main(int argc, char* argv[])
+int main(int argc, char* argv[]) 
 {
+    std::string configFile = "TeamServerConfig.json";
+    if (argc >= 2) 
+	{
+        configFile = argv[1];
+    }
+
 	//
     // Logger
 	//
@@ -1510,9 +1516,26 @@ int main(int argc, char* argv[])
 	//
 	// TeamServer Config
 	//
-	std::ifstream f("TeamServerConfig.json");
-	json config = json::parse(f);
-	
+	std::ifstream f(configFile);
+
+	// Check if the file is successfully opened
+    if (!f.is_open()) 
+	{
+        std::cerr << "Error: Config file '" << configFile << "' not found or could not be opened." << std::endl;
+        return 1;
+    }
+
+	json config;
+	try 
+	{
+		config = json::parse(f);
+	} 
+	catch (const json::parse_error& e) 
+	{
+        std::cerr << "Error: Failed to parse JSON in config file '" << configFile << "' - " << e.what() << std::endl;
+        return 1;
+    }
+
 	std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
 	std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
 	std::string serverAddress = serverGRPCAdd;
