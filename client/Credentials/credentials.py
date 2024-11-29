@@ -27,12 +27,11 @@ def addCredentials(grpcClient: GrpcClient,TeamServerApi_pb2, cred: str):
 
 
 def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
-    auth_block_pattern = r"Authentication Id : .*?\n(.*?)(?=\nAuthentication Id :|\Z)"  # Each block of data
-    user_domain_pattern = r"User Name\s*:\s*(.*?)\s*Domain\s*:\s*(.*?)\n"  # Username and Domain
-    ntlm_pattern = r"msv\s*:\s*.*?NTLM\s*:\s*([a-fA-F0-9]+)"  # msv section
+    auth_block_pattern = r"Authentication Id : .*?\n(.*?)(?=\nAuthentication Id :|\Z)"
+    user_domain_pattern = r"User Name\s*:\s*(.*?)\s*Domain\s*:\s*(.*?)\n"
+    ntlm_pattern = r"msv\s*:\s*.*?NTLM\s*:\s*([a-fA-F0-9]+)"
     auth_blocks = re.findall(auth_block_pattern, mimikatzOutput, re.DOTALL)
     for block in auth_blocks:
-        # Extract Username and Domain
         user_domain_match = re.search(user_domain_pattern, block)
         if user_domain_match:
             username = user_domain_match.group(1).strip()
@@ -41,7 +40,6 @@ def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,Tea
             username = "N/A"
             domain = "N/A"
         
-        # Extract msv section
         ntlm_match = re.search(ntlm_pattern, block, re.DOTALL)
         ntlm = ntlm_match.group(1).strip() if ntlm_match else ""
         if ntlm != "":
@@ -51,12 +49,41 @@ def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,Tea
             cred["ntlm"] = ntlm
             addCredentials(grpcClient, TeamServerApi_pb2, json.dumps(cred))
         
-        # Print results
-        print(getCredentials(grpcClient, TeamServerApi_pb2))
+
+def handleLsaDumpSAM(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
+    domain_block_pattern = r"(Domain :.*?)(?=\nDomain :|\Z)"
+    domain_pattern = r"Domain : (.*)"
+
+    rid_block_pattern = r"(RID\s*:.*?)(?=\nRID\s*:|\Z)"
+
+    user_hash_pattern = r"User\s*:\s*(\S+)\r?\n\s+Hash NTLM:\s*([a-fA-F0-9]+)"
+
+
+    domain_blocks = re.findall(domain_block_pattern, mimikatzOutput, re.DOTALL)
+    for block in domain_blocks:
+        domain_match = re.search(domain_pattern, block)
+        if domain_match:
+            domain = domain_match.group(1).strip()
+            print(domain)
+        else:
+            continue
+
+        rid_blocks = re.findall(rid_block_pattern, block, re.DOTALL)
+        for rid_block in rid_blocks:
+            print(rid_block)
+            matches = re.findall(user_hash_pattern, rid_block)
+            print(matches)
+            for user, hash_ntlm in matches:
+                cred = {}
+                cred["username"] = user
+                cred["domain"] = domain
+                cred["ntlm"] = hash_ntlm
+                addCredentials(grpcClient, TeamServerApi_pb2, json.dumps(cred))
+    print(getCredentials(grpcClient, TeamServerApi_pb2)) 
 
 
 
 
 def handleMimikatzCredentials(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
     handleSekurlsaLogonPasswords(mimikatzOutput, grpcClient,TeamServerApi_pb2)
-
+    handleLsaDumpSAM(mimikatzOutput, grpcClient, TeamServerApi_pb2)
