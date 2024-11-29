@@ -11,6 +11,8 @@ from grpcClient import *
 
 from TerminalPanel import *
 
+sys.path.insert(1, './Credentials')
+import credentials
 
 #
 # Constant
@@ -434,6 +436,8 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
+            if "-e mimikatz.exe" in response.cmd:
+                credentials.handleMimikatzCredentials(response.response.decode(encoding="latin1", errors="ignore"), self.grpcClient, TeamServerApi_pb2)
             self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
 

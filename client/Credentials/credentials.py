@@ -23,7 +23,6 @@ def addCredentials(grpcClient: GrpcClient,TeamServerApi_pb2, cred: str):
     commandTeamServer = AddCredentialsInstruction
     termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=cred.encode())
     resultTermCommand = grpcClient.sendTermCmd(termCommand)
-    print(resultTermCommand.result)
 
 
 def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
@@ -64,22 +63,18 @@ def handleLsaDumpSAM(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_p
         domain_match = re.search(domain_pattern, block)
         if domain_match:
             domain = domain_match.group(1).strip()
-            print(domain)
         else:
             continue
 
         rid_blocks = re.findall(rid_block_pattern, block, re.DOTALL)
         for rid_block in rid_blocks:
-            print(rid_block)
             matches = re.findall(user_hash_pattern, rid_block)
-            print(matches)
             for user, hash_ntlm in matches:
                 cred = {}
                 cred["username"] = user
                 cred["domain"] = domain
                 cred["ntlm"] = hash_ntlm
                 addCredentials(grpcClient, TeamServerApi_pb2, json.dumps(cred))
-    print(getCredentials(grpcClient, TeamServerApi_pb2)) 
 
 
 
