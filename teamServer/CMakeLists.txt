@@ -16,9 +16,9 @@ set(SOURCES_TEAMSERVER
 ## TeamServer
 add_executable(TeamServer ${SOURCES_TEAMSERVER})
 if(WIN32)
-	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog SocksServer)
+	target_link_libraries(TeamServer Dnscommunication SocketHandler GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog SocksServer)
 else()
-	target_link_libraries(TeamServer boost::boost Dnscommunication SocketHandler GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib SocksServer)
+	target_link_libraries(TeamServer Dnscommunication SocketHandler GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib SocksServer)
 endif()
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
 $<TARGET_FILE:TeamServer> "${CMAKE_SOURCE_DIR}/Release/TeamServer/$<TARGET_FILE_NAME:TeamServer>")
@@ -27,7 +27,7 @@ ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.json "${CMAKE_SOURCE_
 
 if(WITH_TESTS)
 add_executable(testsTestServer tests/testsTestServer.cpp )
-target_link_libraries(testsTestServer boost::boost )
+target_link_libraries(testsTestServer )
 
 add_custom_command(TARGET testsTestServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
 $<TARGET_FILE:testsTestServer> "${CMAKE_SOURCE_DIR}/Tests/$<TARGET_FILE_NAME:testsTestServer>")

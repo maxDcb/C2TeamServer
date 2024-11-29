@@ -71,8 +71,8 @@ class App(QMainWindow):
 
         self.topWidget.addTab(self.m_main, "Main")
 
-        # self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
-        # self.topWidget.addTab(self.graphWidget, "Graph")
+        self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
+        self.topWidget.addTab(self.graphWidget, "Graph")
 
         self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
 

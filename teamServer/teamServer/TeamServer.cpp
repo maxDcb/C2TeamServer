@@ -16,6 +16,14 @@ using json = nlohmann::json;
 typedef ModuleCmd* (*constructProc)();
 
 
+inline bool port_in_use(unsigned short port) 
+{
+
+	return 0;
+}
+
+
+
 TeamServer::TeamServer(const nlohmann::json& config) 
 : m_config(config)
 , m_isSocksServerRunning(false)
@@ -231,68 +239,84 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	m_logger->trace("AddListener");
 	string type = listenerToCreate->type();
 
-	try 
+	// TODO use a init to check if the listener is correctly init without using excpetion in the constructor
+	if (type == ListenerTcpType)
 	{
-		// TODO check if constructor completed befor the push_back
-		if (type == ListenerTcpType)
+		int localPort = listenerToCreate->port();
+		string localHost = listenerToCreate->ip();
+		std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort);
+		int ret = listenerTcp->init();
+		if (ret>0)
 		{
-			int localPort = listenerToCreate->port();
-			string localHost = listenerToCreate->ip();
-			std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort);
 			listenerTcp->setIsPrimary();
 			m_listeners.push_back(std::move(listenerTcp));
 
 			m_logger->info("AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
 		}
-		else if (type == ListenerHttpType)
+		else
 		{
-			json configHttp = m_config["ListenerHttpConfig"];
-			
-			int localPort = listenerToCreate->port();
-			string localHost = listenerToCreate->ip();
-			std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, configHttp, false);
+			m_logger->error("Error: AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
+		}
+	}
+	else if (type == ListenerHttpType)
+	{
+		json configHttp = m_config["ListenerHttpConfig"];
+		
+		int localPort = listenerToCreate->port();
+		string localHost = listenerToCreate->ip();
+		std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, configHttp, false);
+		int ret = listenerHttp->init();
+		if (ret>0)
+		{
 			listenerHttp->setIsPrimary();
 			m_listeners.push_back(std::move(listenerHttp));
 
 			m_logger->info("AddListener Http {0}:{1}", localHost, std::to_string(localPort));
 		}
-		else if (type == ListenerHttpsType)
+		else
 		{
-			json configHttps = m_config["ListenerHttpsConfig"];
+			m_logger->error("Error: AddListener Http {0}:{1}", localHost, std::to_string(localPort));
+		}	
+	}
+	else if (type == ListenerHttpsType)
+	{
+		json configHttps = m_config["ListenerHttpsConfig"];
 
-			int localPort = listenerToCreate->port();
-			string localHost = listenerToCreate->ip();
-			std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, configHttps, true);
+		int localPort = listenerToCreate->port();
+		string localHost = listenerToCreate->ip();
+		std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, configHttps, true);
+		int ret = listenerHttps->init();
+		if (ret>0)
+		{
 			listenerHttps->setIsPrimary();
 			m_listeners.push_back(std::move(listenerHttps));
 
 			m_logger->info("AddListener Https {0}:{1}", localHost, std::to_string(localPort));
 		}
-		else if (type == ListenerGithubType)
+		else
 		{
-			std::string token = listenerToCreate->token();
-			std::string project = listenerToCreate->project();
-			std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token);
-			listenerGithub->setIsPrimary();
-			m_listeners.push_back(std::move(listenerGithub));
-
-			m_logger->info("AddListener Github {0}:{1}", project, token);
+			m_logger->error("Error: AddListener Https {0}:{1}", localHost, std::to_string(localPort));
 		}
-		else if (type == ListenerDnsType)
-		{
-			std::string domain = listenerToCreate->domain();
-			int port = listenerToCreate->port();
-			std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port);
-			listenerDns->setIsPrimary();
-			m_listeners.push_back(std::move(listenerDns));
-
-			m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
-		}
-
 	}
-	catch (const std::exception &exc)
+	else if (type == ListenerGithubType)
 	{
-		m_logger->error("Error: {0}", exc.what());
+		std::string token = listenerToCreate->token();
+		std::string project = listenerToCreate->project();
+		std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token);
+		listenerGithub->setIsPrimary();
+		m_listeners.push_back(std::move(listenerGithub));
+
+		m_logger->info("AddListener Github {0}:{1}", project, token);
+	}
+	else if (type == ListenerDnsType)
+	{
+		std::string domain = listenerToCreate->domain();
+		int port = listenerToCreate->port();
+		std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port);
+		listenerDns->setIsPrimary();
+		m_listeners.push_back(std::move(listenerDns));
+
+		m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
 	}
 
 	m_logger->trace("AddListener End");
@@ -1482,8 +1506,14 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 }
 
 
-int main(int argc, char* argv[])
+int main(int argc, char* argv[]) 
 {
+    std::string configFile = "TeamServerConfig.json";
+    if (argc >= 2) 
+	{
+        configFile = argv[1];
+    }
+
 	//
     // Logger
 	//
@@ -1503,9 +1533,26 @@ int main(int argc, char* argv[])
 	//
 	// TeamServer Config
 	//
-	std::ifstream f("TeamServerConfig.json");
-	json config = json::parse(f);
-	
+	std::ifstream f(configFile);
+
+	// Check if the file is successfully opened
+    if (!f.is_open()) 
+	{
+        std::cerr << "Error: Config file '" << configFile << "' not found or could not be opened." << std::endl;
+        return 1;
+    }
+
+	json config;
+	try 
+	{
+		config = json::parse(f);
+	} 
+	catch (const json::parse_error& e) 
+	{
+        std::cerr << "Error: Failed to parse JSON in config file '" << configFile << "' - " << e.what() << std::endl;
+        return 1;
+    }
+
 	std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
 	std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
 	std::string serverAddress = serverGRPCAdd;

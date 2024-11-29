@@ -146,7 +146,20 @@ class Sessions(QWidget):
                     inStore=True
                     sessionStore.lastProofOfLife=session.lastProofOfLife
                     sessionStore.listenerHash=session.listenerHash
-                    sessionStore.killed=session.killed
+                    if session.hostname:
+                        sessionStore.hostname=session.hostname
+                    if session.username:
+                        sessionStore.username=session.username
+                    if session.arch:
+                        sessionStore.arch=session.arch
+                    if session.privilege:
+                        sessionStore.privilege=session.privilege
+                    if session.os:
+                        sessionStore.os=session.os
+                    if session.lastProofOfLife:
+                        sessionStore.lastProofOfLife=session.lastProofOfLife
+                    if session.killed:
+                        sessionStore.killed=session.killed
             # add
             if not inStore:
                 self.listSessionObject.append(Session(self.idSession,

@@ -28,3 +28,6 @@
 [submodule "client/GoDroplets"]
 	path = client/GoDroplets
 	url = https://github.com/almounah/GoDroplets
+[submodule "libs/libSocketHandler"]
+	path = libs/libSocketHandler
+	url = https://github.com/maxDcb/libSocketHandler.git

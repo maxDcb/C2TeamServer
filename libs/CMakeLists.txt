@@ -15,8 +15,7 @@ endif()
 
 add_subdirectory(libGrpcMessages)
 
-## libs/libBoostSocketHandler
-add_subdirectory(libBoostSocketHandler)
+add_subdirectory(libSocketHandler)
 
 add_subdirectory(libDns)
 
