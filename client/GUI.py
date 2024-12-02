@@ -6,7 +6,6 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 
-from CredentialPanel import CredentialsTab
 from grpcClient import *
 from ListenerPanel import *
 from SessionPanel import *
@@ -73,9 +72,7 @@ class App(QMainWindow):
         self.topWidget.addTab(self.m_main, "Main")
 
         self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
-        self.credentialWidget = CredentialsTab(self, self.ip, self.port, self.devMode)
         self.topWidget.addTab(self.graphWidget, "Graph")
-        self.topWidget.addTab(self.credentialWidget, "Credentials")
 
         self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
 
