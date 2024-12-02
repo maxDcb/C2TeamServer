@@ -20,6 +20,7 @@ PrimaryListenerImage = "images/firewall.svg"
 WindowsSessionImage = "images/pc.svg"
 WindowsHighPrivSessionImage = "images/windowshighpriv.svg"
 LinuxSessionImage = "images/linux.svg"
+LinuxRootSessionImage = "images/linuxhighpriv.svg"
 
 
 #
@@ -37,7 +38,7 @@ class NodeItem(QGraphicsPixmapItem):
     # Signal to notify position changes
     signaller = Signaller()
 
-    def __init__(self, type, hash, os="",  privilege="", parent=None):
+    def __init__(self, type, hash, os="",  privilege="", hostname="", parent=None):
         if type == ListenerNodeItemType:
             self.type = ListenerNodeItemType
             pixmap = self.addImageNode(PrimaryListenerImage, "")
@@ -49,15 +50,19 @@ class NodeItem(QGraphicsPixmapItem):
             self.type = BeaconNodeItemType
             # print("NodeItem beaconHash", hash, "os", os, "privilege", privilege)
             if "linux" in os.lower():
-                pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                if privilege == "root":
+                    pixmap = self.addImageNode(LinuxRootSessionImage, hostname)
+                else:
+                    pixmap = self.addImageNode(LinuxSessionImage, hostname)
             elif "windows" in os.lower():
                 if privilege == "HIGH":
-                    pixmap = self.addImageNode(WindowsHighPrivSessionImage, "heyydjddhdhdy")
+                    pixmap = self.addImageNode(WindowsHighPrivSessionImage, hostname)
                 else:
-                    pixmap = self.addImageNode(WindowsSessionImage, "heyydjddhdhdy")
+                    pixmap = self.addImageNode(WindowsSessionImage, hostname)
             else:
                 pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.beaconHash=hash
+            self.hostname = hostname
             self.connectedListenerHash = ""
             self.listenerHash=[]
 
@@ -220,7 +225,7 @@ class Graph(QWidget):
                 if session.beaconHash == nodeItem.beaconHash:
                     inStore=True
             if not inStore:
-                item = NodeItem(BeaconNodeItemType, session.beaconHash, session.os, session.privilege)
+                item = NodeItem(BeaconNodeItemType, session.beaconHash, session.os, session.privilege, session.hostname)
                 item.connectedListenerHash = session.listenerHash
                 item.signaller.signal.connect(self.updateConnectors)
                 self.scene.addItem(item)
