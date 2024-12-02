@@ -5,6 +5,7 @@ import re
 GetCredentialsInstruction = "getCred"
 AddCredentialsInstruction = "addCred"
 
+
 def getCredentials(grpcClient: GrpcClient, TeamServerApi_pb2): 
     commandTeamServer = GetCredentialsInstruction
     termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=b"")
@@ -23,12 +24,15 @@ def addCredentials(grpcClient: GrpcClient,TeamServerApi_pb2, cred: str):
     commandTeamServer = AddCredentialsInstruction
     termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=cred.encode())
     resultTermCommand = grpcClient.sendTermCmd(termCommand)
+    result = resultTermCommand.result
+    return result
 
 
 def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
     auth_block_pattern = r"Authentication Id : .*?\n(.*?)(?=\nAuthentication Id :|\Z)"
     user_domain_pattern = r"User Name\s*:\s*(.*?)\s*Domain\s*:\s*(.*?)\n"
     ntlm_pattern = r"msv\s*:\s*.*?NTLM\s*:\s*([a-fA-F0-9]+)"
+    
     auth_blocks = re.findall(auth_block_pattern, mimikatzOutput, re.DOTALL)
     for block in auth_blocks:
         user_domain_match = re.search(user_domain_pattern, block)
@@ -52,11 +56,8 @@ def handleSekurlsaLogonPasswords(mimikatzOutput: str, grpcClient: GrpcClient,Tea
 def handleLsaDumpSAM(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):
     domain_block_pattern = r"(Domain :.*?)(?=\nDomain :|\Z)"
     domain_pattern = r"Domain : (.*)"
-
     rid_block_pattern = r"(RID\s*:.*?)(?=\nRID\s*:|\Z)"
-
     user_hash_pattern = r"User\s*:\s*(\S+)\r?\n\s+Hash NTLM:\s*([a-fA-F0-9]+)"
-
 
     domain_blocks = re.findall(domain_block_pattern, mimikatzOutput, re.DOTALL)
     for block in domain_blocks:
@@ -75,8 +76,6 @@ def handleLsaDumpSAM(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_p
                 cred["domain"] = domain
                 cred["ntlm"] = hash_ntlm
                 addCredentials(grpcClient, TeamServerApi_pb2, json.dumps(cred))
-
-
 
 
 def handleMimikatzCredentials(mimikatzOutput: str, grpcClient: GrpcClient,TeamServerApi_pb2):

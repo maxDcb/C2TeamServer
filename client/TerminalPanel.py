@@ -1,6 +1,7 @@
 import sys
 import os
 import time
+import json
 import random
 import string 
 from datetime import datetime
@@ -34,6 +35,10 @@ if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
 
 sys.path.insert(1, './Batcave')
 import batcave
+
+sys.path.insert(1, './Credentials')
+import credentials
+
 
 #
 # Constant
@@ -108,11 +113,26 @@ Host upload a file on the teamserver to be downloaded by a web request from a we
 exemple:
 - Host file hostListenerHash"""
 
+CredentialStoreInstruction = "CredentialStore"
+CredentialStoreHelp = """CredentialStore:
+Handle the credential store:
+exemple:
+- CredentialStore get
+- CredentialStore set domain username credential
+- CredentialStore search something"""
+
+GetSubInstruction = "get"
+SetSubInstruction = "set"
+SearchSubInstruction = "search"
+
+
 def getHelpMsg():
     helpText  = HelpInstruction+"\n"
     helpText += HostInstruction+"\n"
     helpText += GenerateInstruction+"\n"
-    helpText += GenerateAndHostInstruction
+    helpText += GenerateAndHostInstruction+"\n"
+    helpText += BatcaveInstruction+"\n"
+    helpText += CredentialStoreInstruction
     return helpText
 
 completerData = [
@@ -130,6 +150,11 @@ completerData = [
             ("Install", []),
             ("BundleInstall", []),
             ("Search", [])
+             ]),
+    (CredentialStoreInstruction, [
+            (GetSubInstruction, []),
+            (SetSubInstruction, []),
+            (SearchSubInstruction, [])
              ])
 ]
 
@@ -218,19 +243,16 @@ class Terminal(QWidget):
 
             if instructions[0]==HelpInstruction:
                 self.runHelp()
-
             elif instructions[0]==BatcaveInstruction:
                 self.runBatcave(commandLine, instructions)
-
             elif instructions[0]==GenerateInstruction:
                 self.runGenerate(commandLine, instructions)
-
             elif instructions[0]==GenerateAndHostInstruction:
                 self.runGenerateAndHost(commandLine, instructions)
-            
             elif instructions[0]==HostInstruction:
                 self.runHost(commandLine, instructions)
-            
+            elif instructions[0]==CredentialStoreInstruction:
+                self.runCredentialStore(commandLine, instructions)
             else:
                 self.printInTerminal(commandLine, ErrorCmdUnknow)
 
@@ -238,7 +260,7 @@ class Terminal(QWidget):
 
 
     def runHelp(self):
-        self.printInTerminal("help", getHelpMsg())
+        self.printInTerminal(HelpInstruction, getHelpMsg())
 
 
     def runBatcave(self, commandLine, instructions):
@@ -307,6 +329,62 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, ErrorCmdUnknow)
             return     
 
+
+    def runCredentialStore(self, commandLine, instructions):
+        if len(instructions) < 2:
+            self.printInTerminal(commandLine, CredentialStoreHelp)
+            return;
+
+        cmd = instructions[1]
+
+        if cmd == GetSubInstruction:
+            currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+
+            toPrint = ""
+            for cred in currentcredentials:
+                toPrint+=json.dumps(cred)
+                toPrint+="\n"
+            self.printInTerminal(commandLine, toPrint)
+            
+            return    
+
+        elif cmd == SetSubInstruction:
+            if len(instructions) < 5:
+                self.printInTerminal(commandLine, CredentialStoreHelp)
+                return
+            
+            domain = instructions[2]
+            username = instructions[3]
+            credential = instructions[4]
+
+            cred = {}
+            cred["domain"] = domain
+            cred["username"] = username
+            cred["manual"] = credential
+            credentials.addCredentials(self.grpcClient, TeamServerApi_pb2, json.dumps(cred))
+            return
+
+        elif cmd == SearchSubInstruction:
+            if len(instructions) < 3:
+                self.printInTerminal(commandLine, CredentialStoreHelp)
+                return
+            
+            searchPatern = instructions[2]
+
+            currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+
+            toPrint = ""
+            for cred in currentcredentials:
+                for key, value in cred.items():
+                    if searchPatern in value:
+                        toPrint+=json.dumps(cred)
+                        toPrint+="\n"
+            self.printInTerminal(commandLine, toPrint)
+            return    
+
+        else:
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
+            return    
 
     #
     # Host

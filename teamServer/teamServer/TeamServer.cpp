@@ -1380,15 +1380,19 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 		}
 		return grpc::Status::OK;
 	}
-	else if(instruction==AddCredentialInstruction) {
+	// TODO handle some sort of backup
+	else if(instruction==AddCredentialInstruction) 
+	{
 		m_logger->info("AddCredentials {0}", cmd);
+
 		std::string data = command->data();
         json cred = json::parse(data);
         m_credentials.push_back(cred);
 		responseTmp.set_result("ok");
 		return grpc::Status::OK;
     }
-	else if(instruction==GetCredentialInstruction) {
+	else if(instruction==GetCredentialInstruction) 
+	{
 		m_logger->info("GetCredentials {0}", cmd);
     
 		responseTmp.set_result(m_credentials.dump());
