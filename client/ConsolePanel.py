@@ -436,6 +436,7 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
+            # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:
                 credentials.handleMimikatzCredentials(response.response.decode(encoding="latin1", errors="ignore"), self.grpcClient, TeamServerApi_pb2)
             self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
