@@ -18,6 +18,7 @@ ListenerNodeItemType = "Listener"
 
 PrimaryListenerImage = "images/firewall.svg"
 WindowsSessionImage = "images/pc.svg"
+WindowsHighPrivSessionImage = "images/windowshighpriv.svg"
 LinuxSessionImage = "images/linux.svg"
 
 
@@ -39,7 +40,7 @@ class NodeItem(QGraphicsPixmapItem):
     def __init__(self, type, hash, os="",  privilege="", parent=None):
         if type == ListenerNodeItemType:
             self.type = ListenerNodeItemType
-            pixmap = QPixmap(PrimaryListenerImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            pixmap = self.addImageNode(PrimaryListenerImage, "")
             self.beaconHash = ""
             self.connectedListenerHash = ""
             self.listenerHash = []
@@ -50,7 +51,10 @@ class NodeItem(QGraphicsPixmapItem):
             if "linux" in os.lower():
                 pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             elif "windows" in os.lower():
-                pixmap = QPixmap(WindowsSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                if privilege == "HIGH":
+                    pixmap = self.addImageNode(WindowsHighPrivSessionImage, "heyydjddhdhdy")
+                else:
+                    pixmap = self.addImageNode(WindowsSessionImage, "heyydjddhdhdy")
             else:
                 pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.beaconHash=hash
@@ -79,6 +83,38 @@ class NodeItem(QGraphicsPixmapItem):
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
         self.setCursor(Qt.ArrowCursor)
+
+    def addImageNode(self, image_path, legend_text, font_size=9, padding=5, text_color=Qt.white):
+        # Load and scale the image
+        pixmap = QPixmap(image_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        # Create a new QPixmap larger than the original for the image and text
+        legend_height = font_size + padding * 2
+        legend_width = len(legend_text) * font_size + padding * 2
+        combined_pixmap = QPixmap(max(legend_width, pixmap.width()), pixmap.height() + legend_height)
+        combined_pixmap.fill(Qt.transparent)  # Transparent background
+
+        # Paint the image and the legend onto the combined pixmap
+        painter = QPainter(combined_pixmap)
+        image_x = (combined_pixmap.width() - pixmap.width()) // 2
+        painter.drawPixmap(image_x, 0, pixmap)  # Draw the image
+
+        pen = QPen()
+        pen.setColor(text_color)  # Set the desired text color
+        painter.setPen(pen)
+        # Set font for the legend
+        font = QFont()
+        font.setPointSize(font_size)
+        painter.setFont(font)
+
+        # Draw the legend text centered below the image
+        text_rect = painter.boundingRect(
+            0, pixmap.height(), combined_pixmap.width(), legend_height, Qt.AlignCenter, legend_text
+        )
+        painter.drawText(text_rect, Qt.AlignCenter, legend_text)
+
+        painter.end()
+        return combined_pixmap
         
 
 class Connector(QGraphicsLineItem):
