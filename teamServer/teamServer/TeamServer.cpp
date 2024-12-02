@@ -1085,6 +1085,8 @@ const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
 const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
 const std::string InstallInstruction = "install";
+const std::string AddCredentialInstruction = "addCred";
+const std::string GetCredentialInstruction = "getCred";
 
 
 grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
@@ -1378,6 +1380,21 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 		}
 		return grpc::Status::OK;
 	}
+	else if(instruction==AddCredentialInstruction) {
+		m_logger->info("AddCredentials {0}", cmd);
+		std::string data = command->data();
+        json cred = json::parse(data);
+        m_credentials.push_back(cred);
+		responseTmp.set_result("ok");
+		return grpc::Status::OK;
+    }
+	else if(instruction==GetCredentialInstruction) {
+		m_logger->info("GetCredentials {0}", cmd);
+    
+		responseTmp.set_result(m_credentials.dump());
+		*response = responseTmp;
+		return grpc::Status::OK;
+    }
 	else if(instruction==ReloadModulesInstruction)
 	{
 		// reload all the modules of the ../Modules directory
