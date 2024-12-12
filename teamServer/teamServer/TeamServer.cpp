@@ -1154,18 +1154,18 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					{
 						json configHttp = m_config["ListenerHttpConfig"];
 
-						auto it = configHttp[0].find("uriFileDownload");
-						if(it != configHttp[0].end())
-							uriFileDownload = configHttp[0]["uriFileDownload"].get<std::string>();
+						auto it = configHttp.find("uriFileDownload");
+						if(it != configHttp.end())
+							uriFileDownload = configHttp["uriFileDownload"].get<std::string>();
 										
 					}
 					else if (type == ListenerHttpsType)
 					{
 						json configHttps = m_config["ListenerHttpsConfig"];
 
-						auto it = configHttps[0].find("uriFileDownload");
-						if(it != configHttps[0].end())
-							uriFileDownload = configHttps[0]["uriFileDownload"].get<std::string>();;
+						auto it = configHttps.find("uriFileDownload");
+						if(it != configHttps.end())
+							uriFileDownload = configHttps["uriFileDownload"].get<std::string>();;
 					}
 
 					std::string result=type;
@@ -1300,18 +1300,18 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 						{
 							json configHttp = m_config["ListenerHttpConfig"];
 
-							auto it = configHttp[0].find("downloadFolder");
-							if(it != configHttp[0].end())
-								downloadFolder = configHttp[0]["downloadFolder"].get<std::string>();;
+							auto it = configHttp.find("downloadFolder");
+							if(it != configHttp.end())
+								downloadFolder = configHttp["downloadFolder"].get<std::string>();;
 											
 						}
 						else if (type == ListenerHttpsType)
 						{
 							json configHttps = m_config["ListenerHttpsConfig"];
 
-							auto it = configHttps[0].find("downloadFolder");
-							if(it != configHttps[0].end())
-								downloadFolder = configHttps[0]["downloadFolder"].get<std::string>();;
+							auto it = configHttps.find("downloadFolder");
+							if(it != configHttps.end())
+								downloadFolder = configHttps["downloadFolder"].get<std::string>();;
 						}
 					}
 					catch(...) 
