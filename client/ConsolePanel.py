@@ -51,6 +51,7 @@ PsExecInstruction = "psExec"
 WmiInstruction = "wmiExec"
 SpawnAsInstruction = "spawnAs"
 EvasionInstruction = "evasion"
+KeyLoggerInstruction = "keyLogger"
 
 StartInstruction = "start"
 StopInstruction = "stop"
@@ -196,6 +197,7 @@ completerData = [
              (EvasionInstruction,  []),
              (SpawnAsInstruction,  []),
              (WmiInstruction,  []),
+             (KeyLoggerInstruction,  []),
              ]),
     (KerberosUseTicketInstruction,[]),
     (PowershellInstruction,[
@@ -234,6 +236,11 @@ completerData = [
         ('CheckHooks',  []),
         ('Unhook',  []),
     ]),
+    (KeyLoggerInstruction,[
+        ('start',  []),
+        ('stop',  []),
+        ('dump',  []),
+    ]),
     (LoadModuleInstruction,[
              ('AssemblyExec', []),
              ('ChangeDirectory', []),
@@ -258,6 +265,7 @@ completerData = [
              ('Tree',  []),
              ('Evasion',  []),
              ('WmiExec',  []),
+             ('KeyLogger',  []),
              ]),
 ]
 
