@@ -58,6 +58,8 @@ private:
     std::shared_ptr<spdlog::logger> m_logger;
 
     std::vector<std::shared_ptr<Listener>> m_listeners;
+    nlohmann::json m_credentials = nlohmann::json::array();
+
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
 

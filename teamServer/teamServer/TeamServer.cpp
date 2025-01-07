@@ -1085,6 +1085,8 @@ const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
 const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
 const std::string InstallInstruction = "install";
+const std::string AddCredentialInstruction = "addCred";
+const std::string GetCredentialInstruction = "getCred";
 
 
 grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response)
@@ -1152,18 +1154,18 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					{
 						json configHttp = m_config["ListenerHttpConfig"];
 
-						auto it = configHttp[0].find("uriFileDownload");
-						if(it != configHttp[0].end())
-							uriFileDownload = configHttp[0]["uriFileDownload"].get<std::string>();
+						auto it = configHttp.find("uriFileDownload");
+						if(it != configHttp.end())
+							uriFileDownload = configHttp["uriFileDownload"].get<std::string>();
 										
 					}
 					else if (type == ListenerHttpsType)
 					{
 						json configHttps = m_config["ListenerHttpsConfig"];
 
-						auto it = configHttps[0].find("uriFileDownload");
-						if(it != configHttps[0].end())
-							uriFileDownload = configHttps[0]["uriFileDownload"].get<std::string>();;
+						auto it = configHttps.find("uriFileDownload");
+						if(it != configHttps.end())
+							uriFileDownload = configHttps["uriFileDownload"].get<std::string>();;
 					}
 
 					std::string result=type;
@@ -1298,18 +1300,18 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 						{
 							json configHttp = m_config["ListenerHttpConfig"];
 
-							auto it = configHttp[0].find("downloadFolder");
-							if(it != configHttp[0].end())
-								downloadFolder = configHttp[0]["downloadFolder"].get<std::string>();;
+							auto it = configHttp.find("downloadFolder");
+							if(it != configHttp.end())
+								downloadFolder = configHttp["downloadFolder"].get<std::string>();;
 											
 						}
 						else if (type == ListenerHttpsType)
 						{
 							json configHttps = m_config["ListenerHttpsConfig"];
 
-							auto it = configHttps[0].find("downloadFolder");
-							if(it != configHttps[0].end())
-								downloadFolder = configHttps[0]["downloadFolder"].get<std::string>();;
+							auto it = configHttps.find("downloadFolder");
+							if(it != configHttps.end())
+								downloadFolder = configHttps["downloadFolder"].get<std::string>();;
 						}
 					}
 					catch(...) 
@@ -1378,6 +1380,25 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 		}
 		return grpc::Status::OK;
 	}
+	// TODO handle some sort of backup
+	else if(instruction==AddCredentialInstruction) 
+	{
+		m_logger->info("AddCredentials {0}", cmd);
+
+		std::string data = command->data();
+        json cred = json::parse(data);
+        m_credentials.push_back(cred);
+		responseTmp.set_result("ok");
+		return grpc::Status::OK;
+    }
+	else if(instruction==GetCredentialInstruction) 
+	{
+		m_logger->info("GetCredentials {0}", cmd);
+    
+		responseTmp.set_result(m_credentials.dump());
+		*response = responseTmp;
+		return grpc::Status::OK;
+    }
 	else if(instruction==ReloadModulesInstruction)
 	{
 		// reload all the modules of the ../Modules directory

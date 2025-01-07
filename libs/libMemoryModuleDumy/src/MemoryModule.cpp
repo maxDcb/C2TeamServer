@@ -137,3 +137,15 @@ HMEMORYMODULE MemoryLoadLibrary(const void *moduleData, size_t size)
 
 	return handle;
 }
+
+
+void MemoryFreeLibrary(HMEMORYMODULE mod)
+{
+	dlclose(mod);
+}
+
+
+void* MemoryGetProcAddress(HMEMORYMODULE mod, const char* procName)
+{
+	return dlsym(mod, procName);
+}

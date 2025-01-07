@@ -11,6 +11,8 @@ from grpcClient import *
 
 from TerminalPanel import *
 
+sys.path.insert(1, './Credentials')
+import credentials
 
 #
 # Constant
@@ -49,6 +51,7 @@ PsExecInstruction = "psExec"
 WmiInstruction = "wmiExec"
 SpawnAsInstruction = "spawnAs"
 EvasionInstruction = "evasion"
+KeyLoggerInstruction = "keyLogger"
 
 StartInstruction = "start"
 StopInstruction = "stop"
@@ -194,6 +197,7 @@ completerData = [
              (EvasionInstruction,  []),
              (SpawnAsInstruction,  []),
              (WmiInstruction,  []),
+             (KeyLoggerInstruction,  []),
              ]),
     (KerberosUseTicketInstruction,[]),
     (PowershellInstruction,[
@@ -232,6 +236,11 @@ completerData = [
         ('CheckHooks',  []),
         ('Unhook',  []),
     ]),
+    (KeyLoggerInstruction,[
+        ('start',  []),
+        ('stop',  []),
+        ('dump',  []),
+    ]),
     (LoadModuleInstruction,[
              ('AssemblyExec', []),
              ('ChangeDirectory', []),
@@ -256,6 +265,7 @@ completerData = [
              ('Tree',  []),
              ('Evasion',  []),
              ('WmiExec',  []),
+             ('KeyLogger',  []),
              ]),
 ]
 
@@ -434,6 +444,9 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             self.setCursorEditorAtEnd()
+            # check the response for mimikatz and not the cmd line ???
+            if "-e mimikatz.exe" in response.cmd:
+                credentials.handleMimikatzCredentials(response.response.decode(encoding="latin1", errors="ignore"), self.grpcClient, TeamServerApi_pb2)
             self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
 
