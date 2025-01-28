@@ -1064,11 +1064,13 @@ std::string getIPAddress(std::string &interface)
         temp_addr = interfaces;
         while(temp_addr != NULL) 
 		{
-            if(temp_addr->ifa_addr->sa_family == AF_INET) 
-			{ 
+            if (temp_addr->ifa_addr != NULL && temp_addr->ifa_addr->sa_family == AF_INET) 
+			{
                 if(strcmp(temp_addr->ifa_name, interface.c_str())==0)
 				{
-                    ipAddress=inet_ntoa(((struct sockaddr_in*)temp_addr->ifa_addr)->sin_addr);
+                    char addressBuffer[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &((struct sockaddr_in *)temp_addr->ifa_addr)->sin_addr, addressBuffer, INET_ADDRSTRLEN);
+                    ipAddress = addressBuffer;
                 }
             }
             temp_addr = temp_addr->ifa_next;
