@@ -777,7 +777,7 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, "PeInjectorSyscall module not found")
             return  
 
-        dropperExePath, shellcodePath = GenerateInjector.generatePayloads(beaconFilePath, beaconArg, "", process, urlStage)
+        dropperExePath, shellcodePath = GenerateInjector.generatePayloads(beaconFilePath, beaconArg, "", process, urlStage, " ")
 
         # Upload the file and get the path
         try:
