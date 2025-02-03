@@ -36,13 +36,13 @@ TeamServer::TeamServer(const nlohmann::json& config)
     sinks.push_back(console_sink);
 
 	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
-	file_sink->set_level(spdlog::level::trace);
+	file_sink->set_level(spdlog::level::debug);
 	sinks.push_back(file_sink);
 
     m_logger = std::make_shared<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
 
 	std::string logLevel = config["LogLevel"].get<std::string>();
-	m_logger->set_level(spdlog::level::trace);
+	m_logger->set_level(spdlog::level::debug);
 
 	// Config directory
 	m_teamServerModulesDirectoryPath = config["TeamServerModulesDirectoryPath"].get<std::string>();
@@ -203,7 +203,7 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 			{
 				for(auto it = session->getListener().begin() ; it != session->getListener().end(); ++it )
 				{
-					m_logger->trace(" |-> sessionListenerList {0} {1} {0}", it->getType(), it->getParam1(), it->getParam2());
+					m_logger->trace("|-> sessionListenerList {0} {1} {0}", it->getType(), it->getParam1(), it->getParam2());
 
 					teamserverapi::Listener listener;
 					listener.set_listenerhash(it->getListenerHash());
@@ -436,14 +436,14 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 
 	for (int i = 0; i < m_listeners.size(); i++)
 	{
-		m_logger->debug("Listener {0}", m_listeners[i]->getListenerHash());
+		m_logger->trace("Listener {0}", m_listeners[i]->getListenerHash());
 
 		int nbSession = m_listeners[i]->getNumberOfSession();
 		for(int kk=0; kk<nbSession; kk++)
 		{
 			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
 
-			m_logger->debug("	Session {0} From {1} {2}", session->getBeaconHash(), session->getListenerHash(), session->getLastProofOfLife());
+			m_logger->trace("Session {0} From {1} {2}", session->getBeaconHash(), session->getListenerHash(), session->getLastProofOfLife());
 
 			teamserverapi::Session sessionTmp;
 			sessionTmp.set_listenerhash(session->getListenerHash());
@@ -852,7 +852,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 				C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				while(!c2Message.instruction().empty())
 				{
-					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+					m_logger->trace("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
 					std::string instructionCmd = c2Message.instruction();					
 					std::string errorMsg;
@@ -1530,11 +1530,11 @@ int main(int argc, char* argv[])
     sinks.push_back(console_sink);
 
 	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
-	file_sink->set_level(spdlog::level::trace);
+	file_sink->set_level(spdlog::level::debug);
 	sinks.push_back(file_sink);
 
    	std::unique_ptr logger = std::make_unique<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
-	logger->set_level(spdlog::level::trace);
+	logger->set_level(spdlog::level::debug);
 
 	//
 	// TeamServer Config
