@@ -19,15 +19,6 @@
 [submodule "libs/libSocks5"]
 	path = libs/libSocks5
 	url = https://github.com/maxDcb/libSocks5.git
-[submodule "client/PowershellWebDelivery"]
-	path = client/PowershellWebDelivery
-	url = https://github.com/maxDcb/PowershellWebDelivery.git
-[submodule "client/PeDropper"]
-	path = client/PeDropper
-	url = https://github.com/maxDcb/PeDropper.git
-[submodule "client/GoDroplets"]
-	path = client/GoDroplets
-	url = https://github.com/almounah/GoDroplets
 [submodule "libs/libSocketHandler"]
 	path = libs/libSocketHandler
 	url = https://github.com/maxDcb/libSocketHandler.git

@@ -1205,9 +1205,14 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	{
 		m_logger->info("getBeaconBinary {0}", cmd);
 
-		if(splitedCmd.size()==2)
+		if(splitedCmd.size()==2 || splitedCmd.size()==3)
 		{
 			std::string listenerHash = splitedCmd[1];
+			
+			std::string targetOs = "Windows";
+			if( splitedCmd.size()==3 && splitedCmd[2]=="Linux")
+				targetOs = "Linux";
+
 			for (int i = 0; i < m_listeners.size(); i++)
 			{
 				std::string hash = m_listeners[i]->getListenerHash();
@@ -1217,28 +1222,68 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					std::string beaconFilePath = "";
 					if(type == ListenerHttpType || type == ListenerHttpsType )
 					{
-						beaconFilePath  = m_windowsBeaconsDirectoryPath;
-						beaconFilePath += "BeaconHttp.exe";
+						if (targetOs == "Linux")
+						{
+							beaconFilePath  = m_linuxBeaconsDirectoryPath;
+							beaconFilePath += "BeaconHttp";
+						}
+						else
+						{
+							beaconFilePath  = m_windowsBeaconsDirectoryPath;
+							beaconFilePath += "BeaconHttp.exe";
+						}
 					}
 					else if(type == ListenerTcpType )
 					{
-						beaconFilePath  = m_windowsBeaconsDirectoryPath;
-						beaconFilePath += "BeaconTcp.exe";
+						if (targetOs == "Linux")
+						{
+							beaconFilePath  = m_linuxBeaconsDirectoryPath;
+							beaconFilePath += "BeaconTcp";
+						}
+						else
+						{
+							beaconFilePath  = m_windowsBeaconsDirectoryPath;
+							beaconFilePath += "BeaconTcp.exe";
+						}
 					}
 					else if(type == ListenerSmbType )
 					{
-						beaconFilePath  = m_windowsBeaconsDirectoryPath;
-						beaconFilePath += "BeaconSmb.exe";
+						if (targetOs == "Linux")
+						{
+							beaconFilePath  = m_linuxBeaconsDirectoryPath;
+							beaconFilePath += "BeaconSmb";
+						}
+						else
+						{
+							beaconFilePath  = m_windowsBeaconsDirectoryPath;
+							beaconFilePath += "BeaconSmb.exe";
+						}
 					}
 					else if(type == ListenerGithubType )
 					{
-						beaconFilePath  = m_windowsBeaconsDirectoryPath;
-						beaconFilePath += "BeaconGithub.exe";
+						if (targetOs == "Linux")
+						{
+							beaconFilePath  = m_linuxBeaconsDirectoryPath;
+							beaconFilePath += "BeaconGithub";
+						}
+						else
+						{
+							beaconFilePath  = m_windowsBeaconsDirectoryPath;
+							beaconFilePath += "BeaconGithub.exe";
+						}
 					}
 					else if(type == ListenerDnsType )
 					{
-						beaconFilePath  = m_windowsBeaconsDirectoryPath;
-						beaconFilePath += "BeaconDns.exe";
+						if (targetOs == "Linux")
+						{
+							beaconFilePath  = m_linuxBeaconsDirectoryPath;
+							beaconFilePath += "BeaconDns";
+						}
+						else
+						{
+							beaconFilePath  = m_windowsBeaconsDirectoryPath;
+							beaconFilePath += "BeaconDns.exe";
+						}
 					}
 
 					std::ifstream beaconFile(beaconFilePath, std::ios::binary );
@@ -1401,10 +1446,12 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 		*response = responseTmp;
 		return grpc::Status::OK;
     }
+	// TODO
 	else if(instruction==ReloadModulesInstruction)
 	{
 		// reload all the modules of the ../Modules directory
 	}
+	// TODO add a clean www directory !!!
 	else
 	{
 		responseTmp.set_result("Error: not implemented.");
@@ -1609,6 +1656,9 @@ int main(int argc, char* argv[])
 	grpc::ServerBuilder builder;
 	builder.AddListeningPort(serverAddress, grpc::SslServerCredentials(sslOps));
 	builder.RegisterService(&service);
+	builder.SetMaxSendMessageSize(1024 * 1024 * 1024);
+	builder.SetMaxMessageSize(1024 * 1024 * 1024);
+	builder.SetMaxReceiveMessageSize(1024 * 1024 * 1024);
 	std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
 
 	logger->info("Team Server listening on {0}", serverAddress);

