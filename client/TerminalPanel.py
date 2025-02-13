@@ -5,8 +5,7 @@ import json
 import random
 import string 
 from datetime import datetime
-from threading import Thread
-from threading import Thread, Lock
+from threading import Thread, Lock, Semaphore
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -156,6 +155,7 @@ ErrorListener = "Error: Download listener must be of type http or https."
 class Terminal(QWidget):
     tabPressed = pyqtSignal()
     logFileName=""
+    sem = Semaphore()
 
     def __init__(self, parent, ip, port, devMode):
         super(QWidget, self).__init__(parent)
@@ -195,12 +195,14 @@ class Terminal(QWidget):
         now = datetime.now()
         formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
 
+        self.sem.acquire()
         if cmd:
             self.editorOutput.appendHtml(formater.format(cmd))
             self.editorOutput.insertPlainText("\n")
         if result:
             self.editorOutput.insertPlainText(result)
             self.editorOutput.insertPlainText("\n")
+        self.sem.release()
 
 
     def runCommand(self):
@@ -509,7 +511,9 @@ class Terminal(QWidget):
         if  listenerBeacon != listenerDownload:
             commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
@@ -541,7 +545,9 @@ class Terminal(QWidget):
 
         commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon+" "+targetOs
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        self.sem.acquire()
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        self.sem.release()
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
@@ -582,7 +588,9 @@ class Terminal(QWidget):
             filename = os.path.basename(dropperPath)
             commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
@@ -600,7 +608,9 @@ class Terminal(QWidget):
             filename = os.path.basename(shellcodePath)
             commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
+            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
