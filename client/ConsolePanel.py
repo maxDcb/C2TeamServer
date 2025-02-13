@@ -25,7 +25,6 @@ SleepInstruction = "sleep"
 EndInstruction = "end"
 ListenerInstruction = "listener"
 LoadModuleInstruction = "loadModule"
-SocksInstruction = "socks"
 
 AssemblyExecInstruction = "assemblyExec"
 UploadInstruction = "upload"
@@ -227,10 +226,6 @@ completerData = [
     ]),
     (SpawnAsInstruction,[
         ('user password implant.exe',  []),
-    ]),
-    (SocksInstruction,[
-        ('start 1080',  []),
-        ('stop',  []),
     ]),
     (EvasionInstruction,[
         ('CheckHooks',  []),

@@ -79,6 +79,7 @@ GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
 GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
+GrpcSocksInstruction = "socks"
 
 BeaconFileWindows = "Beacon.exe"
 BeaconFileLinux = "Beacon"
@@ -86,6 +87,13 @@ BeaconFileLinux = "Beacon"
 ErrorInstruction = "Error"
 
 HelpInstruction = "help"
+
+SocksInstruction = "Socks"
+SocksHelp = """Socks:
+Socks start
+Socks bind beaconHash
+Socks unbind
+Socks stop"""
 
 BatcaveInstruction = "Batcave"
 BatcaveHelp = """Batcave:
@@ -124,7 +132,8 @@ def getHelpMsg():
     helpText += HostInstruction+"\n"
     helpText += DropperInstruction+"\n"
     helpText += BatcaveInstruction+"\n"
-    helpText += CredentialStoreInstruction
+    helpText += CredentialStoreInstruction+"\n"
+    helpText += SocksInstruction
     return helpText
 
 completerData = [
@@ -239,6 +248,8 @@ class Terminal(QWidget):
                 self.runCredentialStore(commandLine, instructions)
             elif instructions[0]==DropperInstruction:
                 self.runDropper(commandLine, instructions)
+            elif instructions[0]==SocksInstruction:
+                self.runSocks(commandLine, instructions)
             
             
             else:
@@ -250,6 +261,46 @@ class Terminal(QWidget):
     def runHelp(self):
         self.printInTerminal(HelpInstruction, getHelpMsg())
 
+
+    def runSocks(self, commandLine, instructions):
+        if len(instructions) < 2:
+            self.printInTerminal(commandLine, SocksHelp)
+            return;
+
+        cmd = instructions[1]
+
+        if cmd == "start" or cmd == "stop" or cmd == "unbind":
+
+            commandTeamServer = GrpcSocksInstruction + " " + cmd
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            print("Sent " + commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+            result = resultTermCommand.result
+            self.printInTerminal(commandLine, result)
+            return   
+            
+        elif cmd == "bind":
+
+            if len(instructions) < 3:
+                self.printInTerminal(commandLine, SocksHelp)
+                return;
+
+            beaconHash = instructions[2]
+
+            commandTeamServer = GrpcSocksInstruction + " " + cmd + " " + beaconHash
+            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+            print("Sent " + commandTeamServer)
+            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+            result = resultTermCommand.result
+            self.printInTerminal(commandLine, result)
+        
+        else:
+            self.printInTerminal(commandLine, ErrorCmdUnknow)
+            return;
+
+        return
 
     #
     # Batcave
