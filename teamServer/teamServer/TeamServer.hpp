@@ -50,9 +50,6 @@ protected:
     int prepMsg(const std::string& input, C2Message& c2Message, bool isWindows=true);
 
 private:
-    bool m_isSocksServerRunning;
-    void runSocksServer(int port, const std::string& listenerHash, const std::string& beaconHash);
-
     nlohmann::json m_config;
 
     std::shared_ptr<spdlog::logger> m_logger;
@@ -70,4 +67,14 @@ private:
     std::string m_windowsBeaconsDirectoryPath;
     std::string m_toolsDirectoryPath;
     std::string m_scriptsDirectoryPath;
+
+    // Socks
+    bool m_isSocksServerRunning;
+    bool m_isSocksServerBinded;
+    void socksThread();
+
+    std::unique_ptr<SocksServer> m_socksServer;
+    std::unique_ptr<std::thread> m_socksThread;
+    std::shared_ptr<Listener> m_socksListener;
+    std::shared_ptr<Session> m_socksSession;
 };

@@ -8,11 +8,9 @@ foreach(ClientFile ${ClientFiles})
 endforeach()
 
 file(COPY images DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
-file(COPY Batcave DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 
-file(COPY Credentials DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY TerminalModules DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY DropperModules DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 
-file(COPY PowershellWebDelivery DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
-file(COPY PeDropper DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
-file(COPY GoDroplets DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
+file(COPY DropperModules.conf DESTINATION ${CMAKE_SOURCE_DIR}/Release/Client/)
 

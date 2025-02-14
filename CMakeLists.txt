@@ -28,7 +28,9 @@ include_directories(${CMAKE_INCLUDE_PATH})
 
 option(WITH_TESTS "Compile for tests" ON)
 
+option(BUILD_TEAMSERVER "Enable Teamserver config" ON)
 add_definitions(-DBUILD_TEAMSERVER)
+
 if(WITH_TESTS)
   add_definitions(-DBUILD_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
@@ -61,8 +63,6 @@ add_subdirectory(certs)
 add_subdirectory(client)
 
 if(WITH_TESTS)
-    add_subdirectory(core/beacon)
-    add_subdirectory(core/beacon/tests)
     add_subdirectory(core/listener/tests)
 endif()
 

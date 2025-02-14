@@ -49,16 +49,6 @@ cd  Release/Client
 python3 GUI.py --ip 127.0.0.0 --port 50051 --dev
 ```
 
-The following packages are required to run the Client:
-
-```
-pip3 install pycryptodome
-pip3 install grpcio==1.66.1
-pip3 install PyQt5
-pip3 install pyqtdarktheme
-pip3 install protobuf==5.27.0
-```
-
 ## Wiki
 
 For more information, please visit the [wiki](https://github.com/maxDcb/C2TeamServer/wiki)
