@@ -1,5 +1,5 @@
-pip3 install pycryptodome
-pip3 install grpcio==1.66.1
-pip3 install PyQt5
-pip3 install pyqtdarktheme
-pip3 install protobuf==5.27.0
+pycryptodome
+grpcio==1.66.1
+PyQt5
+pyqtdarktheme
+protobuf==5.27.0
