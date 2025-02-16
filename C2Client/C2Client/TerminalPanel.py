@@ -9,6 +9,7 @@ from threading import Thread, Lock, Semaphore
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+import pkg_resources
 
 from grpcClient import *
 
@@ -18,12 +19,21 @@ from git import Repo
 #
 # Dropper modules
 #
-dropperModulesDir = "./DropperModules"
+# dropperModulesDir = "./DropperModules"
+dropperModulesDir = pkg_resources.resource_filename(
+    'C2Client',  
+    'DropperModules' 
+)
 
 if not os.path.exists(dropperModulesDir):
     os.makedirs(dropperModulesDir)
 
-with open("DropperModules.conf", "r") as file:
+DropperModulesPath = pkg_resources.resource_filename(
+    'C2Client',  
+    'DropperModules.conf'  
+)
+
+with open(DropperModulesPath, "r") as file:
     repositories = file.readlines()
 
 DropperModules = []
@@ -59,10 +69,10 @@ for moduleName in os.listdir(dropperModulesDir):
 #
 # Terminal modules
 #
-sys.path.insert(1, './TerminalModules/Batcave')
+sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Batcave"))
 import batcave
 
-sys.path.insert(1, './TerminalModules/Credentials')
+sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Credentials"))
 import credentials
 
 

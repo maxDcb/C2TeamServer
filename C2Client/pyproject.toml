@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "C2Client"
+version = "0.1.0"
+dependencies = [
+    "pycryptodome",
+    "grpcio==1.66.1",
+    "PyQt5",
+    "pyqtdarktheme",
+    "protobuf==5.27.0",
+    "gitpython",
+    "requests",
+    "pwn",
+    "pefile"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["C2Client*", "C2Client.libGrpcMessages*", "C2Client.TerminalModules.*"]
+
+[tool.setuptools.package-data]
+C2Client = [
+    "images/*.svg",  # Include all SVG icons
+    "logs/*",        # Include logs
+    "server.crt",    # Include certificate
+    "libGrpcMessages/build/py/*.py",  # Ensure gRPC-generated files are included
+    "DropperModules.conf"
+]
+
+[project.scripts]
+c2client = "C2Client.GUI:main"  # Entry point for CLI tool

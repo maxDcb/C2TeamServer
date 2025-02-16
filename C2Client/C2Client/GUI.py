@@ -1,10 +1,13 @@
 import sys
+import os
 import signal
 import argparse
 from threading import Thread, Lock
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from grpcClient import *
 from ListenerPanel import *
@@ -93,8 +96,7 @@ class App(QMainWindow):
         self.createPayloadWindow.show()
 
 
-if __name__ == '__main__':
-
+def main():
     parser = argparse.ArgumentParser(description='TeamServer IP and port.')
     parser.add_argument('--ip', default='127.0.0.1', help='IP address (default: 127.0.0.1)')
     parser.add_argument('--port', type=int, default=50051, help='Port number (default: 50051)')
@@ -107,3 +109,7 @@ if __name__ == '__main__':
 
     ex = App(args.ip, args.port, args.dev)
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

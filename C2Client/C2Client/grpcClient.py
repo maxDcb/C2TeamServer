@@ -3,18 +3,26 @@ from __future__ import print_function
 import logging
 
 import sys
-sys.path.insert(1, './libGrpcMessages/build/py/')
+import os
+# sys.path.insert(1, './libGrpcMessages/build/py/')
+sys.path.append(os.path.dirname(os.path.abspath(__file__))+'/libGrpcMessages/build/py/')
 
 import grpc
 import TeamServerApi_pb2
 import TeamServerApi_pb2_grpc
+import pkg_resources
 
 
 class GrpcClient:
 
     def __init__(self, ip, port, devMode):
 
-        ca_cert = './server.crt'
+        ca_cert = pkg_resources.resource_filename(
+            'C2Client',  
+            'server.crt' 
+        )
+
+        # ca_cert = './server.crt'
         root_certs = open(ca_cert, 'rb').read()
 
         credentials = grpc.ssl_channel_credentials(root_certs)
