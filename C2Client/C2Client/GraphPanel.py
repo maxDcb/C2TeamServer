@@ -8,7 +8,7 @@ from PyQt5.QtCore import *
 from PyQt5.QtGui import QPixmap, QTransform
 
 from grpcClient import *
-
+import pkg_resources
 
 #
 # Constant
@@ -16,11 +16,32 @@ from grpcClient import *
 BeaconNodeItemType = "Beacon"
 ListenerNodeItemType = "Listener"
 
-PrimaryListenerImage = "images/firewall.svg"
-WindowsSessionImage = "images/pc.svg"
-WindowsHighPrivSessionImage = "images/windowshighpriv.svg"
-LinuxSessionImage = "images/linux.svg"
-LinuxRootSessionImage = "images/linuxhighpriv.svg"
+PrimaryListenerImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/firewall.svg' 
+)
+WindowsSessionImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/pc.svg' 
+)
+WindowsHighPrivSessionImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/windowshighpriv.svg' 
+)
+LinuxSessionImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/linux.svg' 
+)
+LinuxRootSessionImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/linuxhighpriv.svg' 
+)
+
+# PrimaryListenerImage = "images/firewall.svg"
+# WindowsSessionImage = "images/pc.svg"
+# WindowsHighPrivSessionImage = "images/windowshighpriv.svg"
+# LinuxSessionImage = "images/linux.svg"
+# LinuxRootSessionImage = "images/linuxhighpriv.svg"
 
 
 #
