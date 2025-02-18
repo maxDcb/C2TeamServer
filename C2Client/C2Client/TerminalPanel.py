@@ -9,7 +9,6 @@ from threading import Thread, Lock, Semaphore
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
-import pkg_resources
 
 from grpcClient import *
 
@@ -19,19 +18,23 @@ from git import Repo
 #
 # Dropper modules
 #
-# dropperModulesDir = "./DropperModules"
-dropperModulesDir = pkg_resources.resource_filename(
-    'C2Client',  
-    'DropperModules' 
-)
+try:
+    import pkg_resources
+    dropperModulesDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'DropperModules' 
+    )
+    DropperModulesPath = pkg_resources.resource_filename(
+        'C2Client',  
+        'DropperModules.conf'  
+    )
+
+except ImportError:
+    dropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
+    DropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
 
 if not os.path.exists(dropperModulesDir):
     os.makedirs(dropperModulesDir)
-
-DropperModulesPath = pkg_resources.resource_filename(
-    'C2Client',  
-    'DropperModules.conf'  
-)
 
 with open(DropperModulesPath, "r") as file:
     repositories = file.readlines()
