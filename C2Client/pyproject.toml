@@ -7,10 +7,10 @@ name = "C2Client"
 version = "0.1.0"
 dependencies = [
     "pycryptodome",
-    "grpcio==1.66.1",
+    "grpcio",
     "PyQt5",
     "pyqtdarktheme",
-    "protobuf==5.27.0",
+    "protobuf",
     "gitpython",
     "requests",
     "pwn",
@@ -23,10 +23,10 @@ include = ["C2Client*", "C2Client.libGrpcMessages*", "C2Client.TerminalModules.*
 
 [tool.setuptools.package-data]
 C2Client = [
-    "images/*.svg",  # Include all SVG icons
-    "logs/*",        # Include logs
-    "server.crt",    # Include certificate
-    "libGrpcMessages/build/py/*.py",  # Ensure gRPC-generated files are included
+    "images/*.svg",
+    "logs/*",
+    "server.crt",
+    "libGrpcMessages/build/py/*.py",
     "DropperModules.conf"
 ]
 

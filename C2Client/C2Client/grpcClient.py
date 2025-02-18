@@ -4,7 +4,6 @@ import logging
 
 import sys
 import os
-# sys.path.insert(1, './libGrpcMessages/build/py/')
 sys.path.append(os.path.dirname(os.path.abspath(__file__))+'/libGrpcMessages/build/py/')
 
 import grpc
@@ -17,10 +16,17 @@ class GrpcClient:
 
     def __init__(self, ip, port, devMode):
 
-        ca_cert = pkg_resources.resource_filename(
-            'C2Client',  
-            'server.crt' 
-        )
+        env_cert_path = os.getenv('CA_CERT_PATH')
+
+        if env_cert_path and os.path.isfile(env_cert_path):
+            ca_cert = env_cert_path
+            print(f"Using CA certificate from environment variable: {ca_cert}")
+        else:
+            ca_cert = pkg_resources.resource_filename(
+                'C2Client',  
+                'server.crt' 
+            )
+            print(f"Using default CA certificate: {ca_cert}. To use a custom CA certificate, set the CA_CERT_PATH environment variable.")
 
         # ca_cert = './server.crt'
         root_certs = open(ca_cert, 'rb').read()
