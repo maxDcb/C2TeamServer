@@ -1,3 +1,4 @@
-build
 Tests
+C2Client/build/
 .vscode
+build/
