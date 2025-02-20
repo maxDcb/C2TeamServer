@@ -8,13 +8,12 @@
 
 Exploration is a red team Command and Control (C2) framework.  
 This repository includes both the TeamServer and the Client.  
-The release package contains the TeamServer, the Client, as well as the beacons and modules for Windows from [C2Implant](https://github.com/maxDcb/C2Implant) and for Linux from [C2Implant](https://github.com/maxDcb/C2LinuxImplant).
+The release package contains the TeamServer, the Client, as well as the beacons and modules for Windows from [C2Implant](https://github.com/maxDcb/C2Implant) and for Linux from [C2LinuxImplant](https://github.com/maxDcb/C2LinuxImplant).
 
 
 You can run the following command to retrieve the latest release:
-```
-wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz
-mkdir C2TeamServer && tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
+```bash
+wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz && mkdir C2TeamServer && tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
 ```
 
 ## Introduction
@@ -34,19 +33,20 @@ A compiled version of the TeamServer is available in the Releases, complete with
 
 The TeamServer binary is in Release/TeamServer. It can be launched using the following command:
 
-```
+```bash
 ./TeamServer
 ```
 
 ![alt text](https://github.com/maxDcb/C2TeamServer/blob/master/images/TeamServerLaunch.png?raw=true)
 
-The Python Client is located in Release/Client. It can be launched using the following command:
+The Python Client is installed with pipx using the following command:
 
-```
-cd  Release/Client 
+```bash
+pipx install git+https://github.com/maxDcb/C2TeamServer.git#subdirectory=C2Client 
+export CA_CERT_PATH=/path/to/teamserver/cert/server.crt
 # --dev is to specify that the GRPC hostname in the SSL certificat will not be checked
 # --ip is the ip of the TeamServer
-python3 GUI.py --ip 127.0.0.0 --port 50051 --dev
+c2client --ip 127.0.0.0 --port 50051 --dev
 ```
 
 ## Wiki

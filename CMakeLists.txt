@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD 17)
 ## Conan Dependencies
 ##
 
-
 set(CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR})
 
 find_package(gRPC REQUIRED)
@@ -59,8 +58,6 @@ add_subdirectory(teamServer)
 add_subdirectory(core/modules)
 
 add_subdirectory(certs)
-
-add_subdirectory(client)
 
 if(WITH_TESTS)
     add_subdirectory(core/listener/tests)

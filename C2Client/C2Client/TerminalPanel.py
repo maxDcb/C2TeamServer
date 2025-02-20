@@ -18,12 +18,25 @@ from git import Repo
 #
 # Dropper modules
 #
-dropperModulesDir = "./DropperModules"
+try:
+    import pkg_resources
+    dropperModulesDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'DropperModules' 
+    )
+    DropperModulesPath = pkg_resources.resource_filename(
+        'C2Client',  
+        'DropperModules.conf'  
+    )
+
+except ImportError:
+    dropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
+    DropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
 
 if not os.path.exists(dropperModulesDir):
     os.makedirs(dropperModulesDir)
 
-with open("DropperModules.conf", "r") as file:
+with open(DropperModulesPath, "r") as file:
     repositories = file.readlines()
 
 DropperModules = []
@@ -59,10 +72,10 @@ for moduleName in os.listdir(dropperModulesDir):
 #
 # Terminal modules
 #
-sys.path.insert(1, './TerminalModules/Batcave')
+sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Batcave"))
 import batcave
 
-sys.path.insert(1, './TerminalModules/Credentials')
+sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Credentials"))
 import credentials
 
 

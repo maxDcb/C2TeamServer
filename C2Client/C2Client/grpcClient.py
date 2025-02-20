@@ -3,7 +3,8 @@ from __future__ import print_function
 import logging
 
 import sys
-sys.path.insert(1, './libGrpcMessages/build/py/')
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__))+'/libGrpcMessages/build/py/')
 
 import grpc
 import TeamServerApi_pb2
@@ -14,7 +15,23 @@ class GrpcClient:
 
     def __init__(self, ip, port, devMode):
 
-        ca_cert = './server.crt'
+        env_cert_path = os.getenv('CA_CERT_PATH')
+
+        if env_cert_path and os.path.isfile(env_cert_path):
+            ca_cert = env_cert_path
+            print(f"Using CA certificate from environment variable: {ca_cert}")
+        else:
+            try:
+                import pkg_resources
+                ca_cert = pkg_resources.resource_filename(
+                    'C2Client',  
+                    'server.crt' 
+                )
+            except ImportError:
+                ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
+            print(f"Using default CA certificate: {ca_cert}. To use a custom CA certificate, set the CA_CERT_PATH environment variable.")
+
+        # ca_cert = './server.crt'
         root_certs = open(ca_cert, 'rb').read()
 
         credentials = grpc.ssl_channel_credentials(root_certs)
