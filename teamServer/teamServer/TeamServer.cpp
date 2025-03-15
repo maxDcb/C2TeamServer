@@ -144,11 +144,20 @@ TeamServer::TeamServer(const nlohmann::json& config)
 	{
 		m_logger->warn("Error accessing module directory");
     }	
+
+	m_handleCmdResponseThreadRuning = true;
+	m_handleCmdResponseThread = std::make_unique<std::thread>(&TeamServer::handleCmdResponse, this); 
 }
 
 
 TeamServer::~TeamServer()
 {
+	m_handleCmdResponseThreadRuning = false;
+	m_handleCmdResponseThread->join();
+
+	m_isSocksServerBinded=false;
+	if(m_socksThread)
+		m_socksThread->join();
 }
 
 
@@ -734,24 +743,23 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 }
 
 
-// TODO how do the followUp necessary for download
-grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session,  grpc::ServerWriter<teamserverapi::CommandResponse>* writer)
+int TeamServer::handleCmdResponse()
 {
-	m_logger->trace("GetResponseFromSession");
-
-	std::string targetSession=session->beaconhash();
-
-	for (int i = 0; i < m_listeners.size(); i++)
+	m_logger->trace("handleCmdResponse");
+	
+	while(m_handleCmdResponseThreadRuning)
 	{
-		int nbSession = m_listeners[i]->getNumberOfSession();
-		for(int kk=0; kk<nbSession; kk++)
+		// loop through all the listeners 
+		for (int i = 0; i < m_listeners.size(); i++)
 		{
-			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-			std::string beaconHash = session->getBeaconHash();
-
-			if(targetSession==beaconHash)
+			// loop through all the sessions 
+			int nbSession = m_listeners[i]->getNumberOfSession();
+			for(int kk=0; kk<nbSession; kk++)
 			{
-				// loop through all the messages that match the query Beacon hash
+				std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+				std::string beaconHash = session->getBeaconHash();
+
+				// loop through all the messages 
 				C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				while(!c2Message.instruction().empty())
 				{
@@ -821,28 +829,181 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 					if(!errorMsg.empty())
 					{
 						commandResponseTmp.set_response(errorMsg);
-						writer->Write(commandResponseTmp);
+						m_cmdResponses.push_back(commandResponseTmp);
 					}
 					else if(!c2Message.returnvalue().empty())
 					{
 						commandResponseTmp.set_response(c2Message.returnvalue());
-						writer->Write(commandResponseTmp);
+						m_cmdResponses.push_back(commandResponseTmp);
 					}
 					else
 					{
-						m_logger->debug("GetResponseFromSession no output");
+						m_logger->trace("GetResponseFromSession no output");
 					}
 
 					c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				}
+				
+			}
+		}
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+	}
+
+	m_logger->trace("handleCmdResponse end");
+
+	return 0;
+}
+
+
+grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session,  grpc::ServerWriter<teamserverapi::CommandResponse>* writer)
+{
+	m_logger->trace("GetResponseFromSession");
+
+	std::string targetSession=session->beaconhash();
+
+	// Retrieve all client metadata
+    auto client_metadata = context->client_metadata();
+
+	std::string clientId;
+    // Iterate through metadata and print key-value pairs
+    for (const auto& meta : client_metadata) 
+	{
+        std::string key(meta.first.data(), meta.first.length());
+        std::string value(meta.second.data(), meta.second.length());
+        // std::cout << "Metadata - Key: " << key << ", Value: " << value << std::endl;
+
+		if(key=="clientid")
+			clientId = value;
+    }
+
+	if(clientId.empty())
+		return grpc::Status::OK;
+
+	// New client detected - Initialize entry for this client
+	if (m_sentResponses.find(clientId) == m_sentResponses.end()) 
+		m_sentResponses[clientId] = {}; 
+
+	std::vector<int>& sentIndices = m_sentResponses[clientId];
+	for (size_t i = 0; i < m_cmdResponses.size(); ++i) 
+	{
+		if(targetSession==m_cmdResponses[i].beaconhash())
+		{
+			// If the response was not already sent to this client
+			if (std::find(sentIndices.begin(), sentIndices.end(), i) == sentIndices.end()) 
+			{
+				writer->Write(m_cmdResponses[i]);
+				sentIndices.push_back(i);
 			}
 		}
 	}
+
+	return grpc::Status::OK;
 
 	m_logger->trace("GetResponseFromSession end");
 
 	return grpc::Status::OK;
 }
+
+
+// for (int i = 0; i < m_listeners.size(); i++)
+	// {
+	// 	int nbSession = m_listeners[i]->getNumberOfSession();
+	// 	for(int kk=0; kk<nbSession; kk++)
+	// 	{
+	// 		std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+	// 		std::string beaconHash = session->getBeaconHash();
+
+	// 		if(targetSession==beaconHash)
+	// 		{
+	// 			// loop through all the messages that match the query Beacon hash
+	// 			C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
+	// 			while(!c2Message.instruction().empty())
+	// 			{
+	// 				m_logger->trace("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+
+	// 				std::string instructionCmd = c2Message.instruction();					
+	// 				std::string errorMsg;
+	// 				std::string instructionString;
+
+	// 				// check if the message is from a loaded module and handle:
+	// 				// - resolution of the name 
+	// 				// - followup
+	// 				// - the resoltion of the error code
+	// 				for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
+	// 				{
+	// 					// djb2 produce a unsigne long long 
+	// 					if (instructionCmd == (*it)->getName() || instructionCmd == std::to_string((*it)->getHash()))
+	// 					{
+	// 						instructionString = (*it)->getName();
+
+	// 						m_logger->debug("Call followUp");
+
+	// 						// TODO to put in a separate thread
+	// 						(*it)->followUp(c2Message);
+
+	// 						(*it)->errorCodeToMsg(c2Message, errorMsg);
+	// 					}
+	// 				}
+
+	// 				// check if the message is from a common module and handle:
+	// 				// - resolution of the name 
+	// 				// - the resoltion of the error code
+	// 				std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
+	// 				for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
+	// 				{
+	// 					if(ccInstructionString == m_commonCommands.getCommand(i))
+	// 					{
+	// 						instructionString = ccInstructionString;
+
+	// 						m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
+	// 					}
+	// 				}
+
+	// 				m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+
+	// 				// check if the message is just a listener polling mean to update listener informations
+	// 				if(instructionCmd==ListenerPollCmd)
+	// 				{
+	// 					m_logger->debug("beaconHash {0}", beaconHash);
+	// 					m_logger->debug("returnvalue {0}", c2Message.returnvalue());
+
+	// 					// Do nothing and continue with the next item
+	// 					c2Message = m_listeners[i]->getTaskResult(beaconHash);
+	// 					continue;
+	// 				}
+					
+	// 				if(instructionString.empty())
+	// 				{
+	// 					instructionString = instructionCmd;
+	// 					m_logger->warn("Instruction is raw {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+	// 				}
+
+	// 				teamserverapi::CommandResponse commandResponseTmp;
+	// 				commandResponseTmp.set_beaconhash(beaconHash);
+	// 				commandResponseTmp.set_instruction(instructionString);
+	// 				commandResponseTmp.set_cmd(c2Message.cmd());		
+	// 				if(!errorMsg.empty())
+	// 				{
+	// 					commandResponseTmp.set_response(errorMsg);
+	// 					writer->Write(commandResponseTmp);
+	// 				}
+	// 				else if(!c2Message.returnvalue().empty())
+	// 				{
+	// 					commandResponseTmp.set_response(c2Message.returnvalue());
+	// 					writer->Write(commandResponseTmp);
+	// 				}
+	// 				else
+	// 				{
+	// 					m_logger->debug("GetResponseFromSession no output");
+	// 				}
+
+	// 				c2Message = m_listeners[i]->getTaskResult(beaconHash);
+	// 			}
+	// 		}
+	// 	}
+	// }
+
 
 
 const std::string HelpCmd = "help";
