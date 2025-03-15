@@ -172,15 +172,13 @@ class Graph(QWidget):
     listNodeItem = []
     listConnector = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
         
         width = self.frameGeometry().width()
         height = self.frameGeometry().height()
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         self.scene = QGraphicsScene()
 

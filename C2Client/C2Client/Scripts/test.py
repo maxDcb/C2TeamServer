@@ -1,13 +1,26 @@
-import sys, getopt
+import sys
 import os
-from os import urandom
-import hashlib
-import random
-import string
-import subprocess
-from urllib.parse import urlparse
-from pathlib import Path
 
 
-def pad():
-	print("test")
+def OnListenerStart(hash):
+	print("OnListenerStart", hash)
+
+
+def OnListenerStop(hash):
+	print("OnListenerStop", hash)
+
+
+def OnSessionStart(hash):
+	print("OnSessionStart", hash)
+
+
+def OnSessionStop(hash):
+	print("OnSessionStop", hash)	
+
+
+def OnConsoleSend(hash):
+	print("OnConsoleSend", hash)	
+
+
+def OnConsoleReceive(hash):
+	print("OnConsoleReceive", hash)	

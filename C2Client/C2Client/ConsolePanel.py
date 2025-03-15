@@ -15,6 +15,24 @@ from ScriptPanel import *
 sys.path.insert(1, './Credentials')
 import credentials
 
+
+#
+# Log
+#
+try:
+    import pkg_resources
+    logsDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'logs' 
+    )
+
+except ImportError:
+    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+
+if not os.path.exists(logsDir):
+    os.makedirs(logsDir)
+
+
 #
 # Constant
 #
@@ -271,14 +289,10 @@ completerData = [
 #
 class ConsolesTab(QWidget):
     
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
         widget = QWidget(self)
         self.layout = QHBoxLayout(widget)
-
-        self.ip = ip
-        self.port = port
-        self.devMode = devMode
         
         # Initialize tab screen
         self.tabs = QTabWidget()
@@ -289,10 +303,12 @@ class ConsolesTab(QWidget):
         self.layout.addWidget(self.tabs)
         self.setLayout(self.layout)
 
+        self.grpcClient = grpcClient
+
         tab = QWidget()
         self.tabs.addTab(tab, TerminalTabTitle)
         tab.layout = QVBoxLayout(self.tabs)
-        self.terminal = Terminal(self, self.ip, self.port, self.devMode)
+        self.terminal = Terminal(self, self.grpcClient)
         tab.layout.addWidget(self.terminal)
         tab.setLayout(tab.layout)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -300,7 +316,7 @@ class ConsolesTab(QWidget):
         tab = QWidget()
         self.tabs.addTab(tab, "Script")
         tab.layout = QVBoxLayout(self.tabs)
-        self.script = Script(self, self.ip, self.port, self.devMode)
+        self.script = Script(self, self.grpcClient)
         tab.layout.addWidget(self.script)
         tab.setLayout(tab.layout)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -323,7 +339,8 @@ class ConsolesTab(QWidget):
             tab = QWidget()
             self.tabs.addTab(tab, beaconHash[0:8])
             tab.layout = QVBoxLayout(self.tabs)
-            console = Console(self, self.ip, self.port, self.devMode, beaconHash, listenerHash, hostname, username)
+            console = Console(self, self.grpcClient, beaconHash, listenerHash, hostname, username)
+            console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -337,6 +354,9 @@ class ConsolesTab(QWidget):
 
 
 class Console(QWidget):
+
+    consoleScriptSignal = pyqtSignal(str, str, str, str)
+
     tabPressed = pyqtSignal()
     beaconHash=""
     hostname=""
@@ -344,11 +364,11 @@ class Console(QWidget):
     logFileName=""
     listenerHash=""
 
-    def __init__(self, parent, ip, port, devMode, beaconHash, listenerHash, hostname, username):
+    def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
 
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         self.beaconHash=beaconHash
         self.listenerHash=listenerHash
@@ -421,7 +441,7 @@ class Console(QWidget):
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
 
-            logFile = open("./logs/"+self.logFileName, 'a')
+            logFile = open(logsDir+"/"+self.logFileName, 'a')
             logFile.write('[+] send: \"' + commandLine + '\"')
             logFile.write('\n')
             logFile.close()
@@ -438,6 +458,7 @@ class Console(QWidget):
                 self.printInTerminal(commandLine, "", "")
                 command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
+                self.consoleScriptSignal.emit("send", "", "", "")
                 if result.message:
                     self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
 
@@ -447,6 +468,7 @@ class Console(QWidget):
         session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash)
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
+            self.consoleScriptSignal.emit("receive", "", "", "")
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:
@@ -454,7 +476,7 @@ class Console(QWidget):
             self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
 
-            logFile = open("./logs/"+self.logFileName, 'a')
+            logFile = open(logsDir+"/"+self.logFileName, 'a')
             logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
             logFile.write('\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n')
             logFile.write('\n')

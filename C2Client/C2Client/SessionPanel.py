@@ -35,12 +35,10 @@ class Sessions(QWidget):
     idSession = 0
     listSessionObject = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
@@ -163,7 +161,7 @@ class Sessions(QWidget):
                         sessionStore.killed=session.killed
             # add
             if not inStore:
-                self.sessionScriptSignal.emit(session.beaconHash, session.listenerHash, session.hostname, session.username)
+                self.sessionScriptSignal.emit("start", session.beaconHash, session.hostname, session.username)
 
                 self.listSessionObject.append(Session(self.idSession,
                 session.listenerHash, session.beaconHash, 

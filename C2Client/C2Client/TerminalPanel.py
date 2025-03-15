@@ -80,6 +80,23 @@ import credentials
 
 
 #
+# Log
+#
+try:
+    import pkg_resources
+    logsDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'logs' 
+    )
+
+except ImportError:
+    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+
+if not os.path.exists(logsDir):
+    os.makedirs(logsDir)
+
+
+#
 # Constant
 #
 LogFileName = "Terminal.log"
@@ -179,12 +196,12 @@ class Terminal(QWidget):
     logFileName=""
     sem = Semaphore()
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         self.logFileName=LogFileName
 
@@ -241,7 +258,7 @@ class Terminal(QWidget):
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
 
-            logFile = open("./logs/"+self.logFileName, 'a')
+            logFile = open(logsDir+"/"+self.logFileName, 'a')
             logFile.write('[+] send: \"' + commandLine + '\"')
             logFile.write('\n')
             logFile.close()

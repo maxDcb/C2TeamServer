@@ -68,16 +68,18 @@ class App(QMainWindow):
 
         self.m_main = QWidget()
 
+        self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
+
         self.m_main.layout = QHBoxLayout(self.m_main)
         self.m_main.layout.setContentsMargins(0, 0, 0, 0)
-        self.sessionsWidget = Sessions(self, self.ip, self.port, self.devMode)
+        self.sessionsWidget = Sessions(self, self.grpcClient)
         self.m_main.layout.addWidget(self.sessionsWidget)
-        self.listenersWidget = Listeners(self, self.ip, self.port, self.devMode)
+        self.listenersWidget = Listeners(self, self.grpcClient)
         self.m_main.layout.addWidget( self.listenersWidget)
 
         self.topWidget.addTab(self.m_main, "Main")
 
-        self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
+        self.graphWidget = Graph(self, self.grpcClient)
         self.topWidget.addTab(self.graphWidget, "Graph")
 
         self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
@@ -85,7 +87,7 @@ class App(QMainWindow):
 
     def botLayout(self):
 
-        self.consoleWidget = ConsolesTab(self, self.ip, self.port, self.devMode)
+        self.consoleWidget = ConsolesTab(self, self.grpcClient)
         self.mainLayout.addWidget(self.consoleWidget, 2, 0, 1, 2)
 
 

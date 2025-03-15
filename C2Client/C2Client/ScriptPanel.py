@@ -4,6 +4,7 @@ import time
 import json
 import random
 import string 
+import importlib
 from datetime import datetime
 from threading import Thread, Lock, Semaphore
 from PyQt5.QtWidgets import *
@@ -31,19 +32,21 @@ if not os.path.exists(scriptsDir):
 
 
 print(scriptsDir)
-
+LoadedScripts = []
+sys.path.insert(1, scriptsDir)
 for scriptName in os.listdir(scriptsDir):
-
-    print(scriptName)
-
-    sys.path.insert(1, scriptsDir)
-    try:
-        # Dynamically import the script
-        importedScript = __import__(scriptName)
-        LoadedScripts.append(importedScript)
-        print(f"Successfully imported {scriptName}")
-    except ImportError as e:
-        print(f"Failed to import {scriptName}: {e}")
+    if scriptName.endswith(".py") and scriptName != "__init__.py":
+        module_name = scriptName[:-3] 
+        print(scriptName)
+        print(module_name)
+        try:
+            
+            # Dynamically import the script
+            importedScript = importlib.import_module(module_name)
+            LoadedScripts.append(importedScript)
+            print(f"Successfully imported {scriptName}")
+        except ImportError as e:
+            print(f"Failed to import {scriptName}: {e}")
 
 
 #
@@ -54,12 +57,12 @@ class Script(QWidget):
     logFileName=""
     sem = Semaphore()
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         # self.logFileName=LogFileName
 
@@ -72,11 +75,10 @@ class Script(QWidget):
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
-
-        LoadedScripts = "Loaded Scripts:\n"
+        output = "Loaded Scripts:\n"
         for script in LoadedScripts:
-            LoadedScripts += script.__name__ + "\n"
-        self.printInTerminal("", LoadedScripts)
+            output += script.__name__ + "\n"
+        self.printInTerminal("", output)
 
 
     def nextCompletion(self):
@@ -87,12 +89,58 @@ class Script(QWidget):
             self._compl.setCurrentRow(0)
 
 
-    def sessionScriptMethod(self, str1, str2, str3, str4):
-        print("sessionScriptMethod", str1, str2, str3, str4)
+    def sessionScriptMethod(self, action, str2, str3, str4):
+        print("sessionScriptMethod", action, str2, str3, str4)
+
+        for script in LoadedScripts:
+            scriptName = script.__name__
+            print("scriptName", scriptName)
+            
+            try:
+                if action == "start":
+                    methode = getattr(script, "OnSessionStart")
+                    methode(hash)
+                if action == "stop":
+                    methode = getattr(script, "OnSessionStop")
+                    methode(hash)
+            except:
+                continue
 
     
-    def listenerScriptMethod(self, str1, str2, str3, str4):
-        print("sessionScriptMethod", str1, str2, str3, str4)
+    def listenerScriptMethod(self, action, hash, str3, str4):
+        print("sessionScriptMethod", action, hash, str3, str4)
+
+        for script in LoadedScripts:
+            scriptName = script.__name__
+            print("scriptName", scriptName)
+            
+            try:
+                if action == "start":
+                    methode = getattr(script, "OnListenerStart")
+                    methode(hash)
+                if action == "stop":
+                    methode = getattr(script, "OnListenerStop")
+                    methode(hash)
+            except:
+                continue
+
+
+    def consoleScriptMethod(self, action, str2, str3, str4):
+        print("consoleScriptMethod", action, str2, str3, str4)
+
+        for script in LoadedScripts:
+            scriptName = script.__name__
+            print("scriptName", scriptName)
+            
+            try:
+                if action == "receive":
+                    methode = getattr(script, "OnConsoleReceive")
+                    methode(str2)
+                if action == "send":
+                    methode = getattr(script, "OnConsoleSend")
+                    methode(str2)
+            except:
+                continue
 
 
     def event(self, event):
