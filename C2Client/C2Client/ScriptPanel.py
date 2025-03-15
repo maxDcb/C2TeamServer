@@ -89,56 +89,69 @@ class Script(QWidget):
             self._compl.setCurrentRow(0)
 
 
-    def sessionScriptMethod(self, action, str2, str3, str4):
-        print("sessionScriptMethod", action, str2, str3, str4)
-
+    def sessionScriptMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         for script in LoadedScripts:
-            scriptName = script.__name__
-            print("scriptName", scriptName)
-            
+            scriptName = script.__name__            
             try:
                 if action == "start":
                     methode = getattr(script, "OnSessionStart")
-                    methode(hash)
-                if action == "stop":
+                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
+                    self.printInTerminal("", output)
+                elif action == "stop":
                     methode = getattr(script, "OnSessionStop")
-                    methode(hash)
+                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
+                    self.printInTerminal("", output)
+                elif action == "update":
+                    methode = getattr(script, "OnSessionUpdate")
+                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
+                    self.printInTerminal("", output)
             except:
                 continue
 
     
     def listenerScriptMethod(self, action, hash, str3, str4):
-        print("sessionScriptMethod", action, hash, str3, str4)
-
         for script in LoadedScripts:
-            scriptName = script.__name__
-            print("scriptName", scriptName)
-            
+            scriptName = script.__name__            
             try:
                 if action == "start":
                     methode = getattr(script, "OnListenerStart")
-                    methode(hash)
-                if action == "stop":
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
+                elif action == "stop":
                     methode = getattr(script, "OnListenerStop")
-                    methode(hash)
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
             except:
                 continue
 
 
-    def consoleScriptMethod(self, action, str2, str3, str4):
-        print("consoleScriptMethod", action, str2, str3, str4)
-
+    def consoleScriptMethod(self, action, beaconHash, listenerHash, cmd, result):
         for script in LoadedScripts:
-            scriptName = script.__name__
-            print("scriptName", scriptName)
-            
+            scriptName = script.__name__            
             try:
                 if action == "receive":
                     methode = getattr(script, "OnConsoleReceive")
-                    methode(str2)
-                if action == "send":
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
+                elif action == "send":
                     methode = getattr(script, "OnConsoleSend")
-                    methode(str2)
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
+            except:
+                continue
+
+    def mainScriptMethod(self, action, str2, str3, str4):
+        for script in LoadedScripts:
+            scriptName = script.__name__            
+            try:
+                if action == "start":
+                    methode = getattr(script, "OnStart")
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
+                elif action == "stop":
+                    methode = getattr(script, "OnStop")
+                    output = methode(self.grpcClient)
+                    self.printInTerminal("", output)
             except:
                 continue
 

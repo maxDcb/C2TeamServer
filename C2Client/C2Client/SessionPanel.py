@@ -30,7 +30,7 @@ class Session():
 class Sessions(QWidget):
 
     interactWithSession = pyqtSignal(str, str, str, str)
-    sessionScriptSignal = pyqtSignal(str, str, str, str)
+    sessionScriptSignal = pyqtSignal(str, str, str, str, str, str, str, str, str, bool)
 
     idSession = 0
     listSessionObject = []
@@ -142,6 +142,7 @@ class Sessions(QWidget):
                 #maj
                 if session.listenerHash == sessionStore.listenerHash and session.beaconHash == sessionStore.beaconHash:
                 #if session.beaconHash == sessionStore.beaconHash:
+                    self.sessionScriptSignal.emit("update", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
                     inStore=True
                     sessionStore.lastProofOfLife=session.lastProofOfLife
                     sessionStore.listenerHash=session.listenerHash
@@ -161,7 +162,7 @@ class Sessions(QWidget):
                         sessionStore.killed=session.killed
             # add
             if not inStore:
-                self.sessionScriptSignal.emit("start", session.beaconHash, session.hostname, session.username)
+                self.sessionScriptSignal.emit("start", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
 
                 self.listSessionObject.append(Session(self.idSession,
                 session.listenerHash, session.beaconHash, 

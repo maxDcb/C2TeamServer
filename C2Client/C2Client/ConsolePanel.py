@@ -355,7 +355,7 @@ class ConsolesTab(QWidget):
 
 class Console(QWidget):
 
-    consoleScriptSignal = pyqtSignal(str, str, str, str)
+    consoleScriptSignal = pyqtSignal(str, str, str, str,  str)
 
     tabPressed = pyqtSignal()
     beaconHash=""
@@ -458,7 +458,7 @@ class Console(QWidget):
                 self.printInTerminal(commandLine, "", "")
                 command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
-                self.consoleScriptSignal.emit("send", "", "", "")
+                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, commandLine, "")
                 if result.message:
                     self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
 
@@ -468,7 +468,7 @@ class Console(QWidget):
         session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash)
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
-            self.consoleScriptSignal.emit("receive", "", "", "")
+            self.consoleScriptSignal.emit("receive", "", "", response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:

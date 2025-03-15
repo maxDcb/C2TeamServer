@@ -249,6 +249,38 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	m_logger->trace("AddListener");
 	string type = listenerToCreate->type();
 
+	// check if the listener already existe
+	if (type == ListenerGithubType)
+	{
+		std::vector<shared_ptr<Listener>>::iterator object = 
+			find_if(m_listeners.begin(), m_listeners.end(),
+					[&](shared_ptr<Listener> & obj){ return (obj->getType() == listenerToCreate->type() && 
+															obj->getParam1() == listenerToCreate->project() &&
+															obj->getParam2() == listenerToCreate->token());}
+					);
+
+		if(object!=m_listeners.end())
+		{
+			m_logger->warn("Add listener failed: Listener already exist");
+			return grpc::Status::OK;
+		}
+	}
+	else
+	{
+		std::vector<shared_ptr<Listener>>::iterator object = 
+			find_if(m_listeners.begin(), m_listeners.end(),
+					[&](shared_ptr<Listener> & obj){ return (obj->getType() == listenerToCreate->type() && 
+															obj->getParam1() == listenerToCreate->ip() &&
+															obj->getParam2() == std::to_string(listenerToCreate->port()));}
+					);
+
+		if(object!=m_listeners.end())
+		{
+			m_logger->warn("Add listener failed: Listener already exist");
+			return grpc::Status::OK;
+		}
+	}
+
 	// TODO use a init to check if the listener is correctly init without using excpetion in the constructor
 	if (type == ListenerTcpType)
 	{
@@ -904,106 +936,6 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
 
 	return grpc::Status::OK;
 }
-
-
-// for (int i = 0; i < m_listeners.size(); i++)
-	// {
-	// 	int nbSession = m_listeners[i]->getNumberOfSession();
-	// 	for(int kk=0; kk<nbSession; kk++)
-	// 	{
-	// 		std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-	// 		std::string beaconHash = session->getBeaconHash();
-
-	// 		if(targetSession==beaconHash)
-	// 		{
-	// 			// loop through all the messages that match the query Beacon hash
-	// 			C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
-	// 			while(!c2Message.instruction().empty())
-	// 			{
-	// 				m_logger->trace("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-
-	// 				std::string instructionCmd = c2Message.instruction();					
-	// 				std::string errorMsg;
-	// 				std::string instructionString;
-
-	// 				// check if the message is from a loaded module and handle:
-	// 				// - resolution of the name 
-	// 				// - followup
-	// 				// - the resoltion of the error code
-	// 				for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
-	// 				{
-	// 					// djb2 produce a unsigne long long 
-	// 					if (instructionCmd == (*it)->getName() || instructionCmd == std::to_string((*it)->getHash()))
-	// 					{
-	// 						instructionString = (*it)->getName();
-
-	// 						m_logger->debug("Call followUp");
-
-	// 						// TODO to put in a separate thread
-	// 						(*it)->followUp(c2Message);
-
-	// 						(*it)->errorCodeToMsg(c2Message, errorMsg);
-	// 					}
-	// 				}
-
-	// 				// check if the message is from a common module and handle:
-	// 				// - resolution of the name 
-	// 				// - the resoltion of the error code
-	// 				std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
-	// 				for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
-	// 				{
-	// 					if(ccInstructionString == m_commonCommands.getCommand(i))
-	// 					{
-	// 						instructionString = ccInstructionString;
-
-	// 						m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
-	// 					}
-	// 				}
-
-	// 				m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-
-	// 				// check if the message is just a listener polling mean to update listener informations
-	// 				if(instructionCmd==ListenerPollCmd)
-	// 				{
-	// 					m_logger->debug("beaconHash {0}", beaconHash);
-	// 					m_logger->debug("returnvalue {0}", c2Message.returnvalue());
-
-	// 					// Do nothing and continue with the next item
-	// 					c2Message = m_listeners[i]->getTaskResult(beaconHash);
-	// 					continue;
-	// 				}
-					
-	// 				if(instructionString.empty())
-	// 				{
-	// 					instructionString = instructionCmd;
-	// 					m_logger->warn("Instruction is raw {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-	// 				}
-
-	// 				teamserverapi::CommandResponse commandResponseTmp;
-	// 				commandResponseTmp.set_beaconhash(beaconHash);
-	// 				commandResponseTmp.set_instruction(instructionString);
-	// 				commandResponseTmp.set_cmd(c2Message.cmd());		
-	// 				if(!errorMsg.empty())
-	// 				{
-	// 					commandResponseTmp.set_response(errorMsg);
-	// 					writer->Write(commandResponseTmp);
-	// 				}
-	// 				else if(!c2Message.returnvalue().empty())
-	// 				{
-	// 					commandResponseTmp.set_response(c2Message.returnvalue());
-	// 					writer->Write(commandResponseTmp);
-	// 				}
-	// 				else
-	// 				{
-	// 					m_logger->debug("GetResponseFromSession no output");
-	// 				}
-
-	// 				c2Message = m_listeners[i]->getTaskResult(beaconHash);
-	// 			}
-	// 		}
-	// 	}
-	// }
-
 
 
 const std::string HelpCmd = "help";

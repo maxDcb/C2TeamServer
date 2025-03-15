@@ -29,6 +29,7 @@ class App(QMainWindow):
         self.ip = ip
         self.port = port
         self.devMode = devMode
+        self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
 
         self.createPayloadWindow = None
         
@@ -58,6 +59,8 @@ class App(QMainWindow):
         self.listenersWidget.listenerScriptSignal.connect(self.consoleWidget.script.listenerScriptMethod)
 
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
+
+        self.consoleWidget.script.mainScriptMethod("start", "", "", "")
         
         self.show()
 
@@ -68,7 +71,7 @@ class App(QMainWindow):
 
         self.m_main = QWidget()
 
-        self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
+        
 
         self.m_main.layout = QHBoxLayout(self.m_main)
         self.m_main.layout.setContentsMargins(0, 0, 0, 0)
@@ -92,6 +95,9 @@ class App(QMainWindow):
 
 
     def __del__(self):
+
+        self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
+
         print("Exit")
 
 
