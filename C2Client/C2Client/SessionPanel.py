@@ -30,6 +30,7 @@ class Session():
 class Sessions(QWidget):
 
     interactWithSession = pyqtSignal(str, str, str, str)
+    sessionScriptSignal = pyqtSignal(str, str, str, str)
 
     idSession = 0
     listSessionObject = []
@@ -162,6 +163,8 @@ class Sessions(QWidget):
                         sessionStore.killed=session.killed
             # add
             if not inStore:
+                self.sessionScriptSignal.emit(session.beaconHash, session.listenerHash, session.hostname, session.username)
+
                 self.listSessionObject.append(Session(self.idSession,
                 session.listenerHash, session.beaconHash, 
                 session.hostname, session.username, session.arch,

@@ -10,6 +10,7 @@ from PyQt5.QtCore import *
 from grpcClient import *
 
 from TerminalPanel import *
+from ScriptPanel import *
 
 sys.path.insert(1, './Credentials')
 import credentials
@@ -291,8 +292,16 @@ class ConsolesTab(QWidget):
         tab = QWidget()
         self.tabs.addTab(tab, TerminalTabTitle)
         tab.layout = QVBoxLayout(self.tabs)
-        terminal = Terminal(self, self.ip, self.port, self.devMode)
-        tab.layout.addWidget(terminal)
+        self.terminal = Terminal(self, self.ip, self.port, self.devMode)
+        tab.layout.addWidget(self.terminal)
+        tab.setLayout(tab.layout)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
+
+        tab = QWidget()
+        self.tabs.addTab(tab, "Script")
+        tab.layout = QVBoxLayout(self.tabs)
+        self.script = Script(self, self.ip, self.port, self.devMode)
+        tab.layout.addWidget(self.script)
         tab.setLayout(tab.layout)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
         

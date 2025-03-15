@@ -54,6 +54,9 @@ class App(QMainWindow):
         self.topLayout()
         self.botLayout()
 
+        self.sessionsWidget.sessionScriptSignal.connect(self.consoleWidget.script.sessionScriptMethod)
+        self.listenersWidget.listenerScriptSignal.connect(self.consoleWidget.script.listenerScriptMethod)
+
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
         
         self.show()
