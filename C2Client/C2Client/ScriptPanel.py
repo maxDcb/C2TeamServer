@@ -31,16 +31,12 @@ if not os.path.exists(scriptsDir):
     os.makedirs(scriptsDir)
 
 
-print(scriptsDir)
 LoadedScripts = []
 sys.path.insert(1, scriptsDir)
 for scriptName in os.listdir(scriptsDir):
     if scriptName.endswith(".py") and scriptName != "__init__.py":
         module_name = scriptName[:-3] 
-        print(scriptName)
-        print(module_name)
         try:
-            
             # Dynamically import the script
             importedScript = importlib.import_module(module_name)
             LoadedScripts.append(importedScript)
@@ -75,10 +71,10 @@ class Script(QWidget):
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
-        output = "Loaded Scripts:\n"
+        output = ""
         for script in LoadedScripts:
             output += script.__name__ + "\n"
-        self.printInTerminal("", output)
+        self.printInTerminal("Loaded Scripts:", output)
 
 
     def nextCompletion(self):
@@ -96,15 +92,18 @@ class Script(QWidget):
                 if action == "start":
                     methode = getattr(script, "OnSessionStart")
                     output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnSessionStart", output)
                 elif action == "stop":
                     methode = getattr(script, "OnSessionStop")
                     output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnSessionStop", output)
                 elif action == "update":
                     methode = getattr(script, "OnSessionUpdate")
                     output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnSessionUpdate", output)
             except:
                 continue
 
@@ -116,11 +115,13 @@ class Script(QWidget):
                 if action == "start":
                     methode = getattr(script, "OnListenerStart")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnListenerStart", output)
                 elif action == "stop":
                     methode = getattr(script, "OnListenerStop")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnListenerStop", output)
             except:
                 continue
 
@@ -132,11 +133,13 @@ class Script(QWidget):
                 if action == "receive":
                     methode = getattr(script, "OnConsoleReceive")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnConsoleReceive", output)
                 elif action == "send":
                     methode = getattr(script, "OnConsoleSend")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnConsoleSend", output)
             except:
                 continue
 
@@ -147,11 +150,13 @@ class Script(QWidget):
                 if action == "start":
                     methode = getattr(script, "OnStart")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnStart", output)
                 elif action == "stop":
                     methode = getattr(script, "OnStop")
                     output = methode(self.grpcClient)
-                    self.printInTerminal("", output)
+                    if output:
+                        self.printInTerminal("OnStop", output)
             except:
                 continue
 

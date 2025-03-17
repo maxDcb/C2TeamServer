@@ -8,15 +8,6 @@ from grpcClient import *
 
 def OnStart(grpcClient):
 	output = "Scrip test.py: OnStart\n";	
-
-	listener = TeamServerApi_pb2.Listener(
-            type="https",
-            ip="0.0.0.0",
-            port=8443)
-
-	output += "addListener\n"
-	grpcClient.addListener(listener)
-
 	return output
 
 
@@ -37,17 +28,6 @@ def OnListenerStop(grpcClient):
 
 def OnSessionStart(grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
 	output = "Scrip test.py: OnSessionStart\n";	
-	output += "load ListDirectory && ls\n";	
-
-	commandLine = "loadModule ListDirectory"
-	command = TeamServerApi_pb2.Command(beaconHash=beaconHash, listenerHash=listenerHash, cmd=commandLine)
-	result = grpcClient.sendCmdToSession(command)
-	
-	commandLine = "ls"
-	command = TeamServerApi_pb2.Command(beaconHash=beaconHash, listenerHash=listenerHash, cmd=commandLine)
-	result = grpcClient.sendCmdToSession(command)
-
-	output += "Could imagine sending a mail or a slack notification...\n";
 
 	return output
 
