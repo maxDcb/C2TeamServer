@@ -29,6 +29,7 @@ class App(QMainWindow):
         self.ip = ip
         self.port = port
         self.devMode = devMode
+        self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
 
         self.createPayloadWindow = None
         
@@ -54,7 +55,12 @@ class App(QMainWindow):
         self.topLayout()
         self.botLayout()
 
+        self.sessionsWidget.sessionScriptSignal.connect(self.consoleWidget.script.sessionScriptMethod)
+        self.listenersWidget.listenerScriptSignal.connect(self.consoleWidget.script.listenerScriptMethod)
+
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
+
+        self.consoleWidget.script.mainScriptMethod("start", "", "", "")
         
         self.show()
 
@@ -65,16 +71,18 @@ class App(QMainWindow):
 
         self.m_main = QWidget()
 
+        
+
         self.m_main.layout = QHBoxLayout(self.m_main)
         self.m_main.layout.setContentsMargins(0, 0, 0, 0)
-        self.sessionsWidget = Sessions(self, self.ip, self.port, self.devMode)
+        self.sessionsWidget = Sessions(self, self.grpcClient)
         self.m_main.layout.addWidget(self.sessionsWidget)
-        self.listenersWidget = Listeners(self, self.ip, self.port, self.devMode)
+        self.listenersWidget = Listeners(self, self.grpcClient)
         self.m_main.layout.addWidget( self.listenersWidget)
 
         self.topWidget.addTab(self.m_main, "Main")
 
-        self.graphWidget = Graph(self, self.ip, self.port, self.devMode)
+        self.graphWidget = Graph(self, self.grpcClient)
         self.topWidget.addTab(self.graphWidget, "Graph")
 
         self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
@@ -82,11 +90,14 @@ class App(QMainWindow):
 
     def botLayout(self):
 
-        self.consoleWidget = ConsolesTab(self, self.ip, self.port, self.devMode)
+        self.consoleWidget = ConsolesTab(self, self.grpcClient)
         self.mainLayout.addWidget(self.consoleWidget, 2, 0, 1, 2)
 
 
     def __del__(self):
+
+        self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
+
         print("Exit")
 
 

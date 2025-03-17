@@ -26,6 +26,7 @@ include = ["C2Client*", "C2Client.libGrpcMessages*", "C2Client.TerminalModules.*
 C2Client = [
     "images/*.svg",
     "logs/*",
+    "Scripts/*.py",
     "server.crt",
     "libGrpcMessages/build/py/*.py",
     "DropperModules.conf"

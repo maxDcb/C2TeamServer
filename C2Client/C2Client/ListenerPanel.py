@@ -46,15 +46,15 @@ class Listener():
 
 class Listeners(QWidget):
 
+    listenerScriptSignal = pyqtSignal(str, str, str, str)
+
     idListener = 0
     listListenerObject = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
                 
         self.createListenerWindow = None
 
@@ -187,6 +187,9 @@ class Listeners(QWidget):
             # add
             # if listener is not yet already on our list
             if not inStore:
+
+                self.listenerScriptSignal.emit("start", "", "", "")
+
                 if listener.type == GithubType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
                 elif listener.type == DnsType:

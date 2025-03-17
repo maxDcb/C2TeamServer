@@ -4,6 +4,7 @@ import logging
 
 import sys
 import os
+import uuid
 sys.path.append(os.path.dirname(os.path.abspath(__file__))+'/libGrpcMessages/build/py/')
 
 import grpc
@@ -42,42 +43,47 @@ class GrpcClient:
         grpc.channel_ready_future(self.channel).result()
         self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
 
+        self.metadata = [
+            ("authorization", "Bearer my-secret-token"),
+            ("clientid", str(uuid.uuid4())[:16])
+        ]
+
     def getListeners(self):
         empty = TeamServerApi_pb2.Empty()
-        listeners = self.stub.GetListeners(empty)
+        listeners = self.stub.GetListeners(empty, metadata=self.metadata)
         return listeners
 
     def addListener(self, listener):
-        response = self.stub.AddListener(listener)
+        response = self.stub.AddListener(listener, metadata=self.metadata)
         return response
 
     def stopListener(self, listener):
-        response = self.stub.StopListener(listener)
+        response = self.stub.StopListener(listener, metadata=self.metadata)
         return response
 
     def getSessions(self):
         empty = TeamServerApi_pb2.Empty()
-        sessions = self.stub.GetSessions(empty)
+        sessions = self.stub.GetSessions(empty, metadata=self.metadata)
         return sessions
 
     def stopSession(self, session):
-        response = self.stub.StopSession(session)
+        response = self.stub.StopSession(session, metadata=self.metadata)
         return response
 
     def sendCmdToSession(self, command):
-        response = self.stub.SendCmdToSession(command)
+        response = self.stub.SendCmdToSession(command, metadata=self.metadata)
         return response
 
     def getResponseFromSession(self, session):
-        commands = self.stub.GetResponseFromSession(session)
+        commands = self.stub.GetResponseFromSession(session, metadata=self.metadata)
         return commands
 
     def getHelp(self, command):
-        response = self.stub.GetHelp(command)
+        response = self.stub.GetHelp(command, metadata=self.metadata)
         return response
 
     def sendTermCmd(self, command):
-        response = self.stub.SendTermCmd(command)
+        response = self.stub.SendTermCmd(command, metadata=self.metadata)
         return response
 
 
