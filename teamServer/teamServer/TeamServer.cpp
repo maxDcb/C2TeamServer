@@ -367,6 +367,22 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 }
 
 
+std::string generateUUID8() 
+{
+    const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const size_t length = 8;
+    std::random_device rd;
+    std::mt19937 generator(rd());
+    std::uniform_int_distribution<> distribution(0, sizeof(charset) - 2);
+
+    std::string uuid;
+    for (size_t i = 0; i < length; ++i) {
+        uuid += charset[distribution(generator)];
+    }
+    return uuid;
+}
+
+
 grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop,  teamserverapi::Response* response)
 {
 	m_logger->trace("StopListener");
@@ -414,10 +430,19 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 							response->set_status(teamserverapi::KO);
 						}
 
+						// Set the uuid to track the message and correlate with the response to get a clean output in the client
 						if(!c2Message.instruction().empty())
+						{
+							std::string uuid = generateUUID8();
+							c2Message.set_uuid(uuid);
 							m_listeners[i]->queueTask(beaconHash, c2Message);
+
+							c2Message.set_cmd(input);
+							c2Message.set_data("");
+							m_sentC2Messages.push_back(std::move(c2Message));
+						}
 					}
-				}
+				}	
 			}
 		}
 	}
@@ -763,8 +788,17 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 					m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
 				}
 
+				// Set the uuid to track the message and correlate with the response to get a clean output in the client
 				if(!c2Message.instruction().empty())
+				{
+					std::string uuid = generateUUID8();
+					c2Message.set_uuid(uuid);
 					m_listeners[i]->queueTask(beaconHash, c2Message);
+
+					c2Message.set_cmd(input);
+					c2Message.set_data("");
+					m_sentC2Messages.push_back(std::move(c2Message));
+				}
 			}
 		}
 	}
@@ -799,10 +833,18 @@ int TeamServer::handleCmdResponse()
 
 					std::string instructionCmd = c2Message.instruction();					
 					std::string errorMsg;
-					std::string instructionString;
+
+					// check if the message is just a listener polling mean to update listener informations
+					if(instructionCmd==ListenerPollCmd)
+					{
+						m_logger->debug("beaconHash {0} {1}", beaconHash, c2Message.returnvalue());
+
+						// Do nothing and continue with the next item
+						c2Message = m_listeners[i]->getTaskResult(beaconHash);
+						continue;
+					}
 
 					// check if the message is from a loaded module and handle:
-					// - resolution of the name 
 					// - followup
 					// - the resoltion of the error code
 					for(auto it = m_moduleCmd.begin() ; it != m_moduleCmd.end(); ++it )
@@ -810,54 +852,41 @@ int TeamServer::handleCmdResponse()
 						// djb2 produce a unsigne long long 
 						if (instructionCmd == (*it)->getName() || instructionCmd == std::to_string((*it)->getHash()))
 						{
-							instructionString = (*it)->getName();
-
 							m_logger->debug("Call followUp");
-
-							// TODO to put in a separate thread
 							(*it)->followUp(c2Message);
-
 							(*it)->errorCodeToMsg(c2Message, errorMsg);
 						}
 					}
 
 					// check if the message is from a common module and handle:
-					// - resolution of the name 
 					// - the resoltion of the error code
 					std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
 					for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
-					{
 						if(ccInstructionString == m_commonCommands.getCommand(i))
-						{
-							instructionString = ccInstructionString;
-
 							m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
+
+					
+					m_logger->debug("GetResponseFromSession {0} {1}", beaconHash, c2Message.uuid());
+
+					// Get the command lign sent from the list of sent messages using the uuid to get a clean client output 
+					std::string cmd = c2Message.cmd();
+					for(int j=0; i<m_sentC2Messages.size(); j++)
+					{
+						if(m_sentC2Messages[j].uuid() == c2Message.uuid())
+						{
+							cmd = m_sentC2Messages[j].cmd();
+							m_sentC2Messages.erase(m_sentC2Messages.begin() + j);
+							break;
 						}
 					}
 
-					m_logger->debug("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+					m_logger->debug("GetResponseFromSession {0} {1}", beaconHash, cmd);
 
-					// check if the message is just a listener polling mean to update listener informations
-					if(instructionCmd==ListenerPollCmd)
-					{
-						m_logger->debug("beaconHash {0}", beaconHash);
-						m_logger->debug("returnvalue {0}", c2Message.returnvalue());
-
-						// Do nothing and continue with the next item
-						c2Message = m_listeners[i]->getTaskResult(beaconHash);
-						continue;
-					}
-					
-					if(instructionString.empty())
-					{
-						instructionString = instructionCmd;
-						m_logger->warn("Instruction is raw {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-					}
-
+					// Send the response to the client
 					teamserverapi::CommandResponse commandResponseTmp;
 					commandResponseTmp.set_beaconhash(beaconHash);
-					commandResponseTmp.set_instruction(instructionString);
-					commandResponseTmp.set_cmd(c2Message.cmd());		
+					commandResponseTmp.set_instruction(cmd);
+					commandResponseTmp.set_cmd("");		
 					if(!errorMsg.empty())
 					{
 						commandResponseTmp.set_response(errorMsg);
@@ -870,9 +899,10 @@ int TeamServer::handleCmdResponse()
 					}
 					else
 					{
-						m_logger->trace("GetResponseFromSession no output");
+						m_logger->debug("GetResponseFromSession no output");
 					}
-
+					
+					// Get the next message
 					c2Message = m_listeners[i]->getTaskResult(beaconHash);
 				}
 				

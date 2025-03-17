@@ -85,4 +85,6 @@ private:
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
     std::vector<teamserverapi::CommandResponse> m_cmdResponses;
     std::unordered_map<std::string, std::vector<int>> m_sentResponses;
+
+    std::vector<C2Message> m_sentC2Messages;
 };
