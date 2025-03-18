@@ -16,11 +16,11 @@ class GrpcClient:
 
     def __init__(self, ip, port, devMode):
 
-        env_cert_path = os.getenv('CA_CERT_PATH')
+        env_cert_path = os.getenv('C2_CERT_PATH')
 
         if env_cert_path and os.path.isfile(env_cert_path):
             ca_cert = env_cert_path
-            print(f"Using CA certificate from environment variable: {ca_cert}")
+            print(f"Using certificate from environment variable: {ca_cert}")
         else:
             try:
                 import pkg_resources
@@ -30,10 +30,15 @@ class GrpcClient:
                 )
             except ImportError:
                 ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
-            print(f"Using default CA certificate: {ca_cert}. To use a custom CA certificate, set the CA_CERT_PATH environment variable.")
+            print(f"Using default certificate: {ca_cert}. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.")
 
-        # ca_cert = './server.crt'
-        root_certs = open(ca_cert, 'rb').read()
+        if os.path.exists(ca_cert):
+            root_certs = open(ca_cert, 'rb').read()
+        else:
+            print(f"[-] Error: {ca_cert} not found, this file is needed to secure the communication beetween the client and server.")
+            print(f"You can find it in the release directory of the Teamserver.")
+            print(f"Exiting.")
+            raise ValueError("grpcClient: Certificate not found")
 
         credentials = grpc.ssl_channel_credentials(root_certs)
         if devMode:

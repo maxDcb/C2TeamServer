@@ -2,7 +2,8 @@ import sys
 import os
 import signal
 import argparse
-from threading import Thread, Lock
+import logging
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -17,6 +18,7 @@ from GraphPanel import *
 
 import qdarktheme
 
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -29,7 +31,11 @@ class App(QMainWindow):
         self.ip = ip
         self.port = port
         self.devMode = devMode
-        self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
+
+        try:
+            self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
+        except ValueError as e:
+            raise e
 
         self.createPayloadWindow = None
         
@@ -71,8 +77,6 @@ class App(QMainWindow):
 
         self.m_main = QWidget()
 
-        
-
         self.m_main.layout = QHBoxLayout(self.m_main)
         self.m_main.layout.setContentsMargins(0, 0, 0, 0)
         self.sessionsWidget = Sessions(self, self.grpcClient)
@@ -95,10 +99,8 @@ class App(QMainWindow):
 
 
     def __del__(self):
-
-        self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
-
-        print("Exit")
+        if hasattr(self, 'consoleWidget'):
+            self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
 
 
     def payloadForm(self):
@@ -118,7 +120,10 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet())
 
-    ex = App(args.ip, args.port, args.dev)
+    try:
+        ex = App(args.ip, args.port, args.dev)
+    except ValueError as e:
+        sys.exit(1)
     sys.exit(app.exec_())
 
 

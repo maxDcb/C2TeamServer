@@ -1,7 +1,6 @@
-import sys
-import os
 import time
-from threading import Thread, Lock
+import logging
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -203,12 +202,21 @@ class Sessions(QWidget):
 class GetSessionsWorker(QObject):
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.exit = False
+
+    def __del__(self):
+        self.exit=True
 
     def run(self):
-        while self.exit==False:
-            self.checkin.emit()
-            time.sleep(1)
+        try: 
+            while self.exit==False:
+                if self.receivers(self.checkin) > 0:
+                    self.checkin.emit()
+                time.sleep(2)
+        except Exception as e:
+            pass
 
     def quit(self):
         self.exit=True

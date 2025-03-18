@@ -1,11 +1,10 @@
 import sys
 import os
-import time
 import json
-import random
-import string 
+import logging
 from datetime import datetime
 from threading import Thread, Lock, Semaphore
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -268,17 +267,17 @@ class Terminal(QWidget):
             if len(instructions) < 1:
                 return;
 
-            if instructions[0]==HelpInstruction:
+            if instructions[0].lower()==HelpInstruction.lower():
                 self.runHelp()
-            elif instructions[0]==BatcaveInstruction:
+            elif instructions[0].lower()==BatcaveInstruction.lower():
                 self.runBatcave(commandLine, instructions)
-            elif instructions[0]==HostInstruction:
+            elif instructions[0].lower()==HostInstruction.lower():
                 self.runHost(commandLine, instructions)
-            elif instructions[0]==CredentialStoreInstruction:
+            elif instructions[0].lower()==CredentialStoreInstruction.lower():
                 self.runCredentialStore(commandLine, instructions)
-            elif instructions[0]==DropperInstruction:
+            elif instructions[0].lower()==DropperInstruction.lower():
                 self.runDropper(commandLine, instructions)
-            elif instructions[0]==SocksInstruction:
+            elif instructions[0].lower()==SocksInstruction.lower():
                 self.runSocks(commandLine, instructions)
             
             
@@ -297,13 +296,12 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, SocksHelp)
             return;
 
-        cmd = instructions[1]
+        cmd = instructions[1].lower()
 
         if cmd == "start" or cmd == "stop" or cmd == "unbind":
 
             commandTeamServer = GrpcSocksInstruction + " " + cmd
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            print("Sent " + commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
@@ -320,7 +318,6 @@ class Terminal(QWidget):
 
             commandTeamServer = GrpcSocksInstruction + " " + cmd + " " + beaconHash
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            print("Sent " + commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
@@ -340,10 +337,10 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, BatcaveHelp)
             return;
 
-        cmd = instructions[1]
+        cmd = instructions[1].lower()
         batgadget = instructions[2]
 
-        if cmd == "Install":
+        if cmd == "Install".lower():
             filePath = batcave.downloadBatGadget(batgadget)
             try:
                 filename = os.path.basename(filePath)
@@ -355,7 +352,6 @@ class Terminal(QWidget):
 
             commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            print("Sent " + commandTeamServer)
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
             result = resultTermCommand.result
@@ -366,7 +362,7 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, f"Added {filename} to TeamServer Tools.")
             return    
 
-        elif cmd == "BundleInstall":
+        elif cmd == "BundleInstall".lower():
 
             filePathList = batcave.downloadBatBundle(batgadget)
             line = ""
@@ -392,7 +388,7 @@ class Terminal(QWidget):
             line += f"BatBundle {batgadget} successfully installed!"
             self.printInTerminal(commandLine, line)
 
-        elif cmd == "Search":
+        elif cmd == "Search".lower():
             result = batcave.searchTheBatcave(batgadget)
             self.printInTerminal(commandLine, result)
             return    
@@ -409,9 +405,9 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, CredentialStoreHelp)
             return;
 
-        cmd = instructions[1]
+        cmd = instructions[1].lower()
 
-        if cmd == GetSubInstruction:
+        if cmd == GetSubInstruction.lower():
             currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
 
             toPrint = ""
@@ -422,7 +418,7 @@ class Terminal(QWidget):
             
             return    
 
-        elif cmd == SetSubInstruction:
+        elif cmd == SetSubInstruction.lower():
             if len(instructions) < 5:
                 self.printInTerminal(commandLine, CredentialStoreHelp)
                 return
@@ -438,7 +434,7 @@ class Terminal(QWidget):
             credentials.addCredentials(self.grpcClient, TeamServerApi_pb2, json.dumps(cred))
             return
 
-        elif cmd == SearchSubInstruction:
+        elif cmd == SearchSubInstruction.lower():
             if len(instructions) < 3:
                 self.printInTerminal(commandLine, CredentialStoreHelp)
                 return
@@ -528,12 +524,12 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, availableModules)
             return;
 
-        moduleName = instructions[1]
+        moduleName = instructions[1].lower()
 
         moduleFound = False
         for module in DropperModules:
 
-            if moduleName == module.__name__:
+            if moduleName == module.__name__.lower():
                 moduleFound = True
 
                 if len(instructions) < 4:
@@ -546,11 +542,6 @@ class Terminal(QWidget):
                 listenerDownload = instructions[2]
                 listenerBeacon = instructions[3]
                 additionalArgss = " ".join(instructions[4:])
-
-                print("moduleName", moduleName)
-                print("listenerDownload", listenerDownload)
-                print("listenerBeacon", listenerBeacon)
-                print("additionalArgs", additionalArgss)
 
                 self.printInTerminal(commandLine, InfoProcessing)
                 thread = Thread(target = self.GenerateAndHostGeneric, args = (commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgss))
@@ -569,6 +560,8 @@ class Terminal(QWidget):
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
+        logging.debug("GenerateAndHostGeneric start")
+
         result = resultTermCommand.result
         if ErrorInstruction in result:
             self.printInTerminal(commandLine, result)
@@ -578,7 +571,7 @@ class Terminal(QWidget):
         if len(results)<4:
             return
 
-        schemeDownload = results[0]
+        schemeDownload = results[0].lower()
         ipDownload = results[1]
         portDownload = results[2]
         downloadPath = results[3]
@@ -615,7 +608,8 @@ class Terminal(QWidget):
 
         targetOs = "windows"
         for module in DropperModules:
-            if module.__name__ == moduleName:
+            if moduleName == module.__name__.lower():
+                logging.debug("GenerateAndHostGeneric check OS for module: %s", moduleName)
                 try:
                     getTargetOs = getattr(module, "getTargetOsExploration")
                     print(getTargetOs)
@@ -648,12 +642,15 @@ class Terminal(QWidget):
 
         urlDownload =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath
 
+        logging.debug("GenerateAndHostGeneric urlDownload: %s", urlDownload)
+
         # Generate the payload
         droppersPath = []
         shellcodesPath = []
         cmdToRUn = ""
         for module in DropperModules:
-            if module.__name__ == moduleName:
+            if moduleName == module.__name__.lower():
+                logging.debug("GenerateAndHostGeneric Generate for module: %s", moduleName)
                 genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
                 droppersPath, shellcodesPath, cmdToRUn = genPayload(beaconFilePath, beaconArg, "", urlDownload, additionalArgs.split(" "))
 
