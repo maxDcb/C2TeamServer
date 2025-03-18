@@ -7,7 +7,7 @@ if(ret EQUAL "1")
     message( FATAL_ERROR "Bad exit status")
 endif()
 
-execute_process(COMMAND bash -c "${PROTOBUF_PROTOC_EXECUTABLE} -I=${CMAKE_BINARY_DIR}/libs/libGrpcMessages/src/ --grpc_out=${CMAKE_SOURCE_DIR}/Release/Client/libGrpcMessages/build/py --python_out=${CMAKE_SOURCE_DIR}/Release/Client/libGrpcMessages/build/py --plugin=protoc-gen-grpc=${GRPC_PYTHON_PLUGIN_PROGRAM} ${CMAKE_BINARY_DIR}/libs/libGrpcMessages/src/*.proto" RESULT_VARIABLE ret)
+execute_process(COMMAND bash -c "${PROTOBUF_PROTOC_EXECUTABLE} -I=${CMAKE_BINARY_DIR}/libs/libGrpcMessages/src/ --grpc_out=${CMAKE_SOURCE_DIR}/C2Client/C2Client/libGrpcMessages/build/py --python_out=${CMAKE_SOURCE_DIR}/C2Client/C2Client/libGrpcMessages/build/py --plugin=protoc-gen-grpc=${GRPC_PYTHON_PLUGIN_PROGRAM} ${CMAKE_BINARY_DIR}/libs/libGrpcMessages/src/*.proto" RESULT_VARIABLE ret)
 
 if(ret EQUAL "1")
     message( FATAL_ERROR "Bad exit status")

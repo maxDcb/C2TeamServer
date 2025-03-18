@@ -3,3 +3,7 @@ grpcio==1.66.1
 PyQt5
 pyqtdarktheme
 protobuf==5.27.0
+gitpython
+requests
+pwn
+pefile
