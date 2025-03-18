@@ -1,7 +1,6 @@
-import sys
-import os
 import time
-from threading import Thread, Lock
+import logging
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -46,15 +45,15 @@ class Listener():
 
 class Listeners(QWidget):
 
+    listenerScriptSignal = pyqtSignal(str, str, str, str)
+
     idListener = 0
     listListenerObject = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
                 
         self.createListenerWindow = None
 
@@ -187,6 +186,9 @@ class Listeners(QWidget):
             # add
             # if listener is not yet already on our list
             if not inStore:
+
+                self.listenerScriptSignal.emit("start", "", "", "")
+
                 if listener.type == GithubType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
                 elif listener.type == DnsType:
@@ -280,12 +282,21 @@ class CreateListner(QWidget):
 class GetListenerWorker(QObject):
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.exit = False
+
+    def __del__(self):
+        self.exit=True
 
     def run(self):
-        while self.exit==False:
-            self.checkin.emit()
-            time.sleep(1)
+        try: 
+            while self.exit==False:
+                if self.receivers(self.checkin) > 0:
+                    self.checkin.emit()
+                time.sleep(2)
+        except Exception as e:
+            pass
 
     def quit(self):
         self.exit=True

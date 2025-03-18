@@ -1,4 +1,0 @@
-*
-!.gitignore
-!logs/.gitignore
-!libGrpcMessages/build/py/.gitignore

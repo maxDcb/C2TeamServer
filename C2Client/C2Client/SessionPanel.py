@@ -1,7 +1,6 @@
-import sys
-import os
 import time
-from threading import Thread, Lock
+import logging
+
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
@@ -30,16 +29,15 @@ class Session():
 class Sessions(QWidget):
 
     interactWithSession = pyqtSignal(str, str, str, str)
+    sessionScriptSignal = pyqtSignal(str, str, str, str, str, str, str, str, str, bool)
 
     idSession = 0
     listSessionObject = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
@@ -143,6 +141,7 @@ class Sessions(QWidget):
                 #maj
                 if session.listenerHash == sessionStore.listenerHash and session.beaconHash == sessionStore.beaconHash:
                 #if session.beaconHash == sessionStore.beaconHash:
+                    self.sessionScriptSignal.emit("update", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
                     inStore=True
                     sessionStore.lastProofOfLife=session.lastProofOfLife
                     sessionStore.listenerHash=session.listenerHash
@@ -162,6 +161,8 @@ class Sessions(QWidget):
                         sessionStore.killed=session.killed
             # add
             if not inStore:
+                self.sessionScriptSignal.emit("start", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
+
                 self.listSessionObject.append(Session(self.idSession,
                 session.listenerHash, session.beaconHash, 
                 session.hostname, session.username, session.arch,
@@ -201,12 +202,21 @@ class Sessions(QWidget):
 class GetSessionsWorker(QObject):
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.exit = False
+
+    def __del__(self):
+        self.exit=True
 
     def run(self):
-        while self.exit==False:
-            self.checkin.emit()
-            time.sleep(1)
+        try: 
+            while self.exit==False:
+                if self.receivers(self.checkin) > 0:
+                    self.checkin.emit()
+                time.sleep(2)
+        except Exception as e:
+            pass
 
     def quit(self):
         self.exit=True

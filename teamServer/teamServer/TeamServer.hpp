@@ -1,3 +1,5 @@
+#include <unordered_map>
+
 #include "listener/ListenerTcp.hpp"
 #include "listener/ListenerHttp.hpp"
 #include "listener/ListenerGithub.hpp"
@@ -46,6 +48,7 @@ public:
     grpc::Status SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response);
     
 protected:
+    int handleCmdResponse();
     bool isListenerAlive(const std::string& listenerHash);
     int prepMsg(const std::string& input, C2Message& c2Message, bool isWindows=true);
 
@@ -77,4 +80,11 @@ private:
     std::unique_ptr<std::thread> m_socksThread;
     std::shared_ptr<Listener> m_socksListener;
     std::shared_ptr<Session> m_socksSession;
+
+    bool m_handleCmdResponseThreadRuning;
+    std::unique_ptr<std::thread> m_handleCmdResponseThread;
+    std::vector<teamserverapi::CommandResponse> m_cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> m_sentResponses;
+
+    std::vector<C2Message> m_sentC2Messages;
 };

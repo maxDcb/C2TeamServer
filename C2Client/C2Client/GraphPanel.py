@@ -16,11 +16,34 @@ from grpcClient import *
 BeaconNodeItemType = "Beacon"
 ListenerNodeItemType = "Listener"
 
-PrimaryListenerImage = "images/firewall.svg"
-WindowsSessionImage = "images/pc.svg"
-WindowsHighPrivSessionImage = "images/windowshighpriv.svg"
-LinuxSessionImage = "images/linux.svg"
-LinuxRootSessionImage = "images/linuxhighpriv.svg"
+try:
+    import pkg_resources
+    PrimaryListenerImage = pkg_resources.resource_filename(
+        'C2Client',  
+        'images/firewall.svg' 
+    )
+    WindowsSessionImage = pkg_resources.resource_filename(
+    'C2Client',  
+    'images/pc.svg' 
+    )
+    WindowsHighPrivSessionImage = pkg_resources.resource_filename(
+        'C2Client',  
+        'images/windowshighpriv.svg' 
+    )
+    LinuxSessionImage = pkg_resources.resource_filename(
+        'C2Client',  
+        'images/linux.svg' 
+    )
+    LinuxRootSessionImage = pkg_resources.resource_filename(
+        'C2Client',  
+        'images/linuxhighpriv.svg' 
+    )
+except ImportError:
+    PrimaryListenerImage = os.path.join(os.path.dirname(__file__), 'images/firewall.svg')
+    WindowsSessionImage = os.path.join(os.path.dirname(__file__), 'images/pc.svg')
+    WindowsHighPrivSessionImage = os.path.join(os.path.dirname(__file__), 'images/windowshighpriv.svg')
+    LinuxSessionImage = os.path.join(os.path.dirname(__file__), 'images/linux.svg')
+    LinuxRootSessionImage = os.path.join(os.path.dirname(__file__), 'images/linuxhighpriv.svg')
 
 
 #
@@ -149,15 +172,13 @@ class Graph(QWidget):
     listNodeItem = []
     listConnector = []
 
-    def __init__(self, parent, ip, port, devMode):
+    def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
         
         width = self.frameGeometry().width()
         height = self.frameGeometry().height()
 
-        self.ip = ip
-        self.port = port
-        self.grpcClient = GrpcClient(ip, port, devMode)
+        self.grpcClient = grpcClient
 
         self.scene = QGraphicsScene()
 
@@ -316,12 +337,21 @@ class Graph(QWidget):
 class GetGraphInfoWorker(QObject):
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.exit = False
+
+    def __del__(self):
+        self.exit=True
 
     def run(self):
-        while self.exit==False:
-            self.checkin.emit()
-            time.sleep(5)
+        try: 
+            while self.exit==False:
+                if self.receivers(self.checkin) > 0:
+                    self.checkin.emit()
+                time.sleep(2)
+        except Exception as e:
+            pass
 
     def quit(self):
         self.exit=True
