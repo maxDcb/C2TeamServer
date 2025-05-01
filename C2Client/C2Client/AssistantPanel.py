@@ -11,42 +11,13 @@ from PyQt5.QtCore import *
 
 from grpcClient import *
 
+import openai
+from openai import OpenAI
 
 #
-# scripts
+# Assistant tab implementation
 #
-try:
-    import pkg_resources
-    scriptsDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'Scripts' 
-    )
-
-except ImportError:
-    scriptsDir = os.path.join(os.path.dirname(__file__), 'Scripts')
-
-if not os.path.exists(scriptsDir):
-    os.makedirs(scriptsDir)
-
-
-LoadedScripts = []
-sys.path.insert(1, scriptsDir)
-for scriptName in os.listdir(scriptsDir):
-    if scriptName.endswith(".py") and scriptName != "__init__.py":
-        module_name = scriptName[:-3] 
-        try:
-            # Dynamically import the script
-            importedScript = importlib.import_module(module_name)
-            LoadedScripts.append(importedScript)
-            print(f"Successfully imported {scriptName}")
-        except ImportError as e:
-            print(f"Failed to import {scriptName}: {e}")
-
-
-#
-# Script tab implementation
-#
-class Script(QWidget):
+class Assistant(QWidget):
     tabPressed = pyqtSignal()
     logFileName=""
     sem = Semaphore()
@@ -69,10 +40,22 @@ class Script(QWidget):
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
-        output = ""
-        for script in LoadedScripts:
-            output += script.__name__ + "\n"
-        self.printInTerminal("Loaded Scripts:", output)
+        # System prompt defined once
+        system_prompt = {
+            "role": "system",
+            "content": (
+                "You are a professional cybersecurity red teamer. Your role is to examine output from security tools and command output comming from Linux or Windows systems "
+                "You detect anomalies, potential security threats, misconfigurations, unusual behavior and important information. "
+                "You guide the operator by explaining your reasoning and, if applicable, suggest further investigation steps. "
+                "Be concise, technical, and focused, you give as much as possible how an attacker could gain advantage of any vulnerability. Do not assume anything beyond the provided output."
+            )
+        }
+
+        # Initialize message history with the system prompt
+        self.messages = [system_prompt]
+
+        # Maximum number of messages to retain
+        self.MAX_MESSAGES = 10
 
 
     def nextCompletion(self):
@@ -83,80 +66,28 @@ class Script(QWidget):
             self._compl.setCurrentRow(0)
 
 
-    def sessionScriptMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
-        for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnSessionStart")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnSessionStop")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionStop", output)
-                elif action == "update":
-                    methode = getattr(script, "OnSessionUpdate")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionUpdate", output)
-            except:
-                continue
-
+    def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
+        if action == "start":
+            toto = 1
+        elif action == "stop":
+            toto = 1
+        elif action == "update":
+            toto = 1
+                    
     
-    def listenerScriptMethod(self, action, hash, str3, str4):
-        for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnListenerStart")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnListenerStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnListenerStop")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnListenerStop", output)
-            except:
-                continue
+    def listenerAssistantMethod(self, action, hash, str3, str4):
+        if action == "start":
+            toto = 1
+        elif action == "stop":
+            toto = 1
 
 
-    def consoleScriptMethod(self, action, beaconHash, listenerHash, context, cmd, result):
-        for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "receive":
-                    methode = getattr(script, "OnConsoleReceive")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnConsoleReceive", output)
-                elif action == "send":
-                    methode = getattr(script, "OnConsoleSend")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnConsoleSend", output)
-            except:
-                continue
-
-    def mainScriptMethod(self, action, str2, str3, str4):
-        for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnStart")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnStop")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnStop", output)
-            except:
-                continue
+    def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result):
+        if action == "receive":
+            print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
+            self.messages.append({"role": "user", "content": cmd + "\n" + result})
+        elif action == "send":
+            toto = 1
 
 
     def event(self, event):
@@ -189,8 +120,54 @@ class Script(QWidget):
             self.printInTerminal("", "")
 
         else:
-            toto=1
+
+            api_key = os.environ.get("OPENAI_API_KEY")
             
+            if api_key:
+                client = OpenAI(
+                    # This is the default and can be omitted
+                    api_key=api_key,
+                )
+
+                # Add user command output
+                self.messages.append({"role": "user", "content": commandLine})
+
+                # Prune messages to keep only the last 10 (including system, user, and assistant messages)
+                if len(self.messages) > self.MAX_MESSAGES * 2 + 1:  # (10 user + 10 assistant + 1 system)
+                    self.messages = self.messages[-(MAX_MESSAGES * 2 + 1):]
+
+                try:
+                    # Call OpenAI API
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=self.messages,
+                        temperature=0.3
+                    )
+
+                    assistant_reply = response.choices[0].message.content
+
+                    self.printInTerminal("Analysis:", assistant_reply)
+
+                    # Add assistant's response to conversation
+                    self.messages.append({"role": "assistant", "content": assistant_reply})
+                except openai.APIConnectionError as e:
+                    print("Server connection error: {e.__cause__}") 
+                    
+                except openai.RateLimitError as e:
+                    print(f"OpenAI RATE LIMIT error {e.status_code}: (e.response)")
+                    
+                except openai.APIStatusError as e:
+                    print(f"OpenAI STATUS error {e.status_code}: (e.response)")
+                    
+                except openai.BadRequestError as e:
+                    print(f"OpenAI BAD REQUEST error {e.status_code}: (e.response)")
+                    
+                except Exception as e:
+                    print(f"An unexpected error occurred: {e}")
+            
+            else:
+                self.printInTerminal("OPENAI_API_KEY is not set, functionality deactivated.", "")
+                
 
         self.setCursorEditorAtEnd()
 

@@ -11,6 +11,7 @@ from grpcClient import *
 
 from TerminalPanel import *
 from ScriptPanel import *
+from AssistantPanel import *
 
 sys.path.insert(1, './Credentials')
 import credentials
@@ -320,6 +321,14 @@ class ConsolesTab(QWidget):
         tab.layout.addWidget(self.script)
         tab.setLayout(tab.layout)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
+
+        tab = QWidget()
+        self.tabs.addTab(tab, "Assistant")
+        tab.layout = QVBoxLayout(self.tabs)
+        self.assistant = Assistant(self, self.grpcClient)
+        tab.layout.addWidget(self.assistant)
+        tab.setLayout(tab.layout)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
         
     @pyqtSlot()
     def on_click(self):
@@ -341,13 +350,14 @@ class ConsolesTab(QWidget):
             tab.layout = QVBoxLayout(self.tabs)
             console = Console(self, self.grpcClient, beaconHash, listenerHash, hostname, username)
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
+            console.consoleScriptSignal.connect(self.assistant.consoleAssistantMethod)
             tab.layout.addWidget(console)
             tab.setLayout(tab.layout)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
 
     def closeTab(self, currentIndex):
         currentQWidget = self.tabs.widget(currentIndex)
-        if currentIndex==0:
+        if currentIndex<3:
             return
         currentQWidget.deleteLater()
         self.tabs.removeTab(currentIndex)
@@ -355,7 +365,7 @@ class ConsolesTab(QWidget):
 
 class Console(QWidget):
 
-    consoleScriptSignal = pyqtSignal(str, str, str, str,  str)
+    consoleScriptSignal = pyqtSignal(str, str, str, str, str, str)
 
     tabPressed = pyqtSignal()
     beaconHash=""
@@ -458,7 +468,8 @@ class Console(QWidget):
                 self.printInTerminal(commandLine, "", "")
                 command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 result = self.grpcClient.sendCmdToSession(command)
-                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, commandLine, "")
+                context = "Host " + self.hostname + " - Username " + self.username
+                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "")
                 if result.message:
                     self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
 
@@ -468,7 +479,8 @@ class Console(QWidget):
         session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash)
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
-            self.consoleScriptSignal.emit("receive", "", "", response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
+            context = "Host " + self.hostname + " - Username " + self.username
+            self.consoleScriptSignal.emit("receive", "", "", context, response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:
