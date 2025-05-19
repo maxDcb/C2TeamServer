@@ -169,9 +169,11 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
                 # Add user command output
                 self.messages.append({"role": "user", "content": commandLine})
 
-                # Prune messages to keep only the last 10 (including system, user, and assistant messages)
-                if len(self.messages) > self.MAX_MESSAGES * 2 + 1:  # (10 user + 10 assistant + 1 system)
-                    self.messages = self.messages[-(self.MAX_MESSAGES * 2 + 1):]
+                if len(self.messages) > self.MAX_MESSAGES * 2 + 1:
+                    # Always keep the first message (system prompt)
+                    system_prompt = self.messages[0]
+                    recent_messages = self.messages[-(self.MAX_MESSAGES * 2):]
+                    self.messages = [system_prompt] + recent_messages
 
                 try:
                     # Call OpenAI API

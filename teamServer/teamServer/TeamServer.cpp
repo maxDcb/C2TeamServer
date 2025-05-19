@@ -976,9 +976,20 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 	m_logger->trace("GetHelp");
 
 	std::string input = command->cmd();
-
-	if (input.empty())
-		return grpc::Status::OK;
+	std::string beaconHash = command->beaconhash();
+	std::string listenerHash = command->listenerhash();
+	
+	bool isWindows=false;
+	for (int i = 0; i < m_listeners.size(); i++)
+	{
+		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
+		{
+			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
+			std::string os = session->getOs();
+			if(os == "Windows")
+				isWindows=true;
+		}
+	}
 
 	std::vector<std::string> splitedCmd;
 	std::string delimiter = " ";
@@ -991,15 +1002,39 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 	{
 		if (splitedCmd.size() < 2)
 		{
+			output += "- Beacon Commands:\n";
 			for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
-			{
+			{	
+				output += "  ";
 				output += m_commonCommands.getCommand(i);
 				output += "\n";
 			}
-			for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+
+			if(isWindows)
 			{
-				output += (*it)->getName();
-				output += "\n";
+				output += "\n- Modules Commands Windows:\n";
+				for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+				{
+					if((*it)->osCompatibility() & OS_WINDOWS)
+					{
+						output += "  ";
+						output += (*it)->getName();
+						output += "\n";
+					}
+				}
+			}
+			else
+			{
+				output += "\n- Modules Commands Linux:\n";
+				for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+				{
+					if((*it)->osCompatibility() & OS_LINUX)
+					{
+						output += "  ";
+						output += (*it)->getName();
+						output += "\n";
+					}
+				}
 			}
 		}
 		else
@@ -1734,6 +1769,13 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 	if(!isModuleFound)
 	{
 		m_logger->warn("Module {0} not found.", instruction);
+
+		std::string hint = "Module ";
+		hint+=instruction;
+		hint+=" not found.";
+		c2Message.set_returnvalue(hint);
+
+		res=-1;
 	}
 
 	m_logger->trace("prepMsg end");
