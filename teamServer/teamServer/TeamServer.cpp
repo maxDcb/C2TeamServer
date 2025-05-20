@@ -870,12 +870,12 @@ int TeamServer::handleCmdResponse()
 
 					// Get the command lign sent from the list of sent messages using the uuid to get a clean client output 
 					std::string cmd = c2Message.cmd();
-					for(int j=0; i<m_sentC2Messages.size(); j++)
+					for(int jj=0; jj<m_sentC2Messages.size(); jj++)
 					{
-						if(m_sentC2Messages[j].uuid() == c2Message.uuid())
+						if(m_sentC2Messages[jj].uuid() == c2Message.uuid())
 						{
-							cmd = m_sentC2Messages[j].cmd();
-							m_sentC2Messages.erase(m_sentC2Messages.begin() + j);
+							cmd = m_sentC2Messages[jj].cmd();
+							m_sentC2Messages.erase(m_sentC2Messages.begin() + jj);
 							break;
 						}
 					}
