@@ -71,6 +71,8 @@ WmiInstruction = "wmiExec"
 SpawnAsInstruction = "spawnAs"
 EvasionInstruction = "evasion"
 KeyLoggerInstruction = "keyLogger"
+MiniDumpInstruction = "miniDump"
+DotnetExecInstruction = "dotnetExec"
 
 StartInstruction = "start"
 StopInstruction = "stop"
@@ -193,7 +195,15 @@ completerData = [
         ('whoami.x64.o', [('go',[])]),
         ('windowlist.x64.o', [('go',[])]),
         ('wmi_query.x64.o', [('go ZZZ system namespace query',[])]),
-             ]),
+    ]),
+    (MiniDumpInstruction,  [
+        ('dump dump.xor',  []),
+        ('decrypt /tmp/dump.xor',  []),
+    ]),
+    (DotnetExecInstruction,  [
+        ('load rub Rubeus.exe',  []),
+        ('runExe rub help',  []),
+    ]),
     (UnloadModuleInstruction,[
              (AssemblyExecInstruction, []),
              (CdInstruction, []),
@@ -217,6 +227,8 @@ completerData = [
              (SpawnAsInstruction,  []),
              (WmiInstruction,  []),
              (KeyLoggerInstruction,  []),
+             (MiniDumpInstruction,  []),
+             (DotnetExecInstruction,  []),
              ]),
     (KerberosUseTicketInstruction,[]),
     (PowershellInstruction,[
@@ -257,30 +269,34 @@ completerData = [
         ('dump',  []),
     ]),
     (LoadModuleInstruction,[
-             ('AssemblyExec', []),
-             ('ChangeDirectory', []),
-             ('Coff', []),
-             ('Download', []),
-             ('Inject', []),
-             ('ListDirectory', []),
-             ('ListProcesses', []),
-             ('MakeToken', []),
-             ('PrintWorkingDirectory', []),
-             ('Rev2self', []),
-             ('Run', []),
-             ('Script', []),
-             ('StealToken', []),
-             ('Upload',  []),
-             ('Powershell',  []),
-             ('PsExec',  []),
-             ('KerberosUseTicket',  []),
-             ('Chisel',  []),
-             ('SpawnAs',  []),
-             ('Cat',  []),
-             ('Tree',  []),
-             ('Evasion',  []),
-             ('WmiExec',  []),
-             ('KeyLogger',  []),
+             ('changeDirectory', []),
+             ('listDirectory', []),
+             ('listProcesses', []),
+             ('printWorkingDirectory', []),
+             (CdInstruction, []),
+             (LsInstruction, []),
+             (PsInstruction, []),
+             (PwdInstruction, []),
+             (AssemblyExecInstruction, []),
+             (CoffLoaderInstruction, []),
+             (DownloadInstruction, []),
+             (InjectInstruction, []),
+             (MakeTokenInstruction, []),
+             (Rev2selfInstruction, []),
+             (RunInstruction, []),
+             (ScriptInstruction, []),
+             (StealTokenInstruction, []),
+             (UploadInstruction,  []),
+             (PowershellInstruction,  []),
+             (PsExecInstruction,  []),
+             (KerberosUseTicketInstruction,  []),
+             (ChiselInstruction,  []),
+             (EvasionInstruction,  []),
+             (SpawnAsInstruction,  []),
+             (WmiInstruction,  []),
+             (KeyLoggerInstruction,  []),
+             (MiniDumpInstruction,  []),
+             (DotnetExecInstruction,  []),
              ]),
 ]
 

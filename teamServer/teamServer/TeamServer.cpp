@@ -1683,6 +1683,16 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 }
 
 
+
+std::string toLower(const std::string& str) 
+{
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
+
+
 int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows)
 {
 	m_logger->trace("prepMsg");
@@ -1728,7 +1738,7 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 									moduleName = moduleName.substr(3); 							// remove lib
 									moduleName = moduleName.substr(0, moduleName.length() - 3);	// remove .so
 
-									if(param == moduleName)
+									if (toLower(param) == toLower(moduleName)) 
 									{
 										if(isWindows)
 										{
@@ -1759,8 +1769,9 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 
 	for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
 	{
-		if (instruction == (*it)->getName())
+		if (toLower(instruction) == toLower((*it)->getName())) 
 		{
+			splitedCmd[0] = (*it)->getName();
 			res = (*it)->init(splitedCmd, c2Message);
 			isModuleFound=true;
 		}
