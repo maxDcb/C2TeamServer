@@ -459,7 +459,7 @@ class Console(QWidget):
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
             if instructions[0]==HelpInstruction:
-                command = TeamServerApi_pb2.Command(cmd=commandLine)
+                command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 response = self.grpcClient.getHelp(command)
                 self.printInTerminal(response.cmd, "", "")
                 self.printInTerminal("", response.cmd, response.response.decode(encoding="latin1", errors="ignore"))

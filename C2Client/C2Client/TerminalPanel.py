@@ -114,7 +114,7 @@ BeaconFileLinux = "Beacon"
 
 ErrorInstruction = "Error"
 
-HelpInstruction = "help"
+HelpInstruction = "Help"
 
 SocksInstruction = "Socks"
 SocksHelp = """Socks:
@@ -156,8 +156,7 @@ SearchSubInstruction = "search"
 
 
 def getHelpMsg():
-    helpText  = HelpInstruction+"\n"
-    helpText += HostInstruction+"\n"
+    helpText  = HostInstruction+"\n"
     helpText += DropperInstruction+"\n"
     helpText += BatcaveInstruction+"\n"
     helpText += CredentialStoreInstruction+"\n"
@@ -267,7 +266,25 @@ class Terminal(QWidget):
                 return;
 
             if instructions[0].lower()==HelpInstruction.lower():
-                self.runHelp()
+                if len(instructions) == 1:
+                    self.runHelp()
+                elif len(instructions) >=2:
+                    if instructions[1].lower() == BatcaveInstruction.lower():
+                        self.printInTerminal(commandLine, BatcaveHelp)
+                    elif instructions[1].lower() == HostInstruction.lower():
+                        self.printInTerminal(commandLine, HostHelp)
+                    elif instructions[1].lower() == CredentialStoreInstruction.lower():
+                        self.printInTerminal(commandLine, CredentialStoreHelp)
+                    elif instructions[1].lower() == DropperInstruction.lower():
+                        availableModules = "- Available dropper:\n"
+                        for module in DropperModules:
+                            availableModules += "  " + module.__name__ + "\n"
+                        self.printInTerminal(commandLine, availableModules)
+                        return
+                    elif instructions[1].lower() ==  SocksInstruction.lower():
+                        self.printInTerminal(commandLine, SocksHelp)
+                    else:
+                        self.runHelp()
             elif instructions[0].lower()==BatcaveInstruction.lower():
                 self.runBatcave(commandLine, instructions)
             elif instructions[0].lower()==HostInstruction.lower():
@@ -515,11 +532,11 @@ class Terminal(QWidget):
     #
     def runDropper(self, commandLine, instructions):
         if len(instructions) < 2:
-            availableModules = "Available dropper:\n"
+            availableModules = "- Available dropper:\n"
             for module in DropperModules:
-                availableModules += module.__name__ + "\n"
+                availableModules += "  " + module.__name__ + "\n"
             self.printInTerminal(commandLine, availableModules)
-            return;
+            return
 
         moduleName = instructions[1].lower()
 
