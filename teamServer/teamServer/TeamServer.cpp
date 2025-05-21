@@ -870,12 +870,12 @@ int TeamServer::handleCmdResponse()
 
 					// Get the command lign sent from the list of sent messages using the uuid to get a clean client output 
 					std::string cmd = c2Message.cmd();
-					for(int j=0; i<m_sentC2Messages.size(); j++)
+					for(int jj=0; jj<m_sentC2Messages.size(); jj++)
 					{
-						if(m_sentC2Messages[j].uuid() == c2Message.uuid())
+						if(m_sentC2Messages[jj].uuid() == c2Message.uuid())
 						{
-							cmd = m_sentC2Messages[j].cmd();
-							m_sentC2Messages.erase(m_sentC2Messages.begin() + j);
+							cmd = m_sentC2Messages[jj].cmd();
+							m_sentC2Messages.erase(m_sentC2Messages.begin() + jj);
 							break;
 						}
 					}
@@ -976,9 +976,20 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 	m_logger->trace("GetHelp");
 
 	std::string input = command->cmd();
-
-	if (input.empty())
-		return grpc::Status::OK;
+	std::string beaconHash = command->beaconhash();
+	std::string listenerHash = command->listenerhash();
+	
+	bool isWindows=false;
+	for (int i = 0; i < m_listeners.size(); i++)
+	{
+		if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
+		{
+			std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
+			std::string os = session->getOs();
+			if(os == "Windows")
+				isWindows=true;
+		}
+	}
 
 	std::vector<std::string> splitedCmd;
 	std::string delimiter = " ";
@@ -991,15 +1002,39 @@ grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamservera
 	{
 		if (splitedCmd.size() < 2)
 		{
+			output += "- Beacon Commands:\n";
 			for(int i=0; i<m_commonCommands.getNumberOfCommand(); i++)
-			{
+			{	
+				output += "  ";
 				output += m_commonCommands.getCommand(i);
 				output += "\n";
 			}
-			for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+
+			if(isWindows)
 			{
-				output += (*it)->getName();
-				output += "\n";
+				output += "\n- Modules Commands Windows:\n";
+				for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+				{
+					if((*it)->osCompatibility() & OS_WINDOWS)
+					{
+						output += "  ";
+						output += (*it)->getName();
+						output += "\n";
+					}
+				}
+			}
+			else
+			{
+				output += "\n- Modules Commands Linux:\n";
+				for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
+				{
+					if((*it)->osCompatibility() & OS_LINUX)
+					{
+						output += "  ";
+						output += (*it)->getName();
+						output += "\n";
+					}
+				}
 			}
 		}
 		else
@@ -1648,6 +1683,16 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 }
 
 
+
+std::string toLower(const std::string& str) 
+{
+    std::string result = str;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return result;
+}
+
+
 int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows)
 {
 	m_logger->trace("prepMsg");
@@ -1693,7 +1738,7 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 									moduleName = moduleName.substr(3); 							// remove lib
 									moduleName = moduleName.substr(0, moduleName.length() - 3);	// remove .so
 
-									if(param == moduleName)
+									if (toLower(param) == toLower(moduleName)) 
 									{
 										if(isWindows)
 										{
@@ -1724,8 +1769,9 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 
 	for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
 	{
-		if (instruction == (*it)->getName())
+		if (toLower(instruction) == toLower((*it)->getName())) 
 		{
+			splitedCmd[0] = (*it)->getName();
 			res = (*it)->init(splitedCmd, c2Message);
 			isModuleFound=true;
 		}
@@ -1734,6 +1780,13 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 	if(!isModuleFound)
 	{
 		m_logger->warn("Module {0} not found.", instruction);
+
+		std::string hint = "Module ";
+		hint+=instruction;
+		hint+=" not found.";
+		c2Message.set_returnvalue(hint);
+
+		res=-1;
 	}
 
 	m_logger->trace("prepMsg end");

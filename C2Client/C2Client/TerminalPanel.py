@@ -3,7 +3,6 @@ import os
 import json
 import logging
 from datetime import datetime
-from threading import Thread, Lock, Semaphore
 
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
@@ -115,7 +114,7 @@ BeaconFileLinux = "Beacon"
 
 ErrorInstruction = "Error"
 
-HelpInstruction = "help"
+HelpInstruction = "Help"
 
 SocksInstruction = "Socks"
 SocksHelp = """Socks:
@@ -157,8 +156,7 @@ SearchSubInstruction = "search"
 
 
 def getHelpMsg():
-    helpText  = HelpInstruction+"\n"
-    helpText += HostInstruction+"\n"
+    helpText  = HostInstruction+"\n"
     helpText += DropperInstruction+"\n"
     helpText += BatcaveInstruction+"\n"
     helpText += CredentialStoreInstruction+"\n"
@@ -193,7 +191,7 @@ ErrorListener = "Error: Download listener must be of type http or https."
 class Terminal(QWidget):
     tabPressed = pyqtSignal()
     logFileName=""
-    sem = Semaphore()
+    dropperWorker=None
 
     def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
@@ -233,15 +231,15 @@ class Terminal(QWidget):
         now = datetime.now()
         formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
 
-        self.sem.acquire()
         if cmd:
             self.editorOutput.appendHtml(formater.format(cmd))
             self.editorOutput.insertPlainText("\n")
         if result:
             self.editorOutput.insertPlainText(result)
             self.editorOutput.insertPlainText("\n")
-        self.sem.release()
 
+        self.setCursorEditorAtEnd()
+        
 
     def runCommand(self):
         commandLine = self.commandEditor.displayText()
@@ -268,7 +266,25 @@ class Terminal(QWidget):
                 return;
 
             if instructions[0].lower()==HelpInstruction.lower():
-                self.runHelp()
+                if len(instructions) == 1:
+                    self.runHelp()
+                elif len(instructions) >=2:
+                    if instructions[1].lower() == BatcaveInstruction.lower():
+                        self.printInTerminal(commandLine, BatcaveHelp)
+                    elif instructions[1].lower() == HostInstruction.lower():
+                        self.printInTerminal(commandLine, HostHelp)
+                    elif instructions[1].lower() == CredentialStoreInstruction.lower():
+                        self.printInTerminal(commandLine, CredentialStoreHelp)
+                    elif instructions[1].lower() == DropperInstruction.lower():
+                        availableModules = "- Available dropper:\n"
+                        for module in DropperModules:
+                            availableModules += "  " + module.__name__ + "\n"
+                        self.printInTerminal(commandLine, availableModules)
+                        return
+                    elif instructions[1].lower() ==  SocksInstruction.lower():
+                        self.printInTerminal(commandLine, SocksHelp)
+                    else:
+                        self.runHelp()
             elif instructions[0].lower()==BatcaveInstruction.lower():
                 self.runBatcave(commandLine, instructions)
             elif instructions[0].lower()==HostInstruction.lower():
@@ -279,8 +295,6 @@ class Terminal(QWidget):
                 self.runDropper(commandLine, instructions)
             elif instructions[0].lower()==SocksInstruction.lower():
                 self.runSocks(commandLine, instructions)
-            
-            
             else:
                 self.printInTerminal(commandLine, ErrorCmdUnknow)
 
@@ -518,11 +532,11 @@ class Terminal(QWidget):
     #
     def runDropper(self, commandLine, instructions):
         if len(instructions) < 2:
-            availableModules = "Available dropper:\n"
+            availableModules = "- Available dropper:\n"
             for module in DropperModules:
-                availableModules += module.__name__ + "\n"
+                availableModules += "  " + module.__name__ + "\n"
             self.printInTerminal(commandLine, availableModules)
-            return;
+            return
 
         moduleName = instructions[1].lower()
 
@@ -543,28 +557,59 @@ class Terminal(QWidget):
                 listenerBeacon = instructions[3]
                 additionalArgss = " ".join(instructions[4:])
 
-                self.printInTerminal(commandLine, InfoProcessing)
-                thread = Thread(target = self.GenerateAndHostGeneric, args = (commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgss))
-                thread.start()
+                if self.dropperWorker:
+                    self.printInTerminal(commandLine, 'Dropper thread already running')
+                else:
+                    self.thread = QThread()
+                    self.dropperWorker = DropperWorker(self.grpcClient, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgss)
+                    self.dropperWorker.moveToThread(self.thread)
+                    self.thread.started.connect(self.dropperWorker.run)
+                    self.dropperWorker.finished.connect(self.printDropperResult)
+                    self.thread.start()
+
+                    self.printInTerminal(commandLine, InfoProcessing)
     
         if moduleFound == False:
             self.printInTerminal(commandLine, ErrorCmdUnknow)
             return;
 
+    def printDropperResult(self, cmd, result):
+        self.printInTerminal(cmd, result)
+        self.dropperWorker = None
+        self.thread.quit()
+        self.thread.wait()
 
-    #
-    # Generic dropper module
-    #
-    def GenerateAndHostGeneric(self, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgs):
-        commandTeamServer = GrpcInfoListenerInstruction+" "+listenerDownload
+
+    # setCursorEditorAtEnd
+    def setCursorEditorAtEnd(self):
+        cursor = self.editorOutput.textCursor()
+        cursor.movePosition(QTextCursor.End,)
+        self.editorOutput.setTextCursor(cursor)
+
+
+class DropperWorker(QObject):
+    finished = pyqtSignal(str, str)
+
+    def __init__(self, grpcClient, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgs):
+        super().__init__()
+        self.grpcClient = grpcClient
+        self.commandLine = commandLine
+        self.moduleName = moduleName
+        self.listenerDownload = listenerDownload
+        self.listenerBeacon = listenerBeacon
+        self.additionalArgs = additionalArgs
+
+    def run(self):
+
+        commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerDownload
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
-        logging.debug("GenerateAndHostGeneric start")
+        logging.debug("DropperWorker GenerateAndHostGeneric start")
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
+            self.finished.emit(self.commandLine, result)
             return        
 
         results = result.split("\n")
@@ -576,22 +621,20 @@ class Terminal(QWidget):
         portDownload = results[2]
         downloadPath = results[3]
         if not downloadPath:
-            self.printInTerminal(commandLine, ErrorListener)
+            self.printInTerminal(self.commandLine, ErrorListener)
             return
 
         if downloadPath[0]=="/":
             downloadPath = downloadPath[1:]
 
-        if  listenerBeacon != listenerDownload:
-            commandTeamServer = GrpcInfoListenerInstruction+" "+listenerBeacon
+        if  self.listenerBeacon != self.listenerDownload:
+            commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerBeacon
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
-            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.printInTerminal(commandLine, result)
+                self.finished.emit(self.commandLine, result)
                 return   
 
             results = result.split("\n")
@@ -608,8 +651,8 @@ class Terminal(QWidget):
 
         targetOs = "windows"
         for module in DropperModules:
-            if moduleName == module.__name__.lower():
-                logging.debug("GenerateAndHostGeneric check OS for module: %s", moduleName)
+            if self.moduleName == module.__name__.lower():
+                logging.debug("DropperWorker GenerateAndHostGeneric check OS for module: %s", self.moduleName)
                 try:
                     getTargetOs = getattr(module, "getTargetOsExploration")
                     print(getTargetOs)
@@ -618,11 +661,9 @@ class Terminal(QWidget):
                 except AttributeError:
                     targetOs = "windows"
 
-        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+listenerBeacon+" "+targetOs
+        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+self.listenerBeacon+" "+targetOs
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        self.sem.acquire()
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-        self.sem.release()
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
@@ -642,17 +683,17 @@ class Terminal(QWidget):
 
         urlDownload =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath
 
-        logging.debug("GenerateAndHostGeneric urlDownload: %s", urlDownload)
+        logging.debug("DropperWorker GenerateAndHostGeneric urlDownload: %s", urlDownload)
 
         # Generate the payload
         droppersPath = []
         shellcodesPath = []
-        cmdToRUn = ""
+        cmdToRun = ""
         for module in DropperModules:
-            if moduleName == module.__name__.lower():
-                logging.debug("GenerateAndHostGeneric Generate for module: %s", moduleName)
+            if self.moduleName == module.__name__.lower():
+                logging.debug("GenerateAndHostGeneric Generate for module: %s", self.moduleName)
                 genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
-                droppersPath, shellcodesPath, cmdToRUn = genPayload(beaconFilePath, beaconArg, "", urlDownload, additionalArgs.split(" "))
+                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, "", urlDownload, self.additionalArgs.split(" "))
 
         # Upload the file and get the path
         for dropperPath in droppersPath:
@@ -660,19 +701,17 @@ class Terminal(QWidget):
                 with open(dropperPath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self.printInTerminal(commandLine, ErrorFileNotFound)
+                self.printInTerminal(self.commandLine, ErrorFileNotFound)
                 return  
 
             filename = os.path.basename(dropperPath)
-            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
+            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.printInTerminal(commandLine, result)
+                self.finished.emit(self.commandLine, result)
                 return  
             
         for shellcodePath in shellcodesPath:
@@ -680,30 +719,22 @@ class Terminal(QWidget):
                 with open(shellcodePath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self.printInTerminal(commandLine, ErrorFileNotFound)
+                self.printInTerminal(self.commandLine, ErrorFileNotFound)
                 return  
 
             filename = os.path.basename(shellcodePath)
-            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+listenerDownload+" "+filename
+            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
             termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            self.sem.acquire()
             resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
-            self.sem.release()
 
             result = resultTermCommand.result
             if ErrorInstruction in result:
-                self.printInTerminal(commandLine, result)
+                self.finished.emit(self.commandLine, result)
                 return  
                 
-        result = cmdToRUn 
-        self.printInTerminal(commandLine, result)
-
-
-    # setCursorEditorAtEnd
-    def setCursorEditorAtEnd(self):
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
-        self.editorOutput.setTextCursor(cursor)
+        result = cmdToRun 
+        self.finished.emit(self.commandLine, result)
+        return
 
 
 class CommandEditor(QLineEdit):
