@@ -42,7 +42,7 @@ bool Server::receiveData(std::string& data)
 
 
 // https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-client
-Client::Client(const std::string& pipeName)
+Client::Client(const std::string& ip, const std::string& pipeName)
 {
 
 }

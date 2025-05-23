@@ -187,7 +187,8 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 		}
 		else if(type == ListenerSmbType )
 		{
-			listener.set_domain(m_listeners[i]->getParam1());
+			listener.set_ip(m_listeners[i]->getParam1());
+			listener.set_domain(m_listeners[i]->getParam2());
 		}
 		else if(type == ListenerGithubType )
 		{
@@ -227,7 +228,8 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 					}
 					else if(type == ListenerSmbType )
 					{
-						listener.set_domain(it->getParam1());
+						listener.set_ip(it->getParam1());
+						listener.set_domain(it->getParam2());
 					}
 
 					writer->Write(listener);
@@ -522,6 +524,9 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
 			sessionTmp.set_os(session->getOs());
 			sessionTmp.set_lastproofoflife(session->getLastProofOfLife());
 			sessionTmp.set_killed(session->isSessionKilled());
+			sessionTmp.set_internalips(session->getInternalIps());
+			sessionTmp.set_processid(session->getProcessId());
+			sessionTmp.set_additionalinformation(session->getAdditionalInformation());
 
 			bool result = isListenerAlive(session->getListenerHash());
 
@@ -1180,8 +1185,10 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 
 			for (int i = 0; i < m_listeners.size(); i++)
 			{
-				std::string hash = m_listeners[i]->getListenerHash();
-				if (hash.find(listenerHash) != std::string::npos) 
+				const std::string& hash = m_listeners[i]->getListenerHash();
+
+				// Check if the hash of the primary listener start with the given hash:
+    			if (hash.rfind(listenerHash, 0) == 0) 
 				{
 					std::string type = m_listeners[i]->getType();
 
@@ -1232,14 +1239,19 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 							uriFileDownload = configHttps["uriFileDownload"].get<std::string>();;
 					}
 
+					std::string finalDomain;
+					if(!domainName.empty())
+						finalDomain=domainName;
+					else if(!exposedIp.empty())
+						finalDomain=exposedIp;
+					else if(!ip.empty())
+						finalDomain=ip;
+
+					m_logger->info("infoListener found in primary listeners {0} {1} {2}", type, finalDomain, port);
+
 					std::string result=type;
 					result+="\n";
-					if(!domainName.empty())
-						result+=domainName;
-					else if(!exposedIp.empty())
-						result+=exposedIp;
-					else if(!ip.empty())
-						result+=ip;
+					result+=finalDomain;
 					result+="\n";
 					result+=port;
 					result+="\n";
@@ -1247,10 +1259,52 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 
 					responseTmp.set_result(result);
 				}
+				// Check secondary listeners - smb / tcp:
+				else
+				{
+					// check for each sessions alive from this listener check if their is listeners
+					int nbSession = m_listeners[i]->getNumberOfSession();
+					for(int kk=0; kk<nbSession; kk++)
+					{
+						std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+
+						if(!session->isSessionKilled())
+						{
+							for(auto it = session->getListener().begin() ; it != session->getListener().end(); ++it )
+							{
+
+								const std::string& hash = it->getListenerHash();
+
+								// Check if the hash of the primary listener start with the given hash:
+								if (hash.rfind(listenerHash, 0) == 0) 
+								{
+									// TODO we got an issue here to get the ip where the the listener can be contacted ? especialy for smb ?
+									std::string type = it->getType();
+									std::string param1 = it->getParam1();
+									std::string param2 = it->getParam2();
+
+									m_logger->info("infoListener found in beacon listener {0} {1} {2}", type, param1, param2);
+									
+									std::string result=type;
+									result+="\n";
+									result+=param1;
+									result+="\n";
+									result+=param2;
+									result+="\n";
+									result+="none";
+
+									responseTmp.set_result(result);
+								}
+							}
+						}
+					}
+				}
 			}
 
 			if(responseTmp.result().empty())
 			{
+				m_logger->error("Error: Listener {} not found.", listenerHash);
+
 				responseTmp.set_result("Error: Listener not found.");
 				*response = responseTmp;
 				return grpc::Status::OK;
@@ -1277,8 +1331,10 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 
 			for (int i = 0; i < m_listeners.size(); i++)
 			{
-				std::string hash = m_listeners[i]->getListenerHash();
-				if (hash.find(listenerHash) != std::string::npos) 
+				const std::string& hash = m_listeners[i]->getListenerHash();
+
+				// Check if the hash of the primary listener start with the given hash:
+    			if (hash.rfind(listenerHash, 0) == 0) 
 				{
 					std::string type = m_listeners[i]->getType();
 					std::string beaconFilePath = "";
@@ -1306,19 +1362,6 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 						{
 							beaconFilePath  = m_windowsBeaconsDirectoryPath;
 							beaconFilePath += "BeaconTcp.exe";
-						}
-					}
-					else if(type == ListenerSmbType )
-					{
-						if (targetOs == "Linux")
-						{
-							beaconFilePath  = m_linuxBeaconsDirectoryPath;
-							beaconFilePath += "BeaconSmb";
-						}
-						else
-						{
-							beaconFilePath  = m_windowsBeaconsDirectoryPath;
-							beaconFilePath += "BeaconSmb.exe";
 						}
 					}
 					else if(type == ListenerGithubType )
@@ -1351,15 +1394,91 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					std::ifstream beaconFile(beaconFilePath, std::ios::binary );
 					if (beaconFile.good()) 
 					{
+						m_logger->info("getBeaconBinary found in primary listeners {0} {1}", type, targetOs);
+
 						std::string binaryData((std::istreambuf_iterator<char>(beaconFile)), std::istreambuf_iterator<char>());
 						responseTmp.set_data(binaryData);
 						responseTmp.set_result("ok");
 					}
 					else
 					{
+						m_logger->error("Error: Beacons {0} {1} not found.", type, targetOs);
+
 						responseTmp.set_result("Error: Beacons not found.");
 						*response = responseTmp;
 						return grpc::Status::OK;
+					}
+				}
+				// Check secondary listeners - smb / tcp:
+				else
+				{
+					// check for each sessions alive from this listener check if their is listeners
+					int nbSession = m_listeners[i]->getNumberOfSession();
+					for(int kk=0; kk<nbSession; kk++)
+					{
+						std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+
+						if(!session->isSessionKilled())
+						{
+							for(auto it = session->getListener().begin() ; it != session->getListener().end(); ++it )
+							{
+								const std::string& hash = it->getListenerHash();
+
+								// Check if the hash of the primary listener start with the given hash:
+								if (hash.rfind(listenerHash, 0) == 0) 
+								{
+									std::string type = it->getType();
+									std::string param1 = it->getParam1();
+									std::string param2 = it->getParam2();
+	
+									std::string beaconFilePath = "";
+									if(type == ListenerTcpType )
+									{
+										if (targetOs == "Linux")
+										{
+											beaconFilePath  = m_linuxBeaconsDirectoryPath;
+											beaconFilePath += "BeaconTcp";
+										}
+										else
+										{
+											beaconFilePath  = m_windowsBeaconsDirectoryPath;
+											beaconFilePath += "BeaconTcp.exe";
+										}
+									}
+									else if(type == ListenerSmbType )
+									{
+										if (targetOs == "Linux")
+										{
+											beaconFilePath  = m_linuxBeaconsDirectoryPath;
+											beaconFilePath += "BeaconSmb";
+										}
+										else
+										{
+											beaconFilePath  = m_windowsBeaconsDirectoryPath;
+											beaconFilePath += "BeaconSmb.exe";
+										}
+									}
+
+									std::ifstream beaconFile(beaconFilePath, std::ios::binary );
+									if (beaconFile.good()) 
+									{
+										m_logger->info("getBeaconBinary found in beacon listeners {0} {1}", type, targetOs);
+
+										std::string binaryData((std::istreambuf_iterator<char>(beaconFile)), std::istreambuf_iterator<char>());
+										responseTmp.set_data(binaryData);
+										responseTmp.set_result("ok");
+									}
+									else
+									{
+										m_logger->error("Error: Beacons {0} {1} not found.", type, targetOs);
+
+										responseTmp.set_result("Error: Beacons not found.");
+										*response = responseTmp;
+										return grpc::Status::OK;
+									}
+								}
+							}
+						}
 					}
 				}
 			}
