@@ -32,7 +32,7 @@ private:
 class Client
 {
 public:
-	Client(const std::string& pipeName);
+	Client(const std::string& ip, const std::string& pipeName);
 	~Client();
 
 	bool initConnection();

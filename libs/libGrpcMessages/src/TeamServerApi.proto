@@ -65,6 +65,9 @@ message Session
   string os = 7;
   string lastProofOfLife = 8;
   bool killed = 9;
+  string internalIps = 10;
+  string processId = 11;
+  string additionalInformation = 12;
 }
 
 

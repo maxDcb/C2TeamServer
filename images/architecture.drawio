@@ -1,0 +1,64 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36" version="27.0.8">
+  <diagram name="Page-1" id="rQLoCM4R8MBqAp2qKn0C">
+    <mxGraphModel dx="2066" dy="1157" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0" adaptiveColors="none">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="covrJtXaJXK44tsi0ukf-3" value="C2Client (python)" style="rounded=0;whiteSpace=wrap;html=1;fontSize=18;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="310" y="740" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-4" value="TeamServer (c++)" style="rounded=0;whiteSpace=wrap;html=1;fontSize=18;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="295" y="510" width="260" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-16" value="HTTP / HTTPS / TCP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=15;labelBackgroundColor=none;strokeColor=#23445D;fontColor=#23445D;strokeWidth=3;curved=0;" parent="1" source="covrJtXaJXK44tsi0ukf-8" target="covrJtXaJXK44tsi0ukf-4" edge="1">
+          <mxGeometry x="0.4727" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-8" value="Beacon (c++)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="95" y="350" width="130" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-11" value="TCP / SMB" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=15;labelBackgroundColor=none;strokeColor=#23445D;fontColor=#23445D;strokeWidth=3;curved=0;" parent="1" source="covrJtXaJXK44tsi0ukf-10" target="covrJtXaJXK44tsi0ukf-8" edge="1">
+          <mxGeometry x="-0.4894" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="375" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-10" value="Beacon (c++)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="240" y="160" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-12" value="" style="image;sketch=0;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/mscae/VM_Linux.svg;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="550" y="70" width="108.7" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;labelBackgroundColor=none;fontColor=default;curved=0;endSize=8;startSize=8;jumpSize=8;strokeWidth=3;strokeColor=#23445D;" parent="1" source="covrJtXaJXK44tsi0ukf-13" target="covrJtXaJXK44tsi0ukf-4" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="604" y="380" />
+              <mxPoint x="425" y="380" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-13" value="Beacon (c++)" style="rounded=1;whiteSpace=wrap;html=1;fontSize=16;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="544.35" y="180" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-14" value="GRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.477;entryY=0.967;entryDx=0;entryDy=0;entryPerimeter=0;fontSize=15;labelBackgroundColor=none;strokeColor=#23445D;fontColor=#23445D;strokeWidth=3;" parent="1" source="covrJtXaJXK44tsi0ukf-3" target="covrJtXaJXK44tsi0ukf-4" edge="1">
+          <mxGeometry x="0.0612" y="-1" relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="685" />
+              <mxPoint x="419" y="685" />
+            </Array>
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-18" value="" style="image;sketch=0;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/mscae/VM_Windows_Non_Azure.svg;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="245.65" y="50" width="108.7" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="covrJtXaJXK44tsi0ukf-19" value="" style="image;sketch=0;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/mscae/VM_Windows_Non_Azure.svg;labelBackgroundColor=none;fillColor=#182E3E;strokeColor=#FFFFFF;fontColor=#FFFFFF;" parent="1" vertex="1">
+          <mxGeometry x="105.65" y="240" width="108.7" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

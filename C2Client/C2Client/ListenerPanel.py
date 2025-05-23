@@ -50,6 +50,7 @@ class Listeners(QWidget):
     idListener = 0
     listListenerObject = []
 
+
     def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
@@ -65,19 +66,21 @@ class Listeners(QWidget):
 
         # List of sessions
         self.listListener = QTableWidget()
-        self.listListener.installEventFilter(self)
         self.listListener.setShowGrid(False)
         self.listListener.setSelectionBehavior(QTableView.SelectRows)
+
         self.listListener.setRowCount(0)
-        self.listListener.setColumnCount(5)
-        self.listListener.cellPressed.connect(self.listListenerClicked)
+        self.listListener.setColumnCount(4)
+
+        # self.listListener.cellPressed.connect(self.listListenerClicked)
+        self.listListener.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listListener.customContextMenuRequested.connect(self.showContextMenu)
+
         self.listListener.verticalHeader().setVisible(False)
         header = self.listListener.horizontalHeader()      
-        for i in range(5): 
+        for i in range(header.count()):
             header.setSectionResizeMode(i, QHeaderView.Stretch)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.layout.addWidget(self.listListener)
-
 
         # Thread to get listeners every second
         # https://realpython.com/python-pyqt-qthread/
@@ -90,40 +93,40 @@ class Listeners(QWidget):
 
         self.setLayout(self.layout)
 
+
     def __del__(self):
         self.getListenerWorker.quit()
         self.thread.quit()
         self.thread.wait()
 
-    # interact with listener list
-    def listListenerClicked(self, row, column):
-        self.item = str(self.listListener.item(row, 0).data(0))
-        menu = QMenu()
-        menu.addAction('Stop')
-        menu.triggered.connect(self.actionClicked)
-        menu.exec_(QCursor.pos())
 
-    # catch right click on Listener panel
-    def eventFilter(self, source, event):
-        if (event.type() == QEvent.ContextMenu and source is self.listListener):
-            self.item = source.itemAt(event.pos())
-            if self.item==None:
-                menu = QMenu()
-                menu.addAction('Add')
-                menu.triggered.connect(self.actionClicked)
-                menu.exec_(event.globalPos())
+    def showContextMenu(self, position):
+        index = self.listListener.indexAt(position)
+        if not index.isValid():
+            menu = QMenu()
+            menu.addAction('Add')
+            menu.triggered.connect(self.actionClicked)
+            menu.exec_(self.listListener.viewport().mapToGlobal(position))
+        else:
+            row = index.row()
+            self.item = str(self.listListener.item(row, 0).data(0))
 
-        return super(Listeners, self).eventFilter(source, event)
+            menu = QMenu()
+            menu.addAction('Stop')
+            menu.triggered.connect(self.actionClicked)
+            menu.exec_(self.listListener.viewport().mapToGlobal(position))
+
 
     # catch stopListener menu click
     def actionClicked(self, action):
         if action.text() == "Add":
             self.listenerForm()
         elif action.text() == "Stop":         
-            id = self.item
+            hash = self.item
             for listenerStore in self.listListenerObject:
-                if listenerStore.id == int(id):
+                if listenerStore.listenerHash[0:8] == hash:
                     self.stopListener(listenerStore.listenerHash)
+
 
     # form for adding a listener
     def listenerForm(self):
@@ -131,6 +134,7 @@ class Listeners(QWidget):
             self.createListenerWindow = CreateListner()
             self.createListenerWindow.procDone.connect(self.addListener)
         self.createListenerWindow.show()
+
 
     # send message for adding a listener
     def addListener(self, message):
@@ -151,11 +155,13 @@ class Listeners(QWidget):
             port=int(message[2]))
         self.grpcClient.addListener(listener)
 
+
     # send message for stoping a listener
     def stopListener(self, listenerHash):
         listener = TeamServerApi_pb2.Listener(
         listenerHash=listenerHash)
         self.grpcClient.stopListener(listener)
+
 
     # query the server to get the list of listeners
     def getListeners(self):
@@ -194,27 +200,30 @@ class Listeners(QWidget):
                 elif listener.type == DnsType:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
                 elif listener.type == SmbType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, "", listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.domain, listener.numberOfSession))
                 else:
                     self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
                 self.idListener = self.idListener+1
 
         self.printListeners()
 
+
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["ID", "Listener ID", "Type", "Host", "Port"])
+        self.listListener.setHorizontalHeaderLabels(["Listener ID", "Type", "Host", "Port"])
         for ix, listenerStore in enumerate(self.listListenerObject):
-            id = QTableWidgetItem(str(listenerStore.id))
-            self.listListener.setItem(ix, 0, id)
+
             listenerHash = QTableWidgetItem(listenerStore.listenerHash[0:8])
-            self.listListener.setItem(ix, 1, listenerHash)
+            self.listListener.setItem(ix, 0, listenerHash)
+
             type = QTableWidgetItem(listenerStore.type)
-            self.listListener.setItem(ix, 2, type)
+            self.listListener.setItem(ix, 1, type)
+
             host = QTableWidgetItem(listenerStore.host)
-            self.listListener.setItem(ix, 3, host)
+            self.listListener.setItem(ix, 2, host)
+
             port = QTableWidgetItem(str(listenerStore.port))
-            self.listListener.setItem(ix, 4, port)
+            self.listListener.setItem(ix, 3, port)
 
 
 class CreateListner(QWidget):

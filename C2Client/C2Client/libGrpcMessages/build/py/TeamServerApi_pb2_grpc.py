@@ -19,47 +19,47 @@ class TeamServerApiStub(object):
                 '/teamserverapi.TeamServerApi/GetListeners',
                 request_serializer=TeamServerApi__pb2.Empty.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Listener.FromString,
-                )
+                _registered_method=True)
         self.AddListener = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/AddListener',
                 request_serializer=TeamServerApi__pb2.Listener.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Response.FromString,
-                )
+                _registered_method=True)
         self.StopListener = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/StopListener',
                 request_serializer=TeamServerApi__pb2.Listener.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Response.FromString,
-                )
+                _registered_method=True)
         self.GetSessions = channel.unary_stream(
                 '/teamserverapi.TeamServerApi/GetSessions',
                 request_serializer=TeamServerApi__pb2.Empty.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Session.FromString,
-                )
+                _registered_method=True)
         self.StopSession = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/StopSession',
                 request_serializer=TeamServerApi__pb2.Session.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Response.FromString,
-                )
+                _registered_method=True)
         self.GetHelp = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/GetHelp',
                 request_serializer=TeamServerApi__pb2.Command.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.CommandResponse.FromString,
-                )
+                _registered_method=True)
         self.SendCmdToSession = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/SendCmdToSession',
                 request_serializer=TeamServerApi__pb2.Command.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.Response.FromString,
-                )
+                _registered_method=True)
         self.GetResponseFromSession = channel.unary_stream(
                 '/teamserverapi.TeamServerApi/GetResponseFromSession',
                 request_serializer=TeamServerApi__pb2.Session.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.CommandResponse.FromString,
-                )
+                _registered_method=True)
         self.SendTermCmd = channel.unary_unary(
                 '/teamserverapi.TeamServerApi/SendTermCmd',
                 request_serializer=TeamServerApi__pb2.TermCommand.SerializeToString,
                 response_deserializer=TeamServerApi__pb2.TermCommand.FromString,
-                )
+                _registered_method=True)
 
 
 class TeamServerApiServicer(object):
@@ -172,6 +172,7 @@ def add_TeamServerApiServicer_to_server(servicer, server):
     generic_handler = grpc.method_handlers_generic_handler(
             'teamserverapi.TeamServerApi', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('teamserverapi.TeamServerApi', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -190,11 +191,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/teamserverapi.TeamServerApi/GetListeners',
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/GetListeners',
             TeamServerApi__pb2.Empty.SerializeToString,
             TeamServerApi__pb2.Listener.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def AddListener(request,
@@ -207,11 +218,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/AddListener',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/AddListener',
             TeamServerApi__pb2.Listener.SerializeToString,
             TeamServerApi__pb2.Response.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StopListener(request,
@@ -224,11 +245,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/StopListener',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/StopListener',
             TeamServerApi__pb2.Listener.SerializeToString,
             TeamServerApi__pb2.Response.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def GetSessions(request,
@@ -241,11 +272,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/teamserverapi.TeamServerApi/GetSessions',
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/GetSessions',
             TeamServerApi__pb2.Empty.SerializeToString,
             TeamServerApi__pb2.Session.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def StopSession(request,
@@ -258,11 +299,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/StopSession',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/StopSession',
             TeamServerApi__pb2.Session.SerializeToString,
             TeamServerApi__pb2.Response.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def GetHelp(request,
@@ -275,11 +326,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/GetHelp',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/GetHelp',
             TeamServerApi__pb2.Command.SerializeToString,
             TeamServerApi__pb2.CommandResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def SendCmdToSession(request,
@@ -292,11 +353,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/SendCmdToSession',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/SendCmdToSession',
             TeamServerApi__pb2.Command.SerializeToString,
             TeamServerApi__pb2.Response.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def GetResponseFromSession(request,
@@ -309,11 +380,21 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/teamserverapi.TeamServerApi/GetResponseFromSession',
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/GetResponseFromSession',
             TeamServerApi__pb2.Session.SerializeToString,
             TeamServerApi__pb2.CommandResponse.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def SendTermCmd(request,
@@ -326,8 +407,18 @@ class TeamServerApi(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(request, target, '/teamserverapi.TeamServerApi/SendTermCmd',
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/SendTermCmd',
             TeamServerApi__pb2.TermCommand.SerializeToString,
             TeamServerApi__pb2.TermCommand.FromString,
-            options, channel_credentials,
-            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

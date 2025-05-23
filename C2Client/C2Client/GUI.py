@@ -79,10 +79,13 @@ class App(QMainWindow):
 
         self.m_main.layout = QHBoxLayout(self.m_main)
         self.m_main.layout.setContentsMargins(0, 0, 0, 0)
+        
         self.sessionsWidget = Sessions(self, self.grpcClient)
-        self.m_main.layout.addWidget(self.sessionsWidget)
         self.listenersWidget = Listeners(self, self.grpcClient)
-        self.m_main.layout.addWidget( self.listenersWidget)
+
+        # Adjust the stretch factors: sessions gets more space, listeners gets less
+        self.m_main.layout.addWidget(self.sessionsWidget, 2)  # 66% width
+        self.m_main.layout.addWidget(self.listenersWidget, 1)  # 33% width
 
         self.topWidget.addTab(self.m_main, "Main")
 
