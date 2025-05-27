@@ -135,33 +135,6 @@ You also point out security gaps that could be leveraged. You understand operati
 
         else:
 
-            function_spec_assemblyExec = {
-                "name": "assemblyExec",
-                "description": "Execute a red team tool on a specific beacon using assembly execution",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "beacon_hash": {
-                            "type": "string",
-                            "description": "The unique hash identifying the beacon to execute the command on"
-                        },
-                        "listener_hash": {
-                            "type": "string",
-                            "description": "The unique hash identifying the listener at which the beacon is connected"
-                        },
-                        "tool": {
-                            "type": "string",
-                            "description": "The tool to use (e.g., Rubeus)"
-                        },
-                        "arguments": {
-                            "type": "string",
-                            "description": "Command line arguments to pass to the tool (e.g., '/dump')"
-                        }
-                    },
-                    "required": ["beacon_hash", "listener_hash", "tool"]
-                }
-            }
-
             function_spec_ls = {
                 "name": "ls",
                 "description": "List the contents of a specified directory on a specific beacon.",
@@ -250,7 +223,30 @@ You also point out security gaps that could be leveraged. You understand operati
                 },
                     "required": ["beacon_hash", "listener_hash"]
             }
-
+            
+            function_spec_tree = {
+                "name": "tree",
+                "description": "Recursively display the directory structure of a specified path on a specific beacon in a tree-like format.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "The root directory path to start the tree traversal. If omitted, uses the current working directory.",
+                            "default": "."
+                        }
+                    },
+                    "required": ["beacon_hash", "listener_hash", "path"]
+                }
+            }
 
             api_key = os.environ.get("OPENAI_API_KEY")
             
@@ -275,7 +271,7 @@ You also point out security gaps that could be leveraged. You understand operati
                         model="gpt-4o",
                         # model="gpt-3.5-turbo-1106", # test
                         messages=self.messages,
-                        functions=[function_spec_ls, function_spec_cd, function_spec_cat, function_spec_pwd],
+                        functions=[function_spec_ls, function_spec_cd, function_spec_cat, function_spec_pwd, function_spec_tree],
                         function_call="auto",
                         temperature=0.05
                     )
@@ -332,6 +328,16 @@ You also point out security gaps that could be leveraged. You understand operati
             listener_hash = args["listener_hash"]
             path = args["path"]
             commandLine = "ls " + path
+            command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
+            result = self.grpcClient.sendCmdToSession(command)
+            if result.message:
+                self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
+        elif cmd == "tree":
+            beacon_hash = args["beacon_hash"]
+            listener_hash = args["listener_hash"]
+            path = args["path"]
+            commandLine = "tree " + path
             command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
             result = self.grpcClient.sendCmdToSession(command)
             if result.message:
