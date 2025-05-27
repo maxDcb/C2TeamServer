@@ -62,6 +62,7 @@ class App(QMainWindow):
         self.botLayout()
 
         self.sessionsWidget.sessionScriptSignal.connect(self.consoleWidget.script.sessionScriptMethod)
+        self.sessionsWidget.sessionScriptSignal.connect(self.consoleWidget.assistant.sessionAssistantMethod)
         self.listenersWidget.listenerScriptSignal.connect(self.consoleWidget.script.listenerScriptMethod)
 
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)

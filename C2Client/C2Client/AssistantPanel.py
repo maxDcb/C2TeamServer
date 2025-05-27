@@ -14,6 +14,9 @@ from grpcClient import *
 import openai
 from openai import OpenAI
 
+import json
+
+
 #
 # Assistant tab implementation
 #
@@ -40,7 +43,6 @@ class Assistant(QWidget):
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
-        # System prompt defined once
         system_prompt = {
             "role": "system",
             "content": (
@@ -50,35 +52,8 @@ You also point out security gaps that could be leveraged. You understand operati
 
 ## Context:
 - Exploration C2 framework run on a kali machine
-- You will be fed output from commands previously run (e.g., whoami, ps, ls, Seatbelt, SharpHound, etc.).
+- You will be fed output from commands previously ran.
 - All tools available on a kali machine can use used
-
-## Exploration Framework Capabilities:
-- socks start|stop <PORT>: Start/Stop SOCKS5 proxy via beacon
-- assemblyExec: Execute shellcode, PE or DLL with donut. Output is returned.
-- upload <SRC> <DST>: Upload file to victim.
-- download <SRC> <DST>: Download file from victim.
-- run <CMD>: Run command or process. Use 'cmd /c' for system commands.
-- inject [-r|-e|-d] <file> <pid>: Inject shellcode into a PID or spawn process.
-- ls: Directory navigation.
-- ps: List processes.
-- makeToken <DOMAIN\\User> <Password>: Create and impersonate a token.
-- rev2self: Drop current impersonation.
-- stealToken <pid>: Steal and impersonate a token.
-- coffLoader <FILE> [ARGS]: Load and execute COFF object files.
-- powershell [-i|-s] <script>: Run PowerShell code with optional AMSI bypass.
-- kerberosUseTicket <FILE>: Inject a .kirbi ticket.
-- psExec <target> <file>: Remote service execution via SMB share.
-- wmiExec [-u|-k] <target> <cmd>: Execute commands via WMI.
-- spawnAs <User> <Pass> <cmd>: Run command as another user.
-- chisel <ARGS>: Run Chisel tunnel or proxy.
-- tree: View directory tree.
-
-## Enumeration and Linux tools:
-impacket, nmap, smbclient, netexec and other
-
-## Post-Ex Tools Available:
-These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe, PurpleSharp.exe, scout.exe, SharpChisel.exe, SharpCrashEventLog.exe, SharpExec.exe, SharpLAPS.exe, SharpPrinter.exe, SharpShares.exe, SharpStay.exe, SharpWifiGrabber.exe, StandIn.exe, Watson.exe, ADCSPwn.exe, DeployPrinterNightmare.exe, Inveigh.exe, README.md, SearchOutlook.exe, SharpChrome.exe, SharpDir.exe, SharpGPOAbuse.exe, SharpMapExec.exe, SharpRDP.exe, Sharp-SMBExec.exe, SharpSvc.exe, SharpWMI.exe, StickyNotesExtract.exe, Whisker.exe, ADFSDump.exe, EDD.exe, KrbRelay.exe, Rubeus.exe, Seatbelt.exe, SharpChromium.exe, SharpDPAPI.exe, SharpHandler.exe, SharpMiniDump.exe, SharpReg.exe, SharpSniper.exe, SharpTask.exe, SharpZeroLogon.exe, SweetPotato.exe, winPEAS.exe, ADSearch.exe, ForgeCert.exe, KrbRelayUp.exe, _RunasCs.exe, SharpAllowedToAct.exe, SharpCloud.exe, SharpDump.exe, SharpHose.exe, SharpMove.exe, SharpSCCM.exe, SharpSphere.exe, SharpUp.exe, Shhmon.exe, ThunderFox.exe, WMIReg.exe, AtYourService.exe, GMSAPasswordReader.exe, LockLess.exe, SafetyKatz.exe, SharpAppLocker.exe, SharpCOM.exe, SharpEDRChecker.exe, SharpHound.exe, SharpNamedPipePTH.exe, SharpSearch.exe, SharpSpray.exe, SharpView.exe, Snaffler.exe, TokenStomp.exe, BetterSafetyKatz.exe, Group3r.exe, PassTheCert.exe, SauronEye.exe, SharpBypassUAC.exe, SharpCookieMonster.exe, SharPersist.exe, SharpKatz.exe, SharpNoPSExec.exe, SharpSecDump.exe, SharpSQLPwn.exe, SharpWebServer.exe, SqlClient.exe, TruffleSnout.exe
 
 ## Instructions:
 - Suggest only what makes tactical sense based on the output provided.
@@ -105,7 +80,8 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         if action == "start":
-            toto = 1
+            print("sessionAssistantMethod", action, beaconHash)
+            self.messages.append({"role": "user", "content": "New session stared: beaconHash={}, listenerHash={}, hostname={}, username={}, privilege={}, os={}.".format(beaconHash, listenerHash, hostname, username, privilege, os) })
         elif action == "stop":
             toto = 1
         elif action == "update":
@@ -113,6 +89,7 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
+        print("listenerAssistantMethod", action, hash)
         if action == "start":
             toto = 1
         elif action == "stop":
@@ -121,7 +98,7 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
 
     def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result):
         if action == "receive":
-            # print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
+            print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
             self.messages.append({"role": "user", "content": cmd + "\n" + result})
         elif action == "send":
             toto = 1
@@ -158,6 +135,123 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
 
         else:
 
+            function_spec_assemblyExec = {
+                "name": "assemblyExec",
+                "description": "Execute a red team tool on a specific beacon using assembly execution",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        },
+                        "tool": {
+                            "type": "string",
+                            "description": "The tool to use (e.g., Rubeus)"
+                        },
+                        "arguments": {
+                            "type": "string",
+                            "description": "Command line arguments to pass to the tool (e.g., '/dump')"
+                        }
+                    },
+                    "required": ["beacon_hash", "listener_hash", "tool"]
+                }
+            }
+
+            function_spec_ls = {
+                "name": "ls",
+                "description": "List the contents of a specified directory on a specific beacon.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "The path of the directory to list. If omitted, uses the current working directory.",
+                            "default": "."
+                        }
+                    },
+                    "required": ["beacon_hash", "listener_hash", "path"]
+                }
+            }
+
+            function_spec_cd = {
+                "name": "cd",
+                "description": "Change the working directory for subsequent module execution or file operations on a specific beacon.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute or relative path to change to (e.g., '../modules', '/tmp')."
+                        }
+                    },
+                    "required": ["beacon_hash", "listener_hash", "path"]
+                }
+            }
+
+            function_spec_cat = {
+                "name": "cat",
+                "description": "Read and return the contents of a specified file on disk on a specific beacon.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute or relative path to the file (e.g., './modules/shellcode.bin', '/etc/hosts')."
+                        }
+                    },
+                    "required": ["beacon_hash", "listener_hash", "path"]
+                }
+            }
+
+            function_spec_pwd = {
+                "name": "pwd",
+                "description": "Return the current working directory path on a specific beacon.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "beacon_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the beacon to execute the command on"
+                        },
+                        "listener_hash": {
+                            "type": "string",
+                            "description": "The unique hash identifying the listener at which the beacon is connected"
+                        }
+                    }
+                },
+                    "required": ["beacon_hash", "listener_hash"]
+            }
+
+
             api_key = os.environ.get("OPENAI_API_KEY")
             
             if api_key:
@@ -179,38 +273,104 @@ These include but are not limited to: ADCollector.exe, Certify.exe, Grouper2.exe
                     # Call OpenAI API
                     response = client.chat.completions.create(
                         model="gpt-4o",
+                        # model="gpt-3.5-turbo-1106", # test
                         messages=self.messages,
+                        functions=[function_spec_ls, function_spec_cd, function_spec_cat, function_spec_pwd],
+                        function_call="auto",
                         temperature=0.05
                     )
 
-                    assistant_reply = response.choices[0].message.content
-
                     self.printInTerminal("User:", commandLine)
-                    self.printInTerminal("Analysis:", assistant_reply)
 
-                    # Add assistant's response to conversation
-                    self.messages.append({"role": "assistant", "content": assistant_reply})
+                    message = response.choices[0].message
+                    print(message)
+
+                    function_call = message.function_call
+                    if function_call:
+                        name = function_call.name
+                        args = json.loads(function_call.arguments)
+                        print(f"Model wants to call `{name}` with arguments: {args}")
+
+                        self.printInTerminal("Analysis:", f"Model wants to call `{name}` with arguments: {args}")
+
+                        self.executeCmd(name, args)
+
+
+                    assistant_reply = message.content
+                    if assistant_reply:
+                        self.printInTerminal("Analysis:", assistant_reply)
+
+                        # Add assistant's response to conversation
+                        self.messages.append({"role": "assistant", "content": assistant_reply})
+
                 except openai.APIConnectionError as e:
-                    print("Server connection error: {e.__cause__}") 
-                    
+                    print(f"Server connection error: {e.__cause__}") 
+
                 except openai.RateLimitError as e:
-                    print(f"OpenAI RATE LIMIT error {e.status_code}: (e.response)")
-                    
+                    print(f"OpenAI RATE LIMIT error {e.status_code}: {e.response}") 
+
                 except openai.APIStatusError as e:
-                    print(f"OpenAI STATUS error {e.status_code}: (e.response)")
-                    
+                    print(f"OpenAI STATUS error {e.status_code}: {e.response}") 
+
                 except openai.BadRequestError as e:
-                    print(f"OpenAI BAD REQUEST error {e.status_code}: (e.response)")
-                    
+                    print(f"OpenAI BAD REQUEST error {e.status_code}: {e.response}") 
+
                 except Exception as e:
                     print(f"An unexpected error occurred: {e}")
-            
+
             else:
                 self.printInTerminal("OPENAI_API_KEY is not set, functionality deactivated.", "")
                 
 
         self.setCursorEditorAtEnd()
 
+
+    def executeCmd(self, cmd, args):
+        
+        if cmd == "ls":
+            beacon_hash = args["beacon_hash"]
+            listener_hash = args["listener_hash"]
+            path = args["path"]
+            commandLine = "ls " + path
+            command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
+            result = self.grpcClient.sendCmdToSession(command)
+            if result.message:
+                self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
+        elif cmd == "cd":
+            beacon_hash = args["beacon_hash"]
+            listener_hash = args["listener_hash"]
+            path = args["path"]
+            commandLine = "cd " + path
+            command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
+            result = self.grpcClient.sendCmdToSession(command)
+            if result.message:
+                self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
+        elif cmd == "cat":
+            beacon_hash = args["beacon_hash"]
+            listener_hash = args["listener_hash"]
+            path = args["path"]
+            commandLine = "cat " + path
+            command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
+            result = self.grpcClient.sendCmdToSession(command)
+            if result.message:
+                self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
+        elif cmd == "pwd":
+            beacon_hash = args["beacon_hash"]
+            listener_hash = args["listener_hash"]
+            commandLine = "pwd"
+            command = TeamServerApi_pb2.Command(beaconHash=beacon_hash, listenerHash=listener_hash, cmd=commandLine)
+            result = self.grpcClient.sendCmdToSession(command)
+            if result.message:
+                self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+
+        else:
+            raise ValueError("Unsupported command type")
+        
+        return
+    
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
