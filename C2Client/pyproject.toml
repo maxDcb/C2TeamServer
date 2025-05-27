@@ -15,7 +15,8 @@ dependencies = [
     "gitpython",
     "requests",
     "pwn",
-    "pefile"
+    "pefile",
+    "openai"
 ]
 
 [tool.setuptools.packages.find]
