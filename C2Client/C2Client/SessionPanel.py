@@ -115,7 +115,6 @@ class Sessions(QWidget):
 
 
     # catch Interact and Stop menu click
-    # TODO add remove ?
     def  actionClicked(self, action):
         hash = self.item
         for ix, sessionStore in enumerate(self.listSessionObject):

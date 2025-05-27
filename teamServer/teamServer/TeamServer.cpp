@@ -1633,7 +1633,68 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	// TODO
 	else if(instruction==ReloadModulesInstruction)
 	{
-		// reload all the modules of the ../Modules directory
+		m_logger->info("Reloading TeamServer modules from directory: {0}", m_teamServerModulesDirectoryPath.c_str());
+
+		// Clear previously loaded modules
+			m_moduleCmd.clear();
+
+			try {
+				for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
+				{
+					if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
+					{
+						m_logger->info("Trying to load {0}", entry.path().c_str());
+
+						void* handle = dlopen(entry.path().c_str(), RTLD_LAZY);
+						if (!handle) 
+						{
+							m_logger->warn("Failed to load {0}: {1}", entry.path().c_str(), dlerror());
+							continue;
+						}
+
+						// Derive constructor function name
+						std::string funcName = entry.path().filename();
+						funcName = funcName.substr(3); 							// remove lib
+						funcName = funcName.substr(0, funcName.length() - 3);	// remove .so
+						funcName += "Constructor";								// add Constructor
+
+						m_logger->info("Looking for constructor function: {0}", funcName);
+
+						constructProc construct = (constructProc)dlsym(handle, funcName.c_str());
+						if (!construct) {
+							m_logger->warn("Failed to find constructor: {0}", dlerror());
+							dlclose(handle);
+							continue;
+						}
+
+						ModuleCmd* moduleCmd = construct();
+						if (!moduleCmd) 
+						{
+							m_logger->warn("Constructor returned null");
+							dlclose(handle);
+							continue;
+						}
+
+						std::unique_ptr<ModuleCmd> moduleCmdPtr(moduleCmd);
+						moduleCmdPtr->setDirectories(
+							m_teamServerModulesDirectoryPath,
+							m_linuxModulesDirectoryPath,
+							m_windowsModulesDirectoryPath,
+							m_linuxBeaconsDirectoryPath,
+							m_windowsBeaconsDirectoryPath,
+							m_toolsDirectoryPath,
+							m_scriptsDirectoryPath
+						);
+
+						m_logger->info("Module {0} loaded", entry.path().filename().c_str());
+						m_moduleCmd.push_back(std::move(moduleCmdPtr));
+					}
+				}
+			} 
+			catch (const std::filesystem::filesystem_error& e) 
+			{
+				m_logger->warn("Error accessing module directory: {0}", e.what());
+			}
 	}
 	else if(instruction == SocksInstruction_)
 	{
@@ -1835,6 +1896,17 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 				if (splitedCmd.size() == 2)
 				{
 					std::string param = splitedCmd[1];
+
+					// Handle the 4 historicals commands where the cmd name don't match the module file name
+					if(param=="ls")
+						param = "listDirectory";
+					else if(param=="cd")
+						param = "changeDirectory";
+					else if(param=="ps")
+						param = "listProcesses";
+					else if(param=="pwd")
+						param = "printWorkingDirectory";
+
 					if(param.size() >= 3 && param.substr(param.size() - 3) == ".so")
 					{
 						

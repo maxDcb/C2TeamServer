@@ -108,6 +108,7 @@ GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 GrpcSocksInstruction = "socks"
+GrpcReloadModulesInstruction = "reloadModules";
 
 BeaconFileWindows = "Beacon.exe"
 BeaconFileLinux = "Beacon"
@@ -154,13 +155,20 @@ GetSubInstruction = "get"
 SetSubInstruction = "set"
 SearchSubInstruction = "search"
 
+ReloadModulesInstruction = "ReloadModules";
+ReloadModulesHelp = """ReloadModules:
+Command the TeamServer to reload the modules libraries located in TeamServerModulesDirectoryPath.
+Can be used to add a new functionality without restarting the TeamServer.
+"""
+
 
 def getHelpMsg():
     helpText  = HostInstruction+"\n"
     helpText += DropperInstruction+"\n"
     helpText += BatcaveInstruction+"\n"
     helpText += CredentialStoreInstruction+"\n"
-    helpText += SocksInstruction
+    helpText += SocksInstruction+"\n"
+    helpText += ReloadModulesInstruction
     return helpText
 
 completerData = [
@@ -176,7 +184,8 @@ completerData = [
             (GetSubInstruction, []),
             (SetSubInstruction, []),
             (SearchSubInstruction, [])
-             ])
+             ]),
+    (ReloadModulesInstruction,[]),
 ]
 
 InfoProcessing = "Processing..." 
@@ -275,6 +284,8 @@ class Terminal(QWidget):
                         self.printInTerminal(commandLine, HostHelp)
                     elif instructions[1].lower() == CredentialStoreInstruction.lower():
                         self.printInTerminal(commandLine, CredentialStoreHelp)
+                    elif instructions[1].lower() == ReloadModulesInstruction.lower():
+                        self.printInTerminal(commandLine, ReloadModulesHelp)
                     elif instructions[1].lower() == DropperInstruction.lower():
                         availableModules = "- Available dropper:\n"
                         for module in DropperModules:
@@ -295,6 +306,8 @@ class Terminal(QWidget):
                 self.runDropper(commandLine, instructions)
             elif instructions[0].lower()==SocksInstruction.lower():
                 self.runSocks(commandLine, instructions)
+            elif instructions[0].lower()==ReloadModulesInstruction.lower():
+                self.runReloadModules(commandLine, instructions)
             else:
                 self.printInTerminal(commandLine, ErrorCmdUnknow)
 
@@ -304,6 +317,16 @@ class Terminal(QWidget):
     def runHelp(self):
         self.printInTerminal(HelpInstruction, getHelpMsg())
 
+
+    def runReloadModules(self, commandLine, instructions):
+        commandTeamServer = GrpcReloadModulesInstruction
+        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
+        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+
+        result = resultTermCommand.result
+        self.printInTerminal(commandLine, result)
+        return   
+        
 
     def runSocks(self, commandLine, instructions):
         if len(instructions) < 2:
