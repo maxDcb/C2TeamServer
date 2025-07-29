@@ -1,5 +1,5 @@
 pycryptodome
-grpcio==1.66.1
+grpcio==1.72.0
 PyQt5
 pyqtdarktheme
 protobuf==5.27.0
