@@ -185,7 +185,7 @@ class Sessions(QWidget):
             if not inStore:
                 self.sessionScriptSignal.emit("start", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
 
-                print(session)
+                # print(session)
 
                 self.listSessionObject.append(
                     Session(

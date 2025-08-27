@@ -35,7 +35,7 @@ class Assistant(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
@@ -80,7 +80,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         if action == "start":
-            print("sessionAssistantMethod", action, beaconHash)
+            # print("sessionAssistantMethod", action, beaconHash)
             self.messages.append({"role": "user", "content": "New session stared: beaconHash={}, listenerHash={}, hostname={}, username={}, privilege={}, os={}.".format(beaconHash, listenerHash, hostname, username, privilege, os) })
         elif action == "stop":
             toto = 1
@@ -89,7 +89,7 @@ You also point out security gaps that could be leveraged. You understand operati
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
-        print("listenerAssistantMethod", action, hash)
+        # print("listenerAssistantMethod", action, hash)
         if action == "start":
             toto = 1
         elif action == "stop":
@@ -98,7 +98,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
     def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result):
         if action == "receive":
-            print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
+            # print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
             self.messages.append({"role": "user", "content": cmd + "\n" + result})
         elif action == "send":
             toto = 1
@@ -279,13 +279,13 @@ You also point out security gaps that could be leveraged. You understand operati
                     self.printInTerminal("User:", commandLine)
 
                     message = response.choices[0].message
-                    print(message)
+                    # print(message)
 
                     function_call = message.function_call
                     if function_call:
                         name = function_call.name
                         args = json.loads(function_call.arguments)
-                        print(f"Model wants to call `{name}` with arguments: {args}")
+                        # print(f"Model wants to call `{name}` with arguments: {args}")
 
                         self.printInTerminal("Analysis:", f"Model wants to call `{name}` with arguments: {args}")
 

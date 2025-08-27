@@ -61,7 +61,7 @@ class Script(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
