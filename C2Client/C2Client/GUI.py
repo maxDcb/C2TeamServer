@@ -4,7 +4,7 @@ import signal
 import sys
 from typing import Optional
 
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
     QHBoxLayout,
@@ -139,10 +139,10 @@ def main() -> None:
     try:
         window = App(args.ip, args.port, args.dev)
         window.show()
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
     except ValueError:
         sys.exit(1)
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -5,16 +5,15 @@ import re, html
 from datetime import datetime
 from threading import Thread, Lock
 
-from PyQt5.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt5.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor, QShortcut
+from PyQt6.QtWidgets import (
     QWidget,
     QTabWidget,
     QVBoxLayout,
     QHBoxLayout,
     QTextEdit,
     QLineEdit,
-    QShortcut,
     QCompleter,
     QTableWidget,
     QTableWidgetItem,
@@ -535,7 +534,7 @@ class Console(QWidget):
             self._compl.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -626,7 +625,7 @@ class Console(QWidget):
 
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)
     
 
@@ -662,8 +661,8 @@ class CommandEditor(QLineEdit):
                 self.cmdHistory = cmdHistoryFile.readlines()
             self.idx = len(self.cmdHistory) - 1
 
-        QShortcut(Qt.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key_Down, self, self.historyDown)
+        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
         self.codeCompleter = CodeCompleter(completerData, self)
         # needed to clear the completer after activation
@@ -679,7 +678,7 @@ class CommandEditor(QLineEdit):
             self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -709,7 +708,7 @@ class CommandEditor(QLineEdit):
 
 
 class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.UserRole + 1
+    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, data, parent=None):
         super().__init__(parent)

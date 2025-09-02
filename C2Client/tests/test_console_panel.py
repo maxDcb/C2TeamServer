@@ -2,7 +2,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from PyQt5.QtWidgets import QWidget
+from PyQt6.QtWidgets import QWidget
 
 import C2Client.grpcClient as grpc_client_module
 import sys

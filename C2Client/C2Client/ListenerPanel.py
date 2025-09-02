@@ -1,8 +1,8 @@
 import time
 import logging
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGridLayout,
@@ -85,7 +85,7 @@ class Listeners(QWidget):
         self.listListener.setColumnCount(4)
 
         # self.listListener.cellPressed.connect(self.listListenerClicked)
-        self.listListener.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listListener.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listListener.customContextMenuRequested.connect(self.showContextMenu)
 
         self.listListener.verticalHeader().setVisible(False)

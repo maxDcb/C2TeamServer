@@ -1,8 +1,8 @@
 import time
 import logging
 
-from PyQt5.QtCore import Qt, QThread, QTimer, pyqtSignal, QObject
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QObject
+from PyQt6.QtWidgets import (
     QGridLayout,
     QLabel,
     QMenu,
@@ -64,7 +64,7 @@ class Sessions(QWidget):
         self.listSession.setRowCount(0)
         self.listSession.setColumnCount(11)
 
-        self.listSession.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listSession.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listSession.customContextMenuRequested.connect(self.showContextMenu)
 
         self.listSession.verticalHeader().setVisible(False)
