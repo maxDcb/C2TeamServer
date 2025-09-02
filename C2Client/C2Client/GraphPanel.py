@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QGraphicsView,
     QVBoxLayout,
     QWidget,
+    QGraphicsItem,
 )
 
 

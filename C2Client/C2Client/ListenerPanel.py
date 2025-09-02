@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QWidget,
+    QHeaderView,
 )
 
 from .grpcClient import TeamServerApi_pb2

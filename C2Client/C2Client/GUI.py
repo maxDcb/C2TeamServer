@@ -73,9 +73,6 @@ class App(QMainWindow):
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
 
         self.consoleWidget.script.mainScriptMethod("start", "", "", "")
-        
-        self.show()
-
 
     def topLayout(self) -> None:
         """Initialise the upper part of the main window."""
@@ -140,7 +137,9 @@ def main() -> None:
     app.setStyleSheet(qdarktheme.load_stylesheet())
 
     try:
-        App(args.ip, args.port, args.dev)
+        window = App(args.ip, args.port, args.dev)
+        window.show()
+        sys.exit(app.exec_())
     except ValueError:
         sys.exit(1)
     sys.exit(app.exec_())

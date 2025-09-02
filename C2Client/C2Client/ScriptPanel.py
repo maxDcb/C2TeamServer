@@ -2,6 +2,7 @@ import sys
 import os
 import logging
 import importlib
+from pathlib import Path
 from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
@@ -23,30 +24,40 @@ from PyQt5.QtWidgets import (
 #
 try:
     import pkg_resources
-    scriptsDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'Scripts' 
-    )
-
+    scriptsDir = pkg_resources.resource_filename('C2Client', 'Scripts')
 except ImportError:
+    # Fallback: relative to this file (…/C2Client/Scripts)
     scriptsDir = os.path.join(os.path.dirname(__file__), 'Scripts')
 
-if not os.path.exists(scriptsDir):
-    os.makedirs(scriptsDir)
+scripts_path = Path(scriptsDir).resolve()
+scripts_path.mkdir(parents=True, exist_ok=True)
 
+# Ensure it's a real package
+(scripts_path / "__init__.py").touch(exist_ok=True)
 
+# Ensure the project root (parent of C2Client) is on sys.path so
+# `C2Client.Scripts` is importable as a package
+# e.g. /path/to/project_root/C2Client/Scripts
+project_root = scripts_path.parent.parent  # .../project_root
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+package_name = "C2Client.Scripts"
+
+# ----------------------------
+# Load all scripts as modules
+# ----------------------------
 LoadedScripts = []
-sys.path.insert(1, scriptsDir)
-for scriptName in os.listdir(scriptsDir):
-    if scriptName.endswith(".py") and scriptName != "__init__.py":
-        module_name = scriptName[:-3] 
+for entry in scripts_path.iterdir():
+    if entry.suffix == ".py" and entry.name != "__init__.py":
+        modname = f"{package_name}.{entry.stem}"
         try:
-            # Dynamically import the script
-            importedScript = importlib.import_module(module_name)
-            LoadedScripts.append(importedScript)
-            print(f"Successfully imported {scriptName}")
-        except ImportError as e:
-            print(f"Failed to import {scriptName}: {e}")
+            m = importlib.import_module(modname)
+            LoadedScripts.append(m)
+            print(f"Successfully imported {modname}")
+        except Exception as e:
+            print(f"Failed to import {modname}: {e}")
+            traceback.print_exc()
 
 
 #
