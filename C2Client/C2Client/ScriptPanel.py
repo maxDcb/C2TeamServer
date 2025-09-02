@@ -5,11 +5,17 @@ import importlib
 from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 
-from grpcClient import *
+from PyQt5.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel
+from PyQt5.QtWidgets import (
+    QCompleter,
+    QLineEdit,
+    QPlainTextEdit,
+    QShortcut,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 #

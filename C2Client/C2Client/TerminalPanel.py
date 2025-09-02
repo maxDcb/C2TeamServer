@@ -4,11 +4,20 @@ import json
 import logging
 from datetime import datetime
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
+from PyQt5.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel
+from PyQt5.QtWidgets import (
+    QCompleter,
+    QLineEdit,
+    QPlainTextEdit,
+    QShortcut,
+    QVBoxLayout,
+    QWidget,
+)
 
-from grpcClient import *
+from .grpcClient import TeamServerApi_pb2
+from .TerminalModules.Batcave import batcave
+from .TerminalModules.Credentials import credentials
 
 from git import Repo 
 
@@ -70,11 +79,7 @@ for moduleName in os.listdir(dropperModulesDir):
 #
 # Terminal modules
 #
-sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Batcave"))
-import batcave
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Credentials"))
-import credentials
+# legacy path setup removed in favor of package imports
 
 
 #

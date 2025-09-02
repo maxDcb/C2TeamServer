@@ -1,11 +1,22 @@
 import time
 import logging
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt5.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTableView,
+    QTableWidget,
+    QTableWidgetItem,
+    QWidget,
+)
 
-from grpcClient import *
+from .grpcClient import TeamServerApi_pb2
 
 
 #
