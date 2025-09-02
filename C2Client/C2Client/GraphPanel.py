@@ -2,12 +2,18 @@ import sys
 import os
 import time
 from threading import Thread, Lock
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
-from PyQt5.QtGui import QPixmap, QTransform
 
-from grpcClient import *
+from PyQt5.QtCore import QObject, Qt, QThread, QLineF, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PyQt5.QtWidgets import (
+    QGraphicsLineItem,
+    QGraphicsPixmapItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QVBoxLayout,
+    QWidget,
+    QGraphicsItem,
+)
 
 
 #

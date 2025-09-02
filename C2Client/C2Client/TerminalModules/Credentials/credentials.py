@@ -1,6 +1,7 @@
 import json
-from grpcClient import GrpcClient
 import re
+
+from ...grpcClient import GrpcClient
 
 GetCredentialsInstruction = "getCred"
 AddCredentialsInstruction = "addCred"
