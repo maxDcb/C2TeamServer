@@ -189,7 +189,7 @@ class Graph(QWidget):
         self.scene = QGraphicsScene()
 
         self.view = QGraphicsView(self.scene)
-        self.view.setRenderHint(QPainter.Antialiasing)  
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         self.vbox = QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
@@ -336,8 +336,8 @@ class Graph(QWidget):
                             print("[+] add connector listener:", listenerHash, "beacon", beaconHash)
 
         for item in self.listNodeItem:
-            item.setFlag(QGraphicsItem.ItemIsMovable)
-            item.setFlag(QGraphicsItem.ItemIsSelectable)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
 
         
 class GetGraphInfoWorker(QObject):

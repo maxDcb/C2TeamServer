@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem,
     QWidget,
     QHeaderView,
+    QAbstractItemView,
 )
 
 from .grpcClient import TeamServerApi_pb2
@@ -60,7 +61,7 @@ class Sessions(QWidget):
         # List of sessions
         self.listSession = QTableWidget()
         self.listSession.setShowGrid(False)
-        self.listSession.setSelectionBehavior(QTableView.SelectRows)
+        self.listSession.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.listSession.setRowCount(0)
         self.listSession.setColumnCount(11)
 
@@ -70,7 +71,7 @@ class Sessions(QWidget):
         self.listSession.verticalHeader().setVisible(False)
         header = self.listSession.horizontalHeader()      
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)        
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)     
         QTimer.singleShot(100, self.switch_to_interactive)
         self.layout.addWidget(self.listSession)
 
@@ -91,14 +92,14 @@ class Sessions(QWidget):
         self.listSession.verticalHeader().setVisible(False)
         header = self.listSession.horizontalHeader()      
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)        
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
         QTimer.singleShot(100, self.switch_to_interactive)
 
 
     def switch_to_interactive(self):
         header = self.listSession.horizontalHeader()   
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Interactive)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
 
     def __del__(self):
         self.getSessionsWorker.quit()
@@ -119,7 +120,7 @@ class Sessions(QWidget):
         menu.addAction('Stop')
         menu.addAction('Delete')
         menu.triggered.connect(self.actionClicked)
-        menu.exec_(self.listSession.viewport().mapToGlobal(position))
+        menu.exec(self.listSession.viewport().mapToGlobal(position))
 
 
     # catch Interact and Stop menu click

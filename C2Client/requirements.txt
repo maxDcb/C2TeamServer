@@ -1,8 +1,8 @@
 pycryptodome==3.23.0
-grpcio==1.66.1
+grpcio==1.74.0
 PyQt6==6.7.0
 pyqtdarktheme==2.1.0
-protobuf==5.27.0
+protobuf==6.32.0
 gitpython==3.1.45
 requests==2.32.5
 pwn==1.0
