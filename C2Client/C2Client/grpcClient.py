@@ -1,94 +1,181 @@
-from __future__ import print_function
+"""gRPC client utilities for the C2 client.
+
+This module provides the :class:`GrpcClient` which wraps the generated
+TeamServer stubs with a small convenience layer for certificate handling,
+metadata injection and basic error reporting.
+"""
 
 import logging
-
-import sys
 import os
+import sys
 import uuid
-sys.path.append(os.path.dirname(os.path.abspath(__file__))+'/libGrpcMessages/build/py/')
+from typing import Any, Iterable, List, Tuple
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/libGrpcMessages/build/py/')
 
 import grpc
 import TeamServerApi_pb2
 import TeamServerApi_pb2_grpc
 
 
+MetadataType = List[Tuple[str, str]]
+
+
 class GrpcClient:
+    """Thin wrapper around the gRPC TeamServer API client.
 
-    def __init__(self, ip, port, devMode):
+    Parameters
+    ----------
+    ip:
+        IP address of the TeamServer.
+    port:
+        Port exposed by the TeamServer.
+    devMode:
+        If ``True`` the SSL hostname check is disabled.
+    token:
+        Bearer token used for authentication metadata.
+    """
 
+    def __init__(self, ip: str, port: int, devMode: bool, token: str = "my-secret-token") -> None:
         env_cert_path = os.getenv('C2_CERT_PATH')
 
         if env_cert_path and os.path.isfile(env_cert_path):
             ca_cert = env_cert_path
-            print(f"Using certificate from environment variable: {ca_cert}")
+            logging.info("Using certificate from environment variable: %s", ca_cert)
         else:
             try:
                 import pkg_resources
-                ca_cert = pkg_resources.resource_filename(
-                    'C2Client',  
-                    'server.crt' 
-                )
+                ca_cert = pkg_resources.resource_filename('C2Client', 'server.crt')
             except ImportError:
                 ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
-            print(f"Using default certificate: {ca_cert}. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.")
+            logging.info(
+                "Using default certificate: %s. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.",
+                ca_cert,
+            )
 
         if os.path.exists(ca_cert):
-            root_certs = open(ca_cert, 'rb').read()
+            with open(ca_cert, 'rb') as fh:
+                root_certs = fh.read()
         else:
-            print(f"[-] Error: {ca_cert} not found, this file is needed to secure the communication beetween the client and server.")
-            print(f"You can find it in the release directory of the Teamserver.")
-            print(f"Exiting.")
+            logging.error(
+                "%s not found, this file is needed to secure the communication between the client and server.",
+                ca_cert,
+            )
             raise ValueError("grpcClient: Certificate not found")
 
         credentials = grpc.ssl_channel_credentials(root_certs)
         if devMode:
-            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=[('grpc.ssl_target_name_override', "localhost",), ('grpc.max_send_message_length', 512 * 1024 * 1024), ('grpc.max_receive_message_length', 512 * 1024 * 1024)])
+            self.channel = grpc.secure_channel(
+                f"{ip}:{port}",
+                credentials,
+                options=[
+                    ('grpc.ssl_target_name_override', 'localhost'),
+                    ('grpc.max_send_message_length', 512 * 1024 * 1024),
+                    ('grpc.max_receive_message_length', 512 * 1024 * 1024),
+                ],
+            )
         else:
-            self.channel = grpc.secure_channel(ip + ':' + str(port), credentials, options=[('grpc.max_send_message_length', 512 * 1024 * 1024), ('grpc.max_receive_message_length', 512 * 1024 * 1024)])
-        grpc.channel_ready_future(self.channel).result()
-        self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
+            self.channel = grpc.secure_channel(
+                f"{ip}:{port}",
+                credentials,
+                options=[
+                    ('grpc.max_send_message_length', 512 * 1024 * 1024),
+                    ('grpc.max_receive_message_length', 512 * 1024 * 1024),
+                ],
+            )
 
-        self.metadata = [
-            ("authorization", "Bearer my-secret-token"),
-            ("clientid", str(uuid.uuid4())[:16])
+        try:
+            grpc.channel_ready_future(self.channel).result()
+        except grpc.RpcError as exc:
+            logging.error("Failed to connect to gRPC server: %s", exc)
+            raise ValueError("grpcClient: unable to connect") from exc
+
+        self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
+        self.metadata: MetadataType = [
+            ("authorization", f"Bearer {token}"),
+            ("clientid", str(uuid.uuid4())[:16]),
         ]
 
-    def getListeners(self):
+    def getListeners(self) -> Any:
+        """Return the list of listeners registered on the TeamServer."""
+
         empty = TeamServerApi_pb2.Empty()
-        listeners = self.stub.GetListeners(empty, metadata=self.metadata)
-        return listeners
+        try:
+            return self.stub.GetListeners(empty, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("GetListeners RPC failed: %s", exc)
+            raise
 
-    def addListener(self, listener):
-        response = self.stub.AddListener(listener, metadata=self.metadata)
-        return response
+    def addListener(self, listener: Any) -> Any:
+        """Add a new listener on the TeamServer."""
 
-    def stopListener(self, listener):
-        response = self.stub.StopListener(listener, metadata=self.metadata)
-        return response
+        try:
+            return self.stub.AddListener(listener, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("AddListener RPC failed: %s", exc)
+            raise
 
-    def getSessions(self):
+    def stopListener(self, listener: Any) -> Any:
+        """Stop a running listener."""
+
+        try:
+            return self.stub.StopListener(listener, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("StopListener RPC failed: %s", exc)
+            raise
+
+    def getSessions(self) -> Any:
+        """Return all active sessions."""
+
         empty = TeamServerApi_pb2.Empty()
-        sessions = self.stub.GetSessions(empty, metadata=self.metadata)
-        return sessions
+        try:
+            return self.stub.GetSessions(empty, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("GetSessions RPC failed: %s", exc)
+            raise
 
-    def stopSession(self, session):
-        response = self.stub.StopSession(session, metadata=self.metadata)
-        return response
+    def stopSession(self, session: Any) -> Any:
+        """Terminate a session."""
 
-    def sendCmdToSession(self, command):
-        response = self.stub.SendCmdToSession(command, metadata=self.metadata)
-        return response
+        try:
+            return self.stub.StopSession(session, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("StopSession RPC failed: %s", exc)
+            raise
 
-    def getResponseFromSession(self, session):
-        commands = self.stub.GetResponseFromSession(session, metadata=self.metadata)
-        return commands
+    def sendCmdToSession(self, command: Any) -> Any:
+        """Send a command to the specified session."""
 
-    def getHelp(self, command):
-        response = self.stub.GetHelp(command, metadata=self.metadata)
-        return response
+        try:
+            return self.stub.SendCmdToSession(command, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("SendCmdToSession RPC failed: %s", exc)
+            raise
 
-    def sendTermCmd(self, command):
-        response = self.stub.SendTermCmd(command, metadata=self.metadata)
-        return response
+    def getResponseFromSession(self, session: Any) -> Iterable[Any]:
+        """Yield responses for a given session."""
 
+        try:
+            return self.stub.GetResponseFromSession(session, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("GetResponseFromSession RPC failed: %s", exc)
+            raise
+
+    def getHelp(self, command: Any) -> Any:
+        """Return help information for a command."""
+
+        try:
+            return self.stub.GetHelp(command, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("GetHelp RPC failed: %s", exc)
+            raise
+
+    def sendTermCmd(self, command: Any) -> Any:
+        """Send a command to the TeamServer terminal."""
+
+        try:
+            return self.stub.SendTermCmd(command, metadata=self.metadata)
+        except grpc.RpcError as exc:
+            logging.error("SendTermCmd RPC failed: %s", exc)
+            raise
 

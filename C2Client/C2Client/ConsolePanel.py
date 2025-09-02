@@ -4,18 +4,27 @@ import time
 import re, html
 from datetime import datetime
 from threading import Thread, Lock
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 
-from grpcClient import *
+from PyQt5.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt5.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor
+from PyQt5.QtWidgets import (
+    QWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTextEdit,
+    QLineEdit,
+    QShortcut,
+    QCompleter,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
-from TerminalPanel import *
-from ScriptPanel import *
-from AssistantPanel import *
-
-sys.path.insert(1, './Credentials')
-import credentials
+from .grpcClient import GrpcClient, TeamServerApi_pb2
+from .TerminalPanel import Terminal
+from .ScriptPanel import Script
+from .AssistantPanel import Assistant
+from .TerminalModules.Credentials import credentials
 
 
 #
@@ -570,15 +579,13 @@ class Console(QWidget):
             self.printInTerminal("", "", "")
 
         else:
-            cmdHistoryFile = open(CmdHistoryFileName, 'a')
-            cmdHistoryFile.write(commandLine)
-            cmdHistoryFile.write('\n')
-            cmdHistoryFile.close()
+            with open(CmdHistoryFileName, 'a') as cmdHistoryFile:
+                cmdHistoryFile.write(commandLine)
+                cmdHistoryFile.write('\n')
 
-            logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] send: \"' + commandLine + '\"')
-            logFile.write('\n')
-            logFile.close()
+            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                logFile.write('[+] send: \"' + commandLine + '\"')
+                logFile.write('\n')
 
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
@@ -612,11 +619,10 @@ class Console(QWidget):
             self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode('utf-8', 'replace'))
             self.setCursorEditorAtEnd()
 
-            logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
-            logFile.write('\n' + response.response.decode('utf-8', 'replace')  + '\n')
-            logFile.write('\n')
-            logFile.close()
+            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
+                logFile.write('\n' + response.response.decode('utf-8', 'replace')  + '\n')
+                logFile.write('\n')
 
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
@@ -625,32 +631,36 @@ class Console(QWidget):
     
 
 class GetSessionResponse(QObject):
+    """Background worker querying session responses."""
+
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self) -> None:
+        super().__init__()
+        self.exit = False
 
-    def run(self):
-        while self.exit==False:
+    def run(self) -> None:
+        while not self.exit:
             self.checkin.emit()
             time.sleep(1)
 
-    def quit(self):
-        self.exit=True
+    def quit(self) -> None:
+        self.exit = True
 
 
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
-    cmdHistory = []
-    idx = 0
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        if(os.path.isfile(CmdHistoryFileName)):
-            cmdHistoryFile = open(CmdHistoryFileName)
-            self.cmdHistory = cmdHistoryFile.readlines()
-            self.idx=len(self.cmdHistory)-1
-            cmdHistoryFile.close()
+        self.cmdHistory: list[str] = []
+        self.idx: int = 0
+
+        if os.path.isfile(CmdHistoryFileName):
+            with open(CmdHistoryFileName) as cmdHistoryFile:
+                self.cmdHistory = cmdHistoryFile.readlines()
+            self.idx = len(self.cmdHistory) - 1
 
         QShortcut(Qt.Key_Up, self, self.historyUp)
         QShortcut(Qt.Key_Down, self, self.historyDown)
@@ -686,11 +696,10 @@ class CommandEditor(QLineEdit):
             cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
             self.setText(cmd.strip())
 
-    def setCmdHistory(self):
-        cmdHistoryFile = open(CmdHistoryFileName)
-        self.cmdHistory = cmdHistoryFile.readlines()
-        self.idx=len(self.cmdHistory)-1
-        cmdHistoryFile.close()
+    def setCmdHistory(self) -> None:
+        with open(CmdHistoryFileName) as cmdHistoryFile:
+            self.cmdHistory = cmdHistoryFile.readlines()
+        self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()
