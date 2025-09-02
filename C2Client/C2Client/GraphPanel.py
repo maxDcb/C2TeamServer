@@ -3,9 +3,9 @@ import os
 import time
 from threading import Thread, Lock
 
-from PyQt5.QtCore import QObject, Qt, QThread, QLineF, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import QObject, Qt, QThread, QLineF, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
@@ -89,7 +89,7 @@ class NodeItem(QGraphicsPixmapItem):
                 else:
                     pixmap = self.addImageNode(WindowsSessionImage, hostname)
             else:
-                pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap = QPixmap(LinuxSessionImage).scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
             self.beaconHash=hash
             self.hostname = hostname
             self.connectedListenerHash = ""
@@ -112,21 +112,21 @@ class NodeItem(QGraphicsPixmapItem):
 
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        self.setCursor(Qt.ClosedHandCursor)
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def mouseReleaseEvent(self, event):
         super().mouseReleaseEvent(event)
-        self.setCursor(Qt.ArrowCursor)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
 
-    def addImageNode(self, image_path, legend_text, font_size=9, padding=5, text_color=Qt.white):
+    def addImageNode(self, image_path, legend_text, font_size=9, padding=5, text_color=Qt.GlobalColor.white):
         # Load and scale the image
-        pixmap = QPixmap(image_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pixmap = QPixmap(image_path).scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
         # Create a new QPixmap larger than the original for the image and text
         legend_height = font_size + padding * 2
         legend_width = len(legend_text) * font_size + padding * 2
         combined_pixmap = QPixmap(max(legend_width, pixmap.width()), pixmap.height() + legend_height)
-        combined_pixmap.fill(Qt.transparent)  # Transparent background
+        combined_pixmap.fill(Qt.GlobalColor.transparent)  # Transparent background
 
         # Paint the image and the legend onto the combined pixmap
         painter = QPainter(combined_pixmap)
@@ -143,9 +143,9 @@ class NodeItem(QGraphicsPixmapItem):
 
         # Draw the legend text centered below the image
         text_rect = painter.boundingRect(
-            0, pixmap.height(), combined_pixmap.width(), legend_height, Qt.AlignCenter, legend_text
+            0, pixmap.height(), combined_pixmap.width(), legend_height, Qt.AlignmentFlag.AlignCenter, legend_text
         )
-        painter.drawText(text_rect, Qt.AlignCenter, legend_text)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, legend_text)
 
         painter.end()
         return combined_pixmap
@@ -189,7 +189,7 @@ class Graph(QWidget):
         self.scene = QGraphicsScene()
 
         self.view = QGraphicsView(self.scene)
-        self.view.setRenderHint(QPainter.Antialiasing)  
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         self.vbox = QVBoxLayout()
         self.vbox.setContentsMargins(0, 0, 0, 0)
@@ -336,8 +336,8 @@ class Graph(QWidget):
                             print("[+] add connector listener:", listenerHash, "beacon", beaconHash)
 
         for item in self.listNodeItem:
-            item.setFlag(QGraphicsItem.ItemIsMovable)
-            item.setFlag(QGraphicsItem.ItemIsSelectable)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
 
         
 class GetGraphInfoWorker(QObject):

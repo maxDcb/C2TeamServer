@@ -1,5 +1,4 @@
 from pathlib import Path
-from PyQt5.QtCore import ws
 import requests
 import json
 import zipfile
