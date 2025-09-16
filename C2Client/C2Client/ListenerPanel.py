@@ -1,11 +1,24 @@
 import time
 import logging
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTableView,
+    QTableWidget,
+    QTableWidgetItem,
+    QWidget,
+    QHeaderView,
+    QAbstractItemView,
+)
 
-from grpcClient import *
+from .grpcClient import TeamServerApi_pb2
 
 
 #
@@ -67,19 +80,19 @@ class Listeners(QWidget):
         # List of sessions
         self.listListener = QTableWidget()
         self.listListener.setShowGrid(False)
-        self.listListener.setSelectionBehavior(QTableView.SelectRows)
+        self.listListener.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
         self.listListener.setRowCount(0)
         self.listListener.setColumnCount(4)
 
         # self.listListener.cellPressed.connect(self.listListenerClicked)
-        self.listListener.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listListener.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listListener.customContextMenuRequested.connect(self.showContextMenu)
 
         self.listListener.verticalHeader().setVisible(False)
         header = self.listListener.horizontalHeader()      
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
         self.layout.addWidget(self.listListener)
 
         # Thread to get listeners every second
@@ -106,7 +119,7 @@ class Listeners(QWidget):
             menu = QMenu()
             menu.addAction('Add')
             menu.triggered.connect(self.actionClicked)
-            menu.exec_(self.listListener.viewport().mapToGlobal(position))
+            menu.exec(self.listListener.viewport().mapToGlobal(position))
         else:
             row = index.row()
             self.item = str(self.listListener.item(row, 0).data(0))
@@ -114,7 +127,7 @@ class Listeners(QWidget):
             menu = QMenu()
             menu.addAction('Stop')
             menu.triggered.connect(self.actionClicked)
-            menu.exec_(self.listListener.viewport().mapToGlobal(position))
+            menu.exec(self.listListener.viewport().mapToGlobal(position))
 
 
     # catch stopListener menu click

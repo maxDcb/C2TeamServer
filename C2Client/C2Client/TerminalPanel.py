@@ -4,11 +4,19 @@ import json
 import logging
 from datetime import datetime
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtWidgets import (
+    QCompleter,
+    QLineEdit,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
-from grpcClient import *
+from .grpcClient import TeamServerApi_pb2
+from .TerminalModules.Batcave import batcave
+from .TerminalModules.Credentials import credentials
 
 from git import Repo 
 
@@ -70,11 +78,7 @@ for moduleName in os.listdir(dropperModulesDir):
 #
 # Terminal modules
 #
-sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Batcave"))
-import batcave
-
-sys.path.append(os.path.join(os.path.dirname(__file__), "TerminalModules/Credentials"))
-import credentials
+# legacy path setup removed in favor of package imports
 
 
 #
@@ -212,7 +216,7 @@ class Terminal(QWidget):
         self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
@@ -230,7 +234,7 @@ class Terminal(QWidget):
 
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -606,7 +610,7 @@ class Terminal(QWidget):
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)
 
 
@@ -774,8 +778,8 @@ class CommandEditor(QLineEdit):
             self.idx=len(self.cmdHistory)-1
             cmdHistoryFile.close()
 
-        QShortcut(Qt.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key_Down, self, self.historyDown)
+        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
         self.codeCompleter = CodeCompleter(completerData, self)
         # needed to clear the completer after activation
@@ -791,7 +795,7 @@ class CommandEditor(QLineEdit):
             self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -822,7 +826,7 @@ class CommandEditor(QLineEdit):
 
 
 class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.UserRole + 1
+    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, data, parent=None):
         super().__init__(parent)

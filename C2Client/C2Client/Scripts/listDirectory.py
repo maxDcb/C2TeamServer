@@ -1,9 +1,4 @@
-import sys
-import os
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__))+"/"+"..")
-
-from grpcClient import *
+from ..grpcClient import TeamServerApi_pb2
 
 
 def OnSessionStart(grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):

@@ -1,11 +1,20 @@
 import time
 import logging
 
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QObject
+from PyQt6.QtWidgets import (
+    QGridLayout,
+    QLabel,
+    QMenu,
+    QTableView,
+    QTableWidget,
+    QTableWidgetItem,
+    QWidget,
+    QHeaderView,
+    QAbstractItemView,
+)
 
-from grpcClient import *
+from .grpcClient import TeamServerApi_pb2
       
 
 #
@@ -52,17 +61,17 @@ class Sessions(QWidget):
         # List of sessions
         self.listSession = QTableWidget()
         self.listSession.setShowGrid(False)
-        self.listSession.setSelectionBehavior(QTableView.SelectRows)
+        self.listSession.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.listSession.setRowCount(0)
         self.listSession.setColumnCount(11)
 
-        self.listSession.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.listSession.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listSession.customContextMenuRequested.connect(self.showContextMenu)
 
         self.listSession.verticalHeader().setVisible(False)
         header = self.listSession.horizontalHeader()      
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)        
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)     
         QTimer.singleShot(100, self.switch_to_interactive)
         self.layout.addWidget(self.listSession)
 
@@ -83,14 +92,14 @@ class Sessions(QWidget):
         self.listSession.verticalHeader().setVisible(False)
         header = self.listSession.horizontalHeader()      
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Stretch)        
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
         QTimer.singleShot(100, self.switch_to_interactive)
 
 
     def switch_to_interactive(self):
         header = self.listSession.horizontalHeader()   
         for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.Interactive)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
 
     def __del__(self):
         self.getSessionsWorker.quit()
@@ -111,7 +120,7 @@ class Sessions(QWidget):
         menu.addAction('Stop')
         menu.addAction('Delete')
         menu.triggered.connect(self.actionClicked)
-        menu.exec_(self.listSession.viewport().mapToGlobal(position))
+        menu.exec(self.listSession.viewport().mapToGlobal(position))
 
 
     # catch Interact and Stop menu click
@@ -185,7 +194,7 @@ class Sessions(QWidget):
             if not inStore:
                 self.sessionScriptSignal.emit("start", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
 
-                print(session)
+                # print(session)
 
                 self.listSessionObject.append(
                     Session(

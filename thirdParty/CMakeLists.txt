@@ -4,7 +4,4 @@ execute_process(COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/thirdParty/donut && make
 set(Donut "${CMAKE_BINARY_DIR}/thirdParty/donut/lib/libdonut.a" PARENT_SCOPE)
 set(aplib64 "${CMAKE_BINARY_DIR}/thirdParty/donut/lib/aplib64.a" PARENT_SCOPE)
 
-## coffLoader
-add_subdirectory(coffLoader)
-
 

@@ -5,11 +5,18 @@ import importlib
 from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 
-from grpcClient import *
+from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtWidgets import (
+    QCompleter,
+    QLineEdit,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .grpcClient import TeamServerApi_pb2
 
 import openai
 from openai import OpenAI
@@ -35,7 +42,7 @@ class Assistant(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
@@ -80,7 +87,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         if action == "start":
-            print("sessionAssistantMethod", action, beaconHash)
+            # print("sessionAssistantMethod", action, beaconHash)
             self.messages.append({"role": "user", "content": "New session stared: beaconHash={}, listenerHash={}, hostname={}, username={}, privilege={}, os={}.".format(beaconHash, listenerHash, hostname, username, privilege, os) })
         elif action == "stop":
             toto = 1
@@ -89,7 +96,7 @@ You also point out security gaps that could be leveraged. You understand operati
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
-        print("listenerAssistantMethod", action, hash)
+        # print("listenerAssistantMethod", action, hash)
         if action == "start":
             toto = 1
         elif action == "stop":
@@ -98,14 +105,14 @@ You also point out security gaps that could be leveraged. You understand operati
 
     def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result):
         if action == "receive":
-            print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
+            # print("consoleAssistantMethod", "-Context:\n" + context + "\n\n-Command sent:\n" + cmd + "\n\n-Response:\n" + result)
             self.messages.append({"role": "user", "content": cmd + "\n" + result})
         elif action == "send":
             toto = 1
 
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -279,13 +286,13 @@ You also point out security gaps that could be leveraged. You understand operati
                     self.printInTerminal("User:", commandLine)
 
                     message = response.choices[0].message
-                    print(message)
+                    # print(message)
 
                     function_call = message.function_call
                     if function_call:
                         name = function_call.name
                         args = json.loads(function_call.arguments)
-                        print(f"Model wants to call `{name}` with arguments: {args}")
+                        # print(f"Model wants to call `{name}` with arguments: {args}")
 
                         self.printInTerminal("Analysis:", f"Model wants to call `{name}` with arguments: {args}")
 
@@ -381,7 +388,7 @@ You also point out security gaps that could be leveraged. You understand operati
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)
 
 
@@ -393,8 +400,8 @@ class CommandEditor(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        QShortcut(Qt.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key_Down, self, self.historyDown)
+        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
         # self.codeCompleter = CodeCompleter(completerData, self)
         # # needed to clear the completer after activation
@@ -410,7 +417,7 @@ class CommandEditor(QLineEdit):
             self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -441,7 +448,7 @@ class CommandEditor(QLineEdit):
 
 
 class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.UserRole + 1
+    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, data, parent=None):
         super().__init__(parent)

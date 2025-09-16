@@ -1,47 +1,64 @@
-import sys
-import os
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__))+"/"+"..")
-
-from grpcClient import *
+from ..grpcClient import GrpcClient, TeamServerApi_pb2
 
 
-def OnStart(grpcClient):
-	output = "Scrip test.py: OnStart\n";	
-	return output
+def OnStart(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnStart\n"
+    return output
 
 
-def OnStop(grpcClient):
-	output = "Scrip test.py: OnStop\n";	
-	return output
+def OnStop(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnStop\n"
+    return output
 
 
-def OnListenerStart(grpcClient):
-	output = "Scrip test.py: OnListenerStart\n";	
-	return output
+def OnListenerStart(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnListenerStart\n"
+    return output
 
 
-def OnListenerStop(grpcClient):
-	output = "Scrip test.py: OnListenerStop\n";	
-	return output
+def OnListenerStop(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnListenerStop\n"
+    return output
 
 
-def OnSessionStart(grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
-	output = "Scrip test.py: OnSessionStart\n";	
+def OnSessionStart(
+    grpcClient: GrpcClient,
+    beaconHash,
+    listenerHash,
+    hostname,
+    username,
+    arch,
+    privilege,
+    os,
+    lastProofOfLife,
+    killed,
+) -> str:
+    output = "Scrip test.py: OnSessionStart\n"
+    return output
 
-	return output
+
+def OnSessionStop(
+    grpcClient: GrpcClient,
+    beaconHash,
+    listenerHash,
+    hostname,
+    username,
+    arch,
+    privilege,
+    os,
+    lastProofOfLife,
+    killed,
+) -> str:
+    output = "Scrip test.py: OnSessionStop\n"
+    return output
 
 
-def OnSessionStop(grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
-	output = "Scrip test.py: OnSessionStop\n";	
-	return output
+def OnConsoleSend(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnConsoleSend\n"
+    return output
 
 
-def OnConsoleSend(grpcClient):
-	output = "Scrip test.py: OnConsoleSend\n";	
-	return output
+def OnConsoleReceive(grpcClient: GrpcClient) -> str:
+    output = "Scrip test.py: OnConsoleReceive\n"
+    return output
 
-
-def OnConsoleReceive(grpcClient):
-	output = "Scrip test.py: OnConsoleReceive\n";	
-	return output

@@ -1,20 +1,29 @@
 import sys
 import os
 import time
+import re, html
 from datetime import datetime
 from threading import Thread, Lock
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 
-from grpcClient import *
+from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor, QShortcut
+from PyQt6.QtWidgets import (
+    QWidget,
+    QTabWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QTextEdit,
+    QLineEdit,
+    QCompleter,
+    QTableWidget,
+    QTableWidgetItem,
+)
 
-from TerminalPanel import *
-from ScriptPanel import *
-from AssistantPanel import *
-
-sys.path.insert(1, './Credentials')
-import credentials
+from .grpcClient import GrpcClient, TeamServerApi_pb2
+from .TerminalPanel import Terminal
+from .ScriptPanel import Script
+from .AssistantPanel import Assistant
+from .TerminalModules.Credentials import credentials
 
 
 #
@@ -302,6 +311,97 @@ completerData = [
 
 
 #
+# Fix console rendering
+#
+# Regexes
+SGR_RE = re.compile(r'\x1b\[([0-9;]*)m')  # keep these for color -> HTML
+OSC_RE = re.compile(r'\x1b\].*?(?:\x07|\x1b\\)', re.DOTALL)  # OSC ... BEL/ST
+# Any CSI (ESC [ ... finalbyte), we'll later keep only the ones ending with 'm'
+CSI_RE = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+# Single-char ESC sequences:
+#  - ESC= / ESC> / ESC<  (keypad/app mode toggles)
+#  - ESC @ .. ESC _      (misc single ESCs)
+ESC_SINGLE_RE = re.compile(r'\x1b(?:[@-Z\\-_]|[=><])')
+
+def normalize_cr(text: str) -> str:
+    text = text.replace('\r\n', '\n')
+    # treat stray CR as newline (instead of overwriting behavior)
+    return re.sub(r'\r(?!\n)', '\n', text)
+
+def apply_backspaces(text: str) -> str:
+    out = []
+    for ch in text:
+        if ch == '\b':
+            if out: out.pop()
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+def strip_non_sgr_ansi(text: str) -> str:
+    # 1) remove OSC
+    text = OSC_RE.sub('', text)
+
+    # 2) remove *non*-SGR CSI (keep those ending with 'm')
+    def _keep_only_sgr(m):
+        s = m.group(0)
+        return s if s.endswith('m') else ''  # drop everything except SGR
+    text = CSI_RE.sub(_keep_only_sgr, text)
+
+    # 3) remove single-byte ESC sequences (ESC=, ESC>, ESCc, ESC(0, ESC)B, etc.)
+    text = ESC_SINGLE_RE.sub('', text)
+
+    return text
+
+# Minimal SGR -> HTML
+_BASE  = ['#000','#a00','#0a0','#a50','#00a','#a0a','#0aa','#aaa']
+_BRIGHT= ['#555','#f55','#5f5','#ff5','#55f','#f5f','#5ff','#fff']
+
+def _style_css(state):
+    css=[]
+    if state.get('bold'): css.append('font-weight:bold')
+    if state.get('underline'): css.append('text-decoration:underline')
+    if state.get('fg'): css.append(f"color:{state['fg']}")
+    if state.get('bg'): css.append(f"background-color:{state['bg']}")
+    return ';'.join(css)
+
+def ansi_to_html(text: str) -> str:
+    txt = html.escape(text)
+    out=[]; pos=0; state={}; open_span=False
+    for m in SGR_RE.finditer(txt):
+        if m.start() > pos:
+            chunk = txt[pos:m.start()].replace('\n','<br/>')
+            if _style_css(state):
+                if not open_span:
+                    out.append(f'<span style="{_style_css(state)}">'); open_span=True
+            out.append(chunk)
+        pos = m.end()
+        params = m.group(1)
+        codes = [0] if params=='' else [int(c or 0) for c in params.split(';')]
+
+        for c in codes:
+            if c==0: state.clear()
+            elif c==1: state['bold']=True
+            elif c==4: state['underline']=True
+            elif 30<=c<=37: state['fg']=_BASE[c-30]
+            elif 90<=c<=97: state['fg']=_BRIGHT[c-90]
+            elif 40<=c<=47: state['bg']=_BASE[c-40]
+            elif 100<=c<=107: state['bg']=_BRIGHT[c-100]
+            elif c==39: state.pop('fg',None)
+            elif c==49: state.pop('bg',None)
+
+        if open_span: out.append('</span>'); open_span=False
+        if _style_css(state): out.append(f'<span style="{_style_css(state)}">'); open_span=True
+
+    if pos < len(txt):
+        chunk = txt[pos:].replace('\n','<br/>')
+        if _style_css(state) and not open_span:
+            out.append(f'<span style="{_style_css(state)}">'); open_span=True
+        out.append(chunk)
+    if open_span: out.append('</span>')
+    return ''.join(out)
+        
+
+#
 # Consoles Tab Implementation
 #
 class ConsolesTab(QWidget):
@@ -402,9 +502,10 @@ class Console(QWidget):
         self.username=username.replace("\\", "_").replace(" ", "_")
         self.logFileName=self.hostname+"_"+self.username+"_"+self.beaconHash+".log"
 
-        self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput = QTextEdit()
         self.editorOutput.setReadOnly(True)
+        self.editorOutput.setAcceptRichText(True)
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
@@ -433,7 +534,7 @@ class Console(QWidget):
             self._compl.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -444,13 +545,28 @@ class Console(QWidget):
         receiveFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [&lt;&lt;] </span>'+'<span style="color:red;">{}</span>'+'</p>'
 
         if cmdSent:
-            self.editorOutput.appendHtml(sendFormater.format(cmdSent))
+            self.editorOutput.insertHtml(sendFormater.format(cmdSent))
             self.editorOutput.insertPlainText("\n")
         elif cmdReived:
-            self.editorOutput.appendHtml(receiveFormater.format(cmdReived))
+            self.editorOutput.insertHtml(receiveFormater.format(cmdReived))
             self.editorOutput.insertPlainText("\n")
         if result:
-            self.editorOutput.insertPlainText(result)
+
+            s = normalize_cr(result)
+            s = apply_backspaces(s)
+            s = strip_non_sgr_ansi(s)
+            # Convert remaining color SGR
+            html_body = ansi_to_html(s)
+
+            html = (
+                "<pre style=\"margin:0;"
+                "white-space:pre-wrap;"
+                "font-family:'JetBrainsMono Nerd Font','FiraCode Nerd Font','DejaVu Sans Mono','Noto Sans Mono',monospace;\">"
+                f"{html_body}"
+                "</pre>"
+            )
+            self.editorOutput.insertHtml(html)
+            self.editorOutput.insertHtml("<br/>")
             self.editorOutput.insertPlainText("\n")
 
     def runCommand(self):
@@ -462,15 +578,13 @@ class Console(QWidget):
             self.printInTerminal("", "", "")
 
         else:
-            cmdHistoryFile = open(CmdHistoryFileName, 'a')
-            cmdHistoryFile.write(commandLine)
-            cmdHistoryFile.write('\n')
-            cmdHistoryFile.close()
+            with open(CmdHistoryFileName, 'a') as cmdHistoryFile:
+                cmdHistoryFile.write(commandLine)
+                cmdHistoryFile.write('\n')
 
-            logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] send: \"' + commandLine + '\"')
-            logFile.write('\n')
-            logFile.close()
+            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                logFile.write('[+] send: \"' + commandLine + '\"')
+                logFile.write('\n')
 
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
@@ -478,7 +592,7 @@ class Console(QWidget):
                 command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
                 response = self.grpcClient.getHelp(command)
                 self.printInTerminal(response.cmd, "", "")
-                self.printInTerminal("", response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
+                self.printInTerminal("", response.cmd, response.response.decode('utf-8', 'replace'))
 
             else:
                 self.printInTerminal(commandLine, "", "")
@@ -487,7 +601,7 @@ class Console(QWidget):
                 context = "Host " + self.hostname + " - Username " + self.username
                 self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "")
                 if result.message:
-                    self.printInTerminal("", commandLine, result.message.decode(encoding="latin1", errors="ignore"))
+                    self.printInTerminal("", commandLine, result.message.decode('utf-8', 'replace'))
 
         self.setCursorEditorAtEnd()
 
@@ -496,56 +610,59 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             context = "Host " + self.hostname + " - Username " + self.username
-            self.consoleScriptSignal.emit("receive", "", "", context, response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
+            self.consoleScriptSignal.emit("receive", "", "", context, response.cmd, response.response.decode('utf-8', 'replace'))
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:
-                credentials.handleMimikatzCredentials(response.response.decode(encoding="latin1", errors="ignore"), self.grpcClient, TeamServerApi_pb2)
-            self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode(encoding="latin1", errors="ignore"))
+                credentials.handleMimikatzCredentials(response.response.decode('utf-8', 'replace'), self.grpcClient, TeamServerApi_pb2)
+            self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode('utf-8', 'replace'))
             self.setCursorEditorAtEnd()
 
-            logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
-            logFile.write('\n' + response.response.decode(encoding="latin1", errors="ignore")  + '\n')
-            logFile.write('\n')
-            logFile.close()
+            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
+                logFile.write('\n' + response.response.decode('utf-8', 'replace')  + '\n')
+                logFile.write('\n')
 
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)
     
 
 class GetSessionResponse(QObject):
+    """Background worker querying session responses."""
+
     checkin = pyqtSignal()
 
-    exit=False
+    def __init__(self) -> None:
+        super().__init__()
+        self.exit = False
 
-    def run(self):
-        while self.exit==False:
+    def run(self) -> None:
+        while not self.exit:
             self.checkin.emit()
             time.sleep(1)
 
-    def quit(self):
-        self.exit=True
+    def quit(self) -> None:
+        self.exit = True
 
 
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
-    cmdHistory = []
-    idx = 0
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        if(os.path.isfile(CmdHistoryFileName)):
-            cmdHistoryFile = open(CmdHistoryFileName)
-            self.cmdHistory = cmdHistoryFile.readlines()
-            self.idx=len(self.cmdHistory)-1
-            cmdHistoryFile.close()
+        self.cmdHistory: list[str] = []
+        self.idx: int = 0
 
-        QShortcut(Qt.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key_Down, self, self.historyDown)
+        if os.path.isfile(CmdHistoryFileName):
+            with open(CmdHistoryFileName) as cmdHistoryFile:
+                self.cmdHistory = cmdHistoryFile.readlines()
+            self.idx = len(self.cmdHistory) - 1
+
+        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
         self.codeCompleter = CodeCompleter(completerData, self)
         # needed to clear the completer after activation
@@ -561,7 +678,7 @@ class CommandEditor(QLineEdit):
             self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -578,11 +695,10 @@ class CommandEditor(QLineEdit):
             cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
             self.setText(cmd.strip())
 
-    def setCmdHistory(self):
-        cmdHistoryFile = open(CmdHistoryFileName)
-        self.cmdHistory = cmdHistoryFile.readlines()
-        self.idx=len(self.cmdHistory)-1
-        cmdHistoryFile.close()
+    def setCmdHistory(self) -> None:
+        with open(CmdHistoryFileName) as cmdHistoryFile:
+            self.cmdHistory = cmdHistoryFile.readlines()
+        self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()
@@ -592,7 +708,7 @@ class CommandEditor(QLineEdit):
 
 
 class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.UserRole + 1
+    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, data, parent=None):
         super().__init__(parent)

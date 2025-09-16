@@ -7,16 +7,22 @@ name = "C2Client"
 version = "0.1.0"
 dependencies = [
     "setuptools",
-    "pycryptodome",
-    "grpcio",
-    "PyQt5",
+    "pycryptodome==3.23.0",
+    "grpcio==1.74.0",
+    "PyQt6==6.7.0",
     "pyqtdarktheme",
-    "protobuf",
-    "gitpython",
-    "requests",
-    "pwn",
-    "pefile",
-    "openai"
+    "protobuf==6.32.0",
+    "gitpython==3.1.45",
+    "requests==2.32.5",
+    "pwn==1.0",
+    "pefile==2024.8.26",
+    "openai==1.102.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.4.1",
+    "pytest-qt==4.5.0"
 ]
 
 [tool.setuptools.packages.find]

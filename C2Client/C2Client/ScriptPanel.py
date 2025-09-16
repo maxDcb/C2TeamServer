@@ -2,14 +2,20 @@ import sys
 import os
 import logging
 import importlib
+from pathlib import Path
 from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from PyQt5.QtCore import *
 
-from grpcClient import *
+from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtWidgets import (
+    QCompleter,
+    QLineEdit,
+    QPlainTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 #
@@ -17,30 +23,40 @@ from grpcClient import *
 #
 try:
     import pkg_resources
-    scriptsDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'Scripts' 
-    )
-
+    scriptsDir = pkg_resources.resource_filename('C2Client', 'Scripts')
 except ImportError:
+    # Fallback: relative to this file (…/C2Client/Scripts)
     scriptsDir = os.path.join(os.path.dirname(__file__), 'Scripts')
 
-if not os.path.exists(scriptsDir):
-    os.makedirs(scriptsDir)
+scripts_path = Path(scriptsDir).resolve()
+scripts_path.mkdir(parents=True, exist_ok=True)
 
+# Ensure it's a real package
+(scripts_path / "__init__.py").touch(exist_ok=True)
 
+# Ensure the project root (parent of C2Client) is on sys.path so
+# `C2Client.Scripts` is importable as a package
+# e.g. /path/to/project_root/C2Client/Scripts
+project_root = scripts_path.parent.parent  # .../project_root
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+package_name = "C2Client.Scripts"
+
+# ----------------------------
+# Load all scripts as modules
+# ----------------------------
 LoadedScripts = []
-sys.path.insert(1, scriptsDir)
-for scriptName in os.listdir(scriptsDir):
-    if scriptName.endswith(".py") and scriptName != "__init__.py":
-        module_name = scriptName[:-3] 
+for entry in scripts_path.iterdir():
+    if entry.suffix == ".py" and entry.name != "__init__.py":
+        modname = f"{package_name}.{entry.stem}"
         try:
-            # Dynamically import the script
-            importedScript = importlib.import_module(module_name)
-            LoadedScripts.append(importedScript)
-            print(f"Successfully imported {scriptName}")
-        except ImportError as e:
-            print(f"Failed to import {scriptName}: {e}")
+            m = importlib.import_module(modname)
+            LoadedScripts.append(m)
+            print(f"Successfully imported {modname}")
+        except Exception as e:
+            print(f"Failed to import {modname}: {e}")
+            traceback.print_exc()
 
 
 #
@@ -61,7 +77,7 @@ class Script(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("Courier"));
+        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
@@ -160,7 +176,7 @@ class Script(QWidget):
 
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -198,7 +214,7 @@ class Script(QWidget):
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.End,)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)
 
 
@@ -210,8 +226,8 @@ class CommandEditor(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        QShortcut(Qt.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key_Down, self, self.historyDown)
+        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
         # self.codeCompleter = CodeCompleter(completerData, self)
         # # needed to clear the completer after activation
@@ -227,7 +243,7 @@ class CommandEditor(QLineEdit):
             self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
-        if event.type() == QEvent.KeyPress and event.key() == Qt.Key_Tab:
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
             return True
         return super().event(event)
@@ -258,7 +274,7 @@ class CommandEditor(QLineEdit):
 
 
 class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.UserRole + 1
+    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
