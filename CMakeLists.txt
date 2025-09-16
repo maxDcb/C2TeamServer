@@ -31,7 +31,6 @@ option(BUILD_TEAMSERVER "Enable Teamserver config" ON)
 add_definitions(-DBUILD_TEAMSERVER)
 
 if(WITH_TESTS)
-  add_definitions(-DBUILD_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
 endif()
 
@@ -47,21 +46,26 @@ add_subdirectory(libs)
 add_subdirectory(thirdParty)
 include_directories(thirdParty/base64)
 include_directories(thirdParty/donut/include)
-include_directories(thirdParty/coffLoader/coffLoader)
-include_directories(thirdParty/coffLoader/coffPacker)
+
+set(DONUT_BUILD_DIR "${CMAKE_BINARY_DIR}/thirdParty/donut")
+add_library(Donut STATIC IMPORTED)
+set_target_properties(Donut PROPERTIES
+IMPORTED_LOCATION "${DONUT_BUILD_DIR}/lib/libdonut.a"
+)
 
 if(WITH_TESTS)
     enable_testing()
 endif()
+
+include_directories(core/listener)
+include_directories(core/beacon)
+include_directories(core/modules/ModuleCmd)
 
 add_subdirectory(teamServer)
 add_subdirectory(core/modules)
 
 add_subdirectory(certs)
 
-if(WITH_TESTS)
-    add_subdirectory(core/listener/tests)
-endif()
 
 
 
