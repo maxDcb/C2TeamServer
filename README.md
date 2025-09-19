@@ -95,6 +95,8 @@ cd Release
 
    The `Release` directory is mounted as a volume so that generated artifacts such as logs remain on the host and can be reused across container restarts.
 
+   > ℹ️ The container runtime is based on **Ubuntu 24.04**, which provides glibc 2.39 and libstdc++ 13. These versions satisfy the runtime requirements of the precompiled TeamServer binary. Running the server on older base images (e.g., Debian 12/bookworm) will result in errors such as `GLIBC_2.38 not found` or `GLIBCXX_3.4.32 not found`.
+
 ### Installing and Running the Client
 
 Install the Python client using `pipx`:
