@@ -64,6 +64,37 @@ cd Release
   <img src="images/TeamServerLaunch.png?raw=true" />
 </p>
 
+### Docker Deployment
+
+> 🚨 The container image expects the compiled TeamServer release artifacts.
+> Download the latest release archive before building the image.
+
+1. Fetch and extract the latest release into the repository `Release/` directory:
+
+   ```bash
+   wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' \
+     | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') \
+     -O Release.tar.gz
+   tar xf Release.tar.gz --strip-components=1 -C Release
+   ```
+
+2. Build the Docker image from the repository root:
+
+   ```bash
+   docker build -t exploration-teamserver .
+   ```
+
+3. Run the container with the host network interface and mount the release folder for easy access to logs, beacons, and modules:
+
+   ```bash
+   docker run --rm --name exploration-teamserver \
+     --network host \
+     -v "$(pwd)/Release:/opt/teamserver/Release" \
+     exploration-teamserver
+   ```
+
+   The `Release` directory is mounted as a volume so that generated artifacts such as logs remain on the host and can be reused across container restarts.
+
 ### Installing and Running the Client
 
 Install the Python client using `pipx`:
