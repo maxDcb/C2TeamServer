@@ -99,10 +99,14 @@ cd Release
 
 ### Installing and Running the Client
 
-Install the Python client using `pipx`:
+Install the Python client using your favorit Python environment / package management tools:
 
 ```bash
+# pipx
 pipx install git+https://github.com/maxDcb/C2TeamServer.git#subdirectory=C2Client
+
+# uv
+uv tool install git+https://github.com/maxDcb/C2TeamServer.git#subdirectory=C2Client 
 ```
 
 Set the path to the TeamServer certificate:
@@ -118,6 +122,15 @@ c2client --ip 127.0.0.1 --port 50051 --dev
 ```
 
 > ⚠️ `--dev` disables hostname verification in the gRPC TLS certificate (for development/testing purposes).
+
+Or in local:
+
+```bash
+cd ./C2Client
+uv sync
+export C2_CERT_PATH=/path/to/teamserver/cert/server.crt
+uv run python -m C2Client.GUI
+```
 
 ## Documentation
 
