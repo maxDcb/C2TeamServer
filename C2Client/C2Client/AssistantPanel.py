@@ -3,6 +3,7 @@ import os
 import logging
 import importlib
 from datetime import datetime
+from copy import deepcopy
 
 from threading import Thread, Lock, Semaphore
 
@@ -29,6 +30,8 @@ import json
 #
 class Assistant(QWidget):
     tabPressed = pyqtSignal()
+    responseReady = pyqtSignal(dict)
+    responseError = pyqtSignal(str)
     logFileName=""
     sem = Semaphore()
 
@@ -49,6 +52,9 @@ class Assistant(QWidget):
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
+
+        self.responseReady.connect(self._process_assistant_response)
+        self.responseError.connect(self._handle_assistant_error)
 
         system_prompt = {
             "role": "system",
@@ -84,6 +90,8 @@ You also point out security gaps that could be leveraged. You understand operati
         self.max_function_calls = 5
 
         self._openai_client = None
+        self._response_thread = None
+        self._response_lock = Lock()
 
 
     def nextCompletion(self):
@@ -157,18 +165,7 @@ You also point out security gaps that could be leveraged. You understand operati
             self.pending_tool_context = None
             self.tool_call_count += 1
 
-            try:
-                self._request_assistant_response()
-            except openai.APIConnectionError as e:
-                print(f"Server connection error: {e.__cause__}")
-            except openai.RateLimitError as e:
-                print(f"OpenAI RATE LIMIT error {e.status_code}: {e.response}")
-            except openai.APIStatusError as e:
-                print(f"OpenAI STATUS error {e.status_code}: {e.response}")
-            except openai.BadRequestError as e:
-                print(f"OpenAI BAD REQUEST error {e.status_code}: {e.response}")
-            except Exception as e:
-                print(f"An unexpected error occurred: {e}")
+            self._request_assistant_response()
         else:
             combined = command_text
             if output_text:
@@ -219,6 +216,11 @@ You also point out security gaps that could be leveraged. You understand operati
             self.printInTerminal("Analysis:", "Waiting for previous command output before continuing.")
             return
 
+        with self._response_lock:
+            if self._response_thread and self._response_thread.is_alive():
+                self.printInTerminal("Analysis:", "Assistant is still processing the previous request.")
+                return
+
         client = self._get_openai_client()
         if client is None:
             self.printInTerminal("OPENAI_API_KEY is not set, functionality deactivated.", "")
@@ -234,19 +236,8 @@ You also point out security gaps that could be leveraged. You understand operati
         self.messages.append({"role": "user", "content": commandLine})
         self._trim_message_history()
 
-        try:
-            self.printInTerminal("User:", commandLine)
-            self._request_assistant_response()
-        except openai.APIConnectionError as e:
-            print(f"Server connection error: {e.__cause__}")
-        except openai.RateLimitError as e:
-            print(f"OpenAI RATE LIMIT error {e.status_code}: {e.response}")
-        except openai.APIStatusError as e:
-            print(f"OpenAI STATUS error {e.status_code}: {e.response}")
-        except openai.BadRequestError as e:
-            print(f"OpenAI BAD REQUEST error {e.status_code}: {e.response}")
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+        self.printInTerminal("User:", commandLine)
+        self._request_assistant_response()
 
         self.setCursorEditorAtEnd()
 
@@ -411,25 +402,76 @@ You also point out security gaps that could be leveraged. You understand operati
 
 
     def _request_assistant_response(self):
-        if self.awaiting_tool_result:
-            return
+        with self._response_lock:
+            if self.awaiting_tool_result:
+                return
 
-        client = self._get_openai_client()
-        if client is None:
-            return
+            if self._response_thread and self._response_thread.is_alive():
+                return
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=self.messages,
-            functions=self._function_specs(),
-            function_call="auto",
-            temperature=0.05,
-        )
+            client = self._get_openai_client()
+            if client is None:
+                self._handle_assistant_error("OPENAI_API_KEY is not set, functionality deactivated.")
+                return
 
-        message = response.choices[0].message
-        function_call = getattr(message, "function_call", None)
+            messages_snapshot = deepcopy(self.messages)
 
-        if function_call and function_call.name:
+            self._response_thread = Thread(
+                target=self._request_assistant_response_worker,
+                args=(client, messages_snapshot),
+                daemon=True,
+            )
+            self._response_thread.start()
+
+
+    def _request_assistant_response_worker(self, client, messages_snapshot):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages_snapshot,
+                functions=self._function_specs(),
+                function_call="auto",
+                temperature=0.05,
+            )
+
+            message = response.choices[0].message
+            message_dict = {
+                "role": getattr(message, "role", None),
+                "content": getattr(message, "content", None),
+            }
+
+            function_call = getattr(message, "function_call", None)
+            if function_call and getattr(function_call, "name", None):
+                message_dict["function_call"] = {
+                    "name": getattr(function_call, "name", None),
+                    "arguments": getattr(function_call, "arguments", None),
+                }
+
+            self.responseReady.emit(message_dict)
+        except openai.APIConnectionError as e:
+            error_message = f"Server connection error: {e.__cause__}"
+            self.responseError.emit(error_message)
+        except openai.RateLimitError as e:
+            error_message = f"OpenAI RATE LIMIT error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except openai.APIStatusError as e:
+            error_message = f"OpenAI STATUS error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except openai.BadRequestError as e:
+            error_message = f"OpenAI BAD REQUEST error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except Exception as e:
+            error_message = f"An unexpected error occurred: {e}"
+            self.responseError.emit(error_message)
+        finally:
+            with self._response_lock:
+                self._response_thread = None
+
+
+    def _process_assistant_response(self, message):
+        function_call = message.get("function_call") if isinstance(message, dict) else None
+
+        if function_call and function_call.get("name"):
             if self.tool_call_count >= self.max_function_calls:
                 warning = "Maximum number of tool calls reached without final response."
                 self.printInTerminal("Analysis:", warning)
@@ -440,21 +482,34 @@ You also point out security gaps that could be leveraged. You understand operati
             self._handle_function_call(message)
             return
 
-        assistant_reply = message.content
+        assistant_reply = message.get("content") if isinstance(message, dict) else None
         if assistant_reply:
             self.printInTerminal("Analysis:", assistant_reply)
             self.messages.append({"role": "assistant", "content": assistant_reply})
             self._trim_message_history()
 
 
+    def _handle_assistant_error(self, error_message):
+        if error_message:
+            self.printInTerminal("Analysis:", error_message)
+
+
     def _handle_function_call(self, message):
-        function_call = message.function_call
-        name = function_call.name
-        raw_arguments = function_call.arguments or "{}"
+        role = message.get("role") if isinstance(message, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        function_call = message.get("function_call") if isinstance(message, dict) else None
+
+        if not function_call:
+            return
+
+        name = function_call.get("name")
+        if not name:
+            return
+        raw_arguments = function_call.get("arguments") or "{}"
 
         self.messages.append({
-            "role": message.role,
-            "content": message.content,
+            "role": role,
+            "content": content,
             "function_call": {
                 "name": name,
                 "arguments": raw_arguments,
