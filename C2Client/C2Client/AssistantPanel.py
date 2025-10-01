@@ -128,6 +128,10 @@ You also point out security gaps that could be leveraged. You understand operati
 
         display_output = output_text if output_text else "[no output]"
 
+        # print(f"consoleAssistantMethod: action={action}, beaconHash={beaconHash}, listenerHash={listenerHash}, cmd={command_text}, result={display_output}")
+        # print("pending_tool_context:", self.pending_tool_context)
+        # print("awaiting_tool_result:", self.awaiting_tool_result)
+
         awaiting_result = False
         if self.awaiting_tool_result:
             if self.pending_tool_context:
@@ -137,6 +141,8 @@ You also point out security gaps that could be leveraged. You understand operati
                 )
             else:
                 awaiting_result = True
+
+        # print("awaiting_result:", awaiting_result)
 
         if awaiting_result:
             header = command_text or "[assistant command]"
@@ -173,7 +179,9 @@ You also point out security gaps that could be leveraged. You understand operati
                 self._trim_message_history()
 
             header = command_text or "[command]"
-            self.printInTerminal("Command:", header, display_output)
+            # self.printInTerminal("Command:", header, display_output)
+            
+
     def event(self, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
             self.tabPressed.emit()
@@ -242,6 +250,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
         self.setCursorEditorAtEnd()
 
+
     def _get_openai_client(self):
         if self._openai_client is not None:
             return self._openai_client
@@ -252,6 +261,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
         self._openai_client = OpenAI(api_key=api_key)
         return self._openai_client
+
 
     def _function_specs(self):
         function_spec_ls = {
@@ -367,13 +377,38 @@ You also point out security gaps that could be leveraged. You understand operati
             }
         }
 
+        function_spec_loadmodule = {
+            "name": "loadModule",
+            "description": "Loads a module DLL into the beacon's memory, extending its capabilities. Perform this call when Module not loaded error is returned.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "module_to_load": {
+                        "type": "string",
+                        "description": "the module to loaad: ls, cd, cat, pwd, tree"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "module_to_load"]
+            }
+        }
+
         return [
+            function_spec_loadmodule,
             function_spec_ls,
             function_spec_cd,
             function_spec_cat,
             function_spec_pwd,
             function_spec_tree,
         ]
+
 
     def _request_assistant_response(self):
         if self.awaiting_tool_result:
@@ -410,6 +445,7 @@ You also point out security gaps that could be leveraged. You understand operati
             self.printInTerminal("Analysis:", assistant_reply)
             self.messages.append({"role": "assistant", "content": assistant_reply})
             self._trim_message_history()
+
 
     def _handle_function_call(self, message):
         function_call = message.function_call
@@ -459,13 +495,16 @@ You also point out security gaps that could be leveraged. You understand operati
             "listener_hash": args.get("listener_hash"),
         }
 
+
     def executeCmd(self, cmd, args):
-        supported_commands = {"ls", "tree", "cd", "cat", "pwd"}
+        supported_commands = {"loadModule", "ls", "tree", "cd", "cat", "pwd"}
         if cmd not in supported_commands:
             raise ValueError(f"Unsupported command type: {cmd}")
 
         required_keys = ["beacon_hash", "listener_hash"]
-        if cmd != "pwd":
+        if cmd == "module_to_load":
+            required_keys.append("module_to_load")
+        elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             required_keys.append("path")
 
         missing = [key for key in required_keys if key not in args]
@@ -477,7 +516,10 @@ You also point out security gaps that could be leveraged. You understand operati
 
         if cmd == "pwd":
             command_line = "pwd"
-        else:
+        elif cmd == "loadModule":
+            module_to_load = args["module_to_load"]
+            command_line = f"{cmd} {module_to_load}"
+        elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             path = args["path"]
             command_line = f"{cmd} {path}"
 
