@@ -610,7 +610,7 @@ class Console(QWidget):
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             context = "Host " + self.hostname + " - Username " + self.username
-            self.consoleScriptSignal.emit("receive", "", "", context, response.cmd, response.response.decode('utf-8', 'replace'))
+            self.consoleScriptSignal.emit("receive", self.beaconHash, self.listenerHash, context, response.cmd, response.response.decode('utf-8', 'replace'))
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in response.cmd:
