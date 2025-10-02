@@ -3,6 +3,7 @@ import os
 import logging
 import importlib
 from datetime import datetime
+from copy import deepcopy
 
 from threading import Thread, Lock, Semaphore
 
@@ -11,15 +12,18 @@ from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, Q
 from PyQt6.QtWidgets import (
     QCompleter,
     QLineEdit,
-    QPlainTextEdit,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
+    QTextEdit
 )
+import markdown
 
 from .grpcClient import TeamServerApi_pb2
 
 import openai
 from openai import OpenAI
+
 
 import json
 
@@ -29,6 +33,8 @@ import json
 #
 class Assistant(QWidget):
     tabPressed = pyqtSignal()
+    responseReady = pyqtSignal(dict)
+    responseError = pyqtSignal(str)
     logFileName=""
     sem = Semaphore()
 
@@ -41,19 +47,25 @@ class Assistant(QWidget):
 
         # self.logFileName=LogFileName
 
-        self.editorOutput = QPlainTextEdit()
+        self.editorOutput = QTextBrowser()
         self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
+        # Force word wrapping
+        self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.editorOutput.setLineWrapColumnOrWidth(0)  # 0 = wrap at widget edge
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
+        self.responseReady.connect(self._process_assistant_response)
+        self.responseError.connect(self._handle_assistant_error)
+
         system_prompt = {
             "role": "system",
             "content": (
-                """You are a Red Team Operator Assistant embedded in the "Exploration" C2 framework. 
+                """You are a Red Team Operator Assistant, called Data, embedded in the "Exploration" C2 framework. 
 You operate in offensive security engagements and support operators by reasoning over command output from enumeration before getting a foothold and compromised machines and suggesting the next best actions. 
 You also point out security gaps that could be leveraged. You understand operational security (OPSEC), red teaming tactics, post-exploitation phases, and tradecraft.
 
@@ -84,6 +96,8 @@ You also point out security gaps that could be leveraged. You understand operati
         self.max_function_calls = 5
 
         self._openai_client = None
+        self._response_thread = None
+        self._response_lock = Lock()
 
 
     def nextCompletion(self):
@@ -146,7 +160,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
         if awaiting_result:
             header = command_text or "[assistant command]"
-            self.printInTerminal("Command:", header, display_output)
+            # self.printInTerminal("Command:", header, display_output)
 
             function_name = self.pending_tool_name or "unknown"
             self.messages.append({"role": "function", "name": function_name, "content": display_output})
@@ -157,18 +171,7 @@ You also point out security gaps that could be leveraged. You understand operati
             self.pending_tool_context = None
             self.tool_call_count += 1
 
-            try:
-                self._request_assistant_response()
-            except openai.APIConnectionError as e:
-                print(f"Server connection error: {e.__cause__}")
-            except openai.RateLimitError as e:
-                print(f"OpenAI RATE LIMIT error {e.status_code}: {e.response}")
-            except openai.APIStatusError as e:
-                print(f"OpenAI STATUS error {e.status_code}: {e.response}")
-            except openai.BadRequestError as e:
-                print(f"OpenAI BAD REQUEST error {e.status_code}: {e.response}")
-            except Exception as e:
-                print(f"An unexpected error occurred: {e}")
+            self._request_assistant_response()
         else:
             combined = command_text
             if output_text:
@@ -196,12 +199,12 @@ You also point out security gaps that could be leveraged. You understand operati
         self.sem.acquire()
         try:
             if header:
-                self.editorOutput.appendHtml(formater.format(header))
-                self.editorOutput.insertPlainText("\n")
+                self.editorOutput.append(formater.format(header))
             for text in (message, detail):
                 if text:
-                    self.editorOutput.insertPlainText(text)
-                    self.editorOutput.insertPlainText("\n")
+                    self.editorOutput.append(text)
+
+            self.setCursorEditorAtEnd()
         finally:
             self.sem.release()
 
@@ -219,6 +222,11 @@ You also point out security gaps that could be leveraged. You understand operati
             self.printInTerminal("Analysis:", "Waiting for previous command output before continuing.")
             return
 
+        with self._response_lock:
+            if self._response_thread and self._response_thread.is_alive():
+                self.printInTerminal("Analysis:", "Assistant is still processing the previous request.")
+                return
+
         client = self._get_openai_client()
         if client is None:
             self.printInTerminal("OPENAI_API_KEY is not set, functionality deactivated.", "")
@@ -234,19 +242,8 @@ You also point out security gaps that could be leveraged. You understand operati
         self.messages.append({"role": "user", "content": commandLine})
         self._trim_message_history()
 
-        try:
-            self.printInTerminal("User:", commandLine)
-            self._request_assistant_response()
-        except openai.APIConnectionError as e:
-            print(f"Server connection error: {e.__cause__}")
-        except openai.RateLimitError as e:
-            print(f"OpenAI RATE LIMIT error {e.status_code}: {e.response}")
-        except openai.APIStatusError as e:
-            print(f"OpenAI STATUS error {e.status_code}: {e.response}")
-        except openai.BadRequestError as e:
-            print(f"OpenAI BAD REQUEST error {e.status_code}: {e.response}")
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+        self.printInTerminal("User:", commandLine)
+        self._request_assistant_response()
 
         self.setCursorEditorAtEnd()
 
@@ -259,7 +256,7 @@ You also point out security gaps that could be leveraged. You understand operati
         if not api_key:
             return None
 
-        self._openai_client = OpenAI(api_key=api_key)
+        self._openai_client = OpenAI(api_key=api_key, http_client=openai.DefaultHttpxClient(verify=False))
         return self._openai_client
 
 
@@ -400,6 +397,255 @@ You also point out security gaps that could be leveraged. You understand operati
             }
         }
 
+        function_spec_download = {
+            "name": "download",
+            "description": (
+                "Retrieve a file from the victim's machine and save it to the operator's machine. "
+                "Large files are split into 2MB chunks and transferred over multiple check-ins."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Full path of the file on the victim machine to download"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Destination path on the operator machine where the file should be stored"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "remote_path", "local_path"]
+            }
+        }
+
+        function_spec_upload = {
+            "name": "upload",
+            "description": (
+                "Transfer a file from the operator's machine to the victim's machine, writing the data to the specified remote path."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "local_path": {
+                        "type": "string",
+                        "description": "Full path to the file on the operator machine that should be sent"
+                    },
+                    "remote_path": {
+                        "type": "string",
+                        "description": "Destination path on the victim machine where the file will be written"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "local_path", "remote_path"]
+            }
+        }
+
+        function_spec_enumerate_shares = {
+            "name": "enumerateShares",
+            "description": "List available SMB shares, optionally targeting a specific host.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "host": {
+                        "type": "string",
+                        "description": "Optional remote host to enumerate; defaults to the current machine",
+                        "default": ""
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_get_env = {
+            "name": "getEnv",
+            "description": "List environment variables available to the beacon process.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_ip_config = {
+            "name": "ipConfig",
+            "description": "Display local IP configuration details for the host running the beacon.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_kill_process = {
+            "name": "killProcess",
+            "description": "Terminate a process on the victim machine by its PID.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "pid": {
+                        "type": "integer",
+                        "description": "Process identifier to terminate"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "pid"]
+            }
+        }
+
+        function_spec_list_processes = {
+            "name": "listProcesses",
+            "description": "List running processes, including PID, name, and owner on the victim machine.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_netstat = {
+            "name": "netstat",
+            "description": "Show active network connections from the beacon host.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
+        function_spec_remove = {
+            "name": "remove",
+            "description": "Delete a file or directory recursively on the victim machine.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file or directory to remove"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "path"]
+            }
+        }
+
+        function_spec_run = {
+            "name": "run",
+            "description": (
+                "Execute a system command on the victim host and capture its stdout and stderr output."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Command line to execute on the victim machine"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash", "command"]
+            }
+        }
+
+        function_spec_whoami = {
+            "name": "whoami",
+            "description": "Print the current user context and group membership of the beacon process.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "beacon_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the beacon to execute the command on"
+                    },
+                    "listener_hash": {
+                        "type": "string",
+                        "description": "The unique hash identifying the listener at which the beacon is connected"
+                    }
+                },
+                "required": ["beacon_hash", "listener_hash"]
+            }
+        }
+
         return [
             function_spec_loadmodule,
             function_spec_ls,
@@ -407,29 +653,91 @@ You also point out security gaps that could be leveraged. You understand operati
             function_spec_cat,
             function_spec_pwd,
             function_spec_tree,
+            function_spec_download,
+            function_spec_upload,
+            function_spec_enumerate_shares,
+            function_spec_get_env,
+            function_spec_ip_config,
+            function_spec_kill_process,
+            function_spec_list_processes,
+            function_spec_netstat,
+            function_spec_remove,
+            function_spec_run,
+            function_spec_whoami,
         ]
 
 
     def _request_assistant_response(self):
-        if self.awaiting_tool_result:
-            return
+        with self._response_lock:
+            if self.awaiting_tool_result:
+                return
 
-        client = self._get_openai_client()
-        if client is None:
-            return
+            if self._response_thread and self._response_thread.is_alive():
+                return
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=self.messages,
-            functions=self._function_specs(),
-            function_call="auto",
-            temperature=0.05,
-        )
+            client = self._get_openai_client()
+            if client is None:
+                self._handle_assistant_error("OPENAI_API_KEY is not set, functionality deactivated.")
+                return
 
-        message = response.choices[0].message
-        function_call = getattr(message, "function_call", None)
+            messages_snapshot = deepcopy(self.messages)
 
-        if function_call and function_call.name:
+            self._response_thread = Thread(
+                target=self._request_assistant_response_worker,
+                args=(client, messages_snapshot),
+                daemon=True,
+            )
+            self._response_thread.start()
+
+
+    def _request_assistant_response_worker(self, client, messages_snapshot):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages_snapshot,
+                functions=self._function_specs(),
+                function_call="auto",
+                temperature=0.05,
+            )
+
+            message = response.choices[0].message
+            message_dict = {
+                "role": getattr(message, "role", None),
+                "content": getattr(message, "content", None),
+            }
+
+            function_call = getattr(message, "function_call", None)
+            if function_call and getattr(function_call, "name", None):
+                message_dict["function_call"] = {
+                    "name": getattr(function_call, "name", None),
+                    "arguments": getattr(function_call, "arguments", None),
+                }
+
+            self.responseReady.emit(message_dict)
+        except openai.APIConnectionError as e:
+            error_message = f"Server connection error: {e.__cause__}"
+            self.responseError.emit(error_message)
+        except openai.RateLimitError as e:
+            error_message = f"OpenAI RATE LIMIT error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except openai.APIStatusError as e:
+            error_message = f"OpenAI STATUS error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except openai.BadRequestError as e:
+            error_message = f"OpenAI BAD REQUEST error {e.status_code}: {e.response}"
+            self.responseError.emit(error_message)
+        except Exception as e:
+            error_message = f"An unexpected error occurred: {e}"
+            self.responseError.emit(error_message)
+        finally:
+            with self._response_lock:
+                self._response_thread = None
+
+
+    def _process_assistant_response(self, message):
+        function_call = message.get("function_call") if isinstance(message, dict) else None
+
+        if function_call and function_call.get("name"):
             if self.tool_call_count >= self.max_function_calls:
                 warning = "Maximum number of tool calls reached without final response."
                 self.printInTerminal("Analysis:", warning)
@@ -440,21 +748,65 @@ You also point out security gaps that could be leveraged. You understand operati
             self._handle_function_call(message)
             return
 
-        assistant_reply = message.content
+        assistant_reply = message.get("content") if isinstance(message, dict) else None
         if assistant_reply:
-            self.printInTerminal("Analysis:", assistant_reply)
+            self.printInTerminal("Analysis:", markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]))
             self.messages.append({"role": "assistant", "content": assistant_reply})
             self._trim_message_history()
 
 
+    def _handle_assistant_error(self, error_message):
+        if error_message:
+            self.printInTerminal("Analysis:", error_message)
+
+
+    def _quote_argument(self, value):
+        if value is None:
+            return '""'
+
+        text = str(value)
+        if not text:
+            return '""'
+
+        if text.startswith('"') and text.endswith('"') and len(text) >= 2:
+            return text
+
+        if any(ch.isspace() for ch in text) or '"' in text:
+            escaped = text.replace('"', '\\"')
+            return f'"{escaped}"'
+
+        return text
+
+
+    def format_args(self, args: dict) -> str:
+        formatted = []
+        print("format_args", args)
+        for k, v in args.items():
+            if k == "beacon_hash":
+                formatted.append(f"beaconID={v[:4]}")
+            elif k == "listener_hash":
+                formatted.append(f"listenerID={v[:4]}")
+            else:
+                formatted.append(f"{k}={v}")
+        return ", ".join(formatted)
+
+
     def _handle_function_call(self, message):
-        function_call = message.function_call
-        name = function_call.name
-        raw_arguments = function_call.arguments or "{}"
+        role = message.get("role") if isinstance(message, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        function_call = message.get("function_call") if isinstance(message, dict) else None
+
+        if not function_call:
+            return
+
+        name = function_call.get("name")
+        if not name:
+            return
+        raw_arguments = function_call.get("arguments") or "{}"
 
         self.messages.append({
-            "role": message.role,
-            "content": message.content,
+            "role": role,
+            "content": content,
             "function_call": {
                 "name": name,
                 "arguments": raw_arguments,
@@ -475,7 +827,10 @@ You also point out security gaps that could be leveraged. You understand operati
             return
 
         step_index = self.tool_call_count + 1
-        step_info = f"Step {step_index}: calling `{name}` with arguments: {args}"
+        step_info = (
+            f'Step {step_index}: calling command "{name}" '
+            f"with arguments: {self.format_args(args)}"
+        )
         self.printInTerminal("Analysis:", step_info)
 
         try:
@@ -497,15 +852,43 @@ You also point out security gaps that could be leveraged. You understand operati
 
 
     def executeCmd(self, cmd, args):
-        supported_commands = {"loadModule", "ls", "tree", "cd", "cat", "pwd"}
+        supported_commands = {
+            "loadModule",
+            "ls",
+            "tree",
+            "cd",
+            "cat",
+            "pwd",
+            "download",
+            "upload",
+            "enumerateShares",
+            "getEnv",
+            "ipConfig",
+            "killProcess",
+            "listProcesses",
+            "netstat",
+            "remove",
+            "run",
+            "whoami",
+        }
         if cmd not in supported_commands:
             raise ValueError(f"Unsupported command type: {cmd}")
 
         required_keys = ["beacon_hash", "listener_hash"]
-        if cmd == "module_to_load":
+        if cmd == "loadModule":
             required_keys.append("module_to_load")
         elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             required_keys.append("path")
+        elif cmd == "download":
+            required_keys.extend(["remote_path", "local_path"])
+        elif cmd == "upload":
+            required_keys.extend(["local_path", "remote_path"])
+        elif cmd == "killProcess":
+            required_keys.append("pid")
+        elif cmd == "remove":
+            required_keys.append("path")
+        elif cmd == "run":
+            required_keys.append("command")
 
         missing = [key for key in required_keys if key not in args]
         if missing:
@@ -521,7 +904,55 @@ You also point out security gaps that could be leveraged. You understand operati
             command_line = f"{cmd} {module_to_load}"
         elif cmd == "ls" or cmd == "cd" or cmd == "cat" or cmd == "tree":
             path = args["path"]
-            command_line = f"{cmd} {path}"
+            command_line = f"{cmd} {self._quote_argument(path)}"
+        elif cmd == "download":
+            remote_path = str(args["remote_path"])
+            local_path = str(args["local_path"])
+            if not remote_path.strip() or not local_path.strip():
+                raise ValueError("remote_path and local_path must not be empty")
+            command_line = (
+                f"download {self._quote_argument(remote_path.strip())} {self._quote_argument(local_path.strip())}"
+            )
+        elif cmd == "upload":
+            local_path = str(args["local_path"])
+            remote_path = str(args["remote_path"])
+            if not local_path.strip() or not remote_path.strip():
+                raise ValueError("local_path and remote_path must not be empty")
+            command_line = (
+                f"upload {self._quote_argument(local_path.strip())} {self._quote_argument(remote_path.strip())}"
+            )
+        elif cmd == "enumerateShares":
+            host = str(args.get("host", "")).strip()
+            if host:
+                command_line = f"enumerateShares {self._quote_argument(host)}"
+            else:
+                command_line = "enumerateShares"
+        elif cmd == "getEnv":
+            command_line = "getEnv"
+        elif cmd == "ipConfig":
+            command_line = "ipConfig"
+        elif cmd == "killProcess":
+            pid_value = args["pid"]
+            pid_str = str(pid_value).strip()
+            if not pid_str:
+                raise ValueError("pid must not be empty")
+            command_line = f"killProcess {pid_str}"
+        elif cmd == "listProcesses":
+            command_line = "ps"
+        elif cmd == "netstat":
+            command_line = "netstat"
+        elif cmd == "remove":
+            path = str(args["path"])
+            if not path.strip():
+                raise ValueError("path must not be empty")
+            command_line = f"remove {self._quote_argument(path.strip())}"
+        elif cmd == "run":
+            command = str(args["command"]).strip()
+            if not command:
+                raise ValueError("command must not be empty")
+            command_line = f"run {command}"
+        elif cmd == "whoami":
+            command_line = "whoami"
 
         command = TeamServerApi_pb2.Command(
             beaconHash=beacon_hash,

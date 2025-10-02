@@ -439,7 +439,7 @@ class ConsolesTab(QWidget):
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
         tab = QWidget()
-        self.tabs.addTab(tab, "Assistant")
+        self.tabs.addTab(tab, "Data AI")
         tab.layout = QVBoxLayout(self.tabs)
         self.assistant = Assistant(self, self.grpcClient)
         tab.layout.addWidget(self.assistant)
