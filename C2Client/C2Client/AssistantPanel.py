@@ -39,7 +39,7 @@ class Assistant(QWidget):
     sem = Semaphore()
 
     def __init__(self, parent, grpcClient):
-        super(QWidget, self).__init__(parent)
+        super().__init__(parent) 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
@@ -52,7 +52,7 @@ class Assistant(QWidget):
         self.editorOutput.setReadOnly(True)
         # Force word wrapping
         self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-        self.editorOutput.setLineWrapColumnOrWidth(0)  # 0 = wrap at widget edge
+        self.editorOutput.setLineWrapColumnOrWidth(0)
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
@@ -99,6 +99,11 @@ You also point out security gaps that could be leveraged. You understand operati
         self._response_thread = None
         self._response_lock = Lock()
 
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            self.printInTerminal("System", "OPENAI_API_KEY is not set, functionality deactivated.")
+        else:
+            self.printInTerminal("System", "To let the assistant interact with sessions, select one or multiples sessions in the Sessions tab and interact with it, otherwise the assistant will not be feed the responses.")
 
     def nextCompletion(self):
         index = self._compl.currentIndex()
@@ -194,7 +199,13 @@ You also point out security gaps that could be leveraged. You understand operati
 
     def printInTerminal(self, header="", message="", detail=""):
         now = datetime.now()
-        formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
+        formater = (
+            '<p style="white-space:pre-wrap; word-wrap:break-word;">'
+            '<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'
+            '<span style="color:red;"> [+] </span>'
+            '<span style="color:red;">{}</span>'
+            '</p>'
+        )
 
         self.sem.acquire()
         try:
