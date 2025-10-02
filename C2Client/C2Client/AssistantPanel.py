@@ -12,15 +12,18 @@ from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, Q
 from PyQt6.QtWidgets import (
     QCompleter,
     QLineEdit,
-    QPlainTextEdit,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
+    QTextEdit
 )
+import markdown
 
 from .grpcClient import TeamServerApi_pb2
 
 import openai
 from openai import OpenAI
+
 
 import json
 
@@ -44,9 +47,12 @@ class Assistant(QWidget):
 
         # self.logFileName=LogFileName
 
-        self.editorOutput = QPlainTextEdit()
+        self.editorOutput = QTextBrowser()
         self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
         self.editorOutput.setReadOnly(True)
+        # Force word wrapping
+        self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.editorOutput.setLineWrapColumnOrWidth(0)  # 0 = wrap at widget edge
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
@@ -154,7 +160,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
         if awaiting_result:
             header = command_text or "[assistant command]"
-            self.printInTerminal("Command:", header, display_output)
+            # self.printInTerminal("Command:", header, display_output)
 
             function_name = self.pending_tool_name or "unknown"
             self.messages.append({"role": "function", "name": function_name, "content": display_output})
@@ -193,12 +199,12 @@ You also point out security gaps that could be leveraged. You understand operati
         self.sem.acquire()
         try:
             if header:
-                self.editorOutput.appendHtml(formater.format(header))
-                self.editorOutput.insertPlainText("\n")
+                self.editorOutput.append(formater.format(header))
             for text in (message, detail):
                 if text:
-                    self.editorOutput.insertPlainText(text)
-                    self.editorOutput.insertPlainText("\n")
+                    self.editorOutput.append(text)
+
+            self.setCursorEditorAtEnd()
         finally:
             self.sem.release()
 
@@ -250,7 +256,7 @@ You also point out security gaps that could be leveraged. You understand operati
         if not api_key:
             return None
 
-        self._openai_client = OpenAI(api_key=api_key)
+        self._openai_client = OpenAI(api_key=api_key, http_client=openai.DefaultHttpxClient(verify=False))
         return self._openai_client
 
 
@@ -744,7 +750,7 @@ You also point out security gaps that could be leveraged. You understand operati
 
         assistant_reply = message.get("content") if isinstance(message, dict) else None
         if assistant_reply:
-            self.printInTerminal("Analysis:", assistant_reply)
+            self.printInTerminal("Analysis:", markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]))
             self.messages.append({"role": "assistant", "content": assistant_reply})
             self._trim_message_history()
 
@@ -770,6 +776,19 @@ You also point out security gaps that could be leveraged. You understand operati
             return f'"{escaped}"'
 
         return text
+
+
+    def format_args(self, args: dict) -> str:
+        formatted = []
+        print("format_args", args)
+        for k, v in args.items():
+            if k == "beacon_hash":
+                formatted.append(f"beaconID={v[:4]}")
+            elif k == "listener_hash":
+                formatted.append(f"listenerID={v[:4]}")
+            else:
+                formatted.append(f"{k}={v}")
+        return ", ".join(formatted)
 
 
     def _handle_function_call(self, message):
@@ -808,7 +827,10 @@ You also point out security gaps that could be leveraged. You understand operati
             return
 
         step_index = self.tool_call_count + 1
-        step_info = f"Step {step_index}: calling `{name}` with arguments: {args}"
+        step_info = (
+            f'Step {step_index}: calling command "{name}" '
+            f"with arguments: {self.format_args(args)}"
+        )
         self.printInTerminal("Analysis:", step_info)
 
         try:
