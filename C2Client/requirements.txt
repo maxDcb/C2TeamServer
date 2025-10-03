@@ -10,3 +10,4 @@ pefile==2024.8.26
 openai==1.102.0
 pytest==8.4.1
 pytest-qt==4.5.0
+donut-shellcode
