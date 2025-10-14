@@ -4,8 +4,9 @@ package teamserverapi;
 
 
 // Interface exported by the server.
-service TeamServerApi 
+service TeamServerApi
 {
+  rpc Authenticate(AuthRequest) returns (AuthResponse) {}
   rpc GetListeners(Empty) returns (stream Listener) {}
   rpc AddListener(Listener) returns (Response) {}
   rpc StopListener(Listener) returns (Response) {}
@@ -21,12 +22,27 @@ service TeamServerApi
 }
 
 
-message Empty 
+message Empty
 {
 }
 
 
-enum Status 
+message AuthRequest
+{
+  string username = 1;
+  string password = 2;
+}
+
+
+message AuthResponse
+{
+  Status status = 1;
+  string token = 2;
+  string message = 3;
+}
+
+
+enum Status
 {
   OK = 0;
   KO = 1;

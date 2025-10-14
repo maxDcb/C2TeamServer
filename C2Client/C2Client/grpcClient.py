@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 import uuid
-from typing import Any, Iterable, List, Tuple
+from typing import Any, Iterable, List, Tuple, Optional
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/libGrpcMessages/build/py/')
 
@@ -36,7 +36,7 @@ class GrpcClient:
         Bearer token used for authentication metadata.
     """
 
-    def __init__(self, ip: str, port: int, devMode: bool, token: str = "my-secret-token") -> None:
+    def __init__(self, ip: str, port: int, devMode: bool, token: Optional[str] = None) -> None:
         env_cert_path = os.getenv('C2_CERT_PATH')
 
         if env_cert_path and os.path.isfile(env_cert_path):
@@ -91,10 +91,35 @@ class GrpcClient:
             raise ValueError("grpcClient: unable to connect") from exc
 
         self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
+
+        if token is None:
+            username, password = self._load_credentials_from_env()
+            token = self._authenticate(username, password)
+
         self.metadata: MetadataType = [
             ("authorization", f"Bearer {token}"),
             ("clientid", str(uuid.uuid4())[:16]),
         ]
+
+    def _load_credentials_from_env(self) -> Tuple[str, str]:
+        username = os.getenv("C2_USERNAME")
+        password = os.getenv("C2_PASSWORD")
+        if not username or not password:
+            raise ValueError(
+                "grpcClient: missing C2_USERNAME or C2_PASSWORD environment variables for authentication",
+            )
+        return username, password
+
+    def _authenticate(self, username: str, password: str) -> str:
+        request = TeamServerApi_pb2.AuthRequest(username=username, password=password)
+        response = self.stub.Authenticate(request)
+        if response.status != TeamServerApi_pb2.OK or not response.token:
+            message = response.message or "unknown authentication error"
+            logging.error("Authentication failed for user %s: %s", username, message)
+            raise ValueError(f"grpcClient: authentication failed: {message}")
+
+        logging.info("Authenticated against TeamServer as %s", username)
+        return response.token
 
     def getListeners(self) -> Any:
         """Return the list of listeners registered on the TeamServer."""
