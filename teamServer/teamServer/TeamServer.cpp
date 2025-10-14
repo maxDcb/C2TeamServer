@@ -8,6 +8,7 @@
 #include <fstream>
 #include <filesystem>
 #include <unordered_map>
+#include <openssl/md5.h>
 
 using namespace std;
 using namespace std::placeholders;
@@ -57,6 +58,23 @@ inline bool port_in_use(unsigned short port)
 	return 0;
 }
 
+
+static std::string computeBufferMd5(const std::string& buffer)
+{
+    if (buffer.empty()) return "";
+
+    unsigned char result[MD5_DIGEST_LENGTH];
+    MD5_CTX ctx;
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, buffer.data(), buffer.size());
+    MD5_Final(result, &ctx);
+
+    std::ostringstream oss;
+    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i)
+        oss << std::hex << std::setw(2) << std::setfill('0') << (int)result[i];
+
+    return oss.str();
+}
 
 
 TeamServer::TeamServer(const nlohmann::json& config) 
@@ -323,6 +341,27 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 			return grpc::Status::OK;
 		}
 	}
+	else if (type == ListenerDnsType)
+	{
+		std::string domain = listenerToCreate->domain();
+		int port = listenerToCreate->port();
+
+		// 🔸 Check if a DNS listener with the same domain and port already exists
+		auto existingDns = std::find_if(
+			m_listeners.begin(),
+			m_listeners.end(),
+			[&](std::shared_ptr<Listener>& obj) {
+				return (obj->getType() == ListenerDnsType &&
+						obj->getParam1() == domain &&
+						obj->getParam2() == std::to_string(port));
+			});
+
+		if (existingDns != m_listeners.end())
+		{
+			m_logger->warn("Add listener failed: DNS listener already running on {0}:{1}", domain, std::to_string(port));
+			return grpc::Status::OK;
+		}
+	}
 	else
 	{
 		std::vector<shared_ptr<Listener>>::iterator object = 
@@ -344,7 +383,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	{
 		int localPort = listenerToCreate->port();
 		string localHost = listenerToCreate->ip();
-		std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort);
+		std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort, m_config);
 		int ret = listenerTcp->init();
 		if (ret>0)
 		{
@@ -359,12 +398,10 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 		}
 	}
 	else if (type == ListenerHttpType)
-	{
-		json configHttp = m_config["ListenerHttpConfig"];
-		
+	{		
 		int localPort = listenerToCreate->port();
 		string localHost = listenerToCreate->ip();
-		std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, configHttp, false);
+		std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, m_config, false);
 		int ret = listenerHttp->init();
 		if (ret>0)
 		{
@@ -380,11 +417,9 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	}
 	else if (type == ListenerHttpsType)
 	{
-		json configHttps = m_config["ListenerHttpsConfig"];
-
 		int localPort = listenerToCreate->port();
 		string localHost = listenerToCreate->ip();
-		std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, configHttps, true);
+		std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, m_config, true);
 		int ret = listenerHttps->init();
 		if (ret>0)
 		{
@@ -402,7 +437,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	{
 		std::string token = listenerToCreate->token();
 		std::string project = listenerToCreate->project();
-		std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token);
+		std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token, m_config);
 		listenerGithub->setIsPrimary();
 		m_listeners.push_back(std::move(listenerGithub));
 
@@ -412,7 +447,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 	{
 		std::string domain = listenerToCreate->domain();
 		int port = listenerToCreate->port();
-		std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port);
+		std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port, m_config);
 		listenerDns->setIsPrimary();
 		m_listeners.push_back(std::move(listenerDns));
 
@@ -870,6 +905,22 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
 				// Set the uuid to track the message and correlate with the response to get a clean output in the client
 				if(!c2Message.instruction().empty())
 				{
+					m_logger->info("Queued command for beacon {} → '{}'", beaconHash.substr(0, 8), input);
+
+					std::string inputFile = c2Message.inputfile();
+					const std::string& payload = c2Message.data();
+
+					if (!inputFile.empty() && !payload.empty())
+					{
+						std::string md5 = computeBufferMd5(payload);
+						m_logger->info(
+							"File attached to task: '{}' | size={} bytes | MD5={}",
+							inputFile,
+							payload.size(),
+							md5
+						);
+					}
+
 					std::string uuid = generateUUID8();
 					c2Message.set_uuid(uuid);
 					m_listeners[i]->queueTask(beaconHash, c2Message);
