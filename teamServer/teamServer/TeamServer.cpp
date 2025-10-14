@@ -2,9 +2,12 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
+#include <cctype>
 #include <functional>
 #include <fstream>
 #include <filesystem>
+#include <unordered_map>
 
 using namespace std;
 using namespace std::placeholders;
@@ -14,6 +17,38 @@ using json = nlohmann::json;
 
 
 typedef ModuleCmd* (*constructProc)();
+
+
+namespace
+{
+spdlog::level::level_enum parseLogLevel(std::string level, bool& isUnknown)
+{
+        isUnknown = false;
+
+        std::transform(level.begin(), level.end(), level.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        static const std::unordered_map<std::string, spdlog::level::level_enum> levelMap =
+        {
+                {"trace", spdlog::level::trace},
+                {"debug", spdlog::level::debug},
+                {"info", spdlog::level::info},
+                {"warn", spdlog::level::warn},
+                {"warning", spdlog::level::warn},
+                {"err", spdlog::level::err},
+                {"error", spdlog::level::err},
+                {"critical", spdlog::level::critical},
+                {"off", spdlog::level::off}
+        };
+
+        auto it = levelMap.find(level);
+        if (it != levelMap.end())
+                return it->second;
+
+        isUnknown = true;
+        return spdlog::level::info;
+}
+}
 
 
 inline bool port_in_use(unsigned short port) 
@@ -32,18 +67,32 @@ TeamServer::TeamServer(const nlohmann::json& config)
 	// Logger
 	std::vector<spdlog::sink_ptr> sinks;
 
-	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-	console_sink->set_level(spdlog::level::info);
-    sinks.push_back(console_sink);
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        sinks.push_back(console_sink);
 
-	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
-	file_sink->set_level(spdlog::level::debug);
-	sinks.push_back(file_sink);
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
+        sinks.push_back(file_sink);
+
+        std::string logLevel = "info";
+        auto logLevelIt = config.find("LogLevel");
+        if (logLevelIt != config.end() && logLevelIt->is_string())
+                logLevel = logLevelIt->get<std::string>();
+
+        bool isUnknownLogLevel = false;
+        spdlog::level::level_enum configuredLevel = parseLogLevel(logLevel, isUnknownLogLevel);
+
+        console_sink->set_level(configuredLevel);
+        file_sink->set_level(configuredLevel);
 
     m_logger = std::make_shared<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
 
-	std::string logLevel = config["LogLevel"].get<std::string>();
-	m_logger->set_level(spdlog::level::debug);
+        m_logger->set_level(configuredLevel);
+        m_logger->flush_on(spdlog::level::warn);
+
+        if (isUnknownLogLevel)
+                m_logger->warn("Unknown log level '{}' requested, defaulting to 'info'.", logLevel);
+
+        m_logger->debug("TeamServer logging initialized at {} level", spdlog::level::to_string_view(m_logger->level()));
 
 	// Config directory
 	m_teamServerModulesDirectoryPath = config["TeamServerModulesDirectoryPath"].get<std::string>();
@@ -90,15 +139,16 @@ TeamServer::TeamServer(const nlohmann::json& config)
 		m_toolsDirectoryPath,
 		m_scriptsDirectoryPath);
 
-	// Modules
-	m_logger->info("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
-	try 
+        // Modules
+        m_logger->debug("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
+        std::size_t modulesLoaded = 0;
+        try
 	{
         for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
 		{
-            if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
-			{
-				m_logger->info("Trying to load {0}", entry.path().c_str());
+            if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so")
+                        {
+                                m_logger->debug("Trying to load {0}", entry.path().c_str());
 
 				void *handle = dlopen(entry.path().c_str(), RTLD_LAZY);
 
@@ -113,7 +163,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
 				funcName = funcName.substr(0, funcName.length() - 3);	// remove .so
 				funcName += "Constructor";								// add Constructor
 
-				m_logger->info("Looking for construtor function {0}", funcName);
+                                m_logger->debug("Looking for construtor function {0}", funcName);
 
 				constructProc construct = (constructProc)dlsym(handle, funcName.c_str());
 				if(construct == NULL) 
@@ -126,26 +176,32 @@ TeamServer::TeamServer(const nlohmann::json& config)
 				ModuleCmd* moduleCmd = construct();
 
 				std::unique_ptr<ModuleCmd> moduleCmd_(moduleCmd);
-				m_moduleCmd.push_back(std::move(moduleCmd_));
+                                m_moduleCmd.push_back(std::move(moduleCmd_));
 
-				m_moduleCmd.back()->setDirectories(m_teamServerModulesDirectoryPath,
-					m_linuxModulesDirectoryPath,
-					m_windowsModulesDirectoryPath,
-					m_linuxBeaconsDirectoryPath,
-					m_windowsBeaconsDirectoryPath,
-					m_toolsDirectoryPath,
-					m_scriptsDirectoryPath);
+                                m_moduleCmd.back()->setDirectories(m_teamServerModulesDirectoryPath,
+                                        m_linuxModulesDirectoryPath,
+                                        m_windowsModulesDirectoryPath,
+                                        m_linuxBeaconsDirectoryPath,
+                                        m_windowsBeaconsDirectoryPath,
+                                        m_toolsDirectoryPath,
+                                        m_scriptsDirectoryPath);
 
-				m_logger->info("Module {0} loaded", entry.path().filename().c_str());
+                                m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
+                                modulesLoaded++;
             }
         }
     }
-	catch (const std::filesystem::filesystem_error& e) 
-	{
-		m_logger->warn("Error accessing module directory");
-    }	
+        catch (const std::filesystem::filesystem_error& e)
+        {
+                m_logger->warn("Error accessing module directory");
+    }
 
-	m_handleCmdResponseThreadRuning = true;
+        if (modulesLoaded == 0)
+                m_logger->warn("No TeamServer modules loaded from {0}", m_teamServerModulesDirectoryPath.c_str());
+        else
+                m_logger->info("Loaded {0} TeamServer module(s) from {1}", modulesLoaded, m_teamServerModulesDirectoryPath.c_str());
+
+        m_handleCmdResponseThreadRuning = true;
 	m_handleCmdResponseThread = std::make_unique<std::thread>(&TeamServer::handleCmdResponse, this); 
 }
 
@@ -389,18 +445,21 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 {
 	m_logger->trace("StopListener");
 
-	// Stop primary listener
-	std::string listenerHash=listenerToStop->listenerhash();
+        // Stop primary listener
+        std::string listenerHash=listenerToStop->listenerhash();
+        bool removedPrimary = false;
+        bool stopCommandSent = false;
 
 	std::vector<shared_ptr<Listener>>::iterator object = 
 		find_if(m_listeners.begin(), m_listeners.end(),
 				[&](shared_ptr<Listener> & obj){ return obj->getListenerHash() == listenerHash;}
 				);
 
-	if(object!=m_listeners.end())
-	{
-		m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object));
-	}
+        if(object!=m_listeners.end())
+        {
+                m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object));
+                removedPrimary = true;
+        }
 
 	// Stop listerners runing on beacon by sending a messsage to this beacon
 	for (int i = 0; i < m_listeners.size(); i++)
@@ -433,23 +492,32 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
 						}
 
 						// Set the uuid to track the message and correlate with the response to get a clean output in the client
-						if(!c2Message.instruction().empty())
-						{
-							std::string uuid = generateUUID8();
-							c2Message.set_uuid(uuid);
-							m_listeners[i]->queueTask(beaconHash, c2Message);
+                                                if(!c2Message.instruction().empty())
+                                                {
+                                                        std::string uuid = generateUUID8();
+                                                        c2Message.set_uuid(uuid);
+                                                        m_listeners[i]->queueTask(beaconHash, c2Message);
 
-							c2Message.set_cmd(input);
-							c2Message.set_data("");
-							m_sentC2Messages.push_back(std::move(c2Message));
-						}
-					}
-				}	
-			}
-		}
-	}
+                                                        c2Message.set_cmd(input);
+                                                        c2Message.set_data("");
+                                                        m_sentC2Messages.push_back(std::move(c2Message));
+                                                        stopCommandSent = true;
+                                                }
+                                        }
+                                }
+                        }
+                }
+        }
 
-	m_logger->trace("StopListener End");
+        if (removedPrimary || stopCommandSent)
+                m_logger->info("StopListener completed for {0} (primary removed: {1}, stop commands sent: {2})",
+                        listenerHash,
+                        removedPrimary ? "yes" : "no",
+                        stopCommandSent ? "yes" : "no");
+        else
+                m_logger->warn("StopListener request ignored: listener {0} not found", listenerHash);
+
+        m_logger->trace("StopListener End");
 
 	return grpc::Status::OK;
 }
@@ -565,18 +633,21 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
 					response->set_status(teamserverapi::KO);
 				}
 
-				if(!c2Message.instruction().empty())
-				{
-					m_listeners[i]->queueTask(beaconHash, c2Message);
-					m_listeners[i]->markSessionKilled(beaconHash);
-				}
+                                if(!c2Message.instruction().empty())
+                                {
+                                        m_listeners[i]->queueTask(beaconHash, c2Message);
+                                        m_listeners[i]->markSessionKilled(beaconHash);
+                                        m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
+                                }
 
-				return grpc::Status::OK;
-			}
-		}
-	}
+                                return grpc::Status::OK;
+                        }
+                }
+        }
 
-	m_logger->trace("StopSession end");
+        m_logger->warn("StopSession request ignored: session {0} on listener {1} not found", beaconHash, listenerHash);
+
+        m_logger->trace("StopSession end");
 
 	return grpc::Status::OK;
 }
@@ -1180,7 +1251,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	string instruction = splitedCmd[0];
 	if(instruction==InfoListenerInstruction)
 	{
-		m_logger->info("infoListener {0}", cmd);
+                m_logger->debug("infoListener {0}", cmd);
 
 		if(splitedCmd.size()==2)
 		{
@@ -1250,7 +1321,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 					else if(!ip.empty())
 						finalDomain=ip;
 
-					m_logger->info("infoListener found in primary listeners {0} {1} {2}", type, finalDomain, port);
+                                        m_logger->debug("infoListener found in primary listeners {0} {1} {2}", type, finalDomain, port);
 
 					std::string result=type;
 					result+="\n";
@@ -1286,7 +1357,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 									std::string param1 = it->getParam1();
 									std::string param2 = it->getParam2();
 
-									m_logger->info("infoListener found in beacon listener {0} {1} {2}", type, param1, param2);
+                                                                        m_logger->debug("infoListener found in beacon listener {0} {1} {2}", type, param1, param2);
 									
 									std::string result=type;
 									result+="\n";
@@ -1322,7 +1393,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	}
 	else if(instruction==GetBeaconBinaryInstruction)
 	{
-		m_logger->info("getBeaconBinary {0}", cmd);
+                m_logger->debug("getBeaconBinary {0}", cmd);
 
 		if(splitedCmd.size()==2 || splitedCmd.size()==3)
 		{
@@ -1502,7 +1573,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	}
 	else if(instruction==PutIntoUploadDirInstruction)
 	{
-		m_logger->info("putIntoUploadDir {0}", cmd);
+                m_logger->debug("putIntoUploadDir {0}", cmd);
 
 		if(splitedCmd.size()==3)
 		{
@@ -1552,28 +1623,31 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 				}
 			}
 
-			if(!downloadFolder.empty())
-			{
-				std::string filePath = downloadFolder;
-				filePath+="/";
-				filePath+=filename;
+                        if(!downloadFolder.empty())
+                        {
+                                std::string filePath = downloadFolder;
+                                filePath+="/";
+                                filePath+=filename;
 
-				ofstream outputFile(filePath, ios::out | ios::binary);
-				if (outputFile.good()) 
-				{
-					outputFile << data;
-					outputFile.close();
-					responseTmp.set_result("ok");
-				}
-				else
-				{
-					responseTmp.set_result("Error: Cannot write file.");
-				}
-			}
-			else
-			{
-				responseTmp.set_result("Error: Listener don't have a download folder.");
-			}
+                                ofstream outputFile(filePath, ios::out | ios::binary);
+                                if (outputFile.good())
+                                {
+                                        outputFile << data;
+                                        outputFile.close();
+                                        responseTmp.set_result("ok");
+                                        m_logger->info("Stored uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
+                                }
+                                else
+                                {
+                                        responseTmp.set_result("Error: Cannot write file.");
+                                        m_logger->warn("Failed to store uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
+                                }
+                        }
+                        else
+                        {
+                                responseTmp.set_result("Error: Listener don't have a download folder.");
+                                m_logger->warn("Listener {0} has no download folder configured; unable to store {1}", listenerHash, filename);
+                        }
 		}
 		else
 		{
@@ -1584,11 +1658,11 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 	}
 	else if(instruction==BatcaveInstruction)
 	{
-		m_logger->info("batcaveUpload {0}", cmd);
-		if(splitedCmd.size()==2)
-		{
-			std::string filename = splitedCmd[1];
-			m_logger->info("batcaveUpload {0}", filename);
+                m_logger->debug("batcaveUpload {0}", cmd);
+                if(splitedCmd.size()==2)
+                {
+                        std::string filename = splitedCmd[1];
+                        m_logger->debug("batcaveUpload {0}", filename);
 			if (filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") != std::string::npos)
 			{
 				responseTmp.set_result("Error: filename not allowed.");
@@ -1600,53 +1674,57 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 			filePath+="/";
 			filePath+=filename;
 
-			ofstream outputFile(filePath, ios::out | ios::binary);
-			if (outputFile.good()) 
-			{
-				outputFile << data;
-				outputFile.close();
-				responseTmp.set_result("ok");
-			}
-			else
-			{
-				responseTmp.set_result("Error: Cannot write file.");
-			}
+                        ofstream outputFile(filePath, ios::out | ios::binary);
+                        if (outputFile.good())
+                        {
+                                outputFile << data;
+                                outputFile.close();
+                                responseTmp.set_result("ok");
+                                m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath);
+                        }
+                        else
+                        {
+                                responseTmp.set_result("Error: Cannot write file.");
+                                m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath);
+                        }
 			return grpc::Status::OK;
 		}
 	}
 	// TODO handle some sort of backup
-	else if(instruction==AddCredentialInstruction) 
-	{
-		m_logger->info("AddCredentials {0}", cmd);
+        else if(instruction==AddCredentialInstruction)
+        {
+                m_logger->debug("AddCredentials command received");
 
-		std::string data = command->data();
-        json cred = json::parse(data);
-        m_credentials.push_back(cred);
-		responseTmp.set_result("ok");
-		return grpc::Status::OK;
+                std::string data = command->data();
+                json cred = json::parse(data);
+                m_credentials.push_back(cred);
+                m_logger->info("Stored credential entry. Total credentials: {0}", m_credentials.size());
+                responseTmp.set_result("ok");
+                return grpc::Status::OK;
     }
-	else if(instruction==GetCredentialInstruction) 
-	{
-		m_logger->info("GetCredentials {0}", cmd);
-    
-		responseTmp.set_result(m_credentials.dump());
-		*response = responseTmp;
-		return grpc::Status::OK;
+        else if(instruction==GetCredentialInstruction)
+        {
+                m_logger->debug("GetCredentials command received");
+
+                responseTmp.set_result(m_credentials.dump());
+                *response = responseTmp;
+                return grpc::Status::OK;
     }
 	// TODO
 	else if(instruction==ReloadModulesInstruction)
 	{
 		m_logger->info("Reloading TeamServer modules from directory: {0}", m_teamServerModulesDirectoryPath.c_str());
 
-		// Clear previously loaded modules
-			m_moduleCmd.clear();
+                // Clear previously loaded modules
+                        m_moduleCmd.clear();
+                        std::size_t reloadedModules = 0;
 
-			try {
+                        try {
 				for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
 				{
-					if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so") 
-					{
-						m_logger->info("Trying to load {0}", entry.path().c_str());
+                                        if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so")
+                                        {
+                                                m_logger->debug("Trying to load {0}", entry.path().c_str());
 
 						void* handle = dlopen(entry.path().c_str(), RTLD_LAZY);
 						if (!handle) 
@@ -1661,7 +1739,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 						funcName = funcName.substr(0, funcName.length() - 3);	// remove .so
 						funcName += "Constructor";								// add Constructor
 
-						m_logger->info("Looking for constructor function: {0}", funcName);
+                                                m_logger->debug("Looking for constructor function: {0}", funcName);
 
 						constructProc construct = (constructProc)dlsym(handle, funcName.c_str());
 						if (!construct) {
@@ -1689,19 +1767,25 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 							m_scriptsDirectoryPath
 						);
 
-						m_logger->info("Module {0} loaded", entry.path().filename().c_str());
-						m_moduleCmd.push_back(std::move(moduleCmdPtr));
+                                                m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
+                                                m_moduleCmd.push_back(std::move(moduleCmdPtr));
+                                                reloadedModules++;
 					}
 				}
-			} 
-			catch (const std::filesystem::filesystem_error& e) 
-			{
-				m_logger->warn("Error accessing module directory: {0}", e.what());
-			}
-	}
-	else if(instruction == SocksInstruction_)
-	{
-		m_logger->info("socks {0}", cmd);
+                        }
+                        catch (const std::filesystem::filesystem_error& e)
+                        {
+                                m_logger->warn("Error accessing module directory: {0}", e.what());
+                        }
+
+                        if (reloadedModules == 0)
+                                m_logger->warn("No TeamServer modules loaded from {0}", m_teamServerModulesDirectoryPath.c_str());
+                        else
+                                m_logger->info("Reloaded {0} TeamServer module(s) from {1}", reloadedModules, m_teamServerModulesDirectoryPath.c_str());
+        }
+        else if(instruction == SocksInstruction_)
+        {
+                m_logger->debug("socks {0}", cmd);
 		if(splitedCmd.size()>=2)
 		{
 			std::string cmd = splitedCmd[1];
@@ -1733,7 +1817,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 							m_socksServer->stop();
 							m_socksServer->launch();
 							std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-							m_logger->info("Wait for SocksServer to start on port {}", port);
+                                                        m_logger->debug("Wait for SocksServer to start on port {}", port);
 							attempts++;
 							if(attempts>maxAttempt)
 							{
@@ -1825,7 +1909,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
 						}
 					}
 
-					m_logger->info("Error: Socks server bind failed, session not found");
+                                        m_logger->warn("Error: Socks server bind failed, session not found");
 					responseTmp.set_result("Error: Socks server bind failed, session not found");
 					*response = responseTmp;
 					return grpc::Status::OK;
@@ -1920,7 +2004,7 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 					}
 					else
 					{
-						m_logger->info("Translate instruction to module name to load in {0}", m_teamServerModulesDirectoryPath.c_str());
+                                                m_logger->debug("Translate instruction to module name to load in {0}", m_teamServerModulesDirectoryPath.c_str());
 						try 
 						{
 							for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath)) 
@@ -1944,7 +2028,7 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
 											splitedCmd[1] = entry.path().filename();
 										}
 
-										m_logger->info("Found module to load {0}", splitedCmd[1]);
+                                                                                m_logger->debug("Found module to load {0}", splitedCmd[1]);
 									}
 								}
 							}
@@ -2002,16 +2086,13 @@ int main(int argc, char* argv[])
 	//
 	std::vector<spdlog::sink_ptr> sinks;
 
-	auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-	console_sink->set_level(spdlog::level::info);
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
     sinks.push_back(console_sink);
 
-	auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
-	file_sink->set_level(spdlog::level::debug);
-	sinks.push_back(file_sink);
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024*1024*10, 3);
+        sinks.push_back(file_sink);
 
-   	std::unique_ptr logger = std::make_unique<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
-	logger->set_level(spdlog::level::debug);
+        std::unique_ptr logger = std::make_unique<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
 
 	//
 	// TeamServer Config
@@ -2036,7 +2117,25 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-	std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
+        std::string logLevel = "info";
+        auto logLevelIt = config.find("LogLevel");
+        if (logLevelIt != config.end() && logLevelIt->is_string())
+                logLevel = logLevelIt->get<std::string>();
+
+        bool isUnknownLogLevel = false;
+        spdlog::level::level_enum configuredLevel = parseLogLevel(logLevel, isUnknownLogLevel);
+
+        console_sink->set_level(configuredLevel);
+        file_sink->set_level(configuredLevel);
+        logger->set_level(configuredLevel);
+        logger->flush_on(spdlog::level::warn);
+
+        if (isUnknownLogLevel)
+                logger->warn("Unknown log level '{}' requested, defaulting to 'info'.", logLevel);
+
+        logger->info("TeamServer logging initialized at {} level", spdlog::level::to_string_view(logger->level()));
+
+        std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
 	std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
 	std::string serverAddress = serverGRPCAdd;
 	serverAddress += ':';
