@@ -1,6 +1,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <chrono>
+#include <string>
 
 #include "listener/ListenerTcp.hpp"
 #include "listener/ListenerHttp.hpp"
@@ -58,6 +59,7 @@ protected:
 private:
     grpc::Status ensureAuthenticated(grpc::ServerContext* context);
     std::string generateToken() const;
+    std::string hashPassword(const std::string& password) const;
     void cleanupExpiredTokens();
 
     nlohmann::json m_config;
@@ -96,8 +98,7 @@ private:
     std::vector<C2Message> m_sentC2Messages;
 
     std::string m_authCredentialsFile;
-    std::string m_expectedUsername;
-    std::string m_expectedPassword;
+    std::unordered_map<std::string, std::string> m_userPasswordHashes;
     bool m_authEnabled;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
     std::chrono::minutes m_tokenValidityDuration;

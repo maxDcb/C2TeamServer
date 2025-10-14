@@ -9,7 +9,10 @@
 #include <filesystem>
 #include <unordered_map>
 #include <random>
+#include <sstream>
+#include <iomanip>
 #include <openssl/md5.h>
+#include <openssl/sha.h>
 
 using namespace std;
 using namespace std::placeholders;
@@ -97,6 +100,25 @@ std::string TeamServer::generateToken() const
 }
 
 
+std::string TeamServer::hashPassword(const std::string& password) const
+{
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256_CTX ctx;
+
+        SHA256_Init(&ctx);
+        SHA256_Update(&ctx, reinterpret_cast<const unsigned char*>(password.data()), password.size());
+        SHA256_Final(hash, &ctx);
+
+        std::ostringstream oss;
+        for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
+        {
+                oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+        }
+
+        return oss.str();
+}
+
+
 void TeamServer::cleanupExpiredTokens()
 {
         if (!m_authEnabled)
@@ -168,8 +190,6 @@ TeamServer::TeamServer(const nlohmann::json& config)
 , m_isSocksServerRunning(false)
 , m_isSocksServerBinded(false)
 , m_authCredentialsFile("")
-, m_expectedUsername("")
-, m_expectedPassword("")
 , m_authEnabled(false)
 , m_tokenValidityDuration(std::chrono::minutes(60))
 {
@@ -222,22 +242,94 @@ TeamServer::TeamServer(const nlohmann::json& config)
                         try
                         {
                                 json authConfig = json::parse(authFile);
-                                m_expectedUsername = authConfig.value("username", std::string());
-                                m_expectedPassword = authConfig.value("password", std::string());
                                 int ttlMinutes = authConfig.value("token_ttl_minutes", static_cast<int>(m_tokenValidityDuration.count()));
                                 if (ttlMinutes > 0)
                                 {
                                         m_tokenValidityDuration = std::chrono::minutes(ttlMinutes);
                                 }
 
-                                if (!m_expectedUsername.empty() && !m_expectedPassword.empty())
+                                auto normalizeHash = [](std::string hash) {
+                                        std::transform(hash.begin(), hash.end(), hash.begin(), [](unsigned char c) {
+                                                return static_cast<char>(std::tolower(c));
+                                        });
+                                        return hash;
+                                };
+
+                                m_userPasswordHashes.clear();
+
+                                auto usersIt = authConfig.find("users");
+                                if (usersIt != authConfig.end())
                                 {
-                                        m_authEnabled = true;
-                                        m_logger->info("Authentication enabled using credentials file: {0}", m_authCredentialsFile);
+                                        if (!usersIt->is_array())
+                                        {
+                                                m_logger->error("Authentication credential file {0} has a 'users' entry that is not an array.", m_authCredentialsFile);
+                                        }
+                                        else
+                                        {
+                                                for (const auto& userEntry : *usersIt)
+                                                {
+                                                        if (!userEntry.is_object())
+                                                        {
+                                                                m_logger->warn("Skipping malformed user entry in {0}; expected an object.", m_authCredentialsFile);
+                                                                continue;
+                                                        }
+
+                                                        std::string username = userEntry.value("username", std::string());
+                                                        if (username.empty())
+                                                        {
+                                                                m_logger->warn("Skipping user entry with missing username in {0}.", m_authCredentialsFile);
+                                                                continue;
+                                                        }
+
+                                                        std::string passwordHash = normalizeHash(userEntry.value("password_hash", std::string()));
+                                                        if (passwordHash.empty())
+                                                        {
+                                                                std::string plaintextPassword = userEntry.value("password", std::string());
+                                                                if (!plaintextPassword.empty())
+                                                                {
+                                                                        m_logger->warn("User '{0}' in credentials file provides a plaintext password; hashing at startup but please update the file to store 'password_hash'.", username);
+                                                                        passwordHash = hashPassword(plaintextPassword);
+                                                                }
+                                                        }
+
+                                                        if (passwordHash.empty())
+                                                        {
+                                                                m_logger->warn("Skipping user '{0}' in {1} due to missing password hash.", username, m_authCredentialsFile);
+                                                                continue;
+                                                        }
+
+                                                        m_userPasswordHashes[username] = passwordHash;
+                                                }
+                                        }
                                 }
                                 else
                                 {
-                                        m_logger->error("Authentication credential file {0} is missing username or password entries.", m_authCredentialsFile);
+                                        std::string username = authConfig.value("username", std::string());
+                                        std::string passwordHash = normalizeHash(authConfig.value("password_hash", std::string()));
+                                        if (passwordHash.empty())
+                                        {
+                                                std::string plaintextPassword = authConfig.value("password", std::string());
+                                                if (!plaintextPassword.empty())
+                                                {
+                                                        m_logger->warn("Legacy credentials format detected in {0}; hashing plaintext password but please migrate to 'users' array with hashed passwords.", m_authCredentialsFile);
+                                                        passwordHash = hashPassword(plaintextPassword);
+                                                }
+                                        }
+
+                                        if (!username.empty() && !passwordHash.empty())
+                                        {
+                                                m_userPasswordHashes[username] = passwordHash;
+                                        }
+                                }
+
+                                if (!m_userPasswordHashes.empty())
+                                {
+                                        m_authEnabled = true;
+                                        m_logger->info("Authentication enabled for {0} user(s) using credentials file: {1}", m_userPasswordHashes.size(), m_authCredentialsFile);
+                                }
+                                else
+                                {
+                                        m_logger->error("Authentication credential file {0} does not contain any valid user credentials.", m_authCredentialsFile);
                                 }
                         }
                         catch (const std::exception& ex)
@@ -385,11 +477,21 @@ grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamse
         const std::string& username = request->username();
         const std::string& password = request->password();
 
-        if (username != m_expectedUsername || password != m_expectedPassword)
+        auto userIt = m_userPasswordHashes.find(username);
+        if (userIt == m_userPasswordHashes.end())
         {
                 response->set_status(teamserverapi::KO);
                 response->set_message("Invalid credentials");
-                m_logger->warn("Authentication failed for user '{}'", username);
+                m_logger->warn("Authentication failed for unknown user '{}'", username);
+                return grpc::Status::OK;
+        }
+
+        std::string providedHash = hashPassword(password);
+        if (providedHash != userIt->second)
+        {
+                response->set_status(teamserverapi::KO);
+                response->set_message("Invalid credentials");
+                m_logger->warn("Authentication failed due to incorrect password for user '{}'", username);
                 return grpc::Status::OK;
         }
 
