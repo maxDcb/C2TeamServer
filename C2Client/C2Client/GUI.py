@@ -1,16 +1,22 @@
 import argparse
 import logging
+import os
 import signal
 import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
+    QDialogButtonBox,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMainWindow,
     QPushButton,
     QTabWidget,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -27,18 +33,75 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
 
+class CredentialDialog(QDialog):
+    """Prompt for credentials when environment variables are absent."""
+
+    def __init__(self, parent: Optional[QWidget] = None, default_username: str = "") -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Login")
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        description = QLabel("Login:")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        self.username_input = QLineEdit(self)
+        self.username_input.setPlaceholderText("Username")
+        if default_username:
+            self.username_input.setText(default_username)
+        layout.addWidget(self.username_input)
+
+        self.password_input = QLineEdit(self)
+        self.password_input.setPlaceholderText("Password")
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(self.password_input)
+
+        self.error_label = QLabel("Username and password are required.")
+        self.error_label.setStyleSheet("color: red;")
+        self.error_label.setVisible(False)
+        layout.addWidget(self.error_label)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._handle_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _handle_accept(self) -> None:
+        username = self.username_input.text().strip()
+        password = self.password_input.text()
+        if not username or not password:
+            self.error_label.setVisible(True)
+            return
+        self.accept()
+
+    def credentials(self) -> Tuple[str, str]:
+        return self.username_input.text().strip(), self.password_input.text()
+
+
 class App(QMainWindow):
     """Main application window for the C2 client."""
 
-    def __init__(self, ip: str, port: int, devMode: bool) -> None:
+    def __init__(self, ip: str, port: int, devMode: bool, credentials: Optional[Tuple[str, str]] = None) -> None:
         super().__init__()
 
         self.ip = ip
         self.port = port
         self.devMode = devMode
 
+        username: Optional[str] = None
+        password: Optional[str] = None
+        if credentials:
+            username, password = credentials
+
         try:
-            self.grpcClient = GrpcClient(self.ip, self.port, self.devMode)
+            self.grpcClient = GrpcClient(
+                self.ip,
+                self.port,
+                self.devMode,
+                username=username,
+                password=password,
+            )
         except ValueError as e:
             raise e
 
@@ -136,8 +199,20 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setStyleSheet(qdarktheme.load_stylesheet())
 
+    username = os.getenv("C2_USERNAME")
+    password = os.getenv("C2_PASSWORD")
+
+    credentials: Optional[Tuple[str, str]] = None
+    if username and password:
+        credentials = (username, password)
+    else:
+        dialog = CredentialDialog(default_username=username or "")
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            sys.exit(1)
+        credentials = dialog.credentials()
+
     try:
-        window = App(args.ip, args.port, args.dev)
+        window = App(args.ip, args.port, args.dev, credentials)
         window.show()
         sys.exit(app.exec())
     except ValueError:

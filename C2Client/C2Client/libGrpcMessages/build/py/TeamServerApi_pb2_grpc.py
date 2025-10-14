@@ -15,6 +15,11 @@ class TeamServerApiStub(object):
         Args:
             channel: A grpc.Channel.
         """
+        self.Authenticate = channel.unary_unary(
+                '/teamserverapi.TeamServerApi/Authenticate',
+                request_serializer=TeamServerApi__pb2.AuthRequest.SerializeToString,
+                response_deserializer=TeamServerApi__pb2.AuthResponse.FromString,
+                _registered_method=True)
         self.GetListeners = channel.unary_stream(
                 '/teamserverapi.TeamServerApi/GetListeners',
                 request_serializer=TeamServerApi__pb2.Empty.SerializeToString,
@@ -65,6 +70,12 @@ class TeamServerApiStub(object):
 class TeamServerApiServicer(object):
     """Interface exported by the server.
     """
+
+    def Authenticate(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
 
     def GetListeners(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -123,6 +134,11 @@ class TeamServerApiServicer(object):
 
 def add_TeamServerApiServicer_to_server(servicer, server):
     rpc_method_handlers = {
+            'Authenticate': grpc.unary_unary_rpc_method_handler(
+                    servicer.Authenticate,
+                    request_deserializer=TeamServerApi__pb2.AuthRequest.FromString,
+                    response_serializer=TeamServerApi__pb2.AuthResponse.SerializeToString,
+            ),
             'GetListeners': grpc.unary_stream_rpc_method_handler(
                     servicer.GetListeners,
                     request_deserializer=TeamServerApi__pb2.Empty.FromString,
@@ -179,6 +195,33 @@ def add_TeamServerApiServicer_to_server(servicer, server):
 class TeamServerApi(object):
     """Interface exported by the server.
     """
+
+    @staticmethod
+    def Authenticate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/teamserverapi.TeamServerApi/Authenticate',
+            TeamServerApi__pb2.AuthRequest.SerializeToString,
+            TeamServerApi__pb2.AuthResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
 
     @staticmethod
     def GetListeners(request,

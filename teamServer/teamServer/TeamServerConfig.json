@@ -17,6 +17,7 @@
     "ServCrtFile": "server.crt",
     "ServKeyFile": "server.key",
     "RootCA": "rootCA.crt",
+    "AuthCredentialsFile": "auth_credentials.json",
     "xorKey": "dfsdgferhzdzxczevre5595485sdg",
     "ListenerHttpConfig": {
         "uri": [
