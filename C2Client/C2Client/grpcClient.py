@@ -34,9 +34,21 @@ class GrpcClient:
         If ``True`` the SSL hostname check is disabled.
     token:
         Bearer token used for authentication metadata.
+    username:
+        Username to authenticate with. If omitted, environment variables are used.
+    password:
+        Password to authenticate with. If omitted, environment variables are used.
     """
 
-    def __init__(self, ip: str, port: int, devMode: bool, token: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        ip: str,
+        port: int,
+        devMode: bool,
+        token: Optional[str] = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> None:
         env_cert_path = os.getenv('C2_CERT_PATH')
 
         if env_cert_path and os.path.isfile(env_cert_path):
@@ -93,7 +105,8 @@ class GrpcClient:
         self.stub = TeamServerApi_pb2_grpc.TeamServerApiStub(self.channel)
 
         if token is None:
-            username, password = self._load_credentials_from_env()
+            if username is None or password is None:
+                username, password = self._load_credentials_from_env()
             token = self._authenticate(username, password)
 
         self.metadata: MetadataType = [
