@@ -38,11 +38,11 @@ class CredentialDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None, default_username: str = "") -> None:
         super().__init__(parent)
-        self.setWindowTitle("Authentication Required")
+        self.setWindowTitle("Login")
         self.setModal(True)
 
         layout = QVBoxLayout(self)
-        description = QLabel("Enter the credentials to connect to the TeamServer.")
+        description = QLabel("Login:")
         description.setWordWrap(True)
         layout.addWidget(description)
 
