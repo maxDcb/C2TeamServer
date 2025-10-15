@@ -24,29 +24,33 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13TeamServerApi.proto\x12\rteamserverapi\"\x07\n\x05\x45mpty\"B\n\x08Response\x12%\n\x06status\x18\x01 \x01(\x0e\x32\x15.teamserverapi.Status\x12\x0f\n\x07message\x18\x02 \x01(\x0c\"\xa5\x01\n\x08Listener\x12\x14\n\x0clistenerHash\x18\x01 \x01(\t\x12\x0c\n\x04type\x18\x02 \x01(\t\x12\x0c\n\x04port\x18\x03 \x01(\x05\x12\n\n\x02ip\x18\x04 \x01(\t\x12\x0f\n\x07project\x18\x06 \x01(\t\x12\r\n\x05token\x18\x07 \x01(\t\x12\x0e\n\x06\x64omain\x18\x08 \x01(\t\x12\x17\n\x0fnumberOfSession\x18\x05 \x01(\x05\x12\x12\n\nbeaconHash\x18\t \x01(\t\"\xf4\x01\n\x07Session\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x14\n\x0clistenerHash\x18\x02 \x01(\t\x12\x10\n\x08hostname\x18\x03 \x01(\t\x12\x10\n\x08username\x18\x04 \x01(\t\x12\x0c\n\x04\x61rch\x18\x05 \x01(\t\x12\x11\n\tprivilege\x18\x06 \x01(\t\x12\n\n\x02os\x18\x07 \x01(\t\x12\x17\n\x0flastProofOfLife\x18\x08 \x01(\t\x12\x0e\n\x06killed\x18\t \x01(\x08\x12\x13\n\x0binternalIps\x18\n \x01(\t\x12\x11\n\tprocessId\x18\x0b \x01(\t\x12\x1d\n\x15\x61\x64\x64itionalInformation\x18\x0c \x01(\t\"@\n\x07\x43ommand\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x14\n\x0clistenerHash\x18\x02 \x01(\t\x12\x0b\n\x03\x63md\x18\x03 \x01(\t\"Y\n\x0f\x43ommandResponse\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x13\n\x0binstruction\x18\x02 \x01(\t\x12\x0b\n\x03\x63md\x18\x03 \x01(\t\x12\x10\n\x08response\x18\x04 \x01(\x0c\"8\n\x0bTermCommand\x12\x0b\n\x03\x63md\x18\x01 \x01(\t\x12\x0e\n\x06result\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c*\x18\n\x06Status\x12\x06\n\x02OK\x10\x00\x12\x06\n\x02KO\x10\x01\x32\x87\x05\n\rTeamServerApi\x12\x41\n\x0cGetListeners\x12\x14.teamserverapi.Empty\x1a\x17.teamserverapi.Listener\"\x00\x30\x01\x12\x41\n\x0b\x41\x64\x64Listener\x12\x17.teamserverapi.Listener\x1a\x17.teamserverapi.Response\"\x00\x12\x42\n\x0cStopListener\x12\x17.teamserverapi.Listener\x1a\x17.teamserverapi.Response\"\x00\x12?\n\x0bGetSessions\x12\x14.teamserverapi.Empty\x1a\x16.teamserverapi.Session\"\x00\x30\x01\x12@\n\x0bStopSession\x12\x16.teamserverapi.Session\x1a\x17.teamserverapi.Response\"\x00\x12\x43\n\x07GetHelp\x12\x16.teamserverapi.Command\x1a\x1e.teamserverapi.CommandResponse\"\x00\x12\x45\n\x10SendCmdToSession\x12\x16.teamserverapi.Command\x1a\x17.teamserverapi.Response\"\x00\x12T\n\x16GetResponseFromSession\x12\x16.teamserverapi.Session\x1a\x1e.teamserverapi.CommandResponse\"\x00\x30\x01\x12G\n\x0bSendTermCmd\x12\x1a.teamserverapi.TermCommand\x1a\x1a.teamserverapi.TermCommand\"\x00\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x13TeamServerApi.proto\x12\rteamserverapi\"\x07\n\x05\x45mpty\"1\n\x0b\x41uthRequest\x12\x10\n\x08username\x18\x01 \x01(\t\x12\x10\n\x08password\x18\x02 \x01(\t\"U\n\x0c\x41uthResponse\x12%\n\x06status\x18\x01 \x01(\x0e\x32\x15.teamserverapi.Status\x12\r\n\x05token\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\"B\n\x08Response\x12%\n\x06status\x18\x01 \x01(\x0e\x32\x15.teamserverapi.Status\x12\x0f\n\x07message\x18\x02 \x01(\x0c\"\xa5\x01\n\x08Listener\x12\x14\n\x0clistenerHash\x18\x01 \x01(\t\x12\x0c\n\x04type\x18\x02 \x01(\t\x12\x0c\n\x04port\x18\x03 \x01(\x05\x12\n\n\x02ip\x18\x04 \x01(\t\x12\x0f\n\x07project\x18\x06 \x01(\t\x12\r\n\x05token\x18\x07 \x01(\t\x12\x0e\n\x06\x64omain\x18\x08 \x01(\t\x12\x17\n\x0fnumberOfSession\x18\x05 \x01(\x05\x12\x12\n\nbeaconHash\x18\t \x01(\t\"\xf4\x01\n\x07Session\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x14\n\x0clistenerHash\x18\x02 \x01(\t\x12\x10\n\x08hostname\x18\x03 \x01(\t\x12\x10\n\x08username\x18\x04 \x01(\t\x12\x0c\n\x04\x61rch\x18\x05 \x01(\t\x12\x11\n\tprivilege\x18\x06 \x01(\t\x12\n\n\x02os\x18\x07 \x01(\t\x12\x17\n\x0flastProofOfLife\x18\x08 \x01(\t\x12\x0e\n\x06killed\x18\t \x01(\x08\x12\x13\n\x0binternalIps\x18\n \x01(\t\x12\x11\n\tprocessId\x18\x0b \x01(\t\x12\x1d\n\x15\x61\x64\x64itionalInformation\x18\x0c \x01(\t\"@\n\x07\x43ommand\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x14\n\x0clistenerHash\x18\x02 \x01(\t\x12\x0b\n\x03\x63md\x18\x03 \x01(\t\"Y\n\x0f\x43ommandResponse\x12\x12\n\nbeaconHash\x18\x01 \x01(\t\x12\x13\n\x0binstruction\x18\x02 \x01(\t\x12\x0b\n\x03\x63md\x18\x03 \x01(\t\x12\x10\n\x08response\x18\x04 \x01(\x0c\"8\n\x0bTermCommand\x12\x0b\n\x03\x63md\x18\x01 \x01(\t\x12\x0e\n\x06result\x18\x02 \x01(\t\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c*\x18\n\x06Status\x12\x06\n\x02OK\x10\x00\x12\x06\n\x02KO\x10\x01\x32\xd2\x05\n\rTeamServerApi\x12I\n\x0c\x41uthenticate\x12\x1a.teamserverapi.AuthRequest\x1a\x1b.teamserverapi.AuthResponse\"\x00\x12\x41\n\x0cGetListeners\x12\x14.teamserverapi.Empty\x1a\x17.teamserverapi.Listener\"\x00\x30\x01\x12\x41\n\x0b\x41\x64\x64Listener\x12\x17.teamserverapi.Listener\x1a\x17.teamserverapi.Response\"\x00\x12\x42\n\x0cStopListener\x12\x17.teamserverapi.Listener\x1a\x17.teamserverapi.Response\"\x00\x12?\n\x0bGetSessions\x12\x14.teamserverapi.Empty\x1a\x16.teamserverapi.Session\"\x00\x30\x01\x12@\n\x0bStopSession\x12\x16.teamserverapi.Session\x1a\x17.teamserverapi.Response\"\x00\x12\x43\n\x07GetHelp\x12\x16.teamserverapi.Command\x1a\x1e.teamserverapi.CommandResponse\"\x00\x12\x45\n\x10SendCmdToSession\x12\x16.teamserverapi.Command\x1a\x17.teamserverapi.Response\"\x00\x12T\n\x16GetResponseFromSession\x12\x16.teamserverapi.Session\x1a\x1e.teamserverapi.CommandResponse\"\x00\x30\x01\x12G\n\x0bSendTermCmd\x12\x1a.teamserverapi.TermCommand\x1a\x1a.teamserverapi.TermCommand\"\x00\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'TeamServerApi_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_STATUS']._serialized_start=745
-  _globals['_STATUS']._serialized_end=769
+  _globals['_STATUS']._serialized_start=883
+  _globals['_STATUS']._serialized_end=907
   _globals['_EMPTY']._serialized_start=38
   _globals['_EMPTY']._serialized_end=45
-  _globals['_RESPONSE']._serialized_start=47
-  _globals['_RESPONSE']._serialized_end=113
-  _globals['_LISTENER']._serialized_start=116
-  _globals['_LISTENER']._serialized_end=281
-  _globals['_SESSION']._serialized_start=284
-  _globals['_SESSION']._serialized_end=528
-  _globals['_COMMAND']._serialized_start=530
-  _globals['_COMMAND']._serialized_end=594
-  _globals['_COMMANDRESPONSE']._serialized_start=596
-  _globals['_COMMANDRESPONSE']._serialized_end=685
-  _globals['_TERMCOMMAND']._serialized_start=687
-  _globals['_TERMCOMMAND']._serialized_end=743
-  _globals['_TEAMSERVERAPI']._serialized_start=772
-  _globals['_TEAMSERVERAPI']._serialized_end=1419
+  _globals['_AUTHREQUEST']._serialized_start=47
+  _globals['_AUTHREQUEST']._serialized_end=96
+  _globals['_AUTHRESPONSE']._serialized_start=98
+  _globals['_AUTHRESPONSE']._serialized_end=183
+  _globals['_RESPONSE']._serialized_start=185
+  _globals['_RESPONSE']._serialized_end=251
+  _globals['_LISTENER']._serialized_start=254
+  _globals['_LISTENER']._serialized_end=419
+  _globals['_SESSION']._serialized_start=422
+  _globals['_SESSION']._serialized_end=666
+  _globals['_COMMAND']._serialized_start=668
+  _globals['_COMMAND']._serialized_end=732
+  _globals['_COMMANDRESPONSE']._serialized_start=734
+  _globals['_COMMANDRESPONSE']._serialized_end=823
+  _globals['_TERMCOMMAND']._serialized_start=825
+  _globals['_TERMCOMMAND']._serialized_end=881
+  _globals['_TEAMSERVERAPI']._serialized_start=910
+  _globals['_TEAMSERVERAPI']._serialized_end=1632
 # @@protoc_insertion_point(module_scope)

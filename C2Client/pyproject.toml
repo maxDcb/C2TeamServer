@@ -17,7 +17,8 @@ dependencies = [
     "pwn==1.0",
     "pefile==2024.8.26",
     "openai==1.102.0",
-    "donut-shellcode"
+    "donut-shellcode",
+    "markdown"
 ]
 
 [project.optional-dependencies]

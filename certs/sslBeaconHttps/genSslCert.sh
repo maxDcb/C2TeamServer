@@ -1,43 +1,47 @@
-#! /bin/bash
+#!/usr/bin/env bash
 
-if [ "$#" -ne 1 ]
-then
-  echo "Error: No domain name argument provided"
-  echo "Usage: Provide a domain name as an argument"
-  exit 1
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: $0 <domain>" >&2
+    exit 1
 fi
 
-DOMAIN=$1
+DOMAIN="$1"
 
-# Create root CA & Private key
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+pushd "${SCRIPT_DIR}" >/dev/null
 
-openssl req -x509 \
-            -sha256 -days 356 \
-            -nodes \
-            -newkey rsa:2048 \
-            -subj "/CN=${DOMAIN}/C=US/L=San Fransisco" \
-            -keyout rootCA.key -out rootCA.crt 
+rm -f rootCA.key rootCA.crt rootCA.srl \
+      "${DOMAIN}.key" "${DOMAIN}.csr" "${DOMAIN}.crt" \
+      csr.conf cert.ext
 
-# Generate Private key 
+# ---------------------------------------------------------------------------
+# Root CA used to sign the beacon HTTPS certificate.
+# ---------------------------------------------------------------------------
+openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
+    -keyout rootCA.key -out rootCA.crt \
+    -subj "/C=US/ST=California/L=San Francisco/O=C2TeamServer/OU=Beacon/CN=${DOMAIN} Root CA"
 
-openssl genrsa -out ${DOMAIN}.key 2048
+# ---------------------------------------------------------------------------
+# Private key and CSR for the provided domain.
+# ---------------------------------------------------------------------------
+openssl genrsa -out "${DOMAIN}.key" 2048
 
-# Create csf conf
-
-cat > csr.conf <<EOF
+cat <<EOF > csr.conf
 [ req ]
-default_bits = 2048
-prompt = no
-default_md = sha256
-req_extensions = req_ext
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+req_extensions     = req_ext
 distinguished_name = dn
 
 [ dn ]
-C = US
+C  = US
 ST = California
-L = San Fransisco
-O = SuperOrga
-OU = SuperOrga Dev
+L  = San Francisco
+O  = C2TeamServer
+OU = Beacon
 CN = ${DOMAIN}
 
 [ req_ext ]
@@ -46,34 +50,29 @@ subjectAltName = @alt_names
 [ alt_names ]
 DNS.1 = ${DOMAIN}
 DNS.2 = www.${DOMAIN}
-IP.1 = 192.168.1.2 
-IP.2 = 192.168.1.3
-
+IP.1  = 192.168.1.2
+IP.2  = 192.168.1.3
 EOF
 
-# create CSR request using private key
+openssl req -new -key "${DOMAIN}.key" -out "${DOMAIN}.csr" -config csr.conf
 
-openssl req -new -key ${DOMAIN}.key -out ${DOMAIN}.csr -config csr.conf
+cat <<EOF > cert.ext
+authorityKeyIdentifier = keyid,issuer
+basicConstraints       = CA:FALSE
+extendedKeyUsage       = serverAuth
+keyUsage               = digitalSignature,keyEncipherment
+subjectAltName         = @alt_names
 
-# Create a external config file for the certificate
-
-cat > cert.conf <<EOF
-
-authorityKeyIdentifier=keyid,issuer
-basicConstraints=CA:FALSE
-keyUsage = digitalSignature, nonRepudiation, keyEncipherment, dataEncipherment
-subjectAltName = @alt_names
-
-[alt_names]
+[ alt_names ]
 DNS.1 = ${DOMAIN}
-
+DNS.2 = www.${DOMAIN}
+IP.1  = 192.168.1.2
+IP.2  = 192.168.1.3
 EOF
 
-# Create SSl with self signed CA
+openssl x509 -req -in "${DOMAIN}.csr" -CA rootCA.crt -CAkey rootCA.key \
+    -CAcreateserial -out "${DOMAIN}.crt" -days 365 -sha256 -extfile cert.ext
 
-openssl x509 -req \
-    -in ${DOMAIN}.csr \
-    -CA rootCA.crt -CAkey rootCA.key \
-    -CAcreateserial -out ${DOMAIN}.crt \
-    -days 365 \
-    -sha256 -extfile cert.conf
+rm -f csr.conf cert.ext "${DOMAIN}.csr" rootCA.srl
+
+popd >/dev/null

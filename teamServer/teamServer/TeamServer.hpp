@@ -1,4 +1,7 @@
 #include <unordered_map>
+#include <mutex>
+#include <chrono>
+#include <string>
 
 #include "listener/ListenerTcp.hpp"
 #include "listener/ListenerHttp.hpp"
@@ -25,34 +28,39 @@
 
 #include "nlohmann/json.hpp"
 
-
-class TeamServer final : public teamserverapi::TeamServerApi::Service 
+class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
 
 public:
-	explicit TeamServer(const nlohmann::json& config);
-	~TeamServer();
+    explicit TeamServer(const nlohmann::json& config);
+    ~TeamServer();
 
+    grpc::Status Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response) override;
     grpc::Status GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer);
-    grpc::Status AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate,  teamserverapi::Response* response);
-    grpc::Status StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop,  teamserverapi::Response* response);
-    
+    grpc::Status AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::Response* response);
+    grpc::Status StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop, teamserverapi::Response* response);
+
     grpc::Status GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer);
-    grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop,  teamserverapi::Response* response);
+    grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop, teamserverapi::Response* response);
 
-    grpc::Status SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::Response* response);
-    grpc::Status GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session,  grpc::ServerWriter<teamserverapi::CommandResponse>* writer);
+    grpc::Status SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::Response* response);
+    grpc::Status GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session, grpc::ServerWriter<teamserverapi::CommandResponse>* writer);
 
-    grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command,  teamserverapi::CommandResponse* commandResponse);
+    grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandResponse* commandResponse);
 
-    grpc::Status SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command,  teamserverapi::TermCommand* response);
-    
+    grpc::Status SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command, teamserverapi::TermCommand* response);
+
 protected:
     int handleCmdResponse();
     bool isListenerAlive(const std::string& listenerHash);
-    int prepMsg(const std::string& input, C2Message& c2Message, bool isWindows=true);
+    int prepMsg(const std::string& input, C2Message& c2Message, bool isWindows = true);
 
 private:
+    grpc::Status ensureAuthenticated(grpc::ServerContext* context);
+    std::string generateToken() const;
+    std::string hashPassword(const std::string& password) const;
+    void cleanupExpiredTokens();
+
     nlohmann::json m_config;
 
     std::shared_ptr<spdlog::logger> m_logger;
@@ -87,4 +95,11 @@ private:
     std::unordered_map<std::string, std::vector<int>> m_sentResponses;
 
     std::vector<C2Message> m_sentC2Messages;
+
+    std::string m_authCredentialsFile;
+    std::unordered_map<std::string, std::string> m_userPasswordHashes;
+    bool m_authEnabled;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
+    std::chrono::minutes m_tokenValidityDuration;
+    mutable std::mutex m_authMutex;
 };
