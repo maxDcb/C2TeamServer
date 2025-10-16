@@ -38,7 +38,8 @@ C2Client = [
     "Scripts/*.py",
     "server.crt",
     "libGrpcMessages/build/py/*.py",
-    "DropperModules.conf"
+    "DropperModules.conf",
+    "ShellCodeModules.conf"
 ]
 
 [project.scripts]
