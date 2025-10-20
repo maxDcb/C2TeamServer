@@ -15,13 +15,6 @@ The latest release package contains:
 - Windows modules and beacons from [C2Implant](https://github.com/maxDcb/C2Implant)
 - Linux modules and beacons from [C2LinuxImplant](https://github.com/maxDcb/C2LinuxImplant)
 
-To download the latest release, use the following command:
-
-```bash
-wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz \
-&& mkdir C2TeamServer && tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
-```
-
 ## Look and Feel
 
 <p align="center">
@@ -53,6 +46,13 @@ Supported communication channels for listeners and beacons include: `TCP`, `SMB`
 
 A precompiled version of the TeamServer is available in the release archive. It includes default TLS certificates for gRPC and HTTP communication.
 
+To download the latest release, use the following command, or directly from the [release page](https://github.com/maxDcb/C2TeamServer/releases):
+
+```bash
+wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz \
+&& mkdir C2TeamServer && tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
+```
+
 To launch the TeamServer:
 
 ```bash
@@ -66,34 +66,23 @@ cd Release
 
 ### Docker Deployment
 
-> 🚨 The container image expects the compiled TeamServer release artifacts.
-> Download the latest release archive before building the image.
+If you prefer containerized execution (recommended to avoid host library issues), build and run the Dockerfile.
 
-1. Fetch and extract the latest release into the repository `Release/` directory:
+```bash
+# 0) Get docker file
+curl -sL https://raw.githubusercontent.com/maxDcb/C2TeamServer/refs/heads/master/Dockerfile -o Dockerfile
 
-   ```bash
-   wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' \
-     | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') \
-     -O Release.tar.gz
-   tar xf Release.tar.gz --strip-components=1 -C Release
-   ```
+# 1) Build
+sudo docker build -t exploration-teamserver .
 
-2. Build the Docker image from the repository root:
+# 2) Create a host copy of the release
+CID=$(sudo docker create exploration-teamserver)
+sudo docker cp "$CID":/opt/teamserver/Release /opt/C2TeamServer
+sudo docker rm "$CID"
 
-   ```bash
-   docker build -t exploration-teamserver .
-   ```
-
-3. Run the container with the host network interface and mount the release folder for easy access to logs, beacons, and modules:
-
-   ```bash
-   docker run --rm --name exploration-teamserver \
-     --network host \
-     -v "$(pwd)/Release:/opt/teamserver/Release" \
-     exploration-teamserver
-   ```
-
-   The `Release` directory is mounted as a volume so that generated artifacts such as logs remain on the host and can be reused across container restarts.
+# 3) Run container with host Release mounted (for easy editing)
+sudo docker run -it --rm --name exploration-teamserver -v /opt/C2TeamServer/Release:/opt/teamserver/Release -p 50051:50051 -p 80:80 -p 443:443 -p 8443:8443 exploration-teamserver
+```  
 
    > ℹ️ The container runtime is based on **Ubuntu 24.04**, which provides glibc 2.39 and libstdc++ 13. These versions satisfy the runtime requirements of the precompiled TeamServer binary. Running the server on older base images (e.g., Debian 12/bookworm) will result in errors such as `GLIBC_2.38 not found` or `GLIBCXX_3.4.32 not found`.
 
