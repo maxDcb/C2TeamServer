@@ -25,6 +25,11 @@
             "/MicrosoftUpdate/ShellEx/KB242742/admin.aspx",
             "/MicrosoftUpdate/ShellEx/KB242742/download.aspx"
         ],
+        "wsUri": [
+            "/ws1",
+            "/ws",
+            "/test/ws"
+        ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
         "downloadFolder": "../www",
         "server": {
@@ -45,6 +50,11 @@
             "/MicrosoftUpdate/ShellEx/KB242742/default.aspx",
             "/MicrosoftUpdate/ShellEx/KB242742/upload.aspx",
             "/MicrosoftUpdate/ShellEx/KB242742/config.aspx"
+        ],
+        "wsUri": [
+            "/ws1",
+            "/ws",
+            "/test/ws"
         ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
         "downloadFolder": "../www",

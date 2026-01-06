@@ -20,6 +20,7 @@ find_package(protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(httplib REQUIRED)
+find_package(Crow REQUIRED)
 
 include_directories(${CMAKE_INCLUDE_PATH})
 
