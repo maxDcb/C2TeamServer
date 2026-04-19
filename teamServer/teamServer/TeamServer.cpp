@@ -2,6 +2,7 @@
 
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
+#include "TeamServerListenerSessionService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
 
 #include <dlfcn.h>
@@ -13,7 +14,6 @@
 #include <unordered_map>
 #include <sstream>
 #include <iomanip>
-#include <openssl/md5.h>
 
 using namespace std;
 using namespace std::placeholders;
@@ -27,24 +27,6 @@ inline bool port_in_use(unsigned short port)
 {
 
     return 0;
-}
-
-static std::string computeBufferMd5(const std::string& buffer)
-{
-    if (buffer.empty())
-        return "";
-
-    unsigned char result[MD5_DIGEST_LENGTH];
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, buffer.data(), buffer.size());
-    MD5_Final(result, &ctx);
-
-    std::ostringstream oss;
-    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i)
-        oss << std::hex << std::setw(2) << std::setfill('0') << (int)result[i];
-
-    return oss.str();
 }
 
 grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
@@ -71,6 +53,17 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
+    m_listenerSessionService = std::make_unique<TeamServerListenerSessionService>(
+        m_logger,
+        m_config,
+        m_listeners,
+        m_moduleCmd,
+        m_commonCommands,
+        m_cmdResponses,
+        m_sentResponses,
+        m_sentC2Messages,
+        [this](const std::string& input, C2Message& c2Message, bool isWindows)
+        { return this->prepMsg(input, c2Message, isWindows); });
 
     // Modules
     m_logger->debug("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
@@ -152,86 +145,12 @@ grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamse
 // and from listeners runing on beacon through sessionListener
 grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer)
 {
+    (void)empty;
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("GetListeners");
-
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        // For each primary listeners get the informations
-        teamserverapi::Listener listener;
-        listener.set_listenerhash(m_listeners[i]->getListenerHash());
-
-        std::string type = m_listeners[i]->getType();
-        listener.set_type(type);
-        if (type == ListenerHttpType || type == ListenerHttpsType)
-        {
-            listener.set_ip(m_listeners[i]->getParam1());
-            listener.set_port(std::stoi(m_listeners[i]->getParam2()));
-        }
-        else if (type == ListenerTcpType)
-        {
-            listener.set_ip(m_listeners[i]->getParam1());
-            listener.set_port(std::stoi(m_listeners[i]->getParam2()));
-        }
-        else if (type == ListenerSmbType)
-        {
-            listener.set_ip(m_listeners[i]->getParam1());
-            listener.set_domain(m_listeners[i]->getParam2());
-        }
-        else if (type == ListenerGithubType)
-        {
-            listener.set_project(m_listeners[i]->getParam1());
-            listener.set_token(m_listeners[i]->getParam2());
-        }
-        else if (type == ListenerDnsType)
-        {
-            listener.set_domain(m_listeners[i]->getParam1());
-            listener.set_port(std::stoi(m_listeners[i]->getParam2()));
-        }
-        listener.set_numberofsession(m_listeners[i]->getNumberOfSession());
-
-        writer->Write(listener);
-
-        // check for each sessions alive from this listener check if their is listeners
-        int nbSession = m_listeners[i]->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-
-            if (!session->isSessionKilled())
-            {
-                for (auto it = session->getListener().begin(); it != session->getListener().end(); ++it)
-                {
-                    m_logger->trace("|-> sessionListenerList {0} {1} {0}", it->getType(), it->getParam1(), it->getParam2());
-
-                    teamserverapi::Listener listener;
-                    listener.set_listenerhash(it->getListenerHash());
-                    listener.set_beaconhash(session->getBeaconHash());
-                    std::string type = it->getType();
-                    listener.set_type(type);
-                    if (type == ListenerTcpType)
-                    {
-                        listener.set_ip(it->getParam1());
-                        listener.set_port(std::stoi(it->getParam2()));
-                    }
-                    else if (type == ListenerSmbType)
-                    {
-                        listener.set_ip(it->getParam1());
-                        listener.set_domain(it->getParam2());
-                    }
-
-                    writer->Write(listener);
-                }
-            }
-        }
-    }
-
-    m_logger->trace("GetListeners end");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->streamListeners([&](const teamserverapi::Listener& listener)
+        { return writer->Write(listener); });
 }
 
 // Add listener that will run on the C2
@@ -241,163 +160,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("AddListener");
-    string type = listenerToCreate->type();
-
-    // check if the listener already existe
-    if (type == ListenerGithubType)
-    {
-        std::vector<shared_ptr<Listener>>::iterator object =
-            find_if(m_listeners.begin(), m_listeners.end(),
-                [&](shared_ptr<Listener>& obj)
-                {
-                    return (obj->getType() == listenerToCreate->type() &&
-                        obj->getParam1() == listenerToCreate->project() &&
-                        obj->getParam2() == listenerToCreate->token());
-                });
-
-        if (object != m_listeners.end())
-        {
-            m_logger->warn("Add listener failed: Listener already exist");
-            return grpc::Status::OK;
-        }
-    }
-    else if (type == ListenerDnsType)
-    {
-        std::string domain = listenerToCreate->domain();
-        int port = listenerToCreate->port();
-
-        // 🔸 Check if a DNS listener with the same domain and port already exists
-        auto existingDns = std::find_if(
-            m_listeners.begin(),
-            m_listeners.end(),
-            [&](std::shared_ptr<Listener>& obj)
-            {
-                return (obj->getType() == ListenerDnsType &&
-                        obj->getParam1() == domain &&
-                        obj->getParam2() == std::to_string(port));
-            });
-
-        if (existingDns != m_listeners.end())
-        {
-            m_logger->warn("Add listener failed: DNS listener already running on {0}:{1}", domain, std::to_string(port));
-            return grpc::Status::OK;
-        }
-    }
-    else
-    {
-        std::vector<shared_ptr<Listener>>::iterator object =
-            find_if(m_listeners.begin(), m_listeners.end(),
-                [&](shared_ptr<Listener>& obj)
-                {
-                    return (obj->getType() == listenerToCreate->type() &&
-                        obj->getParam1() == listenerToCreate->ip() &&
-                        obj->getParam2() == std::to_string(listenerToCreate->port()));
-                });
-
-        if (object != m_listeners.end())
-        {
-            m_logger->warn("Add listener failed: Listener already exist");
-            return grpc::Status::OK;
-        }
-    }
-
-    // TODO use a init to check if the listener is correctly init without using excpetion in the constructor
-    if (type == ListenerTcpType)
-    {
-        int localPort = listenerToCreate->port();
-        string localHost = listenerToCreate->ip();
-        std::shared_ptr<ListenerTcp> listenerTcp = make_shared<ListenerTcp>(localHost, localPort, m_config);
-        int ret = listenerTcp->init();
-        if (ret > 0)
-        {
-            listenerTcp->setIsPrimary();
-            m_listeners.push_back(std::move(listenerTcp));
-
-            m_logger->info("AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
-        }
-        else
-        {
-            m_logger->error("Error: AddListener Tcp {0}:{1}", localHost, std::to_string(localPort));
-        }
-    }
-    else if (type == ListenerHttpType)
-    {
-        int localPort = listenerToCreate->port();
-        string localHost = listenerToCreate->ip();
-        std::shared_ptr<ListenerHttp> listenerHttp = make_shared<ListenerHttp>(localHost, localPort, m_config, false);
-        int ret = listenerHttp->init();
-        if (ret > 0)
-        {
-            listenerHttp->setIsPrimary();
-            m_listeners.push_back(std::move(listenerHttp));
-
-            m_logger->info("AddListener Http {0}:{1}", localHost, std::to_string(localPort));
-        }
-        else
-        {
-            m_logger->error("Error: AddListener Http {0}:{1}", localHost, std::to_string(localPort));
-        }
-    }
-    else if (type == ListenerHttpsType)
-    {
-        int localPort = listenerToCreate->port();
-        string localHost = listenerToCreate->ip();
-        std::shared_ptr<ListenerHttp> listenerHttps = make_shared<ListenerHttp>(localHost, localPort, m_config, true);
-        int ret = listenerHttps->init();
-        if (ret > 0)
-        {
-            listenerHttps->setIsPrimary();
-            m_listeners.push_back(std::move(listenerHttps));
-
-            m_logger->info("AddListener Https {0}:{1}", localHost, std::to_string(localPort));
-        }
-        else
-        {
-            m_logger->error("Error: AddListener Https {0}:{1}", localHost, std::to_string(localPort));
-        }
-    }
-    else if (type == ListenerGithubType)
-    {
-        std::string token = listenerToCreate->token();
-        std::string project = listenerToCreate->project();
-        std::shared_ptr<ListenerGithub> listenerGithub = make_shared<ListenerGithub>(project, token, m_config);
-        listenerGithub->setIsPrimary();
-        m_listeners.push_back(std::move(listenerGithub));
-
-        m_logger->info("AddListener Github {0}:{1}", project, token);
-    }
-    else if (type == ListenerDnsType)
-    {
-        std::string domain = listenerToCreate->domain();
-        int port = listenerToCreate->port();
-        std::shared_ptr<ListenerDns> listenerDns = make_shared<ListenerDns>(domain, port, m_config);
-        listenerDns->setIsPrimary();
-        m_listeners.push_back(std::move(listenerDns));
-
-        m_logger->info("AddListener Dns {0}:{1}", domain, std::to_string(port));
-    }
-
-    m_logger->trace("AddListener End");
-
-    return grpc::Status::OK;
-}
-
-std::string generateUUID8()
-{
-    const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    const size_t length = 8;
-    std::random_device rd;
-    std::mt19937 generator(rd());
-    std::uniform_int_distribution<> distribution(0, sizeof(charset) - 2);
-
-    std::string uuid;
-    for (size_t i = 0; i < length; ++i)
-    {
-        uuid += charset[distribution(generator)];
-    }
-    return uuid;
+    return m_listenerSessionService->addListener(*listenerToCreate);
 }
 
 grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop, teamserverapi::Response* response)
@@ -405,172 +168,24 @@ grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamse
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("StopListener");
-
-    // Stop primary listener
-    std::string listenerHash = listenerToStop->listenerhash();
-    bool removedPrimary = false;
-    bool stopCommandSent = false;
-
-    std::vector<shared_ptr<Listener>>::iterator object =
-        find_if(m_listeners.begin(), m_listeners.end(),
-            [&](shared_ptr<Listener>& obj)
-            { return obj->getListenerHash() == listenerHash; });
-
-    if (object != m_listeners.end())
-    {
-        m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object));
-        removedPrimary = true;
-    }
-
-    // Stop listerners runing on beacon by sending a messsage to this beacon
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        int nbSession = m_listeners[i]->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-            std::vector<SessionListener> sessionListener = session->getListener();
-            for (int j = 0; j < sessionListener.size(); j++)
-            {
-                if (listenerHash == sessionListener[j].getListenerHash())
-                {
-                    std::string input = "listener stop ";
-                    input += sessionListener[j].getListenerHash();
-                    std::string beaconHash = session->getBeaconHash();
-
-                    if (!input.empty())
-                    {
-                        C2Message c2Message;
-                        int res = prepMsg(input, c2Message);
-
-                        // echec init message
-                        if (res != 0)
-                        {
-                            std::string hint = c2Message.returnvalue();
-
-                            response->set_message(hint);
-                            response->set_status(teamserverapi::KO);
-                        }
-
-                        // Set the uuid to track the message and correlate with the response to get a clean output in the client
-                        if (!c2Message.instruction().empty())
-                        {
-                            std::string uuid = generateUUID8();
-                            c2Message.set_uuid(uuid);
-                            m_listeners[i]->queueTask(beaconHash, c2Message);
-
-                            c2Message.set_cmd(input);
-                            c2Message.set_data("");
-                            m_sentC2Messages.push_back(std::move(c2Message));
-                            stopCommandSent = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (removedPrimary || stopCommandSent)
-        m_logger->info("StopListener completed for {0} (primary removed: {1}, stop commands sent: {2})",
-            listenerHash,
-            removedPrimary ? "yes" : "no",
-            stopCommandSent ? "yes" : "no");
-    else
-        m_logger->warn("StopListener request ignored: listener {0} not found", listenerHash);
-
-    m_logger->trace("StopListener End");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->stopListener(*listenerToStop, response);
 }
 
 bool TeamServer::isListenerAlive(const std::string& listenerHash)
 {
-    m_logger->trace("isListenerAlive");
-
-    bool result = false;
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        if (m_listeners[i]->getListenerHash() == listenerHash)
-        {
-            result = true;
-            return result;
-        }
-
-        // check for each sessions alive from this listener check if their is listeners
-        int nbSession = m_listeners[i]->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-
-            std::vector<SessionListener> sessionListenerList;
-            if (!session->isSessionKilled())
-            {
-                sessionListenerList.insert(sessionListenerList.end(), session->getListener().begin(), session->getListener().end());
-
-                for (int j = 0; j < sessionListenerList.size(); j++)
-                {
-                    if (sessionListenerList[j].getListenerHash() == listenerHash)
-                    {
-                        result = true;
-                        return result;
-                    }
-                }
-            }
-        }
-    }
-
-    m_logger->trace("isListenerAlive end");
-
-    return result;
+    return m_listenerSessionService->isListenerAlive(listenerHash);
 }
 
 // Get the list of sessions on the primary listeners
 // Primary listers old all the information about beacons linked to themeself and linked to beacon listerners
 grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
 {
+    (void)empty;
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("GetSessions");
-
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        m_logger->trace("Listener {0}", m_listeners[i]->getListenerHash());
-
-        int nbSession = m_listeners[i]->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-
-            m_logger->trace("Session {0} From {1} {2}", session->getBeaconHash(), session->getListenerHash(), session->getLastProofOfLife());
-
-            teamserverapi::Session sessionTmp;
-            sessionTmp.set_listenerhash(session->getListenerHash());
-            sessionTmp.set_beaconhash(session->getBeaconHash());
-            sessionTmp.set_hostname(session->getHostname());
-            sessionTmp.set_username(session->getUsername());
-            sessionTmp.set_arch(session->getArch());
-            sessionTmp.set_privilege(session->getPrivilege());
-            sessionTmp.set_os(session->getOs());
-            sessionTmp.set_lastproofoflife(session->getLastProofOfLife());
-            sessionTmp.set_killed(session->isSessionKilled());
-            sessionTmp.set_internalips(session->getInternalIps());
-            sessionTmp.set_processid(session->getProcessId());
-            sessionTmp.set_additionalinformation(session->getAdditionalInformation());
-
-            bool result = isListenerAlive(session->getListenerHash());
-
-            if (!session->isSessionKilled() && result)
-                writer->Write(sessionTmp);
-        }
-    }
-
-    m_logger->trace("GetSessions end");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->streamSessions([&](const teamserverapi::Session& session)
+        { return writer->Write(session); });
 }
 
 grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop, teamserverapi::Response* response)
@@ -578,46 +193,7 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("StopSession");
-
-    std::string beaconHash = sessionToStop->beaconhash();
-    std::string listenerHash = sessionToStop->listenerhash();
-
-    if (beaconHash.size() == SizeBeaconHash)
-    {
-        for (int i = 0; i < m_listeners.size(); i++)
-        {
-            if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
-            {
-                C2Message c2Message;
-                int res = prepMsg(EndInstruction, c2Message);
-
-                if (res != 0)
-                {
-                    std::string hint = c2Message.returnvalue();
-
-                    response->set_message(hint);
-                    response->set_status(teamserverapi::KO);
-                }
-
-                if (!c2Message.instruction().empty())
-                {
-                    m_listeners[i]->queueTask(beaconHash, c2Message);
-                    m_listeners[i]->markSessionKilled(beaconHash);
-                    m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
-                }
-
-                return grpc::Status::OK;
-            }
-        }
-    }
-
-    m_logger->warn("StopSession request ignored: session {0} on listener {1} not found", beaconHash, listenerHash);
-
-    m_logger->trace("StopSession end");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->stopSession(*sessionToStop, response);
 }
 
 void TeamServer::socksThread()
@@ -800,180 +376,13 @@ grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const te
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("SendCmdToSession");
-
-    std::string input = command->cmd();
-    std::string beaconHash = command->beaconhash();
-    std::string listenerHash = command->listenerhash();
-
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
-            std::string os = session->getOs();
-            bool isWindows = false;
-            if (os == "Windows")
-                isWindows = true;
-
-            m_logger->trace("SendCmdToSession: beaconHash {0} listenerHash {1}", beaconHash, listenerHash);
-            if (!input.empty())
-            {
-                C2Message c2Message;
-                int res = prepMsg(input, c2Message, isWindows);
-
-                m_logger->debug("SendCmdToSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-
-                // echec init message
-                if (res != 0)
-                {
-                    std::string hint = c2Message.returnvalue();
-
-                    response->set_message(hint);
-                    response->set_status(teamserverapi::KO);
-
-                    m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
-                }
-
-                // Set the uuid to track the message and correlate with the response to get a clean output in the client
-                if (!c2Message.instruction().empty())
-                {
-                    m_logger->info("Queued command for beacon {} → '{}'", beaconHash.substr(0, 8), input);
-
-                    std::string inputFile = c2Message.inputfile();
-                    const std::string& payload = c2Message.data();
-
-                    if (!inputFile.empty() && !payload.empty())
-                    {
-                        std::string md5 = computeBufferMd5(payload);
-                        m_logger->info(
-                            "File attached to task: '{}' | size={} bytes | MD5={}",
-                            inputFile,
-                            payload.size(),
-                            md5);
-                    }
-
-                    std::string uuid = generateUUID8();
-                    c2Message.set_uuid(uuid);
-                    m_listeners[i]->queueTask(beaconHash, c2Message);
-
-                    c2Message.set_cmd(input);
-                    c2Message.set_data("");
-                    m_sentC2Messages.push_back(std::move(c2Message));
-                }
-            }
-        }
-    }
-
-    m_logger->trace("SendCmdToSession end");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->sendCmdToSession(*command, response);
 }
 
 int TeamServer::handleCmdResponse()
 {
-    m_logger->trace("handleCmdResponse");
-
     while (m_handleCmdResponseThreadRuning)
-    {
-        // loop through all the listeners
-        for (int i = 0; i < m_listeners.size(); i++)
-        {
-            // loop through all the sessions
-            int nbSession = m_listeners[i]->getNumberOfSession();
-            for (int kk = 0; kk < nbSession; kk++)
-            {
-                std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-                std::string beaconHash = session->getBeaconHash();
-
-                // loop through all the messages
-                C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
-                while (!c2Message.instruction().empty())
-                {
-                    m_logger->trace("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-
-                    std::string instructionCmd = c2Message.instruction();
-                    std::string errorMsg;
-
-                    // check if the message is just a listener polling mean to update listener informations
-                    if (instructionCmd == ListenerPollCmd)
-                    {
-                        m_logger->debug("beaconHash {0} {1}", beaconHash, c2Message.returnvalue());
-
-                        // Do nothing and continue with the next item
-                        c2Message = m_listeners[i]->getTaskResult(beaconHash);
-                        continue;
-                    }
-
-                    // check if the message is from a loaded module and handle:
-                    // - followup
-                    // - the resoltion of the error code
-                    for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
-                    {
-                        // djb2 produce a unsigne long long
-                        if (instructionCmd == (*it)->getName() || instructionCmd == std::to_string((*it)->getHash()))
-                        {
-                            m_logger->debug("Call followUp");
-                            (*it)->followUp(c2Message);
-                            (*it)->errorCodeToMsg(c2Message, errorMsg);
-                        }
-                    }
-
-                    // check if the message is from a common module and handle:
-                    // - the resoltion of the error code
-                    std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
-                    for (int i = 0; i < m_commonCommands.getNumberOfCommand(); i++)
-                        if (ccInstructionString == m_commonCommands.getCommand(i))
-                            m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
-
-                    m_logger->debug("GetResponseFromSession {0} {1}", beaconHash, c2Message.uuid());
-
-                    // Get the command lign sent from the list of sent messages using the uuid to get a clean client output
-                    std::string cmd = c2Message.cmd();
-                    for (int jj = 0; jj < m_sentC2Messages.size(); jj++)
-                    {
-                        if (m_sentC2Messages[jj].uuid() == c2Message.uuid())
-                        {
-                            cmd = m_sentC2Messages[jj].cmd();
-                            m_sentC2Messages.erase(m_sentC2Messages.begin() + jj);
-                            break;
-                        }
-                    }
-
-                    m_logger->debug("GetResponseFromSession {0} {1}", beaconHash, cmd);
-
-                    // Send the response to the client
-                    teamserverapi::CommandResponse commandResponseTmp;
-                    commandResponseTmp.set_beaconhash(beaconHash);
-                    commandResponseTmp.set_instruction(cmd);
-                    commandResponseTmp.set_cmd("");
-                    if (!errorMsg.empty())
-                    {
-                        commandResponseTmp.set_response(errorMsg);
-                        m_cmdResponses.push_back(commandResponseTmp);
-                    }
-                    else if (!c2Message.returnvalue().empty())
-                    {
-                        commandResponseTmp.set_response(c2Message.returnvalue());
-                        m_cmdResponses.push_back(commandResponseTmp);
-                    }
-                    else
-                    {
-                        m_logger->debug("GetResponseFromSession no output");
-                    }
-
-                    // Get the next message
-                    c2Message = m_listeners[i]->getTaskResult(beaconHash);
-                }
-            }
-        }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-
-    m_logger->trace("handleCmdResponse end");
-
+        m_listenerSessionService->handleCmdResponse();
     return 0;
 }
 
@@ -982,52 +391,11 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("GetResponseFromSession");
-
-    std::string targetSession = session->beaconhash();
-
-    // Retrieve all client metadata
-    auto client_metadata = context->client_metadata();
-
-    std::string clientId;
-    // Iterate through metadata and print key-value pairs
-    for (const auto& meta : client_metadata)
-    {
-        std::string key(meta.first.data(), meta.first.length());
-        std::string value(meta.second.data(), meta.second.length());
-        // std::cout << "Metadata - Key: " << key << ", Value: " << value << std::endl;
-
-        if (key == "clientid")
-            clientId = value;
-    }
-
-    if (clientId.empty())
-        return grpc::Status::OK;
-
-    // New client detected - Initialize entry for this client
-    if (m_sentResponses.find(clientId) == m_sentResponses.end())
-        m_sentResponses[clientId] = {};
-
-    std::vector<int>& sentIndices = m_sentResponses[clientId];
-    for (size_t i = 0; i < m_cmdResponses.size(); ++i)
-    {
-        if (targetSession == m_cmdResponses[i].beaconhash())
-        {
-            // If the response was not already sent to this client
-            if (std::find(sentIndices.begin(), sentIndices.end(), i) == sentIndices.end())
-            {
-                writer->Write(m_cmdResponses[i]);
-                sentIndices.push_back(i);
-            }
-        }
-    }
-
-    return grpc::Status::OK;
-
-    m_logger->trace("GetResponseFromSession end");
-
-    return grpc::Status::OK;
+    return m_listenerSessionService->streamResponsesForSession(
+        session->beaconhash(),
+        context->client_metadata(),
+        [&](const teamserverapi::CommandResponse& commandResponse)
+        { return writer->Write(commandResponse); });
 }
 
 const std::string HelpCmd = "help";

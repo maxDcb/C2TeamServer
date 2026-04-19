@@ -7,6 +7,7 @@ teamServer/TeamServer.cpp
 teamServer/TeamServerAuth.cpp
 teamServer/TeamServerRuntimeConfig.cpp
 teamServer/TeamServerBootstrap.cpp
+teamServer/TeamServerListenerSessionService.cpp
 teamServer/main.cpp
 ../core/listener/Listener.cpp
 ../core/listener/ListenerTcp.cpp	
@@ -52,4 +53,31 @@ if(WITH_TESTS)
 	$<TARGET_FILE:testsTestServer> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTestServer>")
 
 	add_test(NAME testsTestServer COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTestServer>")
+
+	add_executable(testsTeamServerListenerSessionService
+		tests/TeamServerListenerSessionServiceTests.cpp
+		teamServer/TeamServerListenerSessionService.cpp
+		../core/listener/Listener.cpp
+		../core/listener/ListenerTcp.cpp
+		../core/listener/ListenerHttp.cpp
+		../core/listener/ListenerGithub.cpp
+		../core/listener/ListenerDns.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerListenerSessionService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+		${CMAKE_SOURCE_DIR}/libs/libSocks5/src
+		${CMAKE_SOURCE_DIR}/libs/libSocketHandler/src
+		${CMAKE_SOURCE_DIR}/libs/libDns/src
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerListenerSessionService Dnscommunication SocketHandler GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog)
+	else()
+		target_link_libraries(testsTeamServerListenerSessionService Dnscommunication SocketHandler GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerListenerSessionService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerListenerSessionService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerListenerSessionService>")
+
+	add_test(NAME testsTeamServerListenerSessionService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerListenerSessionService>")
 endif()

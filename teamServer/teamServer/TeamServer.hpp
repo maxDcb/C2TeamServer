@@ -29,6 +29,7 @@
 #include "nlohmann/json.hpp"
 
 class TeamServerAuthManager;
+class TeamServerListenerSessionService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
@@ -96,4 +97,5 @@ private:
     std::vector<C2Message> m_sentC2Messages;
 
     std::unique_ptr<TeamServerAuthManager> m_authManager;
+    std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
 };
