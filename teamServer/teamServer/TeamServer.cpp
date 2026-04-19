@@ -2,6 +2,7 @@
 
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
+#include "TeamServerHelpService.hpp"
 #include "TeamServerListenerSessionService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
 
@@ -53,6 +54,11 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
+    m_helpService = std::make_unique<TeamServerHelpService>(
+        m_logger,
+        m_listeners,
+        m_moduleCmd,
+        m_commonCommands);
     m_listenerSessionService = std::make_unique<TeamServerListenerSessionService>(
         m_logger,
         m_config,
@@ -398,119 +404,12 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
         { return writer->Write(commandResponse); });
 }
 
-const std::string HelpCmd = "help";
-
 grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandResponse* commandResponse)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-
-    m_logger->trace("GetHelp");
-
-    std::string input = command->cmd();
-    std::string beaconHash = command->beaconhash();
-    std::string listenerHash = command->listenerhash();
-
-    bool isWindows = false;
-    for (int i = 0; i < m_listeners.size(); i++)
-    {
-        if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
-        {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
-            std::string os = session->getOs();
-            if (os == "Windows")
-                isWindows = true;
-        }
-    }
-
-    std::vector<std::string> splitedCmd;
-    std::string delimiter = " ";
-    splitList(input, delimiter, splitedCmd);
-
-    string instruction = splitedCmd[0];
-
-    std::string output;
-    if (instruction == HelpCmd)
-    {
-        if (splitedCmd.size() < 2)
-        {
-            output += "- Beacon Commands:\n";
-            for (int i = 0; i < m_commonCommands.getNumberOfCommand(); i++)
-            {
-                output += "  ";
-                output += m_commonCommands.getCommand(i);
-                output += "\n";
-            }
-
-            if (isWindows)
-            {
-                output += "\n- Modules Commands Windows:\n";
-                for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
-                {
-                    if ((*it)->osCompatibility() & OS_WINDOWS)
-                    {
-                        output += "  ";
-                        output += (*it)->getName();
-                        output += "\n";
-                    }
-                }
-            }
-            else
-            {
-                output += "\n- Modules Commands Linux:\n";
-                for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
-                {
-                    if ((*it)->osCompatibility() & OS_LINUX)
-                    {
-                        output += "  ";
-                        output += (*it)->getName();
-                        output += "\n";
-                    }
-                }
-            }
-        }
-        else
-        {
-            string instruction = splitedCmd[1];
-            bool isModuleFound = false;
-            for (int i = 0; i < m_commonCommands.getNumberOfCommand(); i++)
-            {
-                if (instruction == m_commonCommands.getCommand(i))
-                {
-                    output += m_commonCommands.getHelp(instruction);
-                    output += "\n";
-                    isModuleFound = true;
-                }
-            }
-            for (auto it = m_moduleCmd.begin(); it != m_moduleCmd.end(); ++it)
-            {
-                if (instruction == (*it)->getName())
-                {
-                    output += (*it)->getInfo();
-                    output += "\n";
-                    isModuleFound = true;
-                }
-            }
-            if (!isModuleFound)
-            {
-                output += "Module ";
-                output += instruction;
-                output += " not found.";
-                output += "\n";
-            }
-        }
-    }
-
-    teamserverapi::CommandResponse commandResponseTmp;
-    commandResponseTmp.set_cmd(input);
-    commandResponseTmp.set_response(output);
-
-    *commandResponse = commandResponseTmp;
-
-    m_logger->trace("GetHelp end");
-
-    return grpc::Status::OK;
+    return m_helpService->getHelp(*command, commandResponse);
 }
 
 // Split input based on spaces and single quotes

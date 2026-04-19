@@ -5,6 +5,7 @@ include_directories(../core/modules/ModuleCmd)
 set(SOURCES_TEAMSERVER
 teamServer/TeamServer.cpp
 teamServer/TeamServerAuth.cpp
+teamServer/TeamServerHelpService.cpp
 teamServer/TeamServerRuntimeConfig.cpp
 teamServer/TeamServerBootstrap.cpp
 teamServer/TeamServerListenerSessionService.cpp
@@ -36,8 +37,11 @@ if(WITH_TESTS)
 	add_executable(testsTestServer
 		tests/testsTestServer.cpp
 		teamServer/TeamServerAuth.cpp
+		teamServer/TeamServerHelpService.cpp
 		teamServer/TeamServerRuntimeConfig.cpp
 		teamServer/TeamServerBootstrap.cpp
+		../core/listener/Listener.cpp
+		../../thirdParty/base64/base64.cpp
 	)
 	target_include_directories(testsTestServer PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
@@ -53,6 +57,26 @@ if(WITH_TESTS)
 	$<TARGET_FILE:testsTestServer> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTestServer>")
 
 	add_test(NAME testsTestServer COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTestServer>")
+
+	add_executable(testsTeamServerHelpService
+		tests/TeamServerHelpServiceTests.cpp
+		teamServer/TeamServerHelpService.cpp
+		../core/listener/Listener.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerHelpService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerHelpService GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog)
+	else()
+		target_link_libraries(testsTeamServerHelpService GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerHelpService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerHelpService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerHelpService>")
+
+	add_test(NAME testsTeamServerHelpService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerHelpService>")
 
 	add_executable(testsTeamServerListenerSessionService
 		tests/TeamServerListenerSessionServiceTests.cpp
