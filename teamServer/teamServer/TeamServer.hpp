@@ -28,6 +28,8 @@
 
 #include "nlohmann/json.hpp"
 
+class TeamServerAuthManager;
+
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
 
@@ -57,9 +59,6 @@ protected:
 
 private:
     grpc::Status ensureAuthenticated(grpc::ServerContext* context);
-    std::string generateToken() const;
-    std::string hashPassword(const std::string& password) const;
-    void cleanupExpiredTokens();
 
     nlohmann::json m_config;
 
@@ -96,10 +95,5 @@ private:
 
     std::vector<C2Message> m_sentC2Messages;
 
-    std::string m_authCredentialsFile;
-    std::unordered_map<std::string, std::string> m_userPasswordHashes;
-    bool m_authEnabled;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
-    std::chrono::minutes m_tokenValidityDuration;
-    mutable std::mutex m_authMutex;
+    std::unique_ptr<TeamServerAuthManager> m_authManager;
 };

@@ -1,18 +1,19 @@
 #include "TeamServer.hpp"
 
+#include "TeamServerAuth.hpp"
+#include "TeamServerBootstrap.hpp"
+#include "TeamServerRuntimeConfig.hpp"
+
 #include <dlfcn.h>
 
 #include <algorithm>
 #include <cctype>
 #include <functional>
-#include <fstream>
 #include <filesystem>
 #include <unordered_map>
-#include <random>
 #include <sstream>
 #include <iomanip>
 #include <openssl/md5.h>
-#include <openssl/sha.h>
 
 using namespace std;
 using namespace std::placeholders;
@@ -21,37 +22,6 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 typedef ModuleCmd* (*constructProc)();
-
-namespace
-{
-spdlog::level::level_enum parseLogLevel(std::string level, bool& isUnknown)
-{
-    isUnknown = false;
-
-    std::transform(level.begin(), level.end(), level.begin(),
-        [](unsigned char c)
-        { return static_cast<char>(std::tolower(c)); });
-
-    static const std::unordered_map<std::string, spdlog::level::level_enum> levelMap =
-        {
-            {"trace", spdlog::level::trace},
-            {"debug", spdlog::level::debug},
-            {"info", spdlog::level::info},
-            {"warn", spdlog::level::warn},
-            {"warning", spdlog::level::warn},
-            {"err", spdlog::level::err},
-            {"error", spdlog::level::err},
-            {"critical", spdlog::level::critical},
-            {"off", spdlog::level::off}};
-
-    auto it = levelMap.find(level);
-    if (it != levelMap.end())
-        return it->second;
-
-    isUnknown = true;
-    return spdlog::level::info;
-}
-} // namespace
 
 inline bool port_in_use(unsigned short port)
 {
@@ -77,298 +47,30 @@ static std::string computeBufferMd5(const std::string& buffer)
     return oss.str();
 }
 
-std::string TeamServer::generateToken() const
-{
-    static constexpr char charset[] =
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-    std::random_device rd;
-    std::mt19937 generator(rd());
-    std::uniform_int_distribution<std::size_t> distribution(0, sizeof(charset) - 2);
-
-    std::string token(64, '\0');
-    for (auto& ch : token)
-    {
-        ch = charset[distribution(generator)];
-    }
-
-    return token;
-}
-
-std::string TeamServer::hashPassword(const std::string& password) const
-{
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX ctx;
-
-    SHA256_Init(&ctx);
-    SHA256_Update(&ctx, reinterpret_cast<const unsigned char*>(password.data()), password.size());
-    SHA256_Final(hash, &ctx);
-
-    std::ostringstream oss;
-    for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-    {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    }
-
-    return oss.str();
-}
-
-void TeamServer::cleanupExpiredTokens()
-{
-    if (!m_authEnabled)
-        return;
-
-    const auto now = std::chrono::steady_clock::now();
-    std::lock_guard<std::mutex> lock(m_authMutex);
-    for (auto it = m_activeTokens.begin(); it != m_activeTokens.end();)
-    {
-        if (now >= it->second)
-        {
-            it = m_activeTokens.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
-    }
-}
-
 grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
 {
-    if (!m_authEnabled)
-        return grpc::Status::OK;
-
-    const auto& metadata = context->client_metadata();
-    auto metadataIt = metadata.find("authorization");
-    if (metadataIt == metadata.end())
-    {
-        m_logger->warn("gRPC request rejected: missing authorization metadata");
-        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Missing authorization metadata");
-    }
-
-    std::string authHeader(metadataIt->second.data(), metadataIt->second.length());
-    static const std::string prefix = "Bearer ";
-    if (authHeader.rfind(prefix, 0) != 0)
-    {
-        m_logger->warn("gRPC request rejected: malformed authorization header");
-        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Malformed authorization header");
-    }
-
-    std::string token = authHeader.substr(prefix.size());
-
-    std::lock_guard<std::mutex> lock(m_authMutex);
-    auto now = std::chrono::steady_clock::now();
-    auto tokenIt = m_activeTokens.find(token);
-    if (tokenIt == m_activeTokens.end())
-    {
-        m_logger->warn("gRPC request rejected: invalid token presented");
-        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Invalid token");
-    }
-
-    if (now >= tokenIt->second)
-    {
-        m_logger->warn("gRPC request rejected: expired token presented");
-        m_activeTokens.erase(tokenIt);
-        return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Token expired");
-    }
-
-    tokenIt->second = now + m_tokenValidityDuration;
-
-    return grpc::Status::OK;
+    return m_authManager->ensureAuthenticated(context->client_metadata());
 }
 
 TeamServer::TeamServer(const nlohmann::json& config)
-    : m_config(config), m_isSocksServerRunning(false), m_isSocksServerBinded(false), m_authCredentialsFile(""), m_authEnabled(false), m_tokenValidityDuration(std::chrono::minutes(60))
+    : m_config(config), m_isSocksServerRunning(false), m_isSocksServerBinded(false)
 {
-    // Logger
-    std::vector<spdlog::sink_ptr> sinks;
+    m_logger = createTeamServerLogger(config);
 
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    sinks.push_back(console_sink);
+    TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(config);
+    m_teamServerModulesDirectoryPath = runtimeConfig.teamServerModulesDirectoryPath;
+    m_linuxModulesDirectoryPath = runtimeConfig.linuxModulesDirectoryPath;
+    m_windowsModulesDirectoryPath = runtimeConfig.windowsModulesDirectoryPath;
+    m_linuxBeaconsDirectoryPath = runtimeConfig.linuxBeaconsDirectoryPath;
+    m_windowsBeaconsDirectoryPath = runtimeConfig.windowsBeaconsDirectoryPath;
+    m_toolsDirectoryPath = runtimeConfig.toolsDirectoryPath;
+    m_scriptsDirectoryPath = runtimeConfig.scriptsDirectoryPath;
 
-    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024 * 1024 * 10, 3);
-    sinks.push_back(file_sink);
+    runtimeConfig.validateDirectories(m_logger);
+    runtimeConfig.configureCommonCommands(m_commonCommands);
 
-    std::string logLevel = "info";
-    auto logLevelIt = config.find("LogLevel");
-    if (logLevelIt != config.end() && logLevelIt->is_string())
-        logLevel = logLevelIt->get<std::string>();
-
-    bool isUnknownLogLevel = false;
-    spdlog::level::level_enum configuredLevel = parseLogLevel(logLevel, isUnknownLogLevel);
-
-    console_sink->set_level(configuredLevel);
-    file_sink->set_level(configuredLevel);
-
-    m_logger = std::make_shared<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
-
-    m_logger->set_level(configuredLevel);
-    m_logger->flush_on(spdlog::level::warn);
-
-    if (isUnknownLogLevel)
-        m_logger->warn("Unknown log level '{}' requested, defaulting to 'info'.", logLevel);
-
-    m_logger->debug("TeamServer logging initialized at {} level", spdlog::level::to_string_view(m_logger->level()));
-
-    // Config directory
-    m_teamServerModulesDirectoryPath = config["TeamServerModulesDirectoryPath"].get<std::string>();
-    m_linuxModulesDirectoryPath = config["LinuxModulesDirectoryPath"].get<std::string>();
-    m_windowsModulesDirectoryPath = config["WindowsModulesDirectoryPath"].get<std::string>();
-    m_linuxBeaconsDirectoryPath = config["LinuxBeaconsDirectoryPath"].get<std::string>();
-    m_windowsBeaconsDirectoryPath = config["WindowsBeaconsDirectoryPath"].get<std::string>();
-    m_toolsDirectoryPath = config["ToolsDirectoryPath"].get<std::string>();
-    m_scriptsDirectoryPath = config["ScriptsDirectoryPath"].get<std::string>();
-
-    auto authFileIt = config.find("AuthCredentialsFile");
-    if (authFileIt != config.end() && authFileIt->is_string())
-    {
-        m_authCredentialsFile = authFileIt->get<std::string>();
-        std::ifstream authFile(m_authCredentialsFile);
-        if (authFile.good())
-        {
-            try
-            {
-                json authConfig = json::parse(authFile);
-                int ttlMinutes = authConfig.value("token_ttl_minutes", static_cast<int>(m_tokenValidityDuration.count()));
-                if (ttlMinutes > 0)
-                {
-                    m_tokenValidityDuration = std::chrono::minutes(ttlMinutes);
-                }
-
-                auto normalizeHash = [](std::string hash)
-                {
-                    std::transform(hash.begin(), hash.end(), hash.begin(), [](unsigned char c)
-                        { return static_cast<char>(std::tolower(c)); });
-                    return hash;
-                };
-
-                m_userPasswordHashes.clear();
-
-                auto usersIt = authConfig.find("users");
-                if (usersIt != authConfig.end())
-                {
-                    if (!usersIt->is_array())
-                    {
-                        m_logger->error("Authentication credential file {0} has a 'users' entry that is not an array.", m_authCredentialsFile);
-                    }
-                    else
-                    {
-                        for (const auto& userEntry : *usersIt)
-                        {
-                            if (!userEntry.is_object())
-                            {
-                                m_logger->warn("Skipping malformed user entry in {0}; expected an object.", m_authCredentialsFile);
-                                continue;
-                            }
-
-                            std::string username = userEntry.value("username", std::string());
-                            if (username.empty())
-                            {
-                                m_logger->warn("Skipping user entry with missing username in {0}.", m_authCredentialsFile);
-                                continue;
-                            }
-
-                            std::string passwordHash = normalizeHash(userEntry.value("password_hash", std::string()));
-                            if (passwordHash.empty())
-                            {
-                                std::string plaintextPassword = userEntry.value("password", std::string());
-                                if (!plaintextPassword.empty())
-                                {
-                                    m_logger->warn("User '{0}' in credentials file provides a plaintext password; hashing at startup but please update the file to store 'password_hash'.", username);
-                                    passwordHash = hashPassword(plaintextPassword);
-                                }
-                            }
-
-                            if (passwordHash.empty())
-                            {
-                                m_logger->warn("Skipping user '{0}' in {1} due to missing password hash.", username, m_authCredentialsFile);
-                                continue;
-                            }
-
-                            m_userPasswordHashes[username] = passwordHash;
-                        }
-                    }
-                }
-                else
-                {
-                    std::string username = authConfig.value("username", std::string());
-                    std::string passwordHash = normalizeHash(authConfig.value("password_hash", std::string()));
-                    if (passwordHash.empty())
-                    {
-                        std::string plaintextPassword = authConfig.value("password", std::string());
-                        if (!plaintextPassword.empty())
-                        {
-                            m_logger->warn("Legacy credentials format detected in {0}; hashing plaintext password but please migrate to 'users' array with hashed passwords.", m_authCredentialsFile);
-                            passwordHash = hashPassword(plaintextPassword);
-                        }
-                    }
-
-                    if (!username.empty() && !passwordHash.empty())
-                    {
-                        m_userPasswordHashes[username] = passwordHash;
-                    }
-                }
-
-                if (!m_userPasswordHashes.empty())
-                {
-                    m_authEnabled = true;
-                    m_logger->info("Authentication enabled for {0} user(s) using credentials file: {1}", m_userPasswordHashes.size(), m_authCredentialsFile);
-                }
-                else
-                {
-                    m_logger->error("Authentication credential file {0} does not contain any valid user credentials.", m_authCredentialsFile);
-                }
-            }
-            catch (const std::exception& ex)
-            {
-                m_logger->error("Failed to parse authentication credential file {0}: {1}", m_authCredentialsFile, ex.what());
-            }
-        }
-        else
-        {
-            m_logger->critical("Authentication credential file not found: {0}", m_authCredentialsFile);
-        }
-    }
-    else
-    {
-        m_logger->warn("AuthCredentialsFile entry missing from configuration. gRPC authentication is disabled.");
-    }
-
-    fs::path checkPath = m_teamServerModulesDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("TeamServer modules directory path don't exist: {0}", m_teamServerModulesDirectoryPath.c_str());
-
-    checkPath = m_linuxModulesDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Linux modules directory path don't exist: {0}", m_linuxModulesDirectoryPath.c_str());
-
-    checkPath = m_windowsModulesDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Windows modules directory path don't exist: {0}", m_windowsModulesDirectoryPath.c_str());
-
-    checkPath = m_linuxBeaconsDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Linux beacon directory path don't exist: {0}", m_linuxBeaconsDirectoryPath.c_str());
-
-    checkPath = m_windowsBeaconsDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Windows beacon directory path don't exist: {0}", m_windowsBeaconsDirectoryPath.c_str());
-
-    checkPath = m_toolsDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Tools directory path don't exist: {0}", m_toolsDirectoryPath.c_str());
-
-    checkPath = m_scriptsDirectoryPath;
-    if (!fs::exists(checkPath))
-        m_logger->error("Script directory path don't exist: {0}", m_scriptsDirectoryPath.c_str());
-
-    m_commonCommands.setDirectories(m_teamServerModulesDirectoryPath,
-        m_linuxModulesDirectoryPath,
-        m_windowsModulesDirectoryPath,
-        m_linuxBeaconsDirectoryPath,
-        m_windowsBeaconsDirectoryPath,
-        m_toolsDirectoryPath,
-        m_scriptsDirectoryPath);
+    m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
+    m_authManager->configure(config);
 
     // Modules
     m_logger->debug("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
@@ -409,13 +111,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
                 std::unique_ptr<ModuleCmd> moduleCmd_(moduleCmd);
                 m_moduleCmd.push_back(std::move(moduleCmd_));
 
-                m_moduleCmd.back()->setDirectories(m_teamServerModulesDirectoryPath,
-                    m_linuxModulesDirectoryPath,
-                    m_windowsModulesDirectoryPath,
-                    m_linuxBeaconsDirectoryPath,
-                    m_windowsBeaconsDirectoryPath,
-                    m_toolsDirectoryPath,
-                    m_scriptsDirectoryPath);
+                runtimeConfig.configureModule(*m_moduleCmd.back());
 
                 m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
                 modulesLoaded++;
@@ -449,49 +145,7 @@ TeamServer::~TeamServer()
 grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response)
 {
     (void)context;
-
-    if (!m_authEnabled)
-    {
-        response->set_status(teamserverapi::KO);
-        response->set_message("Authentication is not configured on the server");
-        return grpc::Status::OK;
-    }
-
-    cleanupExpiredTokens();
-
-    const std::string& username = request->username();
-    const std::string& password = request->password();
-
-    auto userIt = m_userPasswordHashes.find(username);
-    if (userIt == m_userPasswordHashes.end())
-    {
-        response->set_status(teamserverapi::KO);
-        response->set_message("Invalid credentials");
-        m_logger->warn("Authentication failed for unknown user '{}'", username);
-        return grpc::Status::OK;
-    }
-
-    std::string providedHash = hashPassword(password);
-    if (providedHash != userIt->second)
-    {
-        response->set_status(teamserverapi::KO);
-        response->set_message("Invalid credentials");
-        m_logger->warn("Authentication failed due to incorrect password for user '{}'", username);
-        return grpc::Status::OK;
-    }
-
-    std::string token = generateToken();
-    {
-        std::lock_guard<std::mutex> lock(m_authMutex);
-        m_activeTokens[token] = std::chrono::steady_clock::now() + m_tokenValidityDuration;
-    }
-
-    response->set_status(teamserverapi::OK);
-    response->set_token(token);
-    response->set_message("Authentication successful");
-    m_logger->info("User '{}' authenticated successfully", username);
-
-    return grpc::Status::OK;
+    return m_authManager->authenticate(*request, *response);
 }
 
 // Get the list of liseteners from primary listeners
@@ -2095,14 +1749,8 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
                     }
 
                     std::unique_ptr<ModuleCmd> moduleCmdPtr(moduleCmd);
-                    moduleCmdPtr->setDirectories(
-                        m_teamServerModulesDirectoryPath,
-                        m_linuxModulesDirectoryPath,
-                        m_windowsModulesDirectoryPath,
-                        m_linuxBeaconsDirectoryPath,
-                        m_windowsBeaconsDirectoryPath,
-                        m_toolsDirectoryPath,
-                        m_scriptsDirectoryPath);
+                    TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(m_config);
+                    runtimeConfig.configureModule(*moduleCmdPtr);
 
                     m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
                     m_moduleCmd.push_back(std::move(moduleCmdPtr));
@@ -2403,125 +2051,4 @@ int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isW
     m_logger->trace("prepMsg end");
 
     return res;
-}
-
-int main(int argc, char* argv[])
-{
-    std::string configFile = "TeamServerConfig.json";
-    if (argc >= 2)
-    {
-        configFile = argv[1];
-    }
-
-    //
-    // Logger
-    //
-    std::vector<spdlog::sink_ptr> sinks;
-
-    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    sinks.push_back(console_sink);
-
-    auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>("logs/TeamServer.txt", 1024 * 1024 * 10, 3);
-    sinks.push_back(file_sink);
-
-    std::unique_ptr logger = std::make_unique<spdlog::logger>("TeamServer", begin(sinks), end(sinks));
-
-    //
-    // TeamServer Config
-    //
-    std::ifstream f(configFile);
-
-    // Check if the file is successfully opened
-    if (!f.is_open())
-    {
-        std::cerr << "Error: Config file '" << configFile << "' not found or could not be opened." << std::endl;
-        return 1;
-    }
-
-    json config;
-    try
-    {
-        config = json::parse(f);
-    }
-    catch (const json::parse_error& e)
-    {
-        std::cerr << "Error: Failed to parse JSON in config file '" << configFile << "' - " << e.what() << std::endl;
-        return 1;
-    }
-
-    std::string logLevel = "info";
-    auto logLevelIt = config.find("LogLevel");
-    if (logLevelIt != config.end() && logLevelIt->is_string())
-        logLevel = logLevelIt->get<std::string>();
-
-    bool isUnknownLogLevel = false;
-    spdlog::level::level_enum configuredLevel = parseLogLevel(logLevel, isUnknownLogLevel);
-
-    console_sink->set_level(configuredLevel);
-    file_sink->set_level(configuredLevel);
-    logger->set_level(configuredLevel);
-    logger->flush_on(spdlog::level::warn);
-
-    if (isUnknownLogLevel)
-        logger->warn("Unknown log level '{}' requested, defaulting to 'info'.", logLevel);
-
-    logger->info("TeamServer logging initialized at {} level", spdlog::level::to_string_view(logger->level()));
-
-    std::string serverGRPCAdd = config["ServerGRPCAdd"].get<std::string>();
-    std::string ServerGRPCPort = config["ServerGRPCPort"].get<std::string>();
-    std::string serverAddress = serverGRPCAdd;
-    serverAddress += ':';
-    serverAddress += ServerGRPCPort;
-
-    TeamServer service(config);
-
-    // TSL Connection configuration
-    std::string servCrtFilePath = config["ServCrtFile"].get<std::string>();
-    std::ifstream servCrtFile(servCrtFilePath, std::ios::binary);
-    if (!servCrtFile.good())
-    {
-        logger->critical("Server ceritifcat file not found.");
-        return -1;
-    }
-    std::string cert(std::istreambuf_iterator<char>(servCrtFile), {});
-
-    std::string servKeyFilePath = config["ServKeyFile"].get<std::string>();
-    std::ifstream servKeyFile(servKeyFilePath, std::ios::binary);
-    if (!servKeyFile.good())
-    {
-        logger->critical("Server key file not found.");
-        return -1;
-    }
-    std::string key(std::istreambuf_iterator<char>(servKeyFile), {});
-
-    std::string rootCA = config["RootCA"].get<std::string>();
-    std::ifstream rootFile(rootCA, std::ios::binary);
-    if (!rootFile.good())
-    {
-        logger->critical("Root CA file not found.");
-        return -1;
-    }
-    std::string root(std::istreambuf_iterator<char>(rootFile), {});
-
-    grpc::SslServerCredentialsOptions::PemKeyCertPair keycert =
-        {
-            key,
-            cert};
-
-    grpc::SslServerCredentialsOptions sslOps;
-    sslOps.pem_root_certs = root;
-    sslOps.pem_key_cert_pairs.push_back(keycert);
-
-    // Start GRPC Server
-    grpc::ServerBuilder builder;
-    builder.AddListeningPort(serverAddress, grpc::SslServerCredentials(sslOps));
-    builder.RegisterService(&service);
-    builder.SetMaxSendMessageSize(1024 * 1024 * 1024);
-    builder.SetMaxMessageSize(1024 * 1024 * 1024);
-    builder.SetMaxReceiveMessageSize(1024 * 1024 * 1024);
-    std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-
-    logger->info("Team Server listening on {0}", serverAddress);
-
-    server->Wait();
 }
