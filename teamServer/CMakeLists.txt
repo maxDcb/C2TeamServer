@@ -6,6 +6,7 @@ set(SOURCES_TEAMSERVER
 teamServer/TeamServer.cpp
 teamServer/TeamServerAuth.cpp
 teamServer/TeamServerHelpService.cpp
+teamServer/TeamServerSocksService.cpp
 teamServer/TeamServerRuntimeConfig.cpp
 teamServer/TeamServerBootstrap.cpp
 teamServer/TeamServerListenerSessionService.cpp
@@ -77,6 +78,27 @@ if(WITH_TESTS)
 	$<TARGET_FILE:testsTeamServerHelpService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerHelpService>")
 
 	add_test(NAME testsTeamServerHelpService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerHelpService>")
+
+	add_executable(testsTeamServerSocksService
+		tests/TeamServerSocksServiceTests.cpp
+		teamServer/TeamServerSocksService.cpp
+		../core/listener/Listener.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerSocksService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+		${CMAKE_SOURCE_DIR}/libs/libSocks5/src
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerSocksService GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog SocksServer)
+	else()
+		target_link_libraries(testsTeamServerSocksService GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow SocksServer dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerSocksService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerSocksService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerSocksService>")
+
+	add_test(NAME testsTeamServerSocksService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerSocksService>")
 
 	add_executable(testsTeamServerListenerSessionService
 		tests/TeamServerListenerSessionServiceTests.cpp

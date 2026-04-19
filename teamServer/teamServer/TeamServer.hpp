@@ -31,6 +31,7 @@
 class TeamServerAuthManager;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
+class TeamServerSocksService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
@@ -80,16 +81,6 @@ private:
     std::string m_toolsDirectoryPath;
     std::string m_scriptsDirectoryPath;
 
-    // Socks
-    bool m_isSocksServerRunning;
-    bool m_isSocksServerBinded;
-    void socksThread();
-
-    std::unique_ptr<SocksServer> m_socksServer;
-    std::unique_ptr<std::thread> m_socksThread;
-    std::shared_ptr<Listener> m_socksListener;
-    std::shared_ptr<Session> m_socksSession;
-
     bool m_handleCmdResponseThreadRuning;
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
     std::vector<teamserverapi::CommandResponse> m_cmdResponses;
@@ -100,4 +91,5 @@ private:
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
+    std::unique_ptr<TeamServerSocksService> m_socksService;
 };

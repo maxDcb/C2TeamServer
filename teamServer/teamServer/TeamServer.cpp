@@ -4,6 +4,7 @@
 #include "TeamServerBootstrap.hpp"
 #include "TeamServerHelpService.hpp"
 #include "TeamServerListenerSessionService.hpp"
+#include "TeamServerSocksService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
 
 #include <dlfcn.h>
@@ -36,7 +37,7 @@ grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
 }
 
 TeamServer::TeamServer(const nlohmann::json& config)
-    : m_config(config), m_isSocksServerRunning(false), m_isSocksServerBinded(false)
+    : m_config(config)
 {
     m_logger = createTeamServerLogger(config);
 
@@ -70,6 +71,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_sentC2Messages,
         [this](const std::string& input, C2Message& c2Message, bool isWindows)
         { return this->prepMsg(input, c2Message, isWindows); });
+    m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
 
     // Modules
     m_logger->debug("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
@@ -135,10 +137,7 @@ TeamServer::~TeamServer()
 {
     m_handleCmdResponseThreadRuning = false;
     m_handleCmdResponseThread->join();
-
-    m_isSocksServerBinded = false;
-    if (m_socksThread)
-        m_socksThread->join();
+    m_socksService->shutdown();
 }
 
 grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response)
@@ -200,181 +199,6 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->stopSession(*sessionToStop, response);
-}
-
-void TeamServer::socksThread()
-{
-    std::string dataIn;
-    std::string dataOut;
-    m_isSocksServerBinded = true;
-    while (m_isSocksServerBinded)
-    {
-        // if session is killed (beacon probably dead) we end the server
-        if (m_socksSession->isSessionKilled())
-        {
-            m_isSocksServerBinded = false;
-
-            for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-                m_socksServer->resetTunnel(i);
-        }
-
-        C2Message c2Message = m_socksListener->getSocksTaskResult(m_socksSession->getBeaconHash());
-
-        // if the beacon request stopSocks we end the server
-        if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopSocksCmd)
-        {
-            m_socksServer->stop();
-            m_isSocksServerBinded = false;
-
-            for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-                m_socksServer->resetTunnel(i);
-        }
-
-        for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-        {
-            SocksTunnelServer* tunnel = m_socksServer->getTunnel(i);
-
-            if (tunnel != nullptr)
-            {
-                int id = tunnel->getId();
-                SocksState state = tunnel->getState();
-                if (state == SocksState::INIT)
-                {
-                    int ip = tunnel->getIpDst();
-                    int port = tunnel->getPort();
-
-                    m_logger->debug("Socks5 to {}:{}", std::to_string(ip), std::to_string(port));
-
-                    C2Message c2MessageToSend;
-                    c2MessageToSend.set_instruction(Socks5Cmd);
-                    c2MessageToSend.set_cmd(InitCmd);
-                    c2MessageToSend.set_data(std::to_string(ip));
-                    c2MessageToSend.set_args(std::to_string(port));
-                    c2MessageToSend.set_pid(id);
-
-                    if (!c2MessageToSend.instruction().empty())
-                        m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-
-                    tunnel->setState(SocksState::HANDSHAKE);
-                }
-                else if (state == SocksState::HANDSHAKE)
-                {
-                    m_logger->trace("Socks5 wait handshake {}", id);
-
-                    if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == InitCmd && c2Message.pid() == id)
-                    {
-                        m_logger->debug("Socks5 handshake received {}", id);
-
-                        if (c2Message.data() == "fail")
-                        {
-                            m_logger->debug("Socks5 handshake failed {}", id);
-                            m_socksServer->resetTunnel(i);
-                        }
-                        else
-                        {
-                            m_logger->debug("Socks5 handshake succed {}", id);
-                            tunnel->finishHandshake();
-                            tunnel->setState(SocksState::RUN);
-
-                            dataIn = "";
-                            int res = tunnel->process(dataIn, dataOut);
-
-                            if (res <= 0)
-                            {
-                                m_logger->debug("Socks5 stop");
-
-                                m_socksServer->resetTunnel(i);
-
-                                C2Message c2MessageToSend;
-                                c2MessageToSend.set_instruction(Socks5Cmd);
-                                c2MessageToSend.set_cmd(StopCmd);
-                                c2MessageToSend.set_pid(id);
-
-                                if (!c2MessageToSend.instruction().empty())
-                                    m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-                            }
-                            else
-                            {
-                                m_logger->debug("Socks5 send data to beacon");
-
-                                C2Message c2MessageToSend;
-                                c2MessageToSend.set_instruction(Socks5Cmd);
-                                c2MessageToSend.set_cmd(RunCmd);
-                                c2MessageToSend.set_pid(id);
-                                c2MessageToSend.set_data(dataOut);
-
-                                if (!c2MessageToSend.instruction().empty())
-                                    m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-                            }
-                        }
-                    }
-                    else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
-                    {
-                        m_socksServer->resetTunnel(i);
-                    }
-                }
-                else if (state == SocksState::RUN)
-                {
-                    m_logger->trace("Socks5 run {}", id);
-
-                    dataIn = "";
-                    if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == RunCmd && c2Message.pid() == id)
-                    {
-                        m_logger->debug("Socks5 {}: data received from beacon", id);
-
-                        dataIn = c2Message.data();
-
-                        int res = tunnel->process(dataIn, dataOut);
-
-                        m_logger->debug("Socks5 process, res {}, dataIn {}, dataOut {}", res, dataIn.size(), dataOut.size());
-
-                        // TODO do we stop if dataOut.size()==0 ????
-                        // if(res<=0 || dataOut.size()==0)
-                        if (res <= 0)
-                        {
-                            m_logger->debug("Socks5 stop");
-
-                            m_socksServer->resetTunnel(i);
-
-                            C2Message c2MessageToSend;
-                            c2MessageToSend.set_instruction(Socks5Cmd);
-                            c2MessageToSend.set_cmd(StopCmd);
-                            c2MessageToSend.set_pid(id);
-
-                            if (!c2MessageToSend.instruction().empty())
-                                m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-                        }
-                        else
-                        {
-                            m_logger->debug("Socks5 send data to beacon");
-
-                            C2Message c2MessageToSend;
-                            c2MessageToSend.set_instruction(Socks5Cmd);
-                            c2MessageToSend.set_cmd(RunCmd);
-                            c2MessageToSend.set_pid(id);
-                            c2MessageToSend.set_data(dataOut);
-
-                            if (!c2MessageToSend.instruction().empty())
-                                m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-                        }
-                    }
-                    else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
-                    {
-                        m_socksServer->resetTunnel(i);
-                    }
-                }
-            }
-        }
-
-        // Remove ended tunnels
-        m_socksServer->cleanTunnel();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-
-    m_logger->info("End SocksServer binding");
-
-    return;
 }
 
 grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::Response* response)
@@ -1038,155 +862,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
     else if (instruction == SocksInstruction_)
     {
         m_logger->debug("socks {0}", cmd);
-        if (splitedCmd.size() >= 2)
-        {
-            std::string cmd = splitedCmd[1];
-
-            // Start a thread that handle all the communication with the beacon
-            if (cmd == "start")
-            {
-                if (m_isSocksServerRunning == true)
-                {
-                    m_logger->warn("Error: Socks server is already running");
-                    responseTmp.set_result("Error: Socks server is already running");
-                    *response = responseTmp;
-                    return grpc::Status::OK;
-                }
-                else
-                {
-                    // TODO put the port in config
-                    int port = 1080;
-
-                    bool isPortInUse = port_in_use(port);
-                    if (!isPortInUse)
-                    {
-                        m_socksServer = std::make_unique<SocksServer>(port);
-
-                        int maxAttempt = 3;
-                        int attempts = 0;
-                        while (!m_socksServer->isServerLaunched())
-                        {
-                            m_socksServer->stop();
-                            m_socksServer->launch();
-                            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                            m_logger->debug("Wait for SocksServer to start on port {}", port);
-                            attempts++;
-                            if (attempts > maxAttempt)
-                            {
-                                m_logger->error("Error: Unable to start the socks server on port {} after {} attempts", port, maxAttempt);
-                                break;
-                            }
-                        }
-
-                        if (m_socksServer->isServerStoped())
-                        {
-                            m_logger->warn("Error: Socks server failed to start on port {}", port);
-                            responseTmp.set_result("Error: Socks server failed to start on port " + std::to_string(port));
-                            *response = responseTmp;
-                            return grpc::Status::OK;
-                        }
-
-                        m_isSocksServerRunning = true;
-
-                        m_logger->info("Socks server successfully started on port {}", port);
-                        responseTmp.set_result("Socks server successfully started on port " + std::to_string(port));
-                        *response = responseTmp;
-                        return grpc::Status::OK;
-                    }
-                    else
-                    {
-                        m_logger->warn("Error: Socks server port already used");
-                        responseTmp.set_result("Error: Socks server port already used");
-                        *response = responseTmp;
-                        return grpc::Status::OK;
-                    }
-                }
-            }
-            else if (cmd == "stop")
-            {
-                m_isSocksServerBinded = false;
-                if (m_socksThread)
-                    m_socksThread->join();
-                m_socksThread.reset(nullptr);
-
-                m_isSocksServerRunning = false;
-                if (m_socksServer)
-                    m_socksServer->stop();
-                m_socksServer.reset(nullptr);
-
-                m_logger->info("Socks server stoped");
-                responseTmp.set_result("Socks server stoped");
-                *response = responseTmp;
-                return grpc::Status::OK;
-            }
-            else if (cmd == "bind")
-            {
-                if (!m_isSocksServerRunning)
-                {
-                    m_logger->warn("Error: Socks server not running");
-                    responseTmp.set_result("Error: Socks server not running");
-                    *response = responseTmp;
-                    return grpc::Status::OK;
-                }
-                if (m_isSocksServerBinded)
-                {
-                    m_logger->warn("Error: Socks server already bind");
-                    responseTmp.set_result("Error: Socks server already bind");
-                    *response = responseTmp;
-                    return grpc::Status::OK;
-                }
-                if (splitedCmd.size() == 3)
-                {
-                    std::string beaconHash = splitedCmd[2];
-                    for (int i = 0; i < m_listeners.size(); i++)
-                    {
-                        int nbSession = m_listeners[i]->getNumberOfSession();
-                        for (int kk = 0; kk < nbSession; kk++)
-                        {
-                            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
-                            std::string hash = session->getBeaconHash();
-                            if (hash.find(beaconHash) != std::string::npos && !session->isSessionKilled())
-                            {
-                                m_socksListener = m_listeners[i];
-                                m_socksSession = m_listeners[i]->getSessionPtr(kk);
-
-                                m_socksThread = std::make_unique<std::thread>(&TeamServer::socksThread, this);
-
-                                m_isSocksServerBinded = true;
-                                m_logger->info("Socks server sucessfully binded");
-                                responseTmp.set_result("Socks server sucessfully binded\nThink about setting the sleep time of the beacon to 0.001 to force a good throughput");
-                                *response = responseTmp;
-                                return grpc::Status::OK;
-                            }
-                        }
-                    }
-
-                    m_logger->warn("Error: Socks server bind failed, session not found");
-                    responseTmp.set_result("Error: Socks server bind failed, session not found");
-                    *response = responseTmp;
-                    return grpc::Status::OK;
-                }
-            }
-            else if (cmd == "unbind")
-            {
-                m_isSocksServerBinded = false;
-                if (m_socksThread)
-                    m_socksThread->join();
-                m_socksThread.reset(nullptr);
-
-                m_logger->info("Socks server successfully unbinding");
-                responseTmp.set_result("Socks server successfully unbinding");
-                *response = responseTmp;
-                return grpc::Status::OK;
-            }
-            else
-            {
-                m_logger->warn("Error: Socks server command not found.");
-                responseTmp.set_result("Error: Socks server command not found.");
-                *response = responseTmp;
-                return grpc::Status::OK;
-            }
-        }
+        return m_socksService->handleCommand(splitedCmd, response);
     }
     // TODO add a clean www directory !!!
     else
