@@ -11,11 +11,12 @@ import sys
 import uuid
 from typing import Any, Iterable, List, Tuple, Optional
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/libGrpcMessages/build/py/')
-
 import grpc
-import TeamServerApi_pb2
-import TeamServerApi_pb2_grpc
+from .libGrpcMessages.build.py import TeamServerApi_pb2
+
+sys.modules.setdefault("TeamServerApi_pb2", TeamServerApi_pb2)
+
+from .libGrpcMessages.build.py import TeamServerApi_pb2_grpc
 
 
 MetadataType = List[Tuple[str, str]]
@@ -216,4 +217,3 @@ class GrpcClient:
         except grpc.RpcError as exc:
             logging.error("SendTermCmd RPC failed: %s", exc)
             raise
-

@@ -49,19 +49,19 @@ enum Status
 }
 
 
-message Response 
+message Response
 {
   Status status = 1;
   bytes message = 2;
 }
 
 
-message Listener 
+message Listener
 {
   string listenerHash = 1;
   string type = 2;
-	int32 port = 3;
-	string ip = 4;
+  int32 port = 3;
+  string ip = 4;
   string project = 6;
   string token = 7;
   string domain = 8;
@@ -70,13 +70,13 @@ message Listener
 }
 
 
-message Session 
+message Session
 {
   string beaconHash = 1;
-	string listenerHash = 2;
+  string listenerHash = 2;
   string hostname = 3;
-	string username = 4;
-	string arch = 5;
+  string username = 4;
+  string arch = 5;
   string privilege = 6;
   string os = 7;
   string lastProofOfLife = 8;
@@ -87,7 +87,7 @@ message Session
 }
 
 
-message Command 
+message Command
 {
   string beaconHash = 1;
   string listenerHash = 2;
@@ -95,7 +95,7 @@ message Command
 }
 
 
-message CommandResponse 
+message CommandResponse
 {
   string beaconHash = 1;
   string instruction = 2;
@@ -104,7 +104,7 @@ message CommandResponse
 }
 
 
-message TermCommand 
+message TermCommand
 {
   string cmd = 1;
   string result = 2;

@@ -13,8 +13,6 @@ set(C2_TEAMSERVER_RUNTIME_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServer")
 set(C2_RUNTIME_MODULE_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServerModules")
 set(C2_TEST_BIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/tests/bin")
 set(C2_GENERATED_PYTHON_GRPC_DIR "${CMAKE_BINARY_DIR}/generated/python_grpc")
-set(C2_BASE64_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdParty/base64")
-set(C2_DONUT_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdParty/donut")
 
 file(MAKE_DIRECTORY
     "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}"
@@ -89,6 +87,7 @@ endif()
 include_directories(thirdParty)
 
 add_subdirectory(libs)
+add_subdirectory(protocol)
 
 add_subdirectory(thirdParty)
 include_directories(thirdParty/base64)
