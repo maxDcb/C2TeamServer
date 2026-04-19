@@ -1,9 +1,9 @@
 [requires]
-grpc/1.72.0
-protobuf/5.27.0
-spdlog/1.15.3
-cpp-httplib/0.20.1
-openssl/3.5.1
+grpc/1.78.1
+protobuf/6.33.5
+spdlog/1.17.0
+cpp-httplib/0.39.0
+openssl/3.6.2
 crowcpp-crow/1.3.0
 
 [layout]
