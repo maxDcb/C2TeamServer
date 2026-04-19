@@ -38,7 +38,7 @@ class DummyConsole(QWidget):
 
 
 def test_gui_startup(qtbot, monkeypatch):
-    monkeypatch.setattr(GUI, 'GrpcClient', lambda ip, port, dev: object())
+    monkeypatch.setattr(GUI, 'GrpcClient', lambda *args, **kwargs: object())
 
     def fake_top(self):
         self.sessionsWidget = DummyWidget()

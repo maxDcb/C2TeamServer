@@ -7,16 +7,11 @@ metadata injection and basic error reporting.
 
 import logging
 import os
-import sys
 import uuid
 from typing import Any, Iterable, List, Tuple, Optional
 
 import grpc
-from .libGrpcMessages.build.py import TeamServerApi_pb2
-
-sys.modules.setdefault("TeamServerApi_pb2", TeamServerApi_pb2)
-
-from .libGrpcMessages.build.py import TeamServerApi_pb2_grpc
+from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
 MetadataType = List[Tuple[str, str]]
