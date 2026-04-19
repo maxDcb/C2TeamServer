@@ -62,8 +62,12 @@ find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(httplib REQUIRED)
 find_package(Crow REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 include_directories(${CMAKE_INCLUDE_PATH})
+
+get_target_property(C2_NLOHMANN_JSON_INCLUDE_DIRS nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
+include_directories(${C2_NLOHMANN_JSON_INCLUDE_DIRS})
 
 
 ##
@@ -98,20 +102,12 @@ add_definitions(-DBUILD_TEAMSERVER)
 
 if(WITH_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
-  FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.12.0
-  )
-  FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
 
 ##
 ## Build
 ##
-
-include_directories("${C2_THIRDPARTY_DIR}")
 
 add_subdirectory("${C2_LIBS_DIR}")
 add_subdirectory("${C2_PROTOCOL_DIR}")
