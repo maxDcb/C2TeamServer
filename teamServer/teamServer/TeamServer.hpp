@@ -31,7 +31,10 @@
 class TeamServerAuthManager;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
+class TeamServerListenerArtifactService;
+class TeamServerModuleLoader;
 class TeamServerSocksService;
+class TeamServerCommandPreparationService;
 class TeamServerTermLocalService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
@@ -74,14 +77,6 @@ private:
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
 
-    std::string m_teamServerModulesDirectoryPath;
-    std::string m_linuxModulesDirectoryPath;
-    std::string m_windowsModulesDirectoryPath;
-    std::string m_linuxBeaconsDirectoryPath;
-    std::string m_windowsBeaconsDirectoryPath;
-    std::string m_toolsDirectoryPath;
-    std::string m_scriptsDirectoryPath;
-
     bool m_handleCmdResponseThreadRuning;
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
     std::vector<teamserverapi::CommandResponse> m_cmdResponses;
@@ -92,6 +87,9 @@ private:
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
+    std::unique_ptr<TeamServerListenerArtifactService> m_listenerArtifactService;
+    std::unique_ptr<TeamServerModuleLoader> m_moduleLoader;
     std::unique_ptr<TeamServerSocksService> m_socksService;
+    std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
     std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
 };

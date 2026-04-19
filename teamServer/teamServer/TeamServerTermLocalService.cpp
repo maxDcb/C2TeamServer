@@ -1,19 +1,13 @@
 #include "TeamServerTermLocalService.hpp"
 
-#include <dlfcn.h>
-
-#include <filesystem>
 #include <fstream>
 
+#include "TeamServerModuleLoader.hpp"
 #include "listener/ListenerHttp.hpp"
-
-namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace
 {
-using constructProc = ModuleCmd* (*)();
-
 const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
 const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
@@ -75,59 +69,8 @@ grpc::Status TeamServerTermLocalService::handleCommand(
 
 std::vector<std::unique_ptr<ModuleCmd>> TeamServerTermLocalService::loadModulesFromDisk() const
 {
-    std::vector<std::unique_ptr<ModuleCmd>> modules;
-
-    try
-    {
-        for (const auto& entry : fs::recursive_directory_iterator(m_runtimeConfig.teamServerModulesDirectoryPath))
-        {
-            if (!fs::is_regular_file(entry.path()) || entry.path().extension() != ".so")
-                continue;
-
-            m_logger->debug("Trying to load {0}", entry.path().c_str());
-
-            void* handle = dlopen(entry.path().c_str(), RTLD_LAZY);
-            if (!handle)
-            {
-                m_logger->warn("Failed to load {0}: {1}", entry.path().c_str(), dlerror());
-                continue;
-            }
-
-            std::string funcName = entry.path().filename();
-            funcName = funcName.substr(3);
-            funcName = funcName.substr(0, funcName.length() - 3);
-            funcName += "Constructor";
-
-            m_logger->debug("Looking for constructor function: {0}", funcName);
-
-            constructProc construct = reinterpret_cast<constructProc>(dlsym(handle, funcName.c_str()));
-            if (!construct)
-            {
-                m_logger->warn("Failed to find constructor: {0}", dlerror());
-                dlclose(handle);
-                continue;
-            }
-
-            ModuleCmd* moduleCmd = construct();
-            if (!moduleCmd)
-            {
-                m_logger->warn("Constructor returned null");
-                dlclose(handle);
-                continue;
-            }
-
-            std::unique_ptr<ModuleCmd> moduleCmdPtr(moduleCmd);
-            m_runtimeConfig.configureModule(*moduleCmdPtr);
-            m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
-            modules.push_back(std::move(moduleCmdPtr));
-        }
-    }
-    catch (const fs::filesystem_error& e)
-    {
-        m_logger->warn("Error accessing module directory: {0}", e.what());
-    }
-
-    return modules;
+    TeamServerModuleLoader loader(m_logger, m_runtimeConfig);
+    return loader.loadModules();
 }
 
 bool TeamServerTermLocalService::isValidFilename(const std::string& filename) const

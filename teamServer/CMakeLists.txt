@@ -5,7 +5,10 @@ include_directories(../core/modules/ModuleCmd)
 set(SOURCES_TEAMSERVER
 teamServer/TeamServer.cpp
 teamServer/TeamServerAuth.cpp
+teamServer/TeamServerCommandPreparationService.cpp
 teamServer/TeamServerHelpService.cpp
+teamServer/TeamServerListenerArtifactService.cpp
+teamServer/TeamServerModuleLoader.cpp
 teamServer/TeamServerSocksService.cpp
 teamServer/TeamServerTermLocalService.cpp
 teamServer/TeamServerRuntimeConfig.cpp
@@ -80,6 +83,45 @@ if(WITH_TESTS)
 
 	add_test(NAME testsTeamServerHelpService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerHelpService>")
 
+	add_executable(testsTeamServerCommandPreparationService
+		tests/TeamServerCommandPreparationServiceTests.cpp
+		teamServer/TeamServerCommandPreparationService.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerCommandPreparationService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerCommandPreparationService GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog)
+	else()
+		target_link_libraries(testsTeamServerCommandPreparationService GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerCommandPreparationService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerCommandPreparationService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerCommandPreparationService>")
+
+	add_test(NAME testsTeamServerCommandPreparationService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerCommandPreparationService>")
+
+	add_executable(testsTeamServerListenerArtifactService
+		tests/TeamServerListenerArtifactServiceTests.cpp
+		teamServer/TeamServerListenerArtifactService.cpp
+		../core/listener/Listener.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerListenerArtifactService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerListenerArtifactService GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog)
+	else()
+		target_link_libraries(testsTeamServerListenerArtifactService GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerListenerArtifactService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerListenerArtifactService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerListenerArtifactService>")
+
+	add_test(NAME testsTeamServerListenerArtifactService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerListenerArtifactService>")
+
 	add_executable(testsTeamServerSocksService
 		tests/TeamServerSocksServiceTests.cpp
 		teamServer/TeamServerSocksService.cpp
@@ -103,6 +145,7 @@ if(WITH_TESTS)
 
 	add_executable(testsTeamServerTermLocalService
 		tests/TeamServerTermLocalServiceTests.cpp
+		teamServer/TeamServerModuleLoader.cpp
 		teamServer/TeamServerTermLocalService.cpp
 		teamServer/TeamServerRuntimeConfig.cpp
 		../core/listener/Listener.cpp
