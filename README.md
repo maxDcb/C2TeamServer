@@ -62,6 +62,7 @@ To launch the TeamServer:
 
 ```bash
 cd Release
+cd TeamServer
 ./TeamServer
 ```
 
@@ -69,42 +70,35 @@ cd Release
 
 ### **🐳 Docker Deployment**
 
-If you prefer containerized execution (recommended to avoid host library issues), build and run the Dockerfile:
+If you prefer containerized execution, the repository `Dockerfile` now runs the packaged TeamServer bundle directly:
 
 ```bash
-# 0) Get Dockerfile
-curl -sL https://raw.githubusercontent.com/maxDcb/C2TeamServer/refs/heads/master/Dockerfile -o Dockerfile
-
-# 1) Build
-sudo docker build -t exploration-teamserver .
-
-# 2) Create a host copy of the release
-CID=$(sudo docker create exploration-teamserver)
-sudo docker cp "$CID":/opt/teamserver/Release /opt/C2TeamServer
-sudo docker rm "$CID"
-
-# 3) Run container with host Release mounted (for easy editing)
-sudo docker run -it --rm --name exploration-teamserver -v /opt/C2TeamServer/Release:/opt/teamserver/Release -p 50051:50051 -p 80:80 -p 443:443 -p 8443:8443 exploration-teamserver
+docker build -t exploration-teamserver .
+docker run --rm -it \
+  --name exploration-teamserver \
+  -p 50051:50051 \
+  -p 80:80 \
+  -p 443:443 \
+  -p 8443:8443 \
+  exploration-teamserver
 ```
+
+The image downloads the latest `Release.tar.gz` during the image build and starts `/opt/teamserver/Release/TeamServer/TeamServer`.
+If you want to override the packaged bundle with a local one, mount your own `Release` directory on `/opt/teamserver/Release`.
 
 ---
 
 ### **💻 Installing and Running the Client**
 
-Install the Python client using [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Install the Python client from the staged release bundle or from the repository sources.
+
+If you use a staged release bundle, set the path to the TeamServer certificate:
 
 ```bash
-# uv
-uv tool install git+https://github.com/maxDcb/C2TeamServer.git#subdirectory=C2Client 
+export C2_CERT_PATH=/path/to/Release/TeamServer/server.crt
 ```
 
-Set the path to the TeamServer certificate, if you run in a docker you can simply cp the `server.crt`, or if you follow the above section it should be in `/opt/C2TeamServer/TeamServer/server.crt`:
-
-```bash
-export C2_CERT_PATH=/path/to/teamserver/cert/server.crt
-```
-
-Connect to the TeamServer:
+Then connect to the TeamServer:
 
 ```bash
 c2client --ip 127.0.0.1 --port 50051 
@@ -134,49 +128,66 @@ The added emojis help bring some fun and engagement to the titles and sections, 
 
 ## 🛠️ Build
 
-The **Exploration C2 Framework** consists of multiple components, including the **C2TeamServer**, **C2Implant**, and **C2LinuxImplant**. Below are the build instructions for **C2TeamServer**.
+The repository now uses:
 
-### 🔧 Build Process
+- `Conan` for C/C++ dependencies
+- `CMake` for configuration
+- `GNU Make` or another CMake generator for compilation
+- `pyproject.toml` and `requirements.txt` for Python dependencies
 
-1. **Install Dependencies**:
+### 🔧 Build From Scratch
 
-   * Ensure you have **CMake**, **g++**, and **Conan** installed.
+Validated commands in WSL/Linux:
 
-    ```bash
-    sudo apt install cmake
-    pip3 install conan
-    ```
+```bash
+git clone https://github.com/maxDcb/C2TeamServer.git
+cd C2TeamServer
+git submodule update --init --recursive
 
-2. **Clone the Repository**:
-   If you haven't cloned the repository already, you can do so with:
+python3 -m pip install --upgrade "conan==2.24.0"
 
-   ```bash
-   git clone https://github.com/maxDcb/C2TeamServer.git
-   cd C2TeamServer
-   git submodule update --init
-   ```
+cmake -B build -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=$PWD/conan_provider.cmake
+cmake --build build -j"$(nproc)"
+ctest --test-dir build --output-on-failure
+```
 
-3. **Configure the Build**:
+Notes:
 
-   * Create a build directory and navigate into it.
+- Use the absolute path to `conan_provider.cmake`. The old relative example was not reliable.
+- Build artifacts are generated in the build tree, not written back into the repository root.
+- The validated build currently runs `53` CTest tests from the root build.
 
-   ```bash
-   mkdir build
-   cd build
-   ```
+### 🧪 Client Tests
 
-   * Run CMake to configure the build process. This may take some time if you haven't installed the necessary dependencies yet, which are provided by Conan.
+The client depends on the generated Python protocol package produced by the root CMake build:
 
-   ```bash
-   cmake .. -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake
-   ```
+```bash
+cd C2Client
+python -m venv .venv
+. .venv/bin/activate
+pip install -e .[test]
 
-4. **Build the TeamServer**:
+export C2_PROTOCOL_PYTHON_ROOT=$PWD/../build/generated/python_protocol
+pytest tests -q
+```
 
-   * Now, you can compile the TeamServer with the following command:
+### 📦 Stage A Release Bundle
 
-   ```bash
-   make
-   ```
+To assemble the local release bundle from build outputs:
 
-   * This will generate the `TeamServer` binary along with the TeamServer modules and copy them into the `Release` folder in the root directory of the project.
+```bash
+cmake --build build --target stage_release_bundle
+```
+
+The bundle is created under:
+
+```text
+build/release-staging/Release
+```
+
+This staged bundle contains:
+
+- `TeamServer`
+- `TeamServerModules`
+- the generated Python client protocol package
+- the Python client sources and launchers

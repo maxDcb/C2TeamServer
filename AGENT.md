@@ -16,6 +16,7 @@ From now on, the project must be compiled and tested during implementation work 
 - Prefer a clean dedicated build directory such as `build-codex-scratch` for verification instead of reusing an unknown existing `build/` tree.
 - Use Conan for dependencies, CMake for configuration, and GNU Make with GCC for the build.
 - After code changes, run at least the project configure step, the build, and `ctest --output-on-failure` when feasible.
+- If the change touches the Python client or generated protocol bindings, also run the client pytest suite with `C2_PROTOCOL_PYTHON_ROOT` pointing at the build tree.
 
 ## Validated Environment
 
@@ -39,11 +40,22 @@ make
 ctest --output-on-failure
 ```
 
+Run the Python client tests with:
+
+```bash
+cd /home/max/project/C2TeamServer/C2Client
+python -m venv .venv
+. .venv/bin/activate
+pip install -e .[test]
+C2_PROTOCOL_PYTHON_ROOT=/home/max/project/C2TeamServer/build-codex-scratch/generated/python_protocol pytest tests -q
+```
+
 Notes:
 
 - The `README.md` example using `-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake` was not reliable in the validated setup.
 - Use the absolute path to `conan_provider.cmake` shown above.
-- The validated CTest registration currently executes `testsTestServer`.
+- The validated root build currently executes `53` CTest tests and `5` Python client tests.
+- The staged release bundle is produced with `cmake --build <build-dir> --target stage_release_bundle` under `<build-dir>/release-staging/Release`.
 
 ## Responsibilities
 

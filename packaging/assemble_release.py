@@ -90,13 +90,10 @@ resolved without relying on build-tree paths.
 
 
 def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> None:
-    tracked_release_root = source_root / "Release"
     build_release_root = build_root / "artifacts" / "Release"
     teamserver_root = build_release_root / "TeamServer"
     modules_root = build_release_root / "TeamServerModules"
 
-    if not tracked_release_root.exists():
-        raise FileNotFoundError(f"Missing tracked release assets directory: {tracked_release_root}")
     if not teamserver_root.exists():
         raise FileNotFoundError(
             f"Missing TeamServer runtime artifacts: {teamserver_root}. "
@@ -110,7 +107,7 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
 
     shutil.rmtree(output_root, ignore_errors=True)
     output_root.parent.mkdir(parents=True, exist_ok=True)
-    _copytree(tracked_release_root, output_root)
+    output_root.mkdir(parents=True, exist_ok=True)
 
     shutil.rmtree(output_root / "TeamServer", ignore_errors=True)
     shutil.rmtree(output_root / "TeamServerModules", ignore_errors=True)
@@ -118,6 +115,8 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
 
     _copytree(teamserver_root, output_root / "TeamServer")
     _copytree(modules_root, output_root / "TeamServerModules")
+    shutil.rmtree(output_root / "TeamServer" / "logs", ignore_errors=True)
+    (output_root / "TeamServer" / "logs").mkdir(parents=True, exist_ok=True)
 
     _build_client_bundle(source_root, build_root, output_root)
 

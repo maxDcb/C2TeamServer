@@ -36,11 +36,11 @@ jobs:
       with:
         python-version: '3.12'
 
-    - name: Get Conan
-      uses: turtlebrowser/get-conan@v1.2
+    - name: Install Conan
+      run: python -m pip install --upgrade pip "conan==2.24.0"
 
     - name: Create default profile
-      run: conan profile detect
+      run: conan profile detect --force
       
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DWITH_TESTS=OFF -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
@@ -51,6 +51,18 @@ jobs:
     - name: Stage release bundle
       run: |
         cmake --build ${{github.workspace}}/build --target stage_release_bundle
+
+    - name: Verify staged client protocol bundle
+      run: |
+        python - <<'PY'
+        import pathlib
+        import sys
+
+        bundle_root = pathlib.Path("${{github.workspace}}/build/release-staging/Release/Client").resolve()
+        sys.path.insert(0, str(bundle_root))
+        import c2client_protocol.TeamServerApi_pb2  # noqa: F401
+        print(bundle_root)
+        PY
 
     - name: Import implant releases
       run: |
