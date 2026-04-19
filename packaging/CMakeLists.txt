@@ -1,7 +1,12 @@
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
-set(C2_RELEASE_STAGING_ROOT "${CMAKE_BINARY_DIR}/release-staging")
-set(C2_RELEASE_STAGING_DIR "${C2_RELEASE_STAGING_ROOT}/Release")
+if(NOT DEFINED C2_RELEASE_STAGING_ROOT)
+  set(C2_RELEASE_STAGING_ROOT "${CMAKE_BINARY_DIR}/release-staging")
+endif()
+
+if(NOT DEFINED C2_RELEASE_STAGING_DIR)
+  set(C2_RELEASE_STAGING_DIR "${C2_RELEASE_STAGING_ROOT}/Release")
+endif()
 
 add_custom_target(stage_release_bundle
   COMMAND ${Python3_EXECUTABLE}

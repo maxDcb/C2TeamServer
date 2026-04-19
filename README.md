@@ -45,6 +45,24 @@ Supported communication channels include: `TCP`, `SMB`, `HTTP`, and `HTTPS`.
 
 ---
 
+## Repository Layout
+
+The repository is kept as a monorepo for now, with boundaries aligned to the
+future split target:
+
+- `protocol/`: `.proto` source of truth and generated gRPC build rules
+- `teamServer/`: server runtime and gRPC implementation
+- `C2Client/`: Python client package and UI
+- `core/`: source-shared C++ components reused by multiple projects
+- `packaging/`: release bundle assembly
+- `integration/`: staging area and future end-to-end tests
+
+The historical directory names `teamServer` and `C2Client` are still present,
+but the root build now treats them explicitly as the `server` and `client`
+areas.
+
+---
+
 ## **⚡ Quick Start**
 
 ### **🖥️ Running the TeamServer**
@@ -146,7 +164,11 @@ git submodule update --init --recursive
 
 python3 -m pip install --upgrade "conan==2.24.0"
 
-cmake -B build -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=$PWD/conan_provider.cmake
+cmake -B build \
+  -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=$PWD/conan_provider.cmake \
+  -DCONAN_HOST_PROFILE=$PWD/conan/profiles/linux-gcc13 \
+  -DCONAN_BUILD_PROFILE=$PWD/conan/profiles/linux-gcc13 \
+  -DCONAN_LOCKFILE=$PWD/conan.lock
 cmake --build build -j"$(nproc)"
 ctest --test-dir build --output-on-failure
 ```
@@ -154,8 +176,9 @@ ctest --test-dir build --output-on-failure
 Notes:
 
 - Use the absolute path to `conan_provider.cmake`. The old relative example was not reliable.
+- The repository now ships a Linux/GCC 13 Conan profile in `conan/profiles/linux-gcc13` and a checked-in `conan.lock` to freeze the resolved dependency graph used in CI and documented local builds.
 - Build artifacts are generated in the build tree, not written back into the repository root.
-- The validated build currently runs `53` CTest tests from the root build.
+- The validated build currently runs `54` CTest tests from the root build, including one staged-runtime integration test.
 
 ### 🧪 Client Tests
 
@@ -191,3 +214,22 @@ This staged bundle contains:
 - `TeamServerModules`
 - the generated Python client protocol package
 - the Python client sources and launchers
+
+### Prepare The Integration Runtime
+
+The root build provides a dedicated preparation target for integration tests:
+
+```bash
+cmake --build build --target stage_integration_runtime
+```
+
+This produces a deterministic runtime under:
+
+```text
+build/integration-staging/runtime/Release
+```
+
+That staged runtime is already used by a first smoke integration test covering
+TeamServer startup, gRPC authentication, and stable empty-state RPCs. It is the
+base for the next round of end-to-end tests around the packaged Python client
+and deeper contract validation.

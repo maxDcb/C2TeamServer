@@ -17,6 +17,7 @@ From now on, the project must be compiled and tested during implementation work 
 - Use Conan for dependencies, CMake for configuration, and GNU Make with GCC for the build.
 - After code changes, run at least the project configure step, the build, and `ctest --output-on-failure` when feasible.
 - If the change touches the Python client or generated protocol bindings, also run the client pytest suite with `C2_PROTOCOL_PYTHON_ROOT` pointing at the build tree.
+- If the change touches packaging, top-level layout, or release/runtime assembly, also validate `stage_release_bundle`. For future integration work, prefer validating `stage_integration_runtime` too.
 
 ## Validated Environment
 
@@ -35,7 +36,11 @@ Run the project from scratch with:
 cd /home/max/project/C2TeamServer
 mkdir -p build-codex-scratch
 cd build-codex-scratch
-cmake .. -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/home/max/project/C2TeamServer/conan_provider.cmake
+cmake .. \
+  -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/home/max/project/C2TeamServer/conan_provider.cmake \
+  -DCONAN_HOST_PROFILE=/home/max/project/C2TeamServer/conan/profiles/linux-gcc13 \
+  -DCONAN_BUILD_PROFILE=/home/max/project/C2TeamServer/conan/profiles/linux-gcc13 \
+  -DCONAN_LOCKFILE=/home/max/project/C2TeamServer/conan.lock
 make
 ctest --output-on-failure
 ```
@@ -54,14 +59,23 @@ Notes:
 
 - The `README.md` example using `-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake` was not reliable in the validated setup.
 - Use the absolute path to `conan_provider.cmake` shown above.
-- The validated root build currently executes `53` CTest tests and `5` Python client tests.
+- Prefer the checked-in Conan profile and lockfile to keep the graph stable across local builds and CI.
+- The validated root build currently executes `54` CTest tests and `5` Python client tests.
 - The staged release bundle is produced with `cmake --build <build-dir> --target stage_release_bundle` under `<build-dir>/release-staging/Release`.
+- The staged integration runtime is produced with `cmake --build <build-dir> --target stage_integration_runtime` under `<build-dir>/integration-staging/runtime/Release`.
 
 ## Responsibilities
 
 - Analyze and explain C++ classes, actions, and CMake configuration.
 - Trace behavior from gRPC definitions to implementation.
 - Keep edits consistent with the existing module structure and naming.
+- Respect the repository boundaries:
+  - `protocol/` for `.proto` and stub generation
+  - `teamServer/` for the server
+  - `C2Client/` for the Python client
+  - `core/` for source-shared C++ code
+  - `packaging/` for bundle assembly
+  - `integration/` for end-to-end test scaffolding
 - Update documentation when build or workflow details change.
 - Verify that code changes still configure, compile, and test correctly.
 

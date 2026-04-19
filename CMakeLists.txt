@@ -7,18 +7,41 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+#
+# Repository boundaries.
+#
+# The repository still keeps a few historical directory names (`teamServer`,
+# `C2Client`) but the root build treats them as the long-term monorepo areas
+# below so a future repo split stays mechanical.
+#
+set(C2_PROTOCOL_DIR "${CMAKE_SOURCE_DIR}/protocol")
+set(C2_SERVER_DIR "${CMAKE_SOURCE_DIR}/teamServer")
+set(C2_CLIENT_DIR "${CMAKE_SOURCE_DIR}/C2Client")
+set(C2_CORE_DIR "${CMAKE_SOURCE_DIR}/core")
+set(C2_PACKAGING_DIR "${CMAKE_SOURCE_DIR}/packaging")
+set(C2_CERTS_DIR "${CMAKE_SOURCE_DIR}/certs")
+set(C2_THIRDPARTY_DIR "${CMAKE_SOURCE_DIR}/thirdParty")
+set(C2_LIBS_DIR "${CMAKE_SOURCE_DIR}/libs")
+set(C2_INTEGRATION_DIR "${CMAKE_SOURCE_DIR}/integration")
+
 set(C2_BUILD_ARTIFACT_ROOT "${CMAKE_BINARY_DIR}/artifacts")
 set(C2_RUNTIME_ROOT "${C2_BUILD_ARTIFACT_ROOT}/Release")
 set(C2_TEAMSERVER_RUNTIME_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServer")
 set(C2_RUNTIME_MODULE_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServerModules")
 set(C2_TEST_BIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/tests/bin")
 set(C2_GENERATED_PYTHON_GRPC_DIR "${CMAKE_BINARY_DIR}/generated/python_grpc")
+set(C2_RELEASE_STAGING_ROOT "${CMAKE_BINARY_DIR}/release-staging")
+set(C2_RELEASE_STAGING_DIR "${C2_RELEASE_STAGING_ROOT}/Release")
+set(C2_INTEGRATION_STAGING_ROOT "${CMAKE_BINARY_DIR}/integration-staging")
+set(C2_INTEGRATION_STAGING_DIR "${C2_INTEGRATION_STAGING_ROOT}/runtime")
 
 file(MAKE_DIRECTORY
     "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}"
     "${C2_RUNTIME_MODULE_OUTPUT_DIR}"
     "${C2_TEST_BIN_OUTPUT_DIR}"
     "${C2_GENERATED_PYTHON_GRPC_DIR}"
+    "${C2_RELEASE_STAGING_DIR}"
+    "${C2_INTEGRATION_STAGING_DIR}"
 )
 
 
@@ -88,14 +111,14 @@ endif()
 ## Build
 ##
 
-include_directories(thirdParty)
+include_directories("${C2_THIRDPARTY_DIR}")
 
-add_subdirectory(libs)
-add_subdirectory(protocol)
+add_subdirectory("${C2_LIBS_DIR}")
+add_subdirectory("${C2_PROTOCOL_DIR}")
 
-add_subdirectory(thirdParty)
-include_directories(thirdParty/base64)
-include_directories(thirdParty/donut/include)
+add_subdirectory("${C2_THIRDPARTY_DIR}")
+include_directories("${C2_THIRDPARTY_DIR}/base64")
+include_directories("${C2_THIRDPARTY_DIR}/donut/include")
 
 set(DONUT_BUILD_DIR "${CMAKE_BINARY_DIR}/thirdParty/donut")
 add_library(Donut STATIC IMPORTED)
@@ -107,16 +130,19 @@ if(WITH_TESTS)
     enable_testing()
 endif()
 
-include_directories(core/listener)
-include_directories(core/beacon)
-include_directories(core/modules/ModuleCmd)
+include_directories("${C2_CORE_DIR}/listener")
+include_directories("${C2_CORE_DIR}/beacon")
+include_directories("${C2_CORE_DIR}/modules/ModuleCmd")
 
-add_subdirectory(teamServer)
-add_subdirectory(core/modules)
+add_subdirectory("${C2_SERVER_DIR}")
+add_subdirectory("${C2_CORE_DIR}/modules")
 
-add_subdirectory(certs)
-add_subdirectory(packaging)
+add_subdirectory("${C2_CERTS_DIR}")
+add_subdirectory("${C2_PACKAGING_DIR}")
 
+if(WITH_TESTS)
+  add_subdirectory("${C2_INTEGRATION_DIR}")
+endif()
 
 
 

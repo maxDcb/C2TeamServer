@@ -40,11 +40,13 @@ jobs:
     - name: Install Conan
       run: python -m pip install --upgrade pip "conan==2.24.0"
 
-    - name: Create default profile
-      run: conan profile detect --force
-      
     - name: Configure CMake for tests
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
+      run: >
+        cmake -B ${{github.workspace}}/build
+        -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
+        -DCONAN_HOST_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
+        -DCONAN_BUILD_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
+        -DCONAN_LOCKFILE=${{github.workspace}}/conan.lock
 
     - name: Build for test
       run: cmake --build ${{github.workspace}}/build -j 18
@@ -68,8 +70,20 @@ jobs:
         test -x "${{github.workspace}}/build/release-staging/Release/TeamServer/TeamServer"
         test -f "${{github.workspace}}/build/release-staging/Release/Client/c2client_protocol/TeamServerApi_pb2.py"
 
+    - name: Prepare integration runtime smoke test
+      run: |
+        cmake --build ${{github.workspace}}/build --target stage_integration_runtime
+        test -x "${{github.workspace}}/build/integration-staging/runtime/Release/TeamServer/TeamServer"
+        test -f "${{github.workspace}}/build/integration-staging/runtime/Release/Client/c2client_protocol/TeamServerApi_pb2.py"
+
     - name: Configure CMake like the release
-      run: cmake -B ${{github.workspace}}/buildRelease -DWITH_TESTS=OFF -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
+      run: >
+        cmake -B ${{github.workspace}}/buildRelease
+        -DWITH_TESTS=OFF
+        -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
+        -DCONAN_HOST_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
+        -DCONAN_BUILD_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
+        -DCONAN_LOCKFILE=${{github.workspace}}/conan.lock
 
     - name: Build like the release
       run: cmake --build ${{github.workspace}}/buildRelease -j 18
