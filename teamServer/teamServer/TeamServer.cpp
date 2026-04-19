@@ -5,6 +5,7 @@
 #include "TeamServerHelpService.hpp"
 #include "TeamServerListenerSessionService.hpp"
 #include "TeamServerSocksService.hpp"
+#include "TeamServerTermLocalService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
 
 #include <dlfcn.h>
@@ -72,6 +73,13 @@ TeamServer::TeamServer(const nlohmann::json& config)
         [this](const std::string& input, C2Message& c2Message, bool isWindows)
         { return this->prepMsg(input, c2Message, isWindows); });
     m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
+    m_termLocalService = std::make_unique<TeamServerTermLocalService>(
+        m_logger,
+        m_config,
+        runtimeConfig,
+        m_listeners,
+        m_credentials,
+        m_moduleCmd);
 
     // Modules
     m_logger->debug("TeamServer module directory path {0}", m_teamServerModulesDirectoryPath.c_str());
@@ -300,12 +308,7 @@ std::string getIPAddress(std::string& interface)
 
 const std::string InfoListenerInstruction = "infoListener";
 const std::string GetBeaconBinaryInstruction = "getBeaconBinary";
-const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
-const std::string ReloadModulesInstruction = "reloadModules";
-const std::string BatcaveInstruction = "batcaveUpload";
 const std::string InstallInstruction = "install";
-const std::string AddCredentialInstruction = "addCred";
-const std::string GetCredentialInstruction = "getCred";
 const std::string SocksInstruction_ = "socks";
 
 grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command, teamserverapi::TermCommand* response)
@@ -651,213 +654,9 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
             return grpc::Status::OK;
         }
     }
-    else if (instruction == PutIntoUploadDirInstruction)
+    else if (m_termLocalService->canHandle(instruction))
     {
-        m_logger->debug("putIntoUploadDir {0}", cmd);
-
-        if (splitedCmd.size() == 3)
-        {
-            std::string listenerHash = splitedCmd[1];
-
-            std::string filename = splitedCmd[2];
-            if (filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") != std::string::npos)
-            {
-                responseTmp.set_result("Error: filename not allowed.");
-                *response = responseTmp;
-                return grpc::Status::OK;
-            }
-            std::string data = command->data();
-
-            std::string downloadFolder = "";
-            for (int i = 0; i < m_listeners.size(); i++)
-            {
-                std::string hash = m_listeners[i]->getListenerHash();
-                if (hash.find(listenerHash) != std::string::npos)
-                {
-                    std::string type = m_listeners[i]->getType();
-
-                    try
-                    {
-                        if (type == ListenerHttpType)
-                        {
-                            json configHttp = m_config["ListenerHttpConfig"];
-
-                            auto it = configHttp.find("downloadFolder");
-                            if (it != configHttp.end())
-                                downloadFolder = configHttp["downloadFolder"].get<std::string>();
-                            ;
-                        }
-                        else if (type == ListenerHttpsType)
-                        {
-                            json configHttps = m_config["ListenerHttpsConfig"];
-
-                            auto it = configHttps.find("downloadFolder");
-                            if (it != configHttps.end())
-                                downloadFolder = configHttps["downloadFolder"].get<std::string>();
-                            ;
-                        }
-                    }
-                    catch (...)
-                    {
-                        responseTmp.set_result("Error: Value not found in config file.");
-                    }
-                }
-            }
-
-            if (!downloadFolder.empty())
-            {
-                std::string filePath = downloadFolder;
-                filePath += "/";
-                filePath += filename;
-
-                ofstream outputFile(filePath, ios::out | ios::binary);
-                if (outputFile.good())
-                {
-                    outputFile << data;
-                    outputFile.close();
-                    responseTmp.set_result("ok");
-                    m_logger->info("Stored uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
-                }
-                else
-                {
-                    responseTmp.set_result("Error: Cannot write file.");
-                    m_logger->warn("Failed to store uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
-                }
-            }
-            else
-            {
-                responseTmp.set_result("Error: Listener don't have a download folder.");
-                m_logger->warn("Listener {0} has no download folder configured; unable to store {1}", listenerHash, filename);
-            }
-        }
-        else
-        {
-            responseTmp.set_result("Error: putIntoUploadDir take tow arguements.");
-            *response = responseTmp;
-            return grpc::Status::OK;
-        }
-    }
-    else if (instruction == BatcaveInstruction)
-    {
-        m_logger->debug("batcaveUpload {0}", cmd);
-        if (splitedCmd.size() == 2)
-        {
-            std::string filename = splitedCmd[1];
-            m_logger->debug("batcaveUpload {0}", filename);
-            if (filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") != std::string::npos)
-            {
-                responseTmp.set_result("Error: filename not allowed.");
-                *response = responseTmp;
-                return grpc::Status::OK;
-            }
-            std::string data = command->data();
-            std::string filePath = m_toolsDirectoryPath;
-            filePath += "/";
-            filePath += filename;
-
-            ofstream outputFile(filePath, ios::out | ios::binary);
-            if (outputFile.good())
-            {
-                outputFile << data;
-                outputFile.close();
-                responseTmp.set_result("ok");
-                m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath);
-            }
-            else
-            {
-                responseTmp.set_result("Error: Cannot write file.");
-                m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath);
-            }
-            return grpc::Status::OK;
-        }
-    }
-    // TODO handle some sort of backup
-    else if (instruction == AddCredentialInstruction)
-    {
-        m_logger->debug("AddCredentials command received");
-
-        std::string data = command->data();
-        json cred = json::parse(data);
-        m_credentials.push_back(cred);
-        m_logger->info("Stored credential entry. Total credentials: {0}", m_credentials.size());
-        responseTmp.set_result("ok");
-        return grpc::Status::OK;
-    }
-    else if (instruction == GetCredentialInstruction)
-    {
-        m_logger->debug("GetCredentials command received");
-
-        responseTmp.set_result(m_credentials.dump());
-        *response = responseTmp;
-        return grpc::Status::OK;
-    }
-    // TODO
-    else if (instruction == ReloadModulesInstruction)
-    {
-        m_logger->info("Reloading TeamServer modules from directory: {0}", m_teamServerModulesDirectoryPath.c_str());
-
-        // Clear previously loaded modules
-        m_moduleCmd.clear();
-        std::size_t reloadedModules = 0;
-
-        try
-        {
-            for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath))
-            {
-                if (fs::is_regular_file(entry.path()) && entry.path().extension() == ".so")
-                {
-                    m_logger->debug("Trying to load {0}", entry.path().c_str());
-
-                    void* handle = dlopen(entry.path().c_str(), RTLD_LAZY);
-                    if (!handle)
-                    {
-                        m_logger->warn("Failed to load {0}: {1}", entry.path().c_str(), dlerror());
-                        continue;
-                    }
-
-                    // Derive constructor function name
-                    std::string funcName = entry.path().filename();
-                    funcName = funcName.substr(3);                        // remove lib
-                    funcName = funcName.substr(0, funcName.length() - 3); // remove .so
-                    funcName += "Constructor";                            // add Constructor
-
-                    m_logger->debug("Looking for constructor function: {0}", funcName);
-
-                    constructProc construct = (constructProc)dlsym(handle, funcName.c_str());
-                    if (!construct)
-                    {
-                        m_logger->warn("Failed to find constructor: {0}", dlerror());
-                        dlclose(handle);
-                        continue;
-                    }
-
-                    ModuleCmd* moduleCmd = construct();
-                    if (!moduleCmd)
-                    {
-                        m_logger->warn("Constructor returned null");
-                        dlclose(handle);
-                        continue;
-                    }
-
-                    std::unique_ptr<ModuleCmd> moduleCmdPtr(moduleCmd);
-                    TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(m_config);
-                    runtimeConfig.configureModule(*moduleCmdPtr);
-
-                    m_logger->debug("Module {0} loaded", entry.path().filename().c_str());
-                    m_moduleCmd.push_back(std::move(moduleCmdPtr));
-                    reloadedModules++;
-                }
-            }
-        }
-        catch (const std::filesystem::filesystem_error& e)
-        {
-            m_logger->warn("Error accessing module directory: {0}", e.what());
-        }
-
-        if (reloadedModules == 0)
-            m_logger->warn("No TeamServer modules loaded from {0}", m_teamServerModulesDirectoryPath.c_str());
-        else
-            m_logger->info("Reloaded {0} TeamServer module(s) from {1}", reloadedModules, m_teamServerModulesDirectoryPath.c_str());
+        return m_termLocalService->handleCommand(instruction, splitedCmd, *command, response);
     }
     else if (instruction == SocksInstruction_)
     {

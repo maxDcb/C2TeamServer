@@ -32,6 +32,7 @@ class TeamServerAuthManager;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
 class TeamServerSocksService;
+class TeamServerTermLocalService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
@@ -92,4 +93,5 @@ private:
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
     std::unique_ptr<TeamServerSocksService> m_socksService;
+    std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
 };

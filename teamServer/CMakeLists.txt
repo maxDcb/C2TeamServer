@@ -7,6 +7,7 @@ teamServer/TeamServer.cpp
 teamServer/TeamServerAuth.cpp
 teamServer/TeamServerHelpService.cpp
 teamServer/TeamServerSocksService.cpp
+teamServer/TeamServerTermLocalService.cpp
 teamServer/TeamServerRuntimeConfig.cpp
 teamServer/TeamServerBootstrap.cpp
 teamServer/TeamServerListenerSessionService.cpp
@@ -99,6 +100,27 @@ if(WITH_TESTS)
 	$<TARGET_FILE:testsTeamServerSocksService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerSocksService>")
 
 	add_test(NAME testsTeamServerSocksService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerSocksService>")
+
+	add_executable(testsTeamServerTermLocalService
+		tests/TeamServerTermLocalServiceTests.cpp
+		teamServer/TeamServerTermLocalService.cpp
+		teamServer/TeamServerRuntimeConfig.cpp
+		../core/listener/Listener.cpp
+		../../thirdParty/base64/base64.cpp
+	)
+	target_include_directories(testsTeamServerTermLocalService PRIVATE
+		${CMAKE_CURRENT_SOURCE_DIR}/teamServer
+	)
+	if(WIN32)
+		target_link_libraries(testsTeamServerTermLocalService GrpcMessages openssl::openssl ${OPENSSL_CRYPTO_LIBRARY} ZLIB::ZLIB grpc::grpc spdlog::spdlog)
+	else()
+		target_link_libraries(testsTeamServerTermLocalService GrpcMessages pthread openssl::openssl ZLIB::ZLIB grpc::grpc spdlog::spdlog httplib::httplib Crow::Crow dl rt)
+	endif()
+
+	add_custom_command(TARGET testsTeamServerTermLocalService POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy 
+	$<TARGET_FILE:testsTeamServerTermLocalService> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerTermLocalService>")
+
+	add_test(NAME testsTeamServerTermLocalService COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerTermLocalService>")
 
 	add_executable(testsTeamServerListenerSessionService
 		tests/TeamServerListenerSessionServiceTests.cpp
