@@ -5,11 +5,9 @@ else()
 
 	execute_process(COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps && ./genSslCert.sh localhost")
 
-	file(COPY ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps/localhost.key DESTINATION ${CMAKE_SOURCE_DIR}/Release/TeamServer/)
-	#file(RENAME ${CMAKE_SOURCE_DIR}/Release/TeamServer/localhost.key ${CMAKE_SOURCE_DIR}/Release/TeamServer/localhost.key)
+	file(COPY ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps/localhost.key DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
 
-	file(COPY ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps/localhost.crt DESTINATION ${CMAKE_SOURCE_DIR}/Release/TeamServer/)
-	#file(RENAME ${CMAKE_SOURCE_DIR}/Release/TeamServer/localhost.crt ${CMAKE_SOURCE_DIR}/Release/TeamServer/localhost.crt)
+	file(COPY ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps/localhost.crt DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
 
 endif()
 
@@ -21,14 +19,14 @@ else()
 	execute_process(COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/certs/sslTeamServ && ./genSslCert.sh")
 
 	# server.key
-	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server-key.pem DESTINATION ${CMAKE_SOURCE_DIR}/Release/TeamServer/)
-	file(RENAME ${CMAKE_SOURCE_DIR}/Release/TeamServer/server-key.pem ${CMAKE_SOURCE_DIR}/Release/TeamServer/server.key)
+	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server-key.pem DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
+	file(RENAME ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/server-key.pem ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/server.key)
 
 	# server.crt
-	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server.pem DESTINATION ${CMAKE_SOURCE_DIR}/Release/TeamServer/)
-	file(RENAME ${CMAKE_SOURCE_DIR}/Release/TeamServer/server.pem ${CMAKE_SOURCE_DIR}/Release/TeamServer/server.crt)
+	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server.pem DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
+	file(RENAME ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/server.pem ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/server.crt)
 
 	# rootCA.crt
-	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/ca.pem DESTINATION ${CMAKE_SOURCE_DIR}/Release/TeamServer/)
-	file(RENAME ${CMAKE_SOURCE_DIR}/Release/TeamServer/ca.pem ${CMAKE_SOURCE_DIR}/Release/TeamServer/rootCA.crt)
+	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/ca.pem DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
+	file(RENAME ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/ca.pem ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/rootCA.crt)
 endif()

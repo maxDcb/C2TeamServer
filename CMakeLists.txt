@@ -7,6 +7,22 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+set(C2_BUILD_ARTIFACT_ROOT "${CMAKE_BINARY_DIR}/artifacts")
+set(C2_RUNTIME_ROOT "${C2_BUILD_ARTIFACT_ROOT}/Release")
+set(C2_TEAMSERVER_RUNTIME_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServer")
+set(C2_RUNTIME_MODULE_OUTPUT_DIR "${C2_RUNTIME_ROOT}/TeamServerModules")
+set(C2_TEST_BIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/tests/bin")
+set(C2_GENERATED_PYTHON_GRPC_DIR "${CMAKE_BINARY_DIR}/generated/python_grpc")
+set(C2_BASE64_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdParty/base64")
+set(C2_DONUT_SOURCE_DIR "${CMAKE_SOURCE_DIR}/thirdParty/donut")
+
+file(MAKE_DIRECTORY
+    "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}"
+    "${C2_RUNTIME_MODULE_OUTPUT_DIR}"
+    "${C2_TEST_BIN_OUTPUT_DIR}"
+    "${C2_GENERATED_PYTHON_GRPC_DIR}"
+)
+
 
 ##
 ## Conan Dependencies
@@ -50,12 +66,19 @@ FetchContent_MakeAvailable(libssh2)
 ##
 
 option(WITH_TESTS "Compile for tests" ON)
+set(C2CORE_BUILD_TESTS ${WITH_TESTS})
 
 option(BUILD_TEAMSERVER "Enable Teamserver config" ON)
 add_definitions(-DBUILD_TEAMSERVER)
 
 if(WITH_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
+  FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG v3.12.0
+  )
+  FetchContent_MakeAvailable(nlohmann_json)
 endif()
 
 

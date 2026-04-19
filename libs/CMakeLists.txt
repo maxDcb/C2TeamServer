@@ -22,8 +22,8 @@ endif()
 execute_process(
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
         -I=${CMAKE_SOURCE_DIR}/libs/libGrpcMessages/src/
-        --grpc_out=${CMAKE_SOURCE_DIR}/C2Client/C2Client/libGrpcMessages/build/py
-        --python_out=${CMAKE_SOURCE_DIR}/C2Client/C2Client/libGrpcMessages/build/py
+        --grpc_out=${C2_GENERATED_PYTHON_GRPC_DIR}
+        --python_out=${C2_GENERATED_PYTHON_GRPC_DIR}
         --plugin=protoc-gen-grpc=${GRPC_PYTHON_PLUGIN_PROGRAM}
         ${PROTO_FILES}
     RESULT_VARIABLE ret2
