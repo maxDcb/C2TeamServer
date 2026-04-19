@@ -47,6 +47,14 @@ def _ensure_protocol_package_on_path() -> None:
 
 
 def load_protocol_modules() -> Tuple[object, object]:
+    try:
+        teamserverapi_pb2 = importlib.import_module("c2client_protocol.TeamServerApi_pb2")
+        teamserverapi_pb2_grpc = importlib.import_module("c2client_protocol.TeamServerApi_pb2_grpc")
+        return teamserverapi_pb2, teamserverapi_pb2_grpc
+    except ModuleNotFoundError as exc:
+        if not exc.name or not exc.name.startswith("c2client_protocol"):
+            raise
+
     _ensure_protocol_package_on_path()
     teamserverapi_pb2 = importlib.import_module("c2client_protocol.TeamServerApi_pb2")
     teamserverapi_pb2_grpc = importlib.import_module("c2client_protocol.TeamServerApi_pb2_grpc")

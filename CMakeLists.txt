@@ -111,6 +111,7 @@ add_subdirectory(teamServer)
 add_subdirectory(core/modules)
 
 add_subdirectory(certs)
+add_subdirectory(packaging)
 
 
 
