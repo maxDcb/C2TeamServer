@@ -86,6 +86,16 @@ Notes:
 - If build or test execution fails, report the exact failing step and reason.
 - Prefer precise, minimal changes that preserve the current architecture.
 
+## Core Platform Duality
+
+Shared code under `core/` is not symmetric across platforms.
+
+- On Windows beacon-side code, HTTP/HTTPS and GitHub transports may use `WinHTTP`, `WinCrypt`, `BCrypt`, and other WinAPI facilities.
+- On Linux, the equivalent transport code may use `httplib` and `OpenSSL`.
+- Do not add Linux transport dependencies to Windows targets just because the source file lives under `core/`.
+- Keep transport-specific link dependencies conditional on platform when editing `core` CMake files.
+- Apply the same rule to tests: do not make Windows test targets depend on Linux-only imported targets unless the Windows code path actually uses them.
+
 ## Summary
 
 - Primary role: senior C++/CMake copilot for C2TeamServer.
