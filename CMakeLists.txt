@@ -56,6 +56,7 @@ unset(GRPC_CPP_PLUGIN_PROGRAM CACHE)
 unset(GRPC_PYTHON_PLUGIN_PROGRAM CACHE)
 
 find_package(gRPC REQUIRED)
+find_package(Libssh2 REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(protobuf REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -67,26 +68,6 @@ include_directories(${CMAKE_INCLUDE_PATH})
 
 get_target_property(C2_NLOHMANN_JSON_INCLUDE_DIRS nlohmann_json::nlohmann_json INTERFACE_INCLUDE_DIRECTORIES)
 include_directories(${C2_NLOHMANN_JSON_INCLUDE_DIRS})
-
-
-##
-## Fetch for core
-##
-
-include(FetchContent)
-
-set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
-set(BUILD_STATIC_LIBS ON CACHE BOOL "Build static libraries" FORCE)
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-  libssh2
-  GIT_REPOSITORY https://github.com/libssh2/libssh2.git
-  GIT_TAG libssh2-1.11.1
-)
-
-FetchContent_MakeAvailable(libssh2)
 
 
 ##

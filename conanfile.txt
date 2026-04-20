@@ -5,6 +5,10 @@ spdlog/1.17.0
 cpp-httplib/0.39.0
 openssl/3.6.2
 nlohmann_json/3.12.0
+libssh2/1.11.1
+
+[options]
+libssh2/*:shared=False
 
 [layout]
 cmake_layout
