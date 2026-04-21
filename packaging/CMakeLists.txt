@@ -18,3 +18,12 @@ add_custom_target(stage_release_bundle
   COMMENT "Staging release bundle"
   VERBATIM
 )
+
+add_custom_target(validate_release_bundle
+  COMMAND ${Python3_EXECUTABLE}
+    "${CMAKE_CURRENT_SOURCE_DIR}/validate_release.py"
+    --release-root "${C2_RELEASE_STAGING_DIR}"
+  DEPENDS stage_release_bundle
+  COMMENT "Validating staged release bundle"
+  VERBATIM
+)

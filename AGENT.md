@@ -17,7 +17,8 @@ From now on, the project must be compiled and tested during implementation work 
 - Use Conan for dependencies, CMake for configuration, and GNU Make with GCC for the build.
 - After code changes, run at least the project configure step, the build, and `ctest --output-on-failure` when feasible.
 - If the change touches the Python client or generated protocol bindings, also run the client pytest suite with `C2_PROTOCOL_PYTHON_ROOT` pointing at the build tree.
-- If the change touches packaging, top-level layout, or release/runtime assembly, also validate `stage_release_bundle`. For future integration work, prefer validating `stage_integration_runtime` too.
+- If the change touches packaging, top-level layout, or release/runtime assembly, validate `validate_release_bundle`. For complete release checks, import implant assets into staging and run `packaging/validate_release.py --require-implants`.
+- For future integration work, prefer validating `stage_integration_runtime` too.
 
 ## Validated Environment
 
@@ -37,12 +38,14 @@ cd /home/max/project/C2TeamServer
 mkdir -p build-codex-scratch
 cd build-codex-scratch
 cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DWITH_TESTS=ON \
   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/home/max/project/C2TeamServer/conan_provider.cmake \
   -DCONAN_HOST_PROFILE=/home/max/project/C2TeamServer/conan/profiles/linux-gcc13 \
   -DCONAN_BUILD_PROFILE=/home/max/project/C2TeamServer/conan/profiles/linux-gcc13 \
   -DCONAN_LOCKFILE=/home/max/project/C2TeamServer/conan.lock
 make
-ctest --output-on-failure
+ctest --output-on-failure --timeout 120
 ```
 
 Run the Python client tests with:
@@ -52,7 +55,7 @@ cd /home/max/project/C2TeamServer/C2Client
 python -m venv .venv
 . .venv/bin/activate
 pip install -e .[test]
-C2_PROTOCOL_PYTHON_ROOT=/home/max/project/C2TeamServer/build-codex-scratch/generated/python_protocol pytest tests -q
+C2_PROTOCOL_PYTHON_ROOT=/home/max/project/C2TeamServer/build-codex-scratch/generated/python_protocol pytest tests -vv -s
 ```
 
 Notes:
@@ -60,9 +63,54 @@ Notes:
 - The `README.md` example using `-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake` was not reliable in the validated setup.
 - Use the absolute path to `conan_provider.cmake` shown above.
 - Prefer the checked-in Conan profile and lockfile to keep the graph stable across local builds and CI.
-- The validated root build currently executes `54` CTest tests and `5` Python client tests.
-- The staged release bundle is produced with `cmake --build <build-dir> --target stage_release_bundle` under `<build-dir>/release-staging/Release`.
+- The validated root build currently executes `63` CTest tests and `5` Python client tests.
+- `libs/libDns/tests/fonctionalTest` is compiled but intentionally excluded from CTest because it is a manual server/client harness that needs explicit arguments.
+- The staged release bundle is produced and validated with `cmake --build <build-dir> --target validate_release_bundle` under `<build-dir>/release-staging/Release`.
 - The staged integration runtime is produced with `cmake --build <build-dir> --target stage_integration_runtime` under `<build-dir>/integration-staging/runtime/Release`.
+
+## Release Contract
+
+CI and CD must keep a clean staging-first release flow.
+
+- CI runs on pull requests and branch pushes with read-only GitHub permissions.
+- CD runs on tags or manual dispatch. Publishing is the only job with `contents: write`.
+- Releases are built with tests enabled, then CTest and client pytest run before any archive is created.
+- The final `Release.tar.gz` must be created only from `<build-dir>/release-staging/Release`.
+- Do not rename, delete, or mutate source directories while packaging.
+
+The TeamServer release staging layout is:
+
+```text
+Release/
+  TeamServer/
+  TeamServerModules/
+  Client/
+  WindowsBeacons/
+  WindowsModules/
+  LinuxBeacons/
+  LinuxModules/
+```
+
+Imported implant archives must use the refactored layouts:
+
+```text
+C2Implant:      Release/WindowsBeacons and Release/WindowsModules
+C2LinuxImplant: Release/LinuxBeacons and Release/LinuxModules
+```
+
+The import script defaults to the latest GitHub release for each implant repo.
+When a release must be reproducible, pass explicit tags:
+
+```bash
+python packaging/import_implant_releases.py \
+  --stage-root build-codex-scratch/release-staging/Release \
+  --import-root build-codex-scratch/release-imports \
+  --windows-tag vX.Y.Z \
+  --linux-tag vX.Y.Z
+python packaging/validate_release.py \
+  --release-root build-codex-scratch/release-staging/Release \
+  --require-implants
+```
 
 ## Responsibilities
 

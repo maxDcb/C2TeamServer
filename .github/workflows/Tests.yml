@@ -1,89 +1,87 @@
-name: Tests
+name: CI
 
 on:
   workflow_dispatch:
   pull_request:
   push:
     branches:
-      - main
-      - master
-      - codex/**
+      - "**"
 
 env:
-  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
+  BUILD_DIR: build-ci
   BUILD_TYPE: Release
 
-jobs:      
-  buildAndTest:
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build, test, and validate staging
     runs-on: ubuntu-22.04
 
     steps:
-    - uses: actions/checkout@v4
-      with:
-        submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-    
-    - name: Install Samba client dev headers
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsmbclient-dev
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            C2Client/pyproject.toml
+            C2Client/requirements.txt
 
-    # Needed to generate certificates
-    - uses: ConorMacBride/install-package@v1
-      with:
-        apt: golang-cfssl
-    
-    - name: Install Conan
-      run: python -m pip install --upgrade pip "conan==2.24.0"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-cfssl libsmbclient-dev
 
-    - name: Configure CMake for tests
-      run: >
-        cmake -B ${{github.workspace}}/build
-        -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
-        -DCONAN_HOST_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
-        -DCONAN_BUILD_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
-        -DCONAN_LOCKFILE=${{github.workspace}}/conan.lock
+      - name: Install Conan
+        run: python -m pip install --upgrade pip "conan==2.24.0"
 
-    - name: Build for test
-      run: cmake --build ${{github.workspace}}/build -j 18
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ hashFiles('conanfile.txt', 'conan.lock', 'conan/profiles/linux-gcc13') }}
+          restore-keys: |
+            conan-${{ runner.os }}-
 
-    - name: Run unit tests
-      run: ctest --test-dir build --output-on-failure
+      - name: Configure CMake
+        run: >
+          cmake -S "${{ github.workspace }}"
+          -B "${{ github.workspace }}/${{ env.BUILD_DIR }}"
+          -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}"
+          -DWITH_TESTS=ON
+          -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES="${{ github.workspace }}/conan_provider.cmake"
+          -DCONAN_HOST_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
+          -DCONAN_BUILD_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
+          -DCONAN_LOCKFILE="${{ github.workspace }}/conan.lock"
 
-    - name: Install client test dependencies
-      run: |
-        python -m pip install -e "${{github.workspace}}/C2Client[test]"
+      - name: Build
+        run: cmake --build "${{ env.BUILD_DIR }}" --config "${{ env.BUILD_TYPE }}" --parallel "$(nproc)"
 
-    - name: Run client tests
-      env:
-        C2_PROTOCOL_PYTHON_ROOT: ${{github.workspace}}/build/generated/python_protocol
-        QT_QPA_PLATFORM: offscreen
-      run: python -m pytest "${{github.workspace}}/C2Client/tests" -q
+      - name: Run CTest
+        run: ctest --test-dir "${{ env.BUILD_DIR }}" --build-config "${{ env.BUILD_TYPE }}" --output-on-failure --timeout 120
 
-    - name: Stage release bundle smoke test
-      run: |
-        cmake --build ${{github.workspace}}/build --target stage_release_bundle
-        test -x "${{github.workspace}}/build/release-staging/Release/TeamServer/TeamServer"
-        test -f "${{github.workspace}}/build/release-staging/Release/Client/c2client_protocol/TeamServerApi_pb2.py"
+      - name: Install client test dependencies
+        run: python -m pip install -e "${{ github.workspace }}/C2Client[test]"
 
-    - name: Prepare integration runtime smoke test
-      run: |
-        cmake --build ${{github.workspace}}/build --target stage_integration_runtime
-        test -x "${{github.workspace}}/build/integration-staging/runtime/Release/TeamServer/TeamServer"
-        test -f "${{github.workspace}}/build/integration-staging/runtime/Release/Client/c2client_protocol/TeamServerApi_pb2.py"
+      - name: Run client tests
+        env:
+          C2_PROTOCOL_PYTHON_ROOT: ${{ github.workspace }}/${{ env.BUILD_DIR }}/generated/python_protocol
+          QT_QPA_PLATFORM: offscreen
+        run: timeout 180 python -m pytest "${{ github.workspace }}/C2Client/tests" -vv -s
 
-    - name: Configure CMake like the release
-      run: >
-        cmake -B ${{github.workspace}}/buildRelease
-        -DWITH_TESTS=OFF
-        -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=${{github.workspace}}/conan_provider.cmake
-        -DCONAN_HOST_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
-        -DCONAN_BUILD_PROFILE=${{github.workspace}}/conan/profiles/linux-gcc13
-        -DCONAN_LOCKFILE=${{github.workspace}}/conan.lock
+      - name: Validate release staging
+        run: |
+          cmake --build "${{ env.BUILD_DIR }}" --target validate_release_bundle --config "${{ env.BUILD_TYPE }}"
 
-    - name: Build like the release
-      run: cmake --build ${{github.workspace}}/buildRelease -j 18
+      - name: Validate integration runtime staging
+        run: |
+          cmake --build "${{ env.BUILD_DIR }}" --target stage_integration_runtime --config "${{ env.BUILD_TYPE }}"
+          test -x "${{ github.workspace }}/${{ env.BUILD_DIR }}/integration-staging/runtime/Release/TeamServer/TeamServer"
+          test -f "${{ github.workspace }}/${{ env.BUILD_DIR }}/integration-staging/runtime/Release/Client/c2client_protocol/TeamServerApi_pb2.py"

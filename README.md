@@ -178,7 +178,8 @@ Notes:
 - Use the absolute path to `conan_provider.cmake`. The old relative example was not reliable.
 - The repository now ships a Linux/GCC 13 Conan profile in `conan/profiles/linux-gcc13` and a checked-in `conan.lock` to freeze the resolved dependency graph used in CI and documented local builds.
 - Build artifacts are generated in the build tree, not written back into the repository root.
-- The validated build currently runs `54` CTest tests from the root build, including one staged-runtime integration test.
+- The validated build currently runs `63` CTest tests from the root build, including one staged-runtime integration test.
+- `libs/libDns/tests/fonctionalTest` is built but not registered in CTest because it is a manual server/client harness that requires explicit runtime arguments.
 
 ### 🧪 Client Tests
 
@@ -191,7 +192,7 @@ python -m venv .venv
 pip install -e .[test]
 
 export C2_PROTOCOL_PYTHON_ROOT=$PWD/../build/generated/python_protocol
-pytest tests -q
+pytest tests -vv -s
 ```
 
 ### 📦 Stage A Release Bundle
@@ -199,7 +200,7 @@ pytest tests -q
 To assemble the local release bundle from build outputs:
 
 ```bash
-cmake --build build --target stage_release_bundle
+cmake --build build --target validate_release_bundle
 ```
 
 The bundle is created under:
@@ -214,6 +215,78 @@ This staged bundle contains:
 - `TeamServerModules`
 - the generated Python client protocol package
 - the Python client sources and launchers
+
+The base TeamServer bundle is validated before it can be published. The
+validation checks the TeamServer binary, runtime config, certificates, generated
+client protocol package, and the complete `TeamServerModules` layout.
+
+### Implant Release Layout
+
+The TeamServer release also embeds validated release assets from:
+
+- [C2Implant](https://github.com/maxDcb/C2Implant)
+- [C2LinuxImplant](https://github.com/maxDcb/C2LinuxImplant)
+
+The expected staged TeamServer release layout is:
+
+```text
+Release/
+  TeamServer/
+  TeamServerModules/
+  Client/
+  WindowsBeacons/
+  WindowsModules/
+  LinuxBeacons/
+  LinuxModules/
+```
+
+The imported Windows implant archive must expose:
+
+```text
+Release/WindowsBeacons/
+Release/WindowsModules/
+```
+
+The imported Linux implant archive must expose:
+
+```text
+Release/LinuxBeacons/
+Release/LinuxModules/
+```
+
+Legacy `Release/Beacons` and `Release/Modules` layouts are intentionally not
+accepted by the TeamServer CD pipeline. If an implant repository changes its
+release contract, update the validation scripts and this section in the same
+change.
+
+To import and validate implant assets locally:
+
+```bash
+python packaging/import_implant_releases.py \
+  --stage-root build/release-staging/Release \
+  --import-root build/release-imports
+
+python packaging/validate_release.py \
+  --release-root build/release-staging/Release \
+  --require-implants
+```
+
+By default the import script uses the latest GitHub release from each implant
+repository. To avoid that moving target, pass explicit release tags:
+
+```bash
+python packaging/import_implant_releases.py \
+  --stage-root build/release-staging/Release \
+  --import-root build/release-imports \
+  --windows-tag vX.Y.Z \
+  --linux-tag vX.Y.Z
+```
+
+Create the final archive only from the validated staging directory:
+
+```bash
+tar -C build/release-staging -czf Release.tar.gz Release
+```
 
 ### Prepare The Integration Runtime
 
@@ -233,3 +306,28 @@ That staged runtime is already used by a first smoke integration test covering
 TeamServer startup, gRPC authentication, and stable empty-state RPCs. It is the
 base for the next round of end-to-end tests around the packaged Python client
 and deeper contract validation.
+
+## CI/CD Contract
+
+The repository uses two GitHub Actions workflows:
+
+- `CI` (`.github/workflows/Tests.yml`) runs on pull requests and branch pushes.
+- `CD` (`.github/workflows/Release.yml`) runs on tags and manual dispatch.
+
+The CI workflow:
+
+- installs system dependencies, Python, Conan, and client test dependencies
+  explicitly;
+- uses Conan and pip caches keyed from checked-in dependency files;
+- configures a Release CMake build with tests enabled;
+- builds the TeamServer and modules;
+- runs CTest with failure output and a timeout;
+- runs the Python client pytest suite with verbose output and a timeout;
+- validates the staged TeamServer release bundle.
+
+The CD workflow repeats the build and test gates, imports implant release
+assets into staging, validates the complete release layout, creates
+`Release.tar.gz` from staging, and publishes only that validated archive.
+
+GitHub Actions permissions are read-only by default. `contents: write` is
+granted only to the publish job that uploads the GitHub release asset.

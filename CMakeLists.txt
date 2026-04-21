@@ -82,6 +82,7 @@ add_definitions(-DBUILD_TEAMSERVER)
 
 if(WITH_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
+  enable_testing()
 endif()
 
 
@@ -90,6 +91,29 @@ endif()
 ##
 
 add_subdirectory("${C2_LIBS_DIR}")
+
+if(WITH_TESTS)
+  function(c2_register_existing_test target_name)
+    if(TARGET "${target_name}")
+      add_test(NAME "${target_name}" COMMAND "$<TARGET_FILE:${target_name}>")
+    endif()
+  endfunction()
+
+  foreach(C2_LIB_TEST
+      TestsSockerHandler
+      dnsTest
+      utilsTest
+      responseDecodeTest
+      messageTest
+      interleavedTest
+      TestsMemoryModule
+      TestsSocksServer)
+    c2_register_existing_test("${C2_LIB_TEST}")
+  endforeach()
+  # libs/libDns/tests/fonctionalTest is a manual server/client harness and
+  # needs explicit runtime arguments, so it is intentionally not a CI test.
+endif()
+
 add_subdirectory("${C2_PROTOCOL_DIR}")
 
 add_subdirectory("${C2_THIRDPARTY_DIR}")
@@ -101,10 +125,6 @@ add_library(Donut STATIC IMPORTED)
 set_target_properties(Donut PROPERTIES
 IMPORTED_LOCATION "${DONUT_BUILD_DIR}/lib/libdonut.a"
 )
-
-if(WITH_TESTS)
-    enable_testing()
-endif()
 
 include_directories("${C2_CORE_DIR}/listener")
 include_directories("${C2_CORE_DIR}/beacon")
