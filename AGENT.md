@@ -51,6 +51,17 @@ ctest --output-on-failure --timeout 120
 Run the Python client tests with:
 
 ```bash
+sudo apt-get install -y \
+  libegl1 \
+  libgl1 \
+  libxkbcommon-x11-0 \
+  libxcb-cursor0 \
+  libxcb-icccm4 \
+  libxcb-image0 \
+  libxcb-keysyms1 \
+  libxcb-render-util0 \
+  libxcb-xinerama0
+
 cd /home/max/project/C2TeamServer/C2Client
 python -m venv .venv
 . .venv/bin/activate

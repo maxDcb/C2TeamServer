@@ -186,6 +186,17 @@ Notes:
 The client depends on the generated Python protocol package produced by the root CMake build:
 
 ```bash
+sudo apt-get install -y \
+  libegl1 \
+  libgl1 \
+  libxkbcommon-x11-0 \
+  libxcb-cursor0 \
+  libxcb-icccm4 \
+  libxcb-image0 \
+  libxcb-keysyms1 \
+  libxcb-render-util0 \
+  libxcb-xinerama0
+
 cd C2Client
 python -m venv .venv
 . .venv/bin/activate
@@ -317,7 +328,7 @@ The repository uses two GitHub Actions workflows:
 The CI workflow:
 
 - installs system dependencies, Python, Conan, and client test dependencies
-  explicitly;
+  explicitly, including Qt runtime libraries required by `pytest-qt`;
 - uses Conan and pip caches keyed from checked-in dependency files;
 - configures a Release CMake build with tests enabled;
 - builds the TeamServer and modules;
