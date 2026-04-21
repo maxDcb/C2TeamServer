@@ -7,15 +7,11 @@ metadata injection and basic error reporting.
 
 import logging
 import os
-import sys
 import uuid
 from typing import Any, Iterable, List, Tuple, Optional
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)) + '/libGrpcMessages/build/py/')
-
 import grpc
-import TeamServerApi_pb2
-import TeamServerApi_pb2_grpc
+from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
 MetadataType = List[Tuple[str, str]]
@@ -216,4 +212,3 @@ class GrpcClient:
         except grpc.RpcError as exc:
             logging.error("SendTermCmd RPC failed: %s", exc)
             raise
-

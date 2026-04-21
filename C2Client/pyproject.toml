@@ -8,10 +8,10 @@ version = "0.1.0"
 dependencies = [
     "setuptools",
     "pycryptodome==3.23.0",
-    "grpcio==1.74.0",
+    "grpcio==1.78.0",
     "PyQt6==6.7.0",
     "pyqtdarktheme",
-    "protobuf==6.32.0",
+    "protobuf==6.33.5",
     "gitpython==3.1.45",
     "requests==2.32.5",
     "pwn==1.0",
@@ -29,7 +29,7 @@ test = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["C2Client*", "C2Client.libGrpcMessages*", "C2Client.TerminalModules.*"]
+include = ["C2Client*", "C2Client.TerminalModules.*"]
 
 [tool.setuptools.package-data]
 C2Client = [
@@ -37,7 +37,6 @@ C2Client = [
     "logs/*",
     "Scripts/*.py",
     "server.crt",
-    "libGrpcMessages/build/py/*.py",
     "DropperModules.conf",
     "ShellCodeModules.conf"
 ]
