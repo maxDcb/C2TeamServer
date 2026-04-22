@@ -28,6 +28,15 @@
 
 #include "nlohmann/json.hpp"
 
+class TeamServerAuthManager;
+class TeamServerHelpService;
+class TeamServerListenerSessionService;
+class TeamServerListenerArtifactService;
+class TeamServerModuleLoader;
+class TeamServerSocksService;
+class TeamServerCommandPreparationService;
+class TeamServerTermLocalService;
+
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
 
@@ -57,9 +66,6 @@ protected:
 
 private:
     grpc::Status ensureAuthenticated(grpc::ServerContext* context);
-    std::string generateToken() const;
-    std::string hashPassword(const std::string& password) const;
-    void cleanupExpiredTokens();
 
     nlohmann::json m_config;
 
@@ -71,24 +77,6 @@ private:
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
 
-    std::string m_teamServerModulesDirectoryPath;
-    std::string m_linuxModulesDirectoryPath;
-    std::string m_windowsModulesDirectoryPath;
-    std::string m_linuxBeaconsDirectoryPath;
-    std::string m_windowsBeaconsDirectoryPath;
-    std::string m_toolsDirectoryPath;
-    std::string m_scriptsDirectoryPath;
-
-    // Socks
-    bool m_isSocksServerRunning;
-    bool m_isSocksServerBinded;
-    void socksThread();
-
-    std::unique_ptr<SocksServer> m_socksServer;
-    std::unique_ptr<std::thread> m_socksThread;
-    std::shared_ptr<Listener> m_socksListener;
-    std::shared_ptr<Session> m_socksSession;
-
     bool m_handleCmdResponseThreadRuning;
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
     std::vector<teamserverapi::CommandResponse> m_cmdResponses;
@@ -96,10 +84,12 @@ private:
 
     std::vector<C2Message> m_sentC2Messages;
 
-    std::string m_authCredentialsFile;
-    std::unordered_map<std::string, std::string> m_userPasswordHashes;
-    bool m_authEnabled;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
-    std::chrono::minutes m_tokenValidityDuration;
-    mutable std::mutex m_authMutex;
+    std::unique_ptr<TeamServerAuthManager> m_authManager;
+    std::unique_ptr<TeamServerHelpService> m_helpService;
+    std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
+    std::unique_ptr<TeamServerListenerArtifactService> m_listenerArtifactService;
+    std::unique_ptr<TeamServerModuleLoader> m_moduleLoader;
+    std::unique_ptr<TeamServerSocksService> m_socksService;
+    std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
+    std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
 };

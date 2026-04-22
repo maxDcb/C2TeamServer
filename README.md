@@ -45,6 +45,24 @@ Supported communication channels include: `TCP`, `SMB`, `HTTP`, and `HTTPS`.
 
 ---
 
+## Repository Layout
+
+The repository is kept as a monorepo for now, with boundaries aligned to the
+future split target:
+
+- `protocol/`: `.proto` source of truth and generated gRPC build rules
+- `teamServer/`: server runtime and gRPC implementation
+- `C2Client/`: Python client package and UI
+- `core/`: source-shared C++ components reused by multiple projects
+- `packaging/`: release bundle assembly
+- `integration/`: staging area and future end-to-end tests
+
+The historical directory names `teamServer` and `C2Client` are still present,
+but the root build now treats them explicitly as the `server` and `client`
+areas.
+
+---
+
 ## **⚡ Quick Start**
 
 ### **🖥️ Running the TeamServer**
@@ -62,6 +80,7 @@ To launch the TeamServer:
 
 ```bash
 cd Release
+cd TeamServer
 ./TeamServer
 ```
 
@@ -69,42 +88,35 @@ cd Release
 
 ### **🐳 Docker Deployment**
 
-If you prefer containerized execution (recommended to avoid host library issues), build and run the Dockerfile:
+If you prefer containerized execution, the repository `Dockerfile` now runs the packaged TeamServer bundle directly:
 
 ```bash
-# 0) Get Dockerfile
-curl -sL https://raw.githubusercontent.com/maxDcb/C2TeamServer/refs/heads/master/Dockerfile -o Dockerfile
-
-# 1) Build
-sudo docker build -t exploration-teamserver .
-
-# 2) Create a host copy of the release
-CID=$(sudo docker create exploration-teamserver)
-sudo docker cp "$CID":/opt/teamserver/Release /opt/C2TeamServer
-sudo docker rm "$CID"
-
-# 3) Run container with host Release mounted (for easy editing)
-sudo docker run -it --rm --name exploration-teamserver -v /opt/C2TeamServer/Release:/opt/teamserver/Release -p 50051:50051 -p 80:80 -p 443:443 -p 8443:8443 exploration-teamserver
+docker build -t exploration-teamserver .
+docker run --rm -it \
+  --name exploration-teamserver \
+  -p 50051:50051 \
+  -p 80:80 \
+  -p 443:443 \
+  -p 8443:8443 \
+  exploration-teamserver
 ```
+
+The image downloads the latest `Release.tar.gz` during the image build and starts `/opt/teamserver/Release/TeamServer/TeamServer`.
+If you want to override the packaged bundle with a local one, mount your own `Release` directory on `/opt/teamserver/Release`.
 
 ---
 
 ### **💻 Installing and Running the Client**
 
-Install the Python client using [uv](https://docs.astral.sh/uv/getting-started/installation/):
+Install the Python client from the staged release bundle or from the repository sources.
+
+If you use a staged release bundle, set the path to the TeamServer certificate:
 
 ```bash
-# uv
-uv tool install git+https://github.com/maxDcb/C2TeamServer.git#subdirectory=C2Client 
+export C2_CERT_PATH=/path/to/Release/TeamServer/server.crt
 ```
 
-Set the path to the TeamServer certificate, if you run in a docker you can simply cp the `server.crt`, or if you follow the above section it should be in `/opt/C2TeamServer/TeamServer/server.crt`:
-
-```bash
-export C2_CERT_PATH=/path/to/teamserver/cert/server.crt
-```
-
-Connect to the TeamServer:
+Then connect to the TeamServer:
 
 ```bash
 c2client --ip 127.0.0.1 --port 50051 
@@ -134,49 +146,199 @@ The added emojis help bring some fun and engagement to the titles and sections, 
 
 ## 🛠️ Build
 
-The **Exploration C2 Framework** consists of multiple components, including the **C2TeamServer**, **C2Implant**, and **C2LinuxImplant**. Below are the build instructions for **C2TeamServer**.
+The repository now uses:
 
-### 🔧 Build Process
+- `Conan` for C/C++ dependencies
+- `CMake` for configuration
+- `GNU Make` or another CMake generator for compilation
+- `pyproject.toml` and `requirements.txt` for Python dependencies
 
-1. **Install Dependencies**:
+### 🔧 Build From Scratch
 
-   * Ensure you have **CMake**, **g++**, and **Conan** installed.
+Validated commands in WSL/Linux:
 
-    ```bash
-    sudo apt install cmake
-    pip3 install conan
-    ```
+```bash
+git clone https://github.com/maxDcb/C2TeamServer.git
+cd C2TeamServer
+git submodule update --init --recursive
 
-2. **Clone the Repository**:
-   If you haven't cloned the repository already, you can do so with:
+python3 -m pip install --upgrade "conan==2.24.0"
 
-   ```bash
-   git clone https://github.com/maxDcb/C2TeamServer.git
-   cd C2TeamServer
-   git submodule update --init
-   ```
+cmake -B build \
+  -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=$PWD/conan_provider.cmake \
+  -DCONAN_HOST_PROFILE=$PWD/conan/profiles/linux-gcc13 \
+  -DCONAN_BUILD_PROFILE=$PWD/conan/profiles/linux-gcc13 \
+  -DCONAN_LOCKFILE=$PWD/conan.lock
+cmake --build build -j"$(nproc)"
+ctest --test-dir build --output-on-failure
+```
 
-3. **Configure the Build**:
+Notes:
 
-   * Create a build directory and navigate into it.
+- Use the absolute path to `conan_provider.cmake`. The old relative example was not reliable.
+- The repository now ships a Linux/GCC 13 Conan profile in `conan/profiles/linux-gcc13` and a checked-in `conan.lock` to freeze the resolved dependency graph used in CI and documented local builds.
+- Build artifacts are generated in the build tree, not written back into the repository root.
+- The validated build currently runs `63` CTest tests from the root build, including one staged-runtime integration test.
+- `libs/libDns/tests/fonctionalTest` is built but not registered in CTest because it is a manual server/client harness that requires explicit runtime arguments.
 
-   ```bash
-   mkdir build
-   cd build
-   ```
+### 🧪 Client Tests
 
-   * Run CMake to configure the build process. This may take some time if you haven't installed the necessary dependencies yet, which are provided by Conan.
+The client depends on the generated Python protocol package produced by the root CMake build:
 
-   ```bash
-   cmake .. -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=./conan_provider.cmake
-   ```
+```bash
+sudo apt-get install -y \
+  libegl1 \
+  libgl1 \
+  libxkbcommon-x11-0 \
+  libxcb-cursor0 \
+  libxcb-icccm4 \
+  libxcb-image0 \
+  libxcb-keysyms1 \
+  libxcb-render-util0 \
+  libxcb-xinerama0
 
-4. **Build the TeamServer**:
+cd C2Client
+python -m venv .venv
+. .venv/bin/activate
+pip install -e .[test]
 
-   * Now, you can compile the TeamServer with the following command:
+export C2_PROTOCOL_PYTHON_ROOT=$PWD/../build/generated/python_protocol
+pytest tests -vv -s
+```
 
-   ```bash
-   make
-   ```
+### 📦 Stage A Release Bundle
 
-   * This will generate the `TeamServer` binary along with the TeamServer modules and copy them into the `Release` folder in the root directory of the project.
+To assemble the local release bundle from build outputs:
+
+```bash
+cmake --build build --target validate_release_bundle
+```
+
+The bundle is created under:
+
+```text
+build/release-staging/Release
+```
+
+This staged bundle contains:
+
+- `TeamServer`
+- `TeamServerModules`
+- the generated Python client protocol package
+- the Python client sources and launchers
+
+The base TeamServer bundle is validated before it can be published. The
+validation checks the TeamServer binary, runtime config, certificates, generated
+client protocol package, and the complete `TeamServerModules` layout.
+
+### Implant Release Layout
+
+The TeamServer release also embeds validated release assets from:
+
+- [C2Implant](https://github.com/maxDcb/C2Implant)
+- [C2LinuxImplant](https://github.com/maxDcb/C2LinuxImplant)
+
+The expected staged TeamServer release layout is:
+
+```text
+Release/
+  TeamServer/
+  TeamServerModules/
+  Client/
+  WindowsBeacons/
+  WindowsModules/
+  LinuxBeacons/
+  LinuxModules/
+```
+
+The imported Windows implant archive must expose:
+
+```text
+Release/WindowsBeacons/
+Release/WindowsModules/
+```
+
+The imported Linux implant archive must expose:
+
+```text
+Release/LinuxBeacons/
+Release/LinuxModules/
+```
+
+Legacy `Release/Beacons` and `Release/Modules` layouts are intentionally not
+accepted by the TeamServer CD pipeline. If an implant repository changes its
+release contract, update the validation scripts and this section in the same
+change.
+
+To import and validate implant assets locally:
+
+```bash
+python packaging/import_implant_releases.py \
+  --stage-root build/release-staging/Release \
+  --import-root build/release-imports
+
+python packaging/validate_release.py \
+  --release-root build/release-staging/Release \
+  --require-implants
+```
+
+By default the import script uses the latest GitHub release from each implant
+repository. To avoid that moving target, pass explicit release tags:
+
+```bash
+python packaging/import_implant_releases.py \
+  --stage-root build/release-staging/Release \
+  --import-root build/release-imports \
+  --windows-tag vX.Y.Z \
+  --linux-tag vX.Y.Z
+```
+
+Create the final archive only from the validated staging directory:
+
+```bash
+tar -C build/release-staging -czf Release.tar.gz Release
+```
+
+### Prepare The Integration Runtime
+
+The root build provides a dedicated preparation target for integration tests:
+
+```bash
+cmake --build build --target stage_integration_runtime
+```
+
+This produces a deterministic runtime under:
+
+```text
+build/integration-staging/runtime/Release
+```
+
+That staged runtime is already used by a first smoke integration test covering
+TeamServer startup, gRPC authentication, and stable empty-state RPCs. It is the
+base for the next round of end-to-end tests around the packaged Python client
+and deeper contract validation.
+
+## CI/CD Contract
+
+The repository uses two GitHub Actions workflows:
+
+- `CI` (`.github/workflows/Tests.yml`) runs on pull requests and branch pushes.
+- `CD` (`.github/workflows/Release.yml`) runs on tags and manual dispatch.
+
+The CI workflow:
+
+- installs system dependencies, Python, Conan, and client test dependencies
+  explicitly, including Qt runtime libraries required by `pytest-qt`;
+- uses Conan and pip caches keyed from checked-in dependency files;
+- configures a Release CMake build with tests enabled;
+- builds the TeamServer and modules;
+- runs CTest with failure output and a timeout;
+- runs the Python client pytest suite with verbose output and a timeout;
+- validates the staged TeamServer release bundle.
+
+The CD workflow repeats the build and test gates, imports implant release
+assets into staging, validates the complete release layout, creates
+`Release.tar.gz` from staging, and publishes only that validated archive.
+
+GitHub Actions permissions are read-only by default. `contents: write` is
+granted only to the publish job that uploads the GitHub release asset.
