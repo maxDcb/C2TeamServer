@@ -258,11 +258,25 @@ Release/WindowsBeacons/
 Release/WindowsModules/
 ```
 
+or the same directories at the archive root:
+
+```text
+WindowsBeacons/
+WindowsModules/
+```
+
 The imported Linux implant archive must expose:
 
 ```text
 Release/LinuxBeacons/
 Release/LinuxModules/
+```
+
+or the same directories at the archive root:
+
+```text
+LinuxBeacons/
+LinuxModules/
 ```
 
 Legacy `Release/Beacons` and `Release/Modules` layouts are intentionally not

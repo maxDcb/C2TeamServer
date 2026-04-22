@@ -105,8 +105,8 @@ Release/
 Imported implant archives must use the refactored layouts:
 
 ```text
-C2Implant:      Release/WindowsBeacons and Release/WindowsModules
-C2LinuxImplant: Release/LinuxBeacons and Release/LinuxModules
+C2Implant:      Release/WindowsBeacons and Release/WindowsModules, or those directories at archive root
+C2LinuxImplant: Release/LinuxBeacons and Release/LinuxModules, or those directories at archive root
 ```
 
 The import script defaults to the latest GitHub release for each implant repo.

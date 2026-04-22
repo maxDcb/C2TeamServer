@@ -122,13 +122,24 @@ def _fetch_release_asset(
 StageCopy = tuple[Path, Path, tuple[str, ...]]
 
 
+def _find_release_layout_root(extract_root: Path, required_directories: tuple[str, ...]) -> Path:
+    candidates = (extract_root / "Release", extract_root)
+    for candidate in candidates:
+        if all((candidate / directory).is_dir() for directory in required_directories):
+            return candidate
+
+    checked = ", ".join(str(candidate) for candidate in candidates)
+    required = ", ".join(required_directories)
+    raise ValidationError(f"Could not find release layout containing {required}. Checked: {checked}")
+
+
 def _prepare_windows(repo: str, tag: str | None, import_root: Path, stage_root: Path, token: str | None) -> list[StageCopy]:
     archive_path = import_root / "C2Implant.zip"
     extract_root = import_root / "windows"
     _fetch_release_asset(repo, tag, "Release.zip", archive_path, token)
     _extract_zip(archive_path, extract_root)
 
-    release_root = extract_root / "Release"
+    release_root = _find_release_layout_root(extract_root, ("WindowsBeacons", "WindowsModules"))
     windows_beacons = release_root / "WindowsBeacons"
     windows_modules = release_root / "WindowsModules"
     _require_directory_exact(windows_beacons, EXPECTED_WINDOWS_BEACONS)
@@ -145,7 +156,7 @@ def _prepare_linux(repo: str, tag: str | None, import_root: Path, stage_root: Pa
     _fetch_release_asset(repo, tag, "Release.tar.gz", archive_path, token)
     _extract_tar(archive_path, extract_root)
 
-    release_root = extract_root / "Release"
+    release_root = _find_release_layout_root(extract_root, ("LinuxBeacons", "LinuxModules"))
     linux_beacons = release_root / "LinuxBeacons"
     linux_modules = release_root / "LinuxModules"
     _require_directory_exact(linux_beacons, EXPECTED_LINUX_BEACONS)
