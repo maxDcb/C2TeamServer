@@ -4,11 +4,11 @@ PyQt6==6.7.0
 pyqtdarktheme
 protobuf==6.33.5
 gitpython==3.1.45
-requests==2.32.5
+requests==2.33.0
 pwn==1.0
 pefile==2024.8.26
 openai==1.102.0
-pytest==8.4.1
+pytest==9.0.3
 pytest-qt==4.5.0
 git+https://github.com/maxDcb/donut.git@master#egg=donut-shellcode
 markdown

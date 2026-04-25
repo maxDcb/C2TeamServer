@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "C2Client"
 version = "0.1.0"
+requires-python = ">=3.10"
 dependencies = [
     "setuptools",
     "pycryptodome==3.23.0",
@@ -13,7 +14,7 @@ dependencies = [
     "pyqtdarktheme",
     "protobuf==6.33.5",
     "gitpython==3.1.45",
-    "requests==2.32.5",
+    "requests==2.33.0",
     "pwn==1.0",
     "pefile==2024.8.26",
     "openai==1.102.0",
@@ -23,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest==8.4.1",
+    "pytest==9.0.3",
     "pytest-qt==4.5.0"
 ]
 
