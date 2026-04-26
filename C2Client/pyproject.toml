@@ -13,7 +13,7 @@ dependencies = [
     "PyQt6==6.7.0",
     "pyqtdarktheme",
     "protobuf==6.33.5",
-    "gitpython==3.1.45",
+    "gitpython==3.1.47",
     "requests==2.33.0",
     "pwn==1.0",
     "pefile==2024.8.26",
