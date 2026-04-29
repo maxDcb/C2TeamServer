@@ -75,14 +75,19 @@ include_directories(${C2_NLOHMANN_JSON_INCLUDE_DIRS})
 ##
 
 option(WITH_TESTS "Compile for tests" ON)
-set(C2CORE_BUILD_TESTS ${WITH_TESTS})
+set(BUILD_TEAMSERVER ON CACHE BOOL "Build teamserver-side command parsing/help code" FORCE)
+set(C2CORE_BUILD_TESTS ${WITH_TESTS} CACHE BOOL "Enable C2Core tests from the parent project" FORCE)
 
-option(BUILD_TEAMSERVER "Enable Teamserver config" ON)
-add_definitions(-DBUILD_TEAMSERVER)
+add_compile_definitions(BUILD_TEAMSERVER)
 
 if(WITH_TESTS)
+  set(BUILD_TESTING ON CACHE BOOL "Enable CTest integration" FORCE)
+  add_compile_definitions(C2CORE_BUILD_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
+  find_package(Catch2 QUIET)
   enable_testing()
+else()
+  set(BUILD_TESTING OFF CACHE BOOL "Enable CTest integration" FORCE)
 endif()
 
 
@@ -133,12 +138,18 @@ include_directories("${C2_CORE_DIR}/modules/ModuleCmd")
 add_subdirectory("${C2_SERVER_DIR}")
 add_subdirectory("${C2_CORE_DIR}/modules")
 
+if(WITH_TESTS AND Catch2_FOUND)
+  add_subdirectory("${C2_CORE_DIR}/listener/tests")
+  add_subdirectory("${C2_CORE_DIR}/beacon/tests")
+elseif(WITH_TESTS)
+  message(STATUS "Catch2 not found; skipping core listener/beacon Catch2-based tests")
+endif()
+
 add_subdirectory("${C2_CERTS_DIR}")
 add_subdirectory("${C2_PACKAGING_DIR}")
 
 if(WITH_TESTS)
   add_subdirectory("${C2_INTEGRATION_DIR}")
 endif()
-
 
 
