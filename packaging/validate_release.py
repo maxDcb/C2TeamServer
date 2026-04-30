@@ -62,6 +62,7 @@ EXPECTED_TEAMSERVER_MODULES = (
     "libWhoami.so",
     "libWinRM.so",
     "libWmiExec.so",
+    "libReversePortForward.so",
 )
 
 EXPECTED_WINDOWS_BEACONS = (
@@ -122,6 +123,7 @@ EXPECTED_WINDOWS_MODULES = (
     "Whoami.dll",
     "WinRM.dll",
     "WmiExec.dll",
+    "libReversePortForward.dll",
 )
 
 EXPECTED_LINUX_BEACONS = (
