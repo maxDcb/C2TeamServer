@@ -213,7 +213,10 @@ class Sessions(QWidget):
     # don't clear the list each time but just when it's necessary
     def printSessions(self):
         self.listSession.setRowCount(len(self.listSessionObject))
-        self.listSession.setHorizontalHeaderLabels(["Beacon ID", "Listener ID", "Host", "User", "Architecture", "Privilege", "Operating System", "Process ID", "Internal IP", "ProofOfLife", "Killed"])
+        self.listSession.setHorizontalHeaderLabels(["Beacon ID", "Listener ID", "Host", "User", "Beacon Arch", "Privilege", "Operating System", "Process ID", "Internal IP", "ProofOfLife", "Killed"])
+        archHeader = self.listSession.horizontalHeaderItem(4)
+        if archHeader is not None:
+            archHeader.setToolTip("Architecture du process beacon")
         for ix, sessionStore in enumerate(self.listSessionObject):
 
             beaconHash = QTableWidgetItem(sessionStore.beaconHash[0:8])
@@ -271,4 +274,3 @@ class GetSessionsWorker(QObject):
 
     def quit(self):
         self.exit=True
-
