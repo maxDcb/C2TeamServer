@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-VENDOR_ROOT = Path(__file__).resolve().parents[1] / "vendor" / "PentestAssistant"
+VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "PentestAssistant"
 if str(VENDOR_ROOT) not in sys.path:
     sys.path.insert(0, str(VENDOR_ROOT))
 

@@ -1,0 +1,33 @@
+{
+  "name": "download",
+  "description": "Download a file from a beacon host to the operator machine.",
+  "command_template": "download {remote_path:q} {local_path:q}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "remote_path": {
+        "type": "string",
+        "description": "Path on the beacon host."
+      },
+      "local_path": {
+        "type": "string",
+        "description": "Destination path on the operator machine."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "remote_path",
+      "local_path"
+    ],
+    "additionalProperties": false
+  }
+}

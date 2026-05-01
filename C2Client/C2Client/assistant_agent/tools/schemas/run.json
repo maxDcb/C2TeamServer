@@ -1,0 +1,28 @@
+{
+  "name": "run",
+  "description": "Execute a system command on the beacon host and return stdout/stderr.",
+  "command_template": "run {command:raw}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "command": {
+        "type": "string",
+        "description": "Command line to execute."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

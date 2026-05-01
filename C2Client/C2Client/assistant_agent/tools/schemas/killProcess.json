@@ -1,0 +1,28 @@
+{
+  "name": "killProcess",
+  "description": "Terminate a process on the beacon host by PID.",
+  "command_template": "killProcess {pid}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "pid": {
+        "type": "integer",
+        "description": "Process id to terminate."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "pid"
+    ],
+    "additionalProperties": false
+  }
+}

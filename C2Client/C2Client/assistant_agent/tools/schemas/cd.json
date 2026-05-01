@@ -1,0 +1,28 @@
+{
+  "name": "cd",
+  "description": "Change the beacon working directory.",
+  "command_template": "cd {path:q}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "path": {
+        "type": "string",
+        "description": "Target working directory path."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "path"
+    ],
+    "additionalProperties": false
+  }
+}

@@ -39,7 +39,10 @@ C2Client = [
     "Scripts/*.py",
     "server.crt",
     "DropperModules.conf",
-    "ShellCodeModules.conf"
+    "ShellCodeModules.conf",
+    "assistant_agent/prompts/system/*.md",
+    "assistant_agent/prompts/memory/*.md",
+    "assistant_agent/tools/schemas/*.json"
 ]
 agent_core = ["py.typed"]
 

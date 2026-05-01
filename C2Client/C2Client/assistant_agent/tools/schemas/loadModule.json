@@ -1,0 +1,28 @@
+{
+  "name": "loadModule",
+  "description": "Load a beacon module into memory. Use this when a module is missing before retrying a command.",
+  "command_template": "loadModule {module_to_load}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "module_to_load": {
+        "type": "string",
+        "description": "Module name to load, for example ls, cd, cat, pwd, tree."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "module_to_load"
+    ],
+    "additionalProperties": false
+  }
+}
