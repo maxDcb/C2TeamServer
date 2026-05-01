@@ -140,9 +140,7 @@ EXPECTED_LINUX_BEACONS = (
     "BeaconTcp",
 )
 
-EXPECTED_LINUX_MODULES = tuple(
-    module for module in EXPECTED_TEAMSERVER_MODULES if module != "libReversePortForward.so"
-)
+EXPECTED_LINUX_MODULES = EXPECTED_TEAMSERVER_MODULES
 
 
 class ValidationError(RuntimeError):

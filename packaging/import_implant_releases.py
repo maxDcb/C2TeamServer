@@ -96,7 +96,10 @@ def _extract_tar(archive_path: Path, destination: Path) -> None:
     with tarfile.open(archive_path, "r:gz") as archive:
         for member in archive.getmembers():
             _assert_safe_archive_member(destination, member.name)
-        archive.extractall(destination)
+        try:
+            archive.extractall(destination, filter="data")
+        except TypeError:
+            archive.extractall(destination)
 
 
 def _copy_validated_dir(source: Path, destination: Path, expected_files: tuple[str, ...]) -> None:
