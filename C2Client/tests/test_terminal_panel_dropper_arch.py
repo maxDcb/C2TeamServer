@@ -45,6 +45,12 @@ def test_extract_dropper_target_arch_accepts_aliases_and_removes_flag():
     assert remaining == ["--other", "value"]
 
 
+def test_dropper_arch_help_and_file_names_are_arch_specific():
+    assert "Dropper Config BeaconArch x86|x64|arm64" in terminal_panel.DropperArchitectureHelp
+    assert terminal_panel.makeBeaconFilePath("windows", "arm64") == "./Beacon-arm64.exe"
+    assert terminal_panel.makeBeaconFilePath("linux", "x64") == "./Beacon-linux"
+
+
 def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qtbot):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(terminal_panel, "DropperModules", [FakeDropperModule])
@@ -69,4 +75,6 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
 
     assert "getBeaconBinary beacon windows arm64" in grpc.commands
     assert donut_calls[0]["arch"] == terminal_panel.donutArchValue("arm64")
+    assert donut_calls[0]["file"] == "./Beacon-arm64.exe"
+    assert (tmp_path / "Beacon-arm64.exe").read_bytes() == b"beacon"
     assert results == [("Dropper FakeDropper dl beacon --arch arm64", "generated")]

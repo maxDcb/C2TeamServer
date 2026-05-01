@@ -165,8 +165,8 @@ GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 GrpcSocksInstruction = "socks"
 GrpcReloadModulesInstruction = "reloadModules";
 
-BeaconFileWindows = "Beacon.exe"
-BeaconFileLinux = "Beacon"
+BeaconFileWindowsPattern = "Beacon-{}.exe"
+BeaconFileLinuxGenerated = "Beacon-linux"
 
 ErrorInstruction = "Error"
 
@@ -197,6 +197,11 @@ ShellcodeGeneratorDonut = "Donut"
 DefaultWindowsArch = "x64"
 SupportedWindowsArchs = ("x86", "x64", "arm64")
 DropperAvailableHeader = "- Available dropper:\n"
+DropperArchitectureHelp = (
+    "\nArchitecture:\n"
+    "  Dropper Config BeaconArch x86|x64|arm64\n"
+    "  Dropper <module> <listenerDownload> <listenerBeacon> --arch x86|x64|arm64\n"
+)
 DropperThreadRunningMessage = "Dropper thread already running"
 DropperConfigHeader = "- Dropper Config:"
 DropperConfigShellcodeGeneratorLine = f"  {DropperConfigShellcodeGeneratorDisplay}: {{}}"
@@ -276,6 +281,12 @@ def donutArchValue(arch):
     return 2
 
 
+def makeBeaconFilePath(targetOs, targetArch):
+    if (targetOs or "").lower() == "windows":
+        return "./" + BeaconFileWindowsPattern.format(targetArch)
+    return "./" + BeaconFileLinuxGenerated
+
+
 def extractDropperTargetArch(arguments, defaultArch=DefaultWindowsArch):
     targetArch = normalizeWindowsArch(defaultArch) or DefaultWindowsArch
     remainingArgs = []
@@ -314,7 +325,11 @@ completerData = [
     (DropperInstruction,[
             (DropperConfigSubInstruction, [
                 (DropperConfigShellcodeGeneratorDisplay, []),
-                (DropperConfigBeaconArchDisplay, [])
+                (DropperConfigBeaconArchDisplay, [
+                    ("x86", []),
+                    ("x64", []),
+                    ("arm64", [])
+                ])
             ])
         ]),
     (BatcaveInstruction, [
@@ -436,6 +451,7 @@ class Terminal(QWidget):
                         availableModules = DropperAvailableHeader
                         for module in DropperModules:
                             availableModules += "  " + module.__name__ + "\n"
+                        availableModules += DropperArchitectureHelp
                         availableModules += "\n" + self._format_shellcode_generator_summary()
                         self.printInTerminal(commandLine, availableModules)
                         return
@@ -786,6 +802,7 @@ class Terminal(QWidget):
             availableModules = DropperAvailableHeader
             for module in DropperModules:
                 availableModules += "  " + module.__name__ + "\n"
+            availableModules += DropperArchitectureHelp
             availableModules += "\n" + self._format_shellcode_generator_summary()
             self.printInTerminal(commandLine, availableModules)
             return
@@ -808,6 +825,7 @@ class Terminal(QWidget):
                     helpText = ""
                     getHelp = getattr(module, DropperModuleGetHelpFunction)
                     helpText += getHelp()
+                    helpText += DropperArchitectureHelp
                     self.printInTerminal(commandLine, helpText)
                     return;
             
@@ -946,7 +964,7 @@ class DropperWorker(QObject):
                 try:
                     getTargetOs = getattr(module, "getTargetOsExploration")
                     print(getTargetOs)
-                    targetOs = getTargetOs()
+                    targetOs = getTargetOs().lower()
                     print(targetOs)
                 except AttributeError:
                     targetOs = "windows"
@@ -959,15 +977,12 @@ class DropperWorker(QObject):
 
         result = resultTermCommand.result
         if ErrorInstruction in result:
-            self.printInTerminal(commandLine, result)
+            self.finished.emit(self.commandLine, result)
             return   
 
-        if targetOs == "windows":
-            beaconFilePath = "./"+BeaconFileWindows
-        else:
-            beaconFilePath = "./"+BeaconFileLinux
-        beaconFile = open(beaconFilePath, "wb")
-        beaconFile.write(resultTermCommand.data)
+        beaconFilePath = makeBeaconFilePath(targetOs, self.targetArch)
+        with open(beaconFilePath, "wb") as beaconFile:
+            beaconFile.write(resultTermCommand.data)
 
         beaconArg = ip+" "+port
         if scheme==HttpType or scheme==HttpsType:
