@@ -61,8 +61,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_cmdResponses,
         m_sentResponses,
         m_sentC2Messages,
-        [this](const std::string& input, C2Message& c2Message, bool isWindows)
-        { return this->prepMsg(input, c2Message, isWindows); });
+        [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
+        { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
         m_logger,
         m_config,
@@ -309,7 +309,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
     return grpc::Status::OK;
 }
 
-int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows)
+int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
 {
-    return m_commandPreparationService->prepareMessage(input, c2Message, isWindows);
+    return m_commandPreparationService->prepareMessage(input, c2Message, isWindows, windowsArch);
 }

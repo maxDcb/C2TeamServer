@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "nlohmann/json.hpp"
 
@@ -21,8 +22,11 @@ struct TeamServerRuntimeConfig
     std::string windowsBeaconsDirectoryPath;
     std::string toolsDirectoryPath;
     std::string scriptsDirectoryPath;
+    std::string defaultWindowsArch = "x64";
+    std::vector<std::string> supportedWindowsArchs = {"x86", "x64", "arm64"};
 
     static TeamServerRuntimeConfig fromJson(const nlohmann::json& config);
+    static std::string normalizeWindowsArch(const std::string& arch);
 
     void validateDirectories(const std::shared_ptr<spdlog::logger>& logger) const;
     void configureCommonCommands(CommonCommands& commonCommands) const;

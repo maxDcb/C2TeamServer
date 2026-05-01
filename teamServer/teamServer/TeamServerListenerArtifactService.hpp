@@ -35,7 +35,11 @@ public:
 private:
     std::string resolvePublicAddress() const;
     std::string resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const;
-    std::string resolveBeaconBinaryPath(const std::string& type, const std::string& targetOs, bool primaryListener) const;
+    std::string resolveBeaconBinaryPath(
+        const std::string& type,
+        const std::string& targetOs,
+        const std::string& targetArch,
+        bool primaryListener) const;
     grpc::Status handleInfoListener(
         const std::vector<std::string>& splitedCmd,
         const std::string& cmd,

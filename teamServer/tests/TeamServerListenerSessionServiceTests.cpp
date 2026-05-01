@@ -82,7 +82,7 @@ void testCollectListenersAndSessions()
         cmdResponses,
         sentResponses,
         sentC2Messages,
-        [](const std::string&, C2Message& c2Message, bool)
+        [](const std::string&, C2Message& c2Message, bool, const std::string&)
         {
             c2Message.set_instruction("noop");
             return 0;
@@ -117,7 +117,7 @@ void testQueueStopAndResponseDeduplication()
 
     std::vector<std::shared_ptr<Listener>> listeners;
     auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Windows");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "arm64", "admin", "Windows");
     listeners.push_back(primaryListener);
 
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
@@ -126,6 +126,7 @@ void testQueueStopAndResponseDeduplication()
     std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<C2Message> sentC2Messages;
 
+    std::string preparedArch;
     TeamServerListenerSessionService service(
         logger,
         config,
@@ -135,8 +136,9 @@ void testQueueStopAndResponseDeduplication()
         cmdResponses,
         sentResponses,
         sentC2Messages,
-        [](const std::string& input, C2Message& c2Message, bool)
+        [&preparedArch](const std::string& input, C2Message& c2Message, bool, const std::string& windowsArch)
         {
+            preparedArch = windowsArch;
             c2Message.set_instruction("instruction");
             c2Message.set_cmd(input);
             c2Message.set_returnvalue("");
@@ -150,6 +152,7 @@ void testQueueStopAndResponseDeduplication()
 
     teamserverapi::Response response;
     assert(service.sendCmdToSession(command, &response).ok());
+    assert(preparedArch == "arm64");
     C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(queuedTask.instruction() == "instruction");
 

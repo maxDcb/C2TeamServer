@@ -1,5 +1,6 @@
 #include <cassert>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <unistd.h>
@@ -72,6 +73,13 @@ std::shared_ptr<spdlog::logger> makeLogger()
     return logger;
 }
 
+void writeFile(const fs::path& path, const std::string& content)
+{
+    fs::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    output << content;
+}
+
 void testPrepareCommonCommand()
 {
     ScopedPath tempRoot(makeTempDirectory("common"));
@@ -122,6 +130,47 @@ void testPrepareMissingCommand()
     assert(service.prepareMessage("doesnotexist", message, true) == -1);
     assert(message.returnvalue() == "Module doesnotexist not found.");
 }
+
+void testPrepareLoadModuleUsesWindowsSessionArchitecture()
+{
+    ScopedPath tempRoot(makeTempDirectory("loadmodule-arch"));
+    fs::path windowsModulesRoot = tempRoot.path() / "WindowsModules";
+    fs::path linuxModulesRoot = tempRoot.path() / "LinuxModules";
+    writeFile(windowsModulesRoot / "x86" / "Inject.dll", "X86DLL");
+    writeFile(windowsModulesRoot / "x64" / "Inject.dll", "X64DLL");
+    writeFile(windowsModulesRoot / "arm64" / "Inject.dll", "ARM64DLL");
+
+    CommonCommands commonCommands;
+    commonCommands.setDirectories(
+        (tempRoot.path() / "TeamServerModules").string(),
+        linuxModulesRoot.string() + "/",
+        windowsModulesRoot.string() + "/",
+        (tempRoot.path() / "LinuxBeacons").string() + "/",
+        (tempRoot.path() / "WindowsBeacons").string() + "/",
+        (tempRoot.path() / "Tools").string() + "/",
+        (tempRoot.path() / "Scripts").string() + "/");
+
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        (tempRoot.path() / "TeamServerModules").string(),
+        commonCommands,
+        modules);
+
+    C2Message message;
+    assert(service.prepareMessage("loadModule Inject.dll", message, true, "x86") == 0);
+    assert(message.instruction() == LoadC2ModuleCmd);
+    assert(message.inputfile() == "Inject.dll");
+    assert(message.data() == "X86DLL");
+
+    C2Message aliasMessage;
+    assert(service.prepareMessage("loadModule Inject.dll", aliasMessage, true, "amd64") == 0);
+    assert(aliasMessage.data() == "X64DLL");
+
+    C2Message armMessage;
+    assert(service.prepareMessage("loadModule Inject.dll", armMessage, true, "arm64") == 0);
+    assert(armMessage.data() == "ARM64DLL");
+}
 } // namespace
 
 int main()
@@ -129,5 +178,6 @@ int main()
     testPrepareCommonCommand();
     testPrepareModuleCommandCaseInsensitive();
     testPrepareMissingCommand();
+    testPrepareLoadModuleUsesWindowsSessionArchitecture();
     return 0;
 }

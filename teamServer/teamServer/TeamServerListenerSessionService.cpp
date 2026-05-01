@@ -318,7 +318,7 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
                     std::string beaconHash = session->getBeaconHash();
 
                     C2Message c2Message;
-                    int res = m_prepMsg(input, c2Message, true);
+                    int res = m_prepMsg(input, c2Message, true, "x64");
                     if (res != 0)
                     {
                         std::string hint = c2Message.returnvalue();
@@ -438,7 +438,7 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
             if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
             {
                 C2Message c2Message;
-                int res = m_prepMsg(EndInstruction, c2Message, true);
+                int res = m_prepMsg(EndInstruction, c2Message, true, "x64");
 
                 if (res != 0)
                 {
@@ -480,11 +480,12 @@ grpc::Status TeamServerListenerSessionService::sendCmdToSession(const teamserver
 
         std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
         bool isWindows = session && session->getOs() == "Windows";
+        std::string windowsArch = session ? session->getArch() : "x64";
 
         if (!input.empty())
         {
             C2Message c2Message;
-            int res = m_prepMsg(input, c2Message, isWindows);
+            int res = m_prepMsg(input, c2Message, isWindows, windowsArch);
 
             m_logger->debug("SendCmdToSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 

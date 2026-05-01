@@ -17,7 +17,11 @@ public:
         CommonCommands& commonCommands,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd);
 
-    int prepareMessage(const std::string& input, C2Message& c2Message, bool isWindows = true) const;
+    int prepareMessage(
+        const std::string& input,
+        C2Message& c2Message,
+        bool isWindows = true,
+        const std::string& windowsArch = "x64") const;
 
 private:
     static std::string toLower(const std::string& str);

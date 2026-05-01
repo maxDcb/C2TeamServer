@@ -20,7 +20,7 @@
 class TeamServerListenerSessionService
 {
 public:
-    using PrepMsgCallback = std::function<int(const std::string&, C2Message&, bool)>;
+    using PrepMsgCallback = std::function<int(const std::string&, C2Message&, bool, const std::string&)>;
     using ListenerEmitter = std::function<bool(const teamserverapi::Listener&)>;
     using SessionEmitter = std::function<bool(const teamserverapi::Session&)>;
     using CommandResponseEmitter = std::function<bool(const teamserverapi::CommandResponse&)>;

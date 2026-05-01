@@ -1,5 +1,8 @@
 #include "TeamServerListenerArtifactService.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
 #include <fstream>
 
 #include "listener/ListenerHttp.hpp"
@@ -9,6 +12,16 @@ namespace
 {
 const std::string InfoListenerInstruction = "infoListener";
 const std::string GetBeaconBinaryInstruction = "getBeaconBinary";
+namespace fs = std::filesystem;
+
+std::string lowerCopy(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+    {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
 
 std::string readBinaryFile(const std::string& path)
 {
@@ -108,19 +121,21 @@ std::string TeamServerListenerArtifactService::resolvePrimaryListenerInfo(const 
 std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
     const std::string& type,
     const std::string& targetOs,
+    const std::string& targetArch,
     bool primaryListener) const
 {
     const bool linuxTarget = targetOs == "Linux";
+    const fs::path windowsBeaconRoot = fs::path(m_runtimeConfig.windowsBeaconsDirectoryPath) / targetArch;
     if (type == ListenerHttpType || type == ListenerHttpsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconHttp" : m_runtimeConfig.windowsBeaconsDirectoryPath + "BeaconHttp.exe";
+        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconHttp" : (windowsBeaconRoot / "BeaconHttp.exe").string();
     if (type == ListenerTcpType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconTcp" : m_runtimeConfig.windowsBeaconsDirectoryPath + "BeaconTcp.exe";
+        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconTcp" : (windowsBeaconRoot / "BeaconTcp.exe").string();
     if (primaryListener && type == ListenerGithubType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconGithub" : m_runtimeConfig.windowsBeaconsDirectoryPath + "BeaconGithub.exe";
+        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconGithub" : (windowsBeaconRoot / "BeaconGithub.exe").string();
     if (primaryListener && type == ListenerDnsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconDns" : m_runtimeConfig.windowsBeaconsDirectoryPath + "BeaconDns.exe";
+        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconDns" : (windowsBeaconRoot / "BeaconDns.exe").string();
     if (!primaryListener && type == ListenerSmbType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconSmb" : m_runtimeConfig.windowsBeaconsDirectoryPath + "BeaconSmb.exe";
+        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconSmb" : (windowsBeaconRoot / "BeaconSmb.exe").string();
     return "";
 }
 
@@ -195,30 +210,52 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
 {
     m_logger->debug("getBeaconBinary {0}", cmd);
 
-    if (splitedCmd.size() != 2 && splitedCmd.size() != 3)
+    if (splitedCmd.size() < 2 || splitedCmd.size() > 4)
     {
-        response->set_result("Error: getBeaconBinary take one arguement.");
+        response->set_result("Error: getBeaconBinary take one listener hash and optional OS/architecture arguments.");
         return grpc::Status::OK;
     }
 
     const std::string& listenerHash = splitedCmd[1];
-    const std::string targetOs = (splitedCmd.size() == 3 && splitedCmd[2] == "Linux") ? "Linux" : "Windows";
+    const std::string targetOsArg = splitedCmd.size() >= 3 ? lowerCopy(splitedCmd[2]) : "windows";
+    const std::string targetOs = targetOsArg == "linux" ? "Linux" : "Windows";
+    std::string targetArch = m_runtimeConfig.defaultWindowsArch;
+    if (targetOs == "Windows")
+    {
+        if (splitedCmd.size() == 4)
+            targetArch = TeamServerRuntimeConfig::normalizeWindowsArch(splitedCmd[3]);
+        else
+            targetArch = TeamServerRuntimeConfig::normalizeWindowsArch(targetArch);
+
+        if (targetArch.empty())
+        {
+            response->set_result("Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+
+        if (std::find(m_runtimeConfig.supportedWindowsArchs.begin(), m_runtimeConfig.supportedWindowsArchs.end(), targetArch)
+            == m_runtimeConfig.supportedWindowsArchs.end())
+        {
+            response->set_result("Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+    }
 
     for (const auto& listener : m_listeners)
     {
         const std::string& hash = listener->getListenerHash();
         if (hash.rfind(listenerHash, 0) == 0)
         {
-            const std::string beaconFilePath = resolveBeaconBinaryPath(listener->getType(), targetOs, true);
+            const std::string beaconFilePath = resolveBeaconBinaryPath(listener->getType(), targetOs, targetArch, true);
             std::ifstream beaconFile(beaconFilePath, std::ios::binary);
             if (!beaconFile.good())
             {
-                m_logger->error("Error: Beacons {0} {1} not found.", listener->getType(), targetOs);
+                m_logger->error("Error: Beacons {0} {1} {2} not found.", listener->getType(), targetOs, targetArch);
                 response->set_result("Error: Beacons not found.");
                 return grpc::Status::OK;
             }
 
-            m_logger->info("getBeaconBinary found in primary listeners {0} {1}", listener->getType(), targetOs);
+            m_logger->info("getBeaconBinary found in primary listeners {0} {1} {2}", listener->getType(), targetOs, targetArch);
             response->set_data(readBinaryFile(beaconFilePath));
             response->set_result("ok");
             return grpc::Status::OK;
@@ -237,16 +274,16 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
                 if (secondaryHash.rfind(listenerHash, 0) != 0)
                     continue;
 
-                const std::string beaconFilePath = resolveBeaconBinaryPath(it->getType(), targetOs, false);
+                const std::string beaconFilePath = resolveBeaconBinaryPath(it->getType(), targetOs, targetArch, false);
                 std::ifstream beaconFile(beaconFilePath, std::ios::binary);
                 if (!beaconFile.good())
                 {
-                    m_logger->error("Error: Beacons {0} {1} not found.", it->getType(), targetOs);
+                    m_logger->error("Error: Beacons {0} {1} {2} not found.", it->getType(), targetOs, targetArch);
                     response->set_result("Error: Beacons not found.");
                     return grpc::Status::OK;
                 }
 
-                m_logger->info("getBeaconBinary found in beacon listeners {0} {1}", it->getType(), targetOs);
+                m_logger->info("getBeaconBinary found in beacon listeners {0} {1} {2}", it->getType(), targetOs, targetArch);
                 response->set_data(readBinaryFile(beaconFilePath));
                 response->set_result("ok");
                 return grpc::Status::OK;

@@ -81,6 +81,8 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
+    for (const auto& arch : runtimeConfig.supportedWindowsArchs)
+        fs::create_directories(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / arch);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
     fs::create_directories(runtimeConfig.scriptsDirectoryPath);
     return runtimeConfig;
@@ -122,8 +124,10 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
 {
     ScopedPath tempRoot(makeTempDirectory("beacon"));
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
-    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "BeaconHttp.exe", "HTTPBIN");
-    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "BeaconSmb.exe", "SMBBIN");
+    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconHttp.exe", "HTTPBIN-X64");
+    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x86" / "BeaconHttp.exe", "HTTPBIN-X86");
+    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "arm64" / "BeaconHttp.exe", "HTTPBIN-ARM64");
+    writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconSmb.exe", "SMBBIN-X64");
 
     nlohmann::json config = nlohmann::json::object();
     auto primary = std::make_shared<TestListener>("listener-primary");
@@ -138,12 +142,31 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     command.set_cmd("getBeaconBinary listener-pri");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri"}, command, &response).ok());
     assert(response.result() == "ok");
-    assert(response.data() == "HTTPBIN");
+    assert(response.data() == "HTTPBIN-X64");
+
+    command.set_cmd("getBeaconBinary listener-pri Windows x86");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "x86"}, command, &response).ok());
+    assert(response.result() == "ok");
+    assert(response.data() == "HTTPBIN-X86");
+
+    command.set_cmd("getBeaconBinary listener-pri Windows amd64");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "amd64"}, command, &response).ok());
+    assert(response.result() == "ok");
+    assert(response.data() == "HTTPBIN-X64");
+
+    command.set_cmd("getBeaconBinary listener-pri Windows arm64");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "arm64"}, command, &response).ok());
+    assert(response.result() == "ok");
+    assert(response.data() == "HTTPBIN-ARM64");
+
+    command.set_cmd("getBeaconBinary listener-pri Windows sparc");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "sparc"}, command, &response).ok());
+    assert(response.result() == "Error: Unsupported architecture.");
 
     command.set_cmd("getBeaconBinary secondary");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary"}, command, &response).ok());
     assert(response.result() == "ok");
-    assert(response.data() == "SMBBIN");
+    assert(response.data() == "SMBBIN-X64");
 }
 } // namespace
 

@@ -4,6 +4,8 @@
 #include <cctype>
 #include <filesystem>
 
+#include "TeamServerRuntimeConfig.hpp"
+
 namespace fs = std::filesystem;
 
 TeamServerCommandPreparationService::TeamServerCommandPreparationService(
@@ -58,7 +60,11 @@ std::string TeamServerCommandPreparationService::toLower(const std::string& str)
     return result;
 }
 
-int TeamServerCommandPreparationService::prepareMessage(const std::string& input, C2Message& c2Message, bool isWindows) const
+int TeamServerCommandPreparationService::prepareMessage(
+    const std::string& input,
+    C2Message& c2Message,
+    bool isWindows,
+    const std::string& windowsArch) const
 {
     m_logger->trace("prepMsg");
 
@@ -69,6 +75,9 @@ int TeamServerCommandPreparationService::prepareMessage(const std::string& input
 
     int res = 0;
     const std::string instruction = splitedCmd[0];
+    std::string normalizedWindowsArch = TeamServerRuntimeConfig::normalizeWindowsArch(windowsArch);
+    if (isWindows && normalizedWindowsArch.empty())
+        normalizedWindowsArch = "x64";
     bool isModuleFound = false;
 
     for (int i = 0; i < m_commonCommands.getNumberOfCommand(); i++)
@@ -117,7 +126,7 @@ int TeamServerCommandPreparationService::prepareMessage(const std::string& input
             }
         }
 
-        res = m_commonCommands.init(splitedCmd, c2Message, isWindows);
+        res = m_commonCommands.init(splitedCmd, c2Message, isWindows, normalizedWindowsArch);
         isModuleFound = true;
     }
 

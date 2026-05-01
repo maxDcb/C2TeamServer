@@ -62,7 +62,11 @@ public:
 protected:
     int handleCmdResponse();
     bool isListenerAlive(const std::string& listenerHash);
-    int prepMsg(const std::string& input, C2Message& c2Message, bool isWindows = true);
+    int prepMsg(
+        const std::string& input,
+        C2Message& c2Message,
+        bool isWindows = true,
+        const std::string& windowsArch = "x64");
 
 private:
     grpc::Status ensureAuthenticated(grpc::ServerContext* context);
