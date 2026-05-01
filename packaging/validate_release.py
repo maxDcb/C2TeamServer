@@ -65,6 +65,12 @@ EXPECTED_TEAMSERVER_MODULES = (
     "libReversePortForward.so",
 )
 
+EXPECTED_WINDOWS_ARCHES = (
+    "x86",
+    "x64",
+    "arm64",
+)
+
 EXPECTED_WINDOWS_BEACONS = (
     "BeaconDns.exe",
     "BeaconDnsDll.dll",
@@ -123,7 +129,7 @@ EXPECTED_WINDOWS_MODULES = (
     "Whoami.dll",
     "WinRM.dll",
     "WmiExec.dll",
-    "libReversePortForward.dll",
+    "ReversePortForward.dll",
 )
 
 EXPECTED_LINUX_BEACONS = (
@@ -134,7 +140,9 @@ EXPECTED_LINUX_BEACONS = (
     "BeaconTcp",
 )
 
-EXPECTED_LINUX_MODULES = EXPECTED_TEAMSERVER_MODULES
+EXPECTED_LINUX_MODULES = tuple(
+    module for module in EXPECTED_TEAMSERVER_MODULES if module != "libReversePortForward.so"
+)
 
 
 class ValidationError(RuntimeError):
@@ -178,6 +186,33 @@ def _require_directory_exact(root: Path, expected_files: tuple[str, ...]) -> Non
 
     for relative in expected_files:
         _require_non_empty_file(root / relative)
+
+
+def _require_arch_directories_exact(
+    root: Path,
+    expected_arches: tuple[str, ...],
+    expected_files: tuple[str, ...],
+) -> None:
+    if not root.is_dir():
+        raise ValidationError(f"Missing required directory: {root}")
+
+    expected = set(expected_arches)
+    actual_dirs = {path.name for path in root.iterdir() if path.is_dir()}
+    actual_files = {path.name for path in root.iterdir() if path.is_file()}
+
+    missing = sorted(expected - actual_dirs)
+    unexpected_dirs = sorted(actual_dirs - expected)
+    unexpected_files = sorted(actual_files)
+
+    if missing:
+        raise ValidationError(f"{root} is missing expected arch directories: {', '.join(missing)}")
+    if unexpected_dirs:
+        raise ValidationError(f"{root} contains unexpected arch directories: {', '.join(unexpected_dirs)}")
+    if unexpected_files:
+        raise ValidationError(f"{root} contains unexpected file(s): {', '.join(unexpected_files)}")
+
+    for arch in expected_arches:
+        _require_directory_exact(root / arch, expected_files)
 
 
 def validate_base_release(release_root: Path) -> None:
@@ -225,8 +260,16 @@ def validate_base_release(release_root: Path) -> None:
 
 
 def validate_implants(release_root: Path) -> None:
-    _require_directory_exact(release_root / "WindowsBeacons", EXPECTED_WINDOWS_BEACONS)
-    _require_directory_exact(release_root / "WindowsModules", EXPECTED_WINDOWS_MODULES)
+    _require_arch_directories_exact(
+        release_root / "WindowsBeacons",
+        EXPECTED_WINDOWS_ARCHES,
+        EXPECTED_WINDOWS_BEACONS,
+    )
+    _require_arch_directories_exact(
+        release_root / "WindowsModules",
+        EXPECTED_WINDOWS_ARCHES,
+        EXPECTED_WINDOWS_MODULES,
+    )
     _require_directory_exact(release_root / "LinuxBeacons", EXPECTED_LINUX_BEACONS)
     _require_directory_exact(release_root / "LinuxModules", EXPECTED_LINUX_MODULES)
 

@@ -15,6 +15,7 @@ from typing import Iterable
 from validate_release import (
     EXPECTED_LINUX_BEACONS,
     EXPECTED_LINUX_MODULES,
+    EXPECTED_WINDOWS_ARCHES,
     EXPECTED_WINDOWS_BEACONS,
     EXPECTED_WINDOWS_MODULES,
     ValidationError,
@@ -101,6 +102,7 @@ def _extract_tar(archive_path: Path, destination: Path) -> None:
 def _copy_validated_dir(source: Path, destination: Path, expected_files: tuple[str, ...]) -> None:
     _require_directory_exact(source, expected_files)
     shutil.rmtree(destination, ignore_errors=True)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, destination)
     _require_directory_exact(destination, expected_files)
 
@@ -122,6 +124,10 @@ def _fetch_release_asset(
 StageCopy = tuple[Path, Path, tuple[str, ...]]
 
 
+def _windows_asset_name(arch: str) -> str:
+    return f"C2Implant-windows-{arch}.zip"
+
+
 def _find_release_layout_root(extract_root: Path, required_directories: tuple[str, ...]) -> Path:
     candidates = (extract_root / "Release", extract_root)
     for candidate in candidates:
@@ -134,20 +140,26 @@ def _find_release_layout_root(extract_root: Path, required_directories: tuple[st
 
 
 def _prepare_windows(repo: str, tag: str | None, import_root: Path, stage_root: Path, token: str | None) -> list[StageCopy]:
-    archive_path = import_root / "C2Implant.zip"
-    extract_root = import_root / "windows"
-    _fetch_release_asset(repo, tag, "Release.zip", archive_path, token)
-    _extract_zip(archive_path, extract_root)
+    copy_plan: list[StageCopy] = []
+    for arch in EXPECTED_WINDOWS_ARCHES:
+        archive_path = import_root / _windows_asset_name(arch)
+        extract_root = import_root / f"windows-{arch}"
+        _fetch_release_asset(repo, tag, _windows_asset_name(arch), archive_path, token)
+        _extract_zip(archive_path, extract_root)
 
-    release_root = _find_release_layout_root(extract_root, ("WindowsBeacons", "WindowsModules"))
-    windows_beacons = release_root / "WindowsBeacons"
-    windows_modules = release_root / "WindowsModules"
-    _require_directory_exact(windows_beacons, EXPECTED_WINDOWS_BEACONS)
-    _require_directory_exact(windows_modules, EXPECTED_WINDOWS_MODULES)
-    return [
-        (windows_beacons, stage_root / "WindowsBeacons", EXPECTED_WINDOWS_BEACONS),
-        (windows_modules, stage_root / "WindowsModules", EXPECTED_WINDOWS_MODULES),
-    ]
+        release_root = _find_release_layout_root(extract_root, ("WindowsBeacons", "WindowsModules"))
+        windows_beacons = release_root / "WindowsBeacons"
+        windows_modules = release_root / "WindowsModules"
+        _require_directory_exact(windows_beacons, EXPECTED_WINDOWS_BEACONS)
+        _require_directory_exact(windows_modules, EXPECTED_WINDOWS_MODULES)
+        copy_plan.extend(
+            [
+                (windows_beacons, stage_root / "WindowsBeacons" / arch, EXPECTED_WINDOWS_BEACONS),
+                (windows_modules, stage_root / "WindowsModules" / arch, EXPECTED_WINDOWS_MODULES),
+            ]
+        )
+
+    return copy_plan
 
 
 def _prepare_linux(repo: str, tag: str | None, import_root: Path, stage_root: Path, token: str | None) -> list[StageCopy]:
@@ -214,6 +226,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             )
         )
 
+        shutil.rmtree(stage_root / "WindowsBeacons", ignore_errors=True)
+        shutil.rmtree(stage_root / "WindowsModules", ignore_errors=True)
         for source, destination, expected_files in copy_plan:
             _copy_validated_dir(source, destination, expected_files)
     except (RuntimeError, ValidationError, zipfile.BadZipFile, tarfile.TarError) as exc:

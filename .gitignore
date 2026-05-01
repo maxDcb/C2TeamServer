@@ -1,7 +1,7 @@
 Tests
 C2Client/build/
 .vscode
-build/
+build*/
 build-*/
 C2Client/.cmdHistory
 C2Client/.termHistory
@@ -13,3 +13,4 @@ C2Client/C2Client/Scripts/__init__.py
 C2Client/C2Client/TerminalModules/__pycache__/
 C2Client/loader.bin
 updateRelease.sh
+
