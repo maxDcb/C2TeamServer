@@ -173,14 +173,17 @@ void testPrepareLoadModuleUsesWindowsSessionArchitecture()
     assert(message.instruction() == LoadC2ModuleCmd);
     assert(message.inputfile() == "Inject.dll");
     assert(message.data() == "X86DLL");
+    assert(commonCommands.getLastResolvedModulePath() == (windowsModulesRoot / "x86" / "Inject.dll").string());
 
     C2Message aliasMessage;
     assert(service.prepareMessage("loadModule Inject.dll", aliasMessage, true, "amd64") == 0);
     assert(aliasMessage.data() == "X64DLL");
+    assert(commonCommands.getLastResolvedModulePath() == (windowsModulesRoot / "x64" / "Inject.dll").string());
 
     C2Message armMessage;
     assert(service.prepareMessage("loadModule Inject.dll", armMessage, true, "arm64") == 0);
     assert(armMessage.data() == "ARM64DLL");
+    assert(commonCommands.getLastResolvedModulePath() == (windowsModulesRoot / "arm64" / "Inject.dll").string());
 }
 } // namespace
 

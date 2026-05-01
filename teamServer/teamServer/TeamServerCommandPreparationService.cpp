@@ -126,7 +126,17 @@ int TeamServerCommandPreparationService::prepareMessage(
             }
         }
 
+        m_logger->debug("Preparing common command={0} isWindows={1} windowsArch={2}", instruction, isWindows, normalizedWindowsArch);
         res = m_commonCommands.init(splitedCmd, c2Message, isWindows, normalizedWindowsArch);
+        if (instruction == LoadModuleInstruction && res == 0)
+        {
+            m_logger->info(
+                "loadModule resolved module input={0} isWindows={1} windowsArch={2} path={3}",
+                splitedCmd.size() > 1 ? splitedCmd[1] : "",
+                isWindows,
+                normalizedWindowsArch,
+                m_commonCommands.getLastResolvedModulePath());
+        }
         isModuleFound = true;
     }
 
@@ -137,6 +147,7 @@ int TeamServerCommandPreparationService::prepareMessage(
 
         splitedCmd[0] = (*it)->getName();
         (*it)->setWindowsArch(normalizedWindowsArch);
+        m_logger->debug("Preparing module command={0} isWindows={1} windowsArch={2}", splitedCmd[0], isWindows, normalizedWindowsArch);
         res = (*it)->init(splitedCmd, c2Message);
         isModuleFound = true;
     }

@@ -87,6 +87,9 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: timeout 180 python -m pytest "${{ github.workspace }}/C2Client/tests" -vv -s
 
+      - name: Run packaging tests
+        run: timeout 180 python -m pytest "${{ github.workspace }}/packaging/tests" -vv -s
+
       - name: Validate release staging
         run: |
           cmake --build "${{ env.BUILD_DIR }}" --target validate_release_bundle --config "${{ env.BUILD_TYPE }}"
