@@ -136,6 +136,7 @@ int TeamServerCommandPreparationService::prepareMessage(
             continue;
 
         splitedCmd[0] = (*it)->getName();
+        (*it)->setWindowsArch(normalizedWindowsArch);
         res = (*it)->init(splitedCmd, c2Message);
         isModuleFound = true;
     }

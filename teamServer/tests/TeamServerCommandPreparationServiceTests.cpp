@@ -50,13 +50,23 @@ public:
     int init(std::vector<std::string>&, C2Message& c2Message) override
     {
         c2Message.set_instruction("FAKE");
+        c2Message.set_cmd(m_capturedWindowsArch);
         return 42;
+    }
+
+    int setWindowsArch(const std::string& windowsArch) override
+    {
+        m_capturedWindowsArch = windowsArch;
+        return ModuleCmd::setWindowsArch(windowsArch);
     }
 
     int process(C2Message&, C2Message&) override
     {
         return 0;
     }
+
+private:
+    std::string m_capturedWindowsArch;
 };
 
 fs::path makeTempDirectory(const std::string& name)
@@ -110,8 +120,9 @@ void testPrepareModuleCommandCaseInsensitive()
         modules);
 
     C2Message message;
-    assert(service.prepareMessage("fakemodule anything", message, true) == 42);
+    assert(service.prepareMessage("fakemodule anything", message, true, "aarch64") == 42);
     assert(message.instruction() == "FAKE");
+    assert(message.cmd() == "arm64");
 }
 
 void testPrepareMissingCommand()
