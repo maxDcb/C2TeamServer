@@ -55,7 +55,13 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(terminal_panel, "DropperModules", [FakeDropperModule])
     donut_calls = []
-    monkeypatch.setattr(terminal_panel.donut, "create", lambda **kwargs: donut_calls.append(kwargs) or b"shellcode")
+
+    def fake_create_donut_shellcode(beacon_file_path, beacon_arg, target_arch, output_path=terminal_panel.DonutShellcodeFileName):
+        donut_calls.append((beacon_file_path, beacon_arg, target_arch, output_path))
+        (tmp_path / output_path).write_bytes(b"shellcode")
+        return ""
+
+    monkeypatch.setattr(terminal_panel, "createDonutShellcode", fake_create_donut_shellcode)
 
     grpc = FakeGrpc()
     worker = terminal_panel.DropperWorker(
@@ -74,7 +80,22 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     worker.run()
 
     assert "getBeaconBinary beacon windows arm64" in grpc.commands
-    assert donut_calls[0]["arch"] == terminal_panel.donutArchValue("arm64")
-    assert donut_calls[0]["file"] == "./Beacon-arm64.exe"
+    assert donut_calls[0][0] == "./Beacon-arm64.exe"
+    assert donut_calls[0][2] == "arm64"
     assert (tmp_path / "Beacon-arm64.exe").read_bytes() == b"beacon"
     assert results == [("Dropper FakeDropper dl beacon --arch arm64", "generated")]
+
+
+def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    class Completed:
+        returncode = -11
+        stderr = ""
+        stdout = ""
+
+    monkeypatch.setattr(terminal_panel.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    error = terminal_panel.createDonutShellcode("./Beacon-arm64.exe", "127.0.0.1 443 https", "arm64")
+
+    assert error == "Donut shellcode generation crashed with signal 11."

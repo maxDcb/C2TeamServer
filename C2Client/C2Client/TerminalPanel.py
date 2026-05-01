@@ -3,6 +3,7 @@ import os
 import json
 import logging
 import re
+import subprocess
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
@@ -285,6 +286,53 @@ def makeBeaconFilePath(targetOs, targetArch):
     if (targetOs or "").lower() == "windows":
         return "./" + BeaconFileWindowsPattern.format(targetArch)
     return "./" + BeaconFileLinuxGenerated
+
+
+def createDonutShellcode(beaconFilePath, beaconArg, targetArch, outputPath=DonutShellcodeFileName):
+    outputPath = os.path.abspath(outputPath)
+    if os.path.exists(outputPath):
+        os.remove(outputPath)
+
+    code = r"""
+import os
+import sys
+import donut
+
+result = donut.create(file=sys.argv[1], params=sys.argv[2], arch=int(sys.argv[3]))
+output_path = sys.argv[4]
+if isinstance(result, bytes) and result:
+    with open(output_path, "wb") as output:
+        output.write(result)
+elif isinstance(result, bytearray) and result:
+    with open(output_path, "wb") as output:
+        output.write(bytes(result))
+elif not os.path.isfile(output_path):
+    raise RuntimeError("donut.create did not return shellcode and did not create the output file")
+"""
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            code,
+            beaconFilePath,
+            beaconArg,
+            str(donutArchValue(targetArch)),
+            outputPath,
+        ],
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+    )
+
+    if completed.returncode < 0:
+        return f"Donut shellcode generation crashed with signal {-completed.returncode}."
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or f"exit code {completed.returncode}"
+        return "Donut shellcode generation failed: " + detail
+    if not os.path.isfile(outputPath) or os.path.getsize(outputPath) == 0:
+        return "Donut shellcode generation failed: output shellcode is missing or empty."
+    return ""
 
 
 def extractDropperTargetArch(arguments, defaultArch=DefaultWindowsArch):
@@ -1007,14 +1055,9 @@ class DropperWorker(QObject):
                 # Check shellcode generator
                 if shellcodeGeneratorLower == ShellcodeGeneratorDonut.lower():
                     print(DonutShellcodeGeneratorMessage)
-                    try:
-                        shellcode = donut.create(
-                            file=beaconFilePath,
-                            params=beaconArg,
-                            arch=donutArchValue(self.targetArch),
-                        )
-                    except RuntimeError as error:
-                        self.finished.emit(self.commandLine, "Error: Donut shellcode generation failed: " + str(error))
+                    donutError = createDonutShellcode(beaconFilePath, beaconArg, self.targetArch)
+                    if donutError:
+                        self.finished.emit(self.commandLine, "Error: " + donutError)
                         return
                     beaconArg = ""
                     beaconFilePath = ""
