@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .grpcClient import TeamServerApi_pb2
+from .assistant_agent import C2AssistantAgent
 
 import openai
 from openai import OpenAI
@@ -33,7 +34,7 @@ import json
 #
 class Assistant(QWidget):
     tabPressed = pyqtSignal()
-    responseReady = pyqtSignal(dict)
+    responseReady = pyqtSignal(object)
     responseError = pyqtSignal(str)
     logFileName=""
     sem = Semaphore()
@@ -44,6 +45,7 @@ class Assistant(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.grpcClient = grpcClient
+        self.agent = C2AssistantAgent(grpcClient)
 
         # self.logFileName=LogFileName
 
@@ -92,6 +94,7 @@ You also point out security gaps that could be leveraged. You understand operati
         self.awaiting_tool_result = False
         self.pending_tool_name = None
         self.pending_tool_context = None
+        self.pending_tool_id = None
         self.tool_call_count = 0
         self.max_function_calls = 5
 
@@ -114,6 +117,16 @@ You also point out security gaps that could be leveraged. You understand operati
 
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
+        self.agent.domain_hooks.record_session_event(
+            action=action,
+            beacon_hash=beaconHash,
+            listener_hash=listenerHash,
+            hostname=hostname,
+            username=username,
+            arch=arch,
+            privilege=privilege,
+            os_name=os,
+        )
         if action == "start":
             # print("sessionAssistantMethod", action, beaconHash)
             self.messages.append({"role": "user", "content": "New session stared: beaconHash={}, listenerHash={}, hostname={}, username={}, privilege={}, os={}.".format(beaconHash, listenerHash, hostname, username, privilege, os) })
@@ -167,16 +180,14 @@ You also point out security gaps that could be leveraged. You understand operati
             header = command_text or "[assistant command]"
             # self.printInTerminal("Command:", header, display_output)
 
-            function_name = self.pending_tool_name or "unknown"
-            self.messages.append({"role": "function", "name": function_name, "content": display_output})
-            self._trim_message_history()
-
+            pending_id = self.pending_tool_id
             self.awaiting_tool_result = False
             self.pending_tool_name = None
             self.pending_tool_context = None
-            self.tool_call_count += 1
+            self.pending_tool_id = None
 
-            self._request_assistant_response()
+            if pending_id:
+                self._start_agent_resume(pending_id, display_output)
         else:
             combined = command_text
             if output_text:
@@ -185,6 +196,12 @@ You also point out security gaps that could be leveraged. You understand operati
             if combined.strip():
                 self.messages.append({"role": "user", "content": combined})
                 self._trim_message_history()
+                self.agent.domain_hooks.record_console_observation(
+                    beacon_hash=beaconHash,
+                    listener_hash=listenerHash,
+                    command=command_text,
+                    output=output_text,
+                )
 
             header = command_text or "[command]"
             # self.printInTerminal("Command:", header, display_output)
@@ -238,15 +255,11 @@ You also point out security gaps that could be leveraged. You understand operati
                 self.printInTerminal("Analysis:", "Assistant is still processing the previous request.")
                 return
 
-        client = self._get_openai_client()
-        if client is None:
-            self.printInTerminal("OPENAI_API_KEY is not set, functionality deactivated.", "")
-            return
-
         # Reset state for a new round of tool calls triggered by operator input
         self.awaiting_tool_result = False
         self.pending_tool_name = None
         self.pending_tool_context = None
+        self.pending_tool_id = None
         self.tool_call_count = 0
 
         # Add user command to the conversation history
@@ -254,9 +267,60 @@ You also point out security gaps that could be leveraged. You understand operati
         self._trim_message_history()
 
         self.printInTerminal("User:", commandLine)
-        self._request_assistant_response()
+        self._start_agent_turn(commandLine)
 
         self.setCursorEditorAtEnd()
+
+
+    def _start_agent_turn(self, user_input):
+        with self._response_lock:
+            if self._response_thread and self._response_thread.is_alive():
+                return
+            self._response_thread = Thread(
+                target=self._agent_turn_worker,
+                args=(user_input,),
+                daemon=True,
+            )
+            self._response_thread.start()
+
+
+    def _start_agent_resume(self, pending_id, tool_output):
+        with self._response_lock:
+            if self._response_thread and self._response_thread.is_alive():
+                self.printInTerminal("Analysis:", "Assistant is still processing the previous request.")
+                return
+            self._response_thread = Thread(
+                target=self._agent_resume_worker,
+                args=(pending_id, tool_output),
+                daemon=True,
+            )
+            self._response_thread.start()
+
+
+    def _agent_turn_worker(self, user_input):
+        try:
+            result = self.agent.run_user_turn(user_input)
+            self.responseReady.emit(result)
+        except Exception as e:
+            self.responseError.emit(f"An unexpected error occurred: {e}")
+        finally:
+            with self._response_lock:
+                self._response_thread = None
+
+
+    def _agent_resume_worker(self, pending_id, tool_output):
+        try:
+            result = self.agent.resume_pending_tool(
+                pending_id=pending_id,
+                tool_content=tool_output,
+                ok=True,
+            )
+            self.responseReady.emit(result)
+        except Exception as e:
+            self.responseError.emit(f"An unexpected error occurred: {e}")
+        finally:
+            with self._response_lock:
+                self._response_thread = None
 
 
     def _get_openai_client(self):
@@ -746,6 +810,23 @@ You also point out security gaps that could be leveraged. You understand operati
 
 
     def _process_assistant_response(self, message):
+        if hasattr(message, "status"):
+            assistant_reply = getattr(message, "content", "") or ""
+            if assistant_reply:
+                self.printInTerminal("Analysis:", markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]))
+
+            if getattr(message, "is_pending", False):
+                metadata = getattr(message, "metadata", {}) or {}
+                arguments = getattr(message, "tool_arguments", {}) or {}
+                self.awaiting_tool_result = True
+                self.pending_tool_id = getattr(message, "pending_id", None)
+                self.pending_tool_name = getattr(message, "tool_name", None)
+                self.pending_tool_context = {
+                    "beacon_hash": metadata.get("beacon_hash") or arguments.get("beacon_hash"),
+                    "listener_hash": metadata.get("listener_hash") or arguments.get("listener_hash"),
+                }
+            return
+
         function_call = message.get("function_call") if isinstance(message, dict) else None
 
         if function_call and function_call.get("name"):

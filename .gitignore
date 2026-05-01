@@ -14,3 +14,4 @@ C2Client/C2Client/TerminalModules/__pycache__/
 C2Client/loader.bin
 updateRelease.sh
 Beacon*
+C2Client/vendor

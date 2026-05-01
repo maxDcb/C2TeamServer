@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "C2Client"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "setuptools",
     "pycryptodome==3.23.0",
@@ -29,8 +29,8 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["C2Client*", "C2Client.TerminalModules.*"]
+where = [".", "vendor/PentestAssistant"]
+include = ["C2Client*", "C2Client.TerminalModules.*", "agent_core*"]
 
 [tool.setuptools.package-data]
 C2Client = [
@@ -41,6 +41,7 @@ C2Client = [
     "DropperModules.conf",
     "ShellCodeModules.conf"
 ]
+agent_core = ["py.typed"]
 
 [project.scripts]
 c2client = "C2Client.GUI:main"  # Entry point for CLI tool
