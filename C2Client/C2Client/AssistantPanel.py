@@ -3,7 +3,7 @@ from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
 
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QTextCursor, QShortcut
 from PyQt6.QtWidgets import (
     QLineEdit,
@@ -15,6 +15,19 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .assistant_agent import C2AssistantAgent
+
+DEFAULT_PENDING_TOOL_TIMEOUT_MS = 2 * 60 * 1000
+
+
+def _load_pending_tool_timeout_ms():
+    value = os.environ.get("C2_ASSISTANT_PENDING_TIMEOUT_MS")
+    if not value:
+        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
+
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
 
 
 #
@@ -55,6 +68,10 @@ class Assistant(QWidget):
         self.awaiting_tool_result = False
         self.pending_tool_context = None
         self.pending_tool_id = None
+        self.pending_tool_timeout_ms = _load_pending_tool_timeout_ms()
+        self.pending_tool_timer = QTimer(self)
+        self.pending_tool_timer.setSingleShot(True)
+        self.pending_tool_timer.timeout.connect(self._handle_pending_tool_timeout)
 
         self._response_thread = None
         self._response_lock = Lock()
@@ -115,9 +132,7 @@ class Assistant(QWidget):
 
         if awaiting_result:
             pending_id = self.pending_tool_id
-            self.awaiting_tool_result = False
-            self.pending_tool_context = None
-            self.pending_tool_id = None
+            self._clear_pending_tool_state()
 
             if pending_id:
                 self._start_agent_resume(pending_id, display_output)
@@ -179,9 +194,7 @@ class Assistant(QWidget):
             return
 
         if local_command in {"/cancel", "/reset"}:
-            self.awaiting_tool_result = False
-            self.pending_tool_context = None
-            self.pending_tool_id = None
+            self._clear_pending_tool_state()
             self.printInTerminal("Analysis:", "Pending command wait cancelled.")
             return
 
@@ -195,9 +208,7 @@ class Assistant(QWidget):
                 return
 
         # Reset state for a new round of tool calls triggered by operator input
-        self.awaiting_tool_result = False
-        self.pending_tool_context = None
-        self.pending_tool_id = None
+        self._clear_pending_tool_state()
 
         self.printInTerminal("User:", commandLine)
         self._start_agent_turn(commandLine)
@@ -206,6 +217,12 @@ class Assistant(QWidget):
 
 
     def _show_local_help(self):
+        timeout_seconds = self.pending_tool_timeout_ms // 1000
+        timeout_line = (
+            f"Pending command timeout: {timeout_seconds}s."
+            if self.pending_tool_timeout_ms > 0
+            else "Pending command timeout: disabled."
+        )
         self.printInTerminal(
             "Assistant commands:",
             "\n".join(
@@ -213,6 +230,7 @@ class Assistant(QWidget):
                     "/help - Show AssistantPanel local commands.",
                     "/cancel - Cancel the current pending beacon result wait.",
                     "/reset - Alias for /cancel.",
+                    timeout_line,
                 ]
             ),
         )
@@ -282,7 +300,40 @@ class Assistant(QWidget):
                 "command_id": metadata.get("command_id") or arguments.get("command_id"),
                 "beacon_hash": metadata.get("beacon_hash") or arguments.get("beacon_hash"),
                 "listener_hash": metadata.get("listener_hash") or arguments.get("listener_hash"),
+                "command_line": metadata.get("command_line") or arguments.get("command_line"),
             }
+            self._start_pending_tool_timer()
+        else:
+            self._stop_pending_tool_timer()
+
+    def _start_pending_tool_timer(self):
+        if self.pending_tool_timeout_ms > 0:
+            self.pending_tool_timer.start(self.pending_tool_timeout_ms)
+
+    def _stop_pending_tool_timer(self):
+        if self.pending_tool_timer.isActive():
+            self.pending_tool_timer.stop()
+
+    def _clear_pending_tool_state(self):
+        self.awaiting_tool_result = False
+        self.pending_tool_context = None
+        self.pending_tool_id = None
+        self._stop_pending_tool_timer()
+
+    def _handle_pending_tool_timeout(self):
+        if not self.awaiting_tool_result:
+            return
+
+        context = self.pending_tool_context or {}
+        command = context.get("command_line") or context.get("command_id") or "command"
+        beacon_hash = context.get("beacon_hash")
+        target = f" on beacon {beacon_hash[:8]}" if beacon_hash else ""
+
+        self._clear_pending_tool_state()
+        self.printInTerminal(
+            "Analysis:",
+            f"Timed out waiting for result of `{command}`{target}. The assistant is ready for a new request.",
+        )
 
     def _handle_assistant_error(self, error_message):
         if error_message:
