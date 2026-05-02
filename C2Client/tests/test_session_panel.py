@@ -4,7 +4,7 @@ from C2Client.SessionPanel import Sessions
 
 
 class StubGrpc:
-    def getSessions(self):
+    def listSessions(self):
         return []
 
 

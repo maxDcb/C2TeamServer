@@ -46,19 +46,19 @@ public:
     ~TeamServer();
 
     grpc::Status Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response) override;
-    grpc::Status GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer);
-    grpc::Status AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::Response* response);
-    grpc::Status StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop, teamserverapi::Response* response);
+    grpc::Status ListListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer) override;
+    grpc::Status AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::OperationAck* response) override;
+    grpc::Status StopListener(grpc::ServerContext* context, const teamserverapi::ListenerSelector* listenerToStop, teamserverapi::OperationAck* response) override;
 
-    grpc::Status GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer);
-    grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop, teamserverapi::Response* response);
+    grpc::Status ListSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer) override;
+    grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response) override;
 
-    grpc::Status SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandAck* response);
-    grpc::Status GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session, grpc::ServerWriter<teamserverapi::CommandResponse>* writer);
+    grpc::Status SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response) override;
+    grpc::Status StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer) override;
 
-    grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandResponse* commandResponse);
+    grpc::Status GetCommandHelp(grpc::ServerContext* context, const teamserverapi::CommandHelpRequest* command, teamserverapi::CommandHelpResponse* commandResponse) override;
 
-    grpc::Status SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command, teamserverapi::TermCommand* response);
+    grpc::Status ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response) override;
 
 protected:
     int handleCmdResponse();
@@ -84,7 +84,7 @@ private:
 
     bool m_handleCmdResponseThreadRuning;
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
-    std::vector<teamserverapi::CommandResponse> m_cmdResponses;
+    std::vector<teamserverapi::CommandResult> m_cmdResponses;
     std::unordered_map<std::string, std::vector<int>> m_sentResponses;
 
     std::vector<BeaconCommandContext> m_sentCommands;

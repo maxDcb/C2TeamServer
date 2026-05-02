@@ -32,8 +32,8 @@ public:
     grpc::Status handleCommand(
         const std::string& instruction,
         const std::vector<std::string>& splitedCmd,
-        const teamserverapi::TermCommand& command,
-        teamserverapi::TermCommand* response);
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
 
 private:
     std::vector<std::unique_ptr<ModuleCmd>> loadModulesFromDisk() const;
@@ -41,17 +41,17 @@ private:
     std::string resolveDownloadFolderForListener(const std::string& listenerHash) const;
     grpc::Status handlePutIntoUploadDir(
         const std::vector<std::string>& splitedCmd,
-        const teamserverapi::TermCommand& command,
-        teamserverapi::TermCommand* response);
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
     grpc::Status handleBatcaveUpload(
         const std::vector<std::string>& splitedCmd,
-        const teamserverapi::TermCommand& command,
-        teamserverapi::TermCommand* response);
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
     grpc::Status handleAddCredential(
-        const teamserverapi::TermCommand& command,
-        teamserverapi::TermCommand* response);
-    grpc::Status handleGetCredential(teamserverapi::TermCommand* response);
-    grpc::Status handleReloadModules(teamserverapi::TermCommand* response);
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
+    grpc::Status handleGetCredential(teamserverapi::TerminalCommandResponse* response);
+    grpc::Status handleReloadModules(teamserverapi::TerminalCommandResponse* response);
 
     std::shared_ptr<spdlog::logger> m_logger;
     const nlohmann::json& m_config;

@@ -9,8 +9,8 @@ AddCredentialsInstruction = "addCred"
 
 def getCredentials(grpcClient: GrpcClient, TeamServerApi_pb2): 
     commandTeamServer = GetCredentialsInstruction
-    termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=b"")
-    resultTermCommand = grpcClient.sendTermCmd(termCommand)
+    termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=b"")
+    resultTermCommand = grpcClient.executeTerminalCommand(termCommand)
     result = resultTermCommand.result
     return result
 
@@ -23,8 +23,8 @@ def addCredentials(grpcClient: GrpcClient,TeamServerApi_pb2, cred: str):
         return
 
     commandTeamServer = AddCredentialsInstruction
-    termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=cred.encode())
-    resultTermCommand = grpcClient.sendTermCmd(termCommand)
+    termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=cred.encode())
+    resultTermCommand = grpcClient.executeTerminalCommand(termCommand)
     result = resultTermCommand.result
     return result
 

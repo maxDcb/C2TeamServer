@@ -11,13 +11,13 @@ class FakeGrpc:
     def __init__(self):
         self.commands = []
 
-    def sendTermCmd(self, command):
-        self.commands.append(command.cmd)
-        if command.cmd.startswith(terminal_panel.GrpcInfoListenerInstruction):
+    def executeTerminalCommand(self, command):
+        self.commands.append(command.command)
+        if command.command.startswith(terminal_panel.GrpcInfoListenerInstruction):
             return SimpleNamespace(result="http\n127.0.0.1\n8080\n/uploads/\n", data=b"")
-        if command.cmd.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
+        if command.command.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
             return SimpleNamespace(result="ok", data=b"beacon")
-        if command.cmd.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
+        if command.command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
             return SimpleNamespace(result="ok", data=b"")
         return SimpleNamespace(result="Error: unexpected command", data=b"")
 

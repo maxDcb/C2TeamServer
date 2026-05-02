@@ -69,7 +69,7 @@ void testCollectListenersAndSessions()
 
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
-    std::vector<teamserverapi::CommandResponse> cmdResponses;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
     std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
@@ -96,8 +96,8 @@ void testCollectListenersAndSessions()
                })
                .ok());
     assert(streamedListeners.size() == 2);
-    assert(streamedListeners[0].listenerhash() == "listener-primary");
-    assert(streamedListeners[1].listenerhash() == "listener-child");
+    assert(streamedListeners[0].listener_hash() == "listener-primary");
+    assert(streamedListeners[1].listener_hash() == "listener-child");
 
     std::vector<teamserverapi::Session> streamedSessions;
     assert(service.streamSessions([&](const teamserverapi::Session& sessionInfo)
@@ -107,7 +107,7 @@ void testCollectListenersAndSessions()
                })
                .ok());
     assert(streamedSessions.size() == 1);
-    assert(streamedSessions[0].beaconhash() == "ABCDEFGH12345678");
+    assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678");
 }
 
 void testQueueStopAndResponseDeduplication()
@@ -122,7 +122,7 @@ void testQueueStopAndResponseDeduplication()
 
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
-    std::vector<teamserverapi::CommandResponse> cmdResponses;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
     std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
@@ -145,16 +145,16 @@ void testQueueStopAndResponseDeduplication()
             return 0;
         });
 
-    teamserverapi::Command command;
-    command.set_beaconhash("ABCDEFGH12345678");
-    command.set_listenerhash("listener-primary");
-    command.set_cmd("whoami");
-    command.set_commandid("cmd-0001");
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_listener_hash("listener-primary");
+    command.set_command("whoami");
+    command.set_command_id("cmd-0001");
 
     teamserverapi::CommandAck response;
-    assert(service.sendCmdToSession(command, &response).ok());
+    assert(service.sendSessionCommand(command, &response).ok());
     assert(response.status() == teamserverapi::OK);
-    assert(response.commandid() == "cmd-0001");
+    assert(response.command_id() == "cmd-0001");
     assert(preparedArch == "arm64");
     C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(queuedTask.instruction() == "instruction");
@@ -168,16 +168,17 @@ void testQueueStopAndResponseDeduplication()
     assert(primaryListener->addTaskResult(emptyResult, "ABCDEFGH12345678"));
     service.handleCmdResponse();
     assert(cmdResponses.size() == 1);
-    assert(cmdResponses[0].listenerhash() == "listener-primary");
-    assert(cmdResponses[0].commandid() == "cmd-0001");
-    assert(cmdResponses[0].cmd() == "whoami");
-    assert(cmdResponses[0].response().empty());
+    assert(cmdResponses[0].session().listener_hash() == "listener-primary");
+    assert(cmdResponses[0].command_id() == "cmd-0001");
+    assert(cmdResponses[0].command() == "whoami");
+    assert(cmdResponses[0].output().empty());
 
-    teamserverapi::Session sessionToStop;
-    sessionToStop.set_beaconhash("ABCDEFGH12345678");
-    sessionToStop.set_listenerhash("listener-primary");
-    teamserverapi::Response stopResponse;
+    teamserverapi::SessionSelector sessionToStop;
+    sessionToStop.set_beacon_hash("ABCDEFGH12345678");
+    sessionToStop.set_listener_hash("listener-primary");
+    teamserverapi::OperationAck stopResponse;
     assert(service.stopSession(sessionToStop, &stopResponse).ok());
+    assert(stopResponse.status() == teamserverapi::OK);
     C2Message stopTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(stopTask.instruction() == "instruction");
 
@@ -185,25 +186,25 @@ void testQueueStopAndResponseDeduplication()
     std::string firstClientId = "client-a";
     auto firstMetadata = makeMetadata(clientIdKey, firstClientId);
 
-    std::vector<teamserverapi::CommandResponse> streamedResponses;
+    std::vector<teamserverapi::CommandResult> streamedResponses;
     assert(service.streamResponsesForSession(
                sessionToStop,
                firstMetadata,
-               [&](const teamserverapi::CommandResponse& responseInfo)
+               [&](const teamserverapi::CommandResult& responseInfo)
                {
                    streamedResponses.push_back(responseInfo);
                    return true;
                })
                .ok());
     assert(streamedResponses.size() == 1);
-    assert(streamedResponses[0].listenerhash() == "listener-primary");
-    assert(streamedResponses[0].commandid() == "cmd-0001");
-    assert(streamedResponses[0].cmd() == "whoami");
+    assert(streamedResponses[0].session().listener_hash() == "listener-primary");
+    assert(streamedResponses[0].command_id() == "cmd-0001");
+    assert(streamedResponses[0].command() == "whoami");
 
     assert(service.streamResponsesForSession(
                sessionToStop,
                firstMetadata,
-               [&](const teamserverapi::CommandResponse&)
+               [&](const teamserverapi::CommandResult&)
                {
                    return false;
                })
@@ -211,11 +212,11 @@ void testQueueStopAndResponseDeduplication()
 
     std::string secondClientId = "client-b";
     auto secondMetadata = makeMetadata(clientIdKey, secondClientId);
-    std::vector<teamserverapi::CommandResponse> secondClientResponses;
+    std::vector<teamserverapi::CommandResult> secondClientResponses;
     assert(service.streamResponsesForSession(
                sessionToStop,
                secondMetadata,
-               [&](const teamserverapi::CommandResponse& responseInfo)
+               [&](const teamserverapi::CommandResult& responseInfo)
                {
                    secondClientResponses.push_back(responseInfo);
                    return true;

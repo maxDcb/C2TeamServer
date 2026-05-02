@@ -101,7 +101,7 @@ class Listeners(QWidget):
         self.getListenerWorker = GetListenerWorker()
         self.getListenerWorker.moveToThread(self.thread)
         self.thread.started.connect(self.getListenerWorker.run)
-        self.getListenerWorker.checkin.connect(self.getListeners)
+        self.getListenerWorker.checkin.connect(self.listListeners)
         self.thread.start()
 
         self.setLayout(self.layout)
@@ -171,14 +171,14 @@ class Listeners(QWidget):
 
     # send message for stoping a listener
     def stopListener(self, listenerHash):
-        listener = TeamServerApi_pb2.Listener(
-        listenerHash=listenerHash)
+        listener = TeamServerApi_pb2.ListenerSelector(
+        listener_hash=listenerHash)
         self.grpcClient.stopListener(listener)
 
 
     # query the server to get the list of listeners
-    def getListeners(self):
-        responses = self.grpcClient.getListeners()
+    def listListeners(self):
+        responses = self.grpcClient.listListeners()
 
         listeners = list()
         for response in responses:
@@ -188,7 +188,7 @@ class Listeners(QWidget):
         for ix, listenerStore in enumerate(self.listListenerObject):
             runing=False
             for listener in listeners:
-                if listener.listenerHash == listenerStore.listenerHash:
+                if listener.listener_hash == listenerStore.listenerHash:
                     runing=True
             # delete
             if not runing:
@@ -199,9 +199,9 @@ class Listeners(QWidget):
             # if listener is already on our list
             for ix, listenerStore in enumerate(self.listListenerObject):
                 # maj
-                if listener.listenerHash == listenerStore.listenerHash:
+                if listener.listener_hash == listenerStore.listenerHash:
                     inStore=True
-                    listenerStore.nbSession=listener.numberOfSession
+                    listenerStore.nbSession=listener.session_count
             # add
             # if listener is not yet already on our list
             if not inStore:
@@ -209,13 +209,13 @@ class Listeners(QWidget):
                 self.listenerScriptSignal.emit("start", "", "", "")
 
                 if listener.type == GithubType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count))
                 elif listener.type == DnsType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count))
                 elif listener.type == SmbType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.domain, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count))
                 else:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count))
                 self.idListener = self.idListener+1
 
         self.printListeners()

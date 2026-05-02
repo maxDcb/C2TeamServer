@@ -84,16 +84,17 @@ void testGeneralHelpUsesSessionPlatform()
     CommonCommands commonCommands;
     TeamServerHelpService service(logger, listeners, moduleCmd, commonCommands);
 
-    teamserverapi::Command command;
-    command.set_cmd("help");
-    command.set_beaconhash("ABCDEFGH12345678");
-    command.set_listenerhash("listener-primary");
+    teamserverapi::CommandHelpRequest command;
+    command.set_command("help");
+    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_listener_hash("listener-primary");
 
-    teamserverapi::CommandResponse response;
+    teamserverapi::CommandHelpResponse response;
     assert(service.getHelp(command, &response).ok());
-    assert(response.response().find("- Modules Commands Windows:") != std::string::npos);
-    assert(response.response().find("winmod") != std::string::npos);
-    assert(response.response().find("linmod") == std::string::npos);
+    assert(response.status() == teamserverapi::OK);
+    assert(response.help().find("- Modules Commands Windows:") != std::string::npos);
+    assert(response.help().find("winmod") != std::string::npos);
+    assert(response.help().find("linmod") == std::string::npos);
 }
 
 void testSpecificHelpResolvesModuleInfoAndMissingModule()
@@ -106,17 +107,17 @@ void testSpecificHelpResolvesModuleInfoAndMissingModule()
     CommonCommands commonCommands;
     TeamServerHelpService service(logger, listeners, moduleCmd, commonCommands);
 
-    teamserverapi::Command moduleCommand;
-    moduleCommand.set_cmd("help winmod");
-    teamserverapi::CommandResponse moduleResponse;
+    teamserverapi::CommandHelpRequest moduleCommand;
+    moduleCommand.set_command("help winmod");
+    teamserverapi::CommandHelpResponse moduleResponse;
     assert(service.getHelp(moduleCommand, &moduleResponse).ok());
-    assert(moduleResponse.response().find("windows module info") != std::string::npos);
+    assert(moduleResponse.help().find("windows module info") != std::string::npos);
 
-    teamserverapi::Command missingCommand;
-    missingCommand.set_cmd("help nope");
-    teamserverapi::CommandResponse missingResponse;
+    teamserverapi::CommandHelpRequest missingCommand;
+    missingCommand.set_command("help nope");
+    teamserverapi::CommandHelpResponse missingResponse;
     assert(service.getHelp(missingCommand, &missingResponse).ok());
-    assert(missingResponse.response() == "Module nope not found.\n");
+    assert(missingResponse.help() == "Module nope not found.\n");
 }
 } // namespace
 

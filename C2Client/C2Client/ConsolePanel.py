@@ -590,43 +590,46 @@ class Console(QWidget):
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
             if instructions[0]==HelpInstruction:
-                command = TeamServerApi_pb2.Command(
-                    beaconHash=self.beaconHash,
-                    listenerHash=self.listenerHash,
-                    cmd=commandLine,
-                    commandId=uuid.uuid4().hex,
+                command = TeamServerApi_pb2.CommandHelpRequest(
+                    session=TeamServerApi_pb2.SessionSelector(
+                        beacon_hash=self.beaconHash,
+                        listener_hash=self.listenerHash,
+                    ),
+                    command=commandLine,
                 )
-                response = self.grpcClient.getHelp(command)
-                self.printInTerminal(response.cmd, "", "")
-                self.printInTerminal("", response.cmd, response.response.decode('utf-8', 'replace'))
+                response = self.grpcClient.getCommandHelp(command)
+                self.printInTerminal(response.command, "", "")
+                self.printInTerminal("", response.command, response.help)
 
             else:
                 self.printInTerminal(commandLine, "", "")
                 command_id = uuid.uuid4().hex
-                command = TeamServerApi_pb2.Command(
-                    beaconHash=self.beaconHash,
-                    listenerHash=self.listenerHash,
-                    cmd=commandLine,
-                    commandId=command_id,
+                command = TeamServerApi_pb2.SessionCommandRequest(
+                    session=TeamServerApi_pb2.SessionSelector(
+                        beacon_hash=self.beaconHash,
+                        listener_hash=self.listenerHash,
+                    ),
+                    command=commandLine,
+                    command_id=command_id,
                 )
-                result = self.grpcClient.sendCmdToSession(command)
-                command_id = getattr(result, "commandId", command_id) or command_id
+                result = self.grpcClient.sendSessionCommand(command)
+                command_id = getattr(result, "command_id", command_id) or command_id
                 context = "Host " + self.hostname + " - Username " + self.username
                 self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
                 if result.message:
-                    self.printInTerminal("", commandLine, result.message.decode('utf-8', 'replace'))
+                    self.printInTerminal("", commandLine, result.message)
 
         self.setCursorEditorAtEnd()
 
     def displayResponse(self):
-        session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash, listenerHash=self.listenerHash)
-        responses = self.grpcClient.getResponseFromSession(session)
+        session = TeamServerApi_pb2.SessionSelector(beacon_hash=self.beaconHash, listener_hash=self.listenerHash)
+        responses = self.grpcClient.streamSessionCommandResults(session)
         for response in responses:
             context = "Host " + self.hostname + " - Username " + self.username
-            command_id = getattr(response, "commandId", "")
-            listener_hash = getattr(response, "listenerHash", "") or self.listenerHash
-            command_text = response.cmd or response.instruction
-            decoded_response = response.response.decode('utf-8', 'replace')
+            command_id = getattr(response, "command_id", "")
+            listener_hash = response.session.listener_hash or self.listenerHash
+            command_text = response.command or response.instruction
+            decoded_response = response.output.decode('utf-8', 'replace')
             self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???

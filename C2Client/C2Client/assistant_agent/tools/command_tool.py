@@ -43,20 +43,22 @@ class C2CommandTool:
         listener_hash = arguments["listener_hash"]
         command_line = build_command_line(self.spec, arguments)
         command_id = uuid.uuid4().hex
-        command = TeamServerApi_pb2.Command(
-            beaconHash=beacon_hash,
-            listenerHash=listener_hash,
-            cmd=command_line,
-            commandId=command_id,
+        command = TeamServerApi_pb2.SessionCommandRequest(
+            session=TeamServerApi_pb2.SessionSelector(
+                beacon_hash=beacon_hash,
+                listener_hash=listener_hash,
+            ),
+            command=command_line,
+            command_id=command_id,
         )
-        ack = self.grpc_client.sendCmdToSession(command)
+        ack = self.grpc_client.sendSessionCommand(command)
         if getattr(ack, "status", TeamServerApi_pb2.OK) != TeamServerApi_pb2.OK:
             message = getattr(ack, "message", b"")
             if isinstance(message, bytes):
                 message = message.decode("utf-8", errors="replace")
             return ToolResult(ok=False, content=message or "Command was rejected by TeamServer.")
 
-        command_id = getattr(ack, "commandId", command_id) or command_id
+        command_id = getattr(ack, "command_id", command_id) or command_id
         return ToolResult.pending_result(
             f'Sent `{command_line}` to beacon `{beacon_hash[:8]}`. Waiting for command output.',
             metadata={

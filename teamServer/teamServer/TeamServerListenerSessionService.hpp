@@ -24,7 +24,7 @@ public:
     using PrepMsgCallback = std::function<int(const std::string&, C2Message&, bool, const std::string&)>;
     using ListenerEmitter = std::function<bool(const teamserverapi::Listener&)>;
     using SessionEmitter = std::function<bool(const teamserverapi::Session&)>;
-    using CommandResponseEmitter = std::function<bool(const teamserverapi::CommandResponse&)>;
+    using CommandResultEmitter = std::function<bool(const teamserverapi::CommandResult&)>;
 
     TeamServerListenerSessionService(
         std::shared_ptr<spdlog::logger> logger,
@@ -32,22 +32,22 @@ public:
         std::vector<std::shared_ptr<Listener>>& listeners,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         CommonCommands& commonCommands,
-        std::vector<teamserverapi::CommandResponse>& cmdResponses,
+        std::vector<teamserverapi::CommandResult>& cmdResponses,
         std::unordered_map<std::string, std::vector<int>>& sentResponses,
         std::vector<BeaconCommandContext>& sentCommands,
         PrepMsgCallback prepMsg);
 
     grpc::Status streamListeners(const ListenerEmitter& emit);
-    grpc::Status addListener(const teamserverapi::Listener& listenerToCreate);
-    grpc::Status stopListener(const teamserverapi::Listener& listenerToStop, teamserverapi::Response* response);
+    grpc::Status addListener(const teamserverapi::Listener& listenerToCreate, teamserverapi::OperationAck* response);
+    grpc::Status stopListener(const teamserverapi::ListenerSelector& listenerToStop, teamserverapi::OperationAck* response);
 
     grpc::Status streamSessions(const SessionEmitter& emit);
-    grpc::Status stopSession(const teamserverapi::Session& sessionToStop, teamserverapi::Response* response);
-    grpc::Status sendCmdToSession(const teamserverapi::Command& command, teamserverapi::CommandAck* response);
+    grpc::Status stopSession(const teamserverapi::SessionSelector& sessionToStop, teamserverapi::OperationAck* response);
+    grpc::Status sendSessionCommand(const teamserverapi::SessionCommandRequest& command, teamserverapi::CommandAck* response);
     grpc::Status streamResponsesForSession(
-        const teamserverapi::Session& targetSession,
+        const teamserverapi::SessionSelector& targetSession,
         const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
-        const CommandResponseEmitter& emit);
+        const CommandResultEmitter& emit);
 
     int handleCmdResponse();
     bool isListenerAlive(const std::string& listenerHash) const;
@@ -58,7 +58,7 @@ private:
     std::vector<std::shared_ptr<Listener>>& m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
-    std::vector<teamserverapi::CommandResponse>& m_cmdResponses;
+    std::vector<teamserverapi::CommandResult>& m_cmdResponses;
     std::unordered_map<std::string, std::vector<int>>& m_sentResponses;
     std::vector<BeaconCommandContext>& m_sentCommands;
     PrepMsgCallback m_prepMsg;

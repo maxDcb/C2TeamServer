@@ -13,13 +13,13 @@ from C2Client.grpcClient import TeamServerApi_pb2
 
 
 class StubGrpc:
-    def getHelp(self, command):
-        return SimpleNamespace(cmd=command.cmd, response=b"help")
+    def getCommandHelp(self, command):
+        return SimpleNamespace(command=command.command, help="help")
 
-    def sendCmdToSession(self, command):
-        return SimpleNamespace(message=b"")
+    def sendSessionCommand(self, command):
+        return SimpleNamespace(message="")
 
-    def getResponseFromSession(self, session):
+    def streamSessionCommandResults(self, session):
         return []
 
 

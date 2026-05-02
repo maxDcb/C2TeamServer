@@ -109,15 +109,24 @@ void testInfoListenerForPrimaryAndSecondary()
 
     TeamServerListenerArtifactService service(makeLogger(), config, runtimeConfig, listeners);
 
-    teamserverapi::TermCommand response;
-    teamserverapi::TermCommand command;
-    command.set_cmd("infoListener listener-pri");
+    teamserverapi::TerminalCommandResponse response;
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("infoListener listener-pri");
     assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "https\nteam.example\n8443\n/drop.bin");
+    assert(response.message().empty());
 
-    command.set_cmd("infoListener secondary");
+    command.set_command("infoListener secondary");
     assert(service.handleCommand("infoListener", {"infoListener", "secondary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "tcp\n10.0.0.1\n4455\nnone");
+
+    command.set_command("infoListener missing");
+    assert(service.handleCommand("infoListener", {"infoListener", "missing"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener not found.");
+    assert(response.message() == "Error: Listener not found.");
 }
 
 void testGetBeaconBinaryForPrimaryAndSecondary()
@@ -137,35 +146,43 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
 
     TeamServerListenerArtifactService service(makeLogger(), config, runtimeConfig, listeners);
 
-    teamserverapi::TermCommand response;
-    teamserverapi::TermCommand command;
-    command.set_cmd("getBeaconBinary listener-pri");
+    teamserverapi::TerminalCommandResponse response;
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("getBeaconBinary listener-pri");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(response.data() == "HTTPBIN-X64");
 
-    command.set_cmd("getBeaconBinary listener-pri Windows x86");
+    command.set_command("getBeaconBinary listener-pri Windows x86");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "x86"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(response.data() == "HTTPBIN-X86");
 
-    command.set_cmd("getBeaconBinary listener-pri Windows amd64");
+    command.set_command("getBeaconBinary listener-pri Windows amd64");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "amd64"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(response.data() == "HTTPBIN-X64");
 
-    command.set_cmd("getBeaconBinary listener-pri Windows arm64");
+    command.set_command("getBeaconBinary listener-pri Windows arm64");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "arm64"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(response.data() == "HTTPBIN-ARM64");
 
-    command.set_cmd("getBeaconBinary listener-pri Windows sparc");
+    command.set_command("getBeaconBinary listener-pri Windows sparc");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "sparc"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Unsupported architecture.");
+    assert(response.message() == "Error: Unsupported architecture.");
 
-    command.set_cmd("getBeaconBinary secondary");
+    command.set_command("getBeaconBinary secondary");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
+    assert(response.message().empty());
     assert(response.data() == "SMBBIN-X64");
 }
 } // namespace

@@ -94,12 +94,14 @@ void testStartAndStopLifecycle()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand({"socks", "start"}, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "Socks server successfully started on port 1080");
     assert(service.isRunning());
 
     assert(service.handleCommand({"socks", "stop"}, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "Socks server stoped");
     assert(!service.isRunning());
 }
@@ -118,16 +120,21 @@ void testBindAndUnbindLifecycle()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
+    assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Socks server not running");
+    assert(response.message() == "Error: Socks server not running");
 
     assert(service.handleCommand({"socks", "start"}, &response).ok());
     assert(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result().find("Socks server sucessfully binded") != std::string::npos);
+    assert(response.message().empty());
     assert(service.isBound());
 
     assert(service.handleCommand({"socks", "unbind"}, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "Socks server successfully unbinding");
     assert(!service.isBound());
 }
@@ -143,11 +150,14 @@ void testPortInUseAndUnknownCommand()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand({"socks", "start"}, &response).ok());
+    assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Socks server port already used");
+    assert(response.message() == "Error: Socks server port already used");
 
     assert(service.handleCommand({"socks", "nope"}, &response).ok());
+    assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Socks server command not found.");
 }
 } // namespace
