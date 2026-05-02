@@ -15,7 +15,7 @@ service TeamServerApi
   rpc StopSession(Session) returns (Response) {}
 
   rpc GetHelp(Command) returns (CommandResponse) {}
-  rpc SendCmdToSession(Command) returns (Response) {}
+  rpc SendCmdToSession(Command) returns (CommandAck) {}
   rpc GetResponseFromSession(Session) returns (stream CommandResponse) {}
 
   rpc SendTermCmd(TermCommand) returns (TermCommand) {}
@@ -91,16 +91,31 @@ message Command
 {
   string beaconHash = 1;
   string listenerHash = 2;
+  // Original operator command line.
   string cmd = 3;
+  // Client-side correlation id echoed by CommandAck and CommandResponse.
+  string commandId = 4;
+}
+
+
+message CommandAck
+{
+  Status status = 1;
+  string commandId = 2;
+  bytes message = 3;
 }
 
 
 message CommandResponse
 {
   string beaconHash = 1;
-  string instruction = 2;
-  string cmd = 3;
-  bytes response = 4;
+  string listenerHash = 2;
+  string commandId = 3;
+  // Prepared beacon/module instruction that produced the response.
+  string instruction = 4;
+  // Original operator command line.
+  string cmd = 5;
+  bytes response = 6;
 }
 
 

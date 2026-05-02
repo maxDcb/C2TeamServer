@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -41,15 +42,25 @@ class C2CommandTool:
         beacon_hash = arguments["beacon_hash"]
         listener_hash = arguments["listener_hash"]
         command_line = build_command_line(self.spec, arguments)
+        command_id = uuid.uuid4().hex
         command = TeamServerApi_pb2.Command(
             beaconHash=beacon_hash,
             listenerHash=listener_hash,
             cmd=command_line,
+            commandId=command_id,
         )
-        self.grpc_client.sendCmdToSession(command)
+        ack = self.grpc_client.sendCmdToSession(command)
+        if getattr(ack, "status", TeamServerApi_pb2.OK) != TeamServerApi_pb2.OK:
+            message = getattr(ack, "message", b"")
+            if isinstance(message, bytes):
+                message = message.decode("utf-8", errors="replace")
+            return ToolResult(ok=False, content=message or "Command was rejected by TeamServer.")
+
+        command_id = getattr(ack, "commandId", command_id) or command_id
         return ToolResult.pending_result(
             f'Sent `{command_line}` to beacon `{beacon_hash[:8]}`. Waiting for command output.',
             metadata={
+                "command_id": command_id,
                 "beacon_hash": beacon_hash,
                 "listener_hash": listener_hash,
                 "command_line": command_line,

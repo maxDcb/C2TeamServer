@@ -34,6 +34,8 @@ def test_c2_command_tool_sends_command_and_returns_pending():
 
     assert result.pending is True
     assert result.metadata["command_line"] == 'ls "C:\\Program Files"'
+    assert result.metadata["command_id"]
     assert grpc.commands[0].beaconHash == "beacon-12345678"
     assert grpc.commands[0].listenerHash == "listener-12345678"
     assert grpc.commands[0].cmd == 'ls "C:\\Program Files"'
+    assert grpc.commands[0].commandId == result.metadata["command_id"]

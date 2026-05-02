@@ -71,7 +71,7 @@ void testCollectListenersAndSessions()
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResponse> cmdResponses;
     std::unordered_map<std::string, std::vector<int>> sentResponses;
-    std::vector<C2Message> sentC2Messages;
+    std::vector<BeaconCommandContext> sentCommands;
 
     TeamServerListenerSessionService service(
         logger,
@@ -81,7 +81,7 @@ void testCollectListenersAndSessions()
         commonCommands,
         cmdResponses,
         sentResponses,
-        sentC2Messages,
+        sentCommands,
         [](const std::string&, C2Message& c2Message, bool, const std::string&)
         {
             c2Message.set_instruction("noop");
@@ -124,7 +124,7 @@ void testQueueStopAndResponseDeduplication()
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResponse> cmdResponses;
     std::unordered_map<std::string, std::vector<int>> sentResponses;
-    std::vector<C2Message> sentC2Messages;
+    std::vector<BeaconCommandContext> sentCommands;
 
     std::string preparedArch;
     TeamServerListenerSessionService service(
@@ -135,7 +135,7 @@ void testQueueStopAndResponseDeduplication()
         commonCommands,
         cmdResponses,
         sentResponses,
-        sentC2Messages,
+        sentCommands,
         [&preparedArch](const std::string& input, C2Message& c2Message, bool, const std::string& windowsArch)
         {
             preparedArch = windowsArch;
@@ -149,25 +149,37 @@ void testQueueStopAndResponseDeduplication()
     command.set_beaconhash("ABCDEFGH12345678");
     command.set_listenerhash("listener-primary");
     command.set_cmd("whoami");
+    command.set_commandid("cmd-0001");
 
-    teamserverapi::Response response;
+    teamserverapi::CommandAck response;
     assert(service.sendCmdToSession(command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.commandid() == "cmd-0001");
     assert(preparedArch == "arm64");
     C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(queuedTask.instruction() == "instruction");
+    assert(queuedTask.uuid() == "cmd-0001");
+
+    C2Message emptyResult;
+    emptyResult.set_instruction("instruction");
+    emptyResult.set_uuid("cmd-0001");
+    emptyResult.set_cmd("internal command payload");
+    emptyResult.set_returnvalue("");
+    assert(primaryListener->addTaskResult(emptyResult, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+    assert(cmdResponses.size() == 1);
+    assert(cmdResponses[0].listenerhash() == "listener-primary");
+    assert(cmdResponses[0].commandid() == "cmd-0001");
+    assert(cmdResponses[0].cmd() == "whoami");
+    assert(cmdResponses[0].response().empty());
 
     teamserverapi::Session sessionToStop;
     sessionToStop.set_beaconhash("ABCDEFGH12345678");
     sessionToStop.set_listenerhash("listener-primary");
-    assert(service.stopSession(sessionToStop, &response).ok());
+    teamserverapi::Response stopResponse;
+    assert(service.stopSession(sessionToStop, &stopResponse).ok());
     C2Message stopTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(stopTask.instruction() == "instruction");
-
-    teamserverapi::CommandResponse commandResponse;
-    commandResponse.set_beaconhash("ABCDEFGH12345678");
-    commandResponse.set_instruction("whoami");
-    commandResponse.set_response("result");
-    cmdResponses.push_back(commandResponse);
 
     std::string clientIdKey = "clientid";
     std::string firstClientId = "client-a";
@@ -175,7 +187,7 @@ void testQueueStopAndResponseDeduplication()
 
     std::vector<teamserverapi::CommandResponse> streamedResponses;
     assert(service.streamResponsesForSession(
-               "ABCDEFGH12345678",
+               sessionToStop,
                firstMetadata,
                [&](const teamserverapi::CommandResponse& responseInfo)
                {
@@ -184,9 +196,12 @@ void testQueueStopAndResponseDeduplication()
                })
                .ok());
     assert(streamedResponses.size() == 1);
+    assert(streamedResponses[0].listenerhash() == "listener-primary");
+    assert(streamedResponses[0].commandid() == "cmd-0001");
+    assert(streamedResponses[0].cmd() == "whoami");
 
     assert(service.streamResponsesForSession(
-               "ABCDEFGH12345678",
+               sessionToStop,
                firstMetadata,
                [&](const teamserverapi::CommandResponse&)
                {
@@ -198,7 +213,7 @@ void testQueueStopAndResponseDeduplication()
     auto secondMetadata = makeMetadata(clientIdKey, secondClientId);
     std::vector<teamserverapi::CommandResponse> secondClientResponses;
     assert(service.streamResponsesForSession(
-               "ABCDEFGH12345678",
+               sessionToStop,
                secondMetadata,
                [&](const teamserverapi::CommandResponse& responseInfo)
                {

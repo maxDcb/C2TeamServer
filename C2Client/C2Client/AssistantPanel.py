@@ -63,7 +63,10 @@ class Assistant(QWidget):
         if not api_key:
             self.printInTerminal("System", "OPENAI_API_KEY is not set, functionality deactivated.")
         else:
-            self.printInTerminal("System", "To let the assistant interact with sessions, select one or multiples sessions in the Sessions tab and interact with it, otherwise the assistant will not be feed the responses.")
+            self.printInTerminal(
+                "System",
+                "Assistant ready. Open a session console from the Sessions tab to provide session context and command output to the assistant. Use /help to list local assistant commands.",
+            )
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         self.agent.domain_hooks.record_session_event(
@@ -83,7 +86,7 @@ class Assistant(QWidget):
         return
 
 
-    def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result):
+    def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
         if action != "receive":
             return
 
@@ -101,8 +104,10 @@ class Assistant(QWidget):
         awaiting_result = False
         if self.awaiting_tool_result:
             if self.pending_tool_context:
+                pending_command_id = self.pending_tool_context.get("command_id")
                 awaiting_result = (
-                    self.pending_tool_context.get("beacon_hash") == beaconHash
+                    (not pending_command_id or pending_command_id == commandId)
+                    and self.pending_tool_context.get("beacon_hash") == beaconHash
                     and self.pending_tool_context.get("listener_hash") == listenerHash
                 )
             else:
@@ -168,6 +173,18 @@ class Assistant(QWidget):
             self.printInTerminal("", "")
             return
 
+        local_command = commandLine.strip().lower()
+        if local_command == "/help":
+            self._show_local_help()
+            return
+
+        if local_command in {"/cancel", "/reset"}:
+            self.awaiting_tool_result = False
+            self.pending_tool_context = None
+            self.pending_tool_id = None
+            self.printInTerminal("Analysis:", "Pending command wait cancelled.")
+            return
+
         if self.awaiting_tool_result:
             self.printInTerminal("Analysis:", "Waiting for previous command output before continuing.")
             return
@@ -186,6 +203,19 @@ class Assistant(QWidget):
         self._start_agent_turn(commandLine)
 
         self.setCursorEditorAtEnd()
+
+
+    def _show_local_help(self):
+        self.printInTerminal(
+            "Assistant commands:",
+            "\n".join(
+                [
+                    "/help - Show AssistantPanel local commands.",
+                    "/cancel - Cancel the current pending beacon result wait.",
+                    "/reset - Alias for /cancel.",
+                ]
+            ),
+        )
 
 
     def _start_agent_turn(self, user_input):
@@ -249,6 +279,7 @@ class Assistant(QWidget):
             self.awaiting_tool_result = True
             self.pending_tool_id = getattr(message, "pending_id", None)
             self.pending_tool_context = {
+                "command_id": metadata.get("command_id") or arguments.get("command_id"),
                 "beacon_hash": metadata.get("beacon_hash") or arguments.get("beacon_hash"),
                 "listener_hash": metadata.get("listener_hash") or arguments.get("listener_hash"),
             }

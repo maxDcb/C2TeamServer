@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import re, html
+import uuid
 from datetime import datetime
 from threading import Thread, Lock
 
@@ -481,7 +482,7 @@ class ConsolesTab(QWidget):
 
 class Console(QWidget):
 
-    consoleScriptSignal = pyqtSignal(str, str, str, str, str, str)
+    consoleScriptSignal = pyqtSignal(str, str, str, str, str, str, str)
 
     tabPressed = pyqtSignal()
     beaconHash=""
@@ -589,38 +590,54 @@ class Console(QWidget):
             self.commandEditor.setCmdHistory()
             instructions = commandLine.split()
             if instructions[0]==HelpInstruction:
-                command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
+                command = TeamServerApi_pb2.Command(
+                    beaconHash=self.beaconHash,
+                    listenerHash=self.listenerHash,
+                    cmd=commandLine,
+                    commandId=uuid.uuid4().hex,
+                )
                 response = self.grpcClient.getHelp(command)
                 self.printInTerminal(response.cmd, "", "")
                 self.printInTerminal("", response.cmd, response.response.decode('utf-8', 'replace'))
 
             else:
                 self.printInTerminal(commandLine, "", "")
-                command = TeamServerApi_pb2.Command(beaconHash=self.beaconHash, listenerHash=self.listenerHash, cmd=commandLine)
+                command_id = uuid.uuid4().hex
+                command = TeamServerApi_pb2.Command(
+                    beaconHash=self.beaconHash,
+                    listenerHash=self.listenerHash,
+                    cmd=commandLine,
+                    commandId=command_id,
+                )
                 result = self.grpcClient.sendCmdToSession(command)
+                command_id = getattr(result, "commandId", command_id) or command_id
                 context = "Host " + self.hostname + " - Username " + self.username
-                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "")
+                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
                 if result.message:
                     self.printInTerminal("", commandLine, result.message.decode('utf-8', 'replace'))
 
         self.setCursorEditorAtEnd()
 
     def displayResponse(self):
-        session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash)
+        session = TeamServerApi_pb2.Session(beaconHash=self.beaconHash, listenerHash=self.listenerHash)
         responses = self.grpcClient.getResponseFromSession(session)
         for response in responses:
             context = "Host " + self.hostname + " - Username " + self.username
-            self.consoleScriptSignal.emit("receive", self.beaconHash, self.listenerHash, context, response.cmd, response.response.decode('utf-8', 'replace'))
+            command_id = getattr(response, "commandId", "")
+            listener_hash = getattr(response, "listenerHash", "") or self.listenerHash
+            command_text = response.cmd or response.instruction
+            decoded_response = response.response.decode('utf-8', 'replace')
+            self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
-            if "-e mimikatz.exe" in response.cmd:
-                credentials.handleMimikatzCredentials(response.response.decode('utf-8', 'replace'), self.grpcClient, TeamServerApi_pb2)
-            self.printInTerminal("", response.instruction + " " + response.cmd, response.response.decode('utf-8', 'replace'))
+            if "-e mimikatz.exe" in command_text:
+                credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
+            self.printInTerminal("", command_text, decoded_response)
             self.setCursorEditorAtEnd()
 
             with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
-                logFile.write('[+] result: \"' + response.instruction + " " + response.cmd + '\"')
-                logFile.write('\n' + response.response.decode('utf-8', 'replace')  + '\n')
+                logFile.write('[+] result: \"' + command_text + '\"')
+                logFile.write('\n' + decoded_response  + '\n')
                 logFile.write('\n')
 
     def setCursorEditorAtEnd(self):

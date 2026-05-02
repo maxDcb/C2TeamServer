@@ -20,6 +20,7 @@
 
 #include "TeamServerApi.pb.h"
 #include "TeamServerApi.grpc.pb.h"
+#include "TeamServerCommandTracking.hpp"
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -52,7 +53,7 @@ public:
     grpc::Status GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer);
     grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop, teamserverapi::Response* response);
 
-    grpc::Status SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::Response* response);
+    grpc::Status SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandAck* response);
     grpc::Status GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session, grpc::ServerWriter<teamserverapi::CommandResponse>* writer);
 
     grpc::Status GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandResponse* commandResponse);
@@ -86,7 +87,7 @@ private:
     std::vector<teamserverapi::CommandResponse> m_cmdResponses;
     std::unordered_map<std::string, std::vector<int>> m_sentResponses;
 
-    std::vector<C2Message> m_sentC2Messages;
+    std::vector<BeaconCommandContext> m_sentCommands;
 
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerHelpService> m_helpService;

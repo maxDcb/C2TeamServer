@@ -140,7 +140,7 @@ class Script(QWidget):
                 continue
 
 
-    def consoleScriptMethod(self, action, beaconHash, listenerHash, context, cmd, result):
+    def consoleScriptMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
         for script in LoadedScripts:
             scriptName = script.__name__            
             try:

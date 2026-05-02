@@ -43,6 +43,10 @@ grpc::Status TeamServerHelpService::getHelp(const teamserverapi::Command& comman
     }
 
     teamserverapi::CommandResponse commandResponseTmp;
+    commandResponseTmp.set_beaconhash(beaconHash);
+    commandResponseTmp.set_listenerhash(listenerHash);
+    commandResponseTmp.set_commandid(command.commandid());
+    commandResponseTmp.set_instruction(HelpCmd);
     commandResponseTmp.set_cmd(input);
     commandResponseTmp.set_response(output);
     *commandResponse = commandResponseTmp;

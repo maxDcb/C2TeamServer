@@ -60,7 +60,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_commonCommands,
         m_cmdResponses,
         m_sentResponses,
-        m_sentC2Messages,
+        m_sentCommands,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
@@ -163,7 +163,7 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     return m_listenerSessionService->stopSession(*sessionToStop, response);
 }
 
-grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::Response* response)
+grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
@@ -184,7 +184,7 @@ grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, co
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->streamResponsesForSession(
-        session->beaconhash(),
+        *session,
         context->client_metadata(),
         [&](const teamserverapi::CommandResponse& commandResponse)
         { return writer->Write(commandResponse); });
