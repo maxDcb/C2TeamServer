@@ -1,12 +1,6 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
-
-VENDOR_ROOT = Path(__file__).resolve().parents[2] / "vendor" / "PentestAssistant"
-if str(VENDOR_ROOT) not in sys.path:
-    sys.path.insert(0, str(VENDOR_ROOT))
 
 from agent_core.llm.base import LLMCompletionResult, LLMToolCall
 from agent_core.orchestrator import AgentOrchestrator

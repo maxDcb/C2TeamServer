@@ -3,11 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..bootstrap import ensure_agent_core_path
 from .command_tool import C2CommandTool
 from .loader import load_tool_specs
-
-ensure_agent_core_path()
 
 from agent_core import ToolRegistry
 

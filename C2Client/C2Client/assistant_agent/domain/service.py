@@ -3,12 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..bootstrap import ensure_agent_core_path
 from ..tools.registry import build_c2_tool_registry
 from .hooks import C2DomainHooks
 from .settings import build_c2_agent_settings
-
-ensure_agent_core_path()
 
 from agent_core import AgentOrchestrator, AgentTurnResult, PolicyEngine, SessionManager, SessionRepository
 from agent_core.llm.openai_provider import OpenAIProvider

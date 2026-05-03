@@ -2,10 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..bootstrap import ensure_agent_core_path
-
-ensure_agent_core_path()
-
 from agent_core import DomainHooks
 
 

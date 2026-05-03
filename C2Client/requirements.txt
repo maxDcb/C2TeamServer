@@ -8,6 +8,7 @@ requests==2.33.0
 pwn==1.0
 pefile==2024.8.26
 openai==1.102.0
+agent-core @ git+https://github.com/maxDcb/agent-core.git@main
 pytest==9.0.3
 pytest-qt==4.5.0
 git+https://github.com/maxDcb/donut.git@master#egg=donut-shellcode

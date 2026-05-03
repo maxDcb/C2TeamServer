@@ -18,6 +18,7 @@ dependencies = [
     "pwn==1.0",
     "pefile==2024.8.26",
     "openai==1.102.0",
+    "agent-core @ git+https://github.com/maxDcb/agent-core.git@main",
     "donut-shellcode @ git+https://github.com/maxDcb/donut.git@master",
     "markdown"
 ]
@@ -29,8 +30,8 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-where = [".", "vendor/PentestAssistant"]
-include = ["C2Client*", "C2Client.TerminalModules.*", "agent_core*"]
+where = ["."]
+include = ["C2Client*"]
 
 [tool.setuptools.package-data]
 C2Client = [
@@ -44,7 +45,6 @@ C2Client = [
     "assistant_agent/prompts/memory/*.md",
     "assistant_agent/tools/schemas/*.json"
 ]
-agent_core = ["py.typed"]
 
 [project.scripts]
 c2client = "C2Client.GUI:main"  # Entry point for CLI tool

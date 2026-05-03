@@ -3,10 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ..bootstrap import ensure_agent_core_path
 from ..storage.paths import default_storage_dir, prompts_dir
-
-ensure_agent_core_path()
 
 from agent_core import CoreSettings
 from agent_core.prompt_repository import load_prompt

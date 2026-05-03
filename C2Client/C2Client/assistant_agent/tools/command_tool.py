@@ -4,11 +4,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from ..bootstrap import ensure_agent_core_path
 from .command_builder import build_command_line
 from .loader import C2ToolSpec
-
-ensure_agent_core_path()
 
 from agent_core.execution_context import ExecutionContext
 from agent_core.llm.base import LLMToolDefinition
