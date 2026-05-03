@@ -60,7 +60,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_commonCommands,
         m_cmdResponses,
         m_sentResponses,
-        m_sentC2Messages,
+        m_sentCommands,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
@@ -110,7 +110,7 @@ grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamse
 
 // Get the list of liseteners from primary listeners
 // and from listeners runing on beacon through sessionListener
-grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer)
+grpc::Status TeamServer::ListListeners(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Listener>* writer)
 {
     (void)empty;
     auto authStatus = ensureAuthenticated(context);
@@ -122,15 +122,15 @@ grpc::Status TeamServer::GetListeners(grpc::ServerContext* context, const teamse
 
 // Add listener that will run on the C2
 // To add a listener to a beacon the process it to send a command to the beacon
-grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::Response* response)
+grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::OperationAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-    return m_listenerSessionService->addListener(*listenerToCreate);
+    return m_listenerSessionService->addListener(*listenerToCreate, response);
 }
 
-grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToStop, teamserverapi::Response* response)
+grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::ListenerSelector* listenerToStop, teamserverapi::OperationAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
@@ -145,7 +145,7 @@ bool TeamServer::isListenerAlive(const std::string& listenerHash)
 
 // Get the list of sessions on the primary listeners
 // Primary listers old all the information about beacons linked to themeself and linked to beacon listerners
-grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
+grpc::Status TeamServer::ListSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
 {
     (void)empty;
     auto authStatus = ensureAuthenticated(context);
@@ -155,7 +155,7 @@ grpc::Status TeamServer::GetSessions(grpc::ServerContext* context, const teamser
         { return writer->Write(session); });
 }
 
-grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::Session* sessionToStop, teamserverapi::Response* response)
+grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
@@ -163,12 +163,12 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     return m_listenerSessionService->stopSession(*sessionToStop, response);
 }
 
-grpc::Status TeamServer::SendCmdToSession(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::Response* response)
+grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-    return m_listenerSessionService->sendCmdToSession(*command, response);
+    return m_listenerSessionService->sendSessionCommand(*command, response);
 }
 
 int TeamServer::handleCmdResponse()
@@ -178,19 +178,19 @@ int TeamServer::handleCmdResponse()
     return 0;
 }
 
-grpc::Status TeamServer::GetResponseFromSession(grpc::ServerContext* context, const teamserverapi::Session* session, grpc::ServerWriter<teamserverapi::CommandResponse>* writer)
+grpc::Status TeamServer::StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->streamResponsesForSession(
-        session->beaconhash(),
+        *session,
         context->client_metadata(),
-        [&](const teamserverapi::CommandResponse& commandResponse)
+        [&](const teamserverapi::CommandResult& commandResponse)
         { return writer->Write(commandResponse); });
 }
 
-grpc::Status TeamServer::GetHelp(grpc::ServerContext* context, const teamserverapi::Command* command, teamserverapi::CommandResponse* commandResponse)
+grpc::Status TeamServer::GetCommandHelp(grpc::ServerContext* context, const teamserverapi::CommandHelpRequest* command, teamserverapi::CommandHelpResponse* commandResponse)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
@@ -262,25 +262,34 @@ std::string getIPAddress(const std::string& interface)
 
 const std::string SocksInstruction_ = "socks";
 
-grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamserverapi::TermCommand* command, teamserverapi::TermCommand* response)
+grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
 
-    m_logger->trace("SendTermCmd");
+    m_logger->trace("ExecuteTerminalCommand");
 
-    std::string cmd = command->cmd();
-    m_logger->debug("SendTermCmd {0}", cmd);
+    std::string cmd = command->command();
+    m_logger->debug("ExecuteTerminalCommand {0}", cmd);
 
     std::vector<std::string> splitedCmd;
     splitInputCmd(cmd, splitedCmd);
 
-    teamserverapi::TermCommand responseTmp;
+    teamserverapi::TerminalCommandResponse responseTmp;
     std::string none = "";
-    responseTmp.set_cmd(none);
+    responseTmp.set_status(teamserverapi::KO);
+    responseTmp.set_command(cmd);
     responseTmp.set_result(none);
     responseTmp.set_data(none);
+
+    if (splitedCmd.empty())
+    {
+        responseTmp.set_result("Error: empty command.");
+        responseTmp.set_message("Empty terminal command.");
+        *response = responseTmp;
+        return grpc::Status::OK;
+    }
 
     string instruction = splitedCmd[0];
     if (m_listenerArtifactService->canHandle(instruction))
@@ -300,6 +309,7 @@ grpc::Status TeamServer::SendTermCmd(grpc::ServerContext* context, const teamser
     else
     {
         responseTmp.set_result("Error: not implemented.");
+        responseTmp.set_message("Terminal command not implemented.");
         *response = responseTmp;
         return grpc::Status::OK;
     }

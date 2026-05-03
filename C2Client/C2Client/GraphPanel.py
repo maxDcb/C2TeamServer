@@ -224,7 +224,7 @@ class Graph(QWidget):
         #
         # Update beacons
         #
-        responses = self.grpcClient.getSessions()
+        responses = self.grpcClient.listSessions()
         sessions = list()
         for response in responses:
             sessions.append(response)
@@ -233,7 +233,7 @@ class Graph(QWidget):
         for ix, nodeItem in enumerate(self.listNodeItem):
             runing=False
             for session in sessions:
-                if session.beaconHash == nodeItem.beaconHash:
+                if session.beacon_hash == nodeItem.beaconHash:
                     runing=True
             if not runing and self.listNodeItem[ix].type == BeaconNodeItemType:
                 for ix2, connector in enumerate(self.listConnector):
@@ -249,20 +249,20 @@ class Graph(QWidget):
         for session in sessions:
             inStore=False
             for ix, nodeItem in enumerate(self.listNodeItem):
-                if session.beaconHash == nodeItem.beaconHash:
+                if session.beacon_hash == nodeItem.beaconHash:
                     inStore=True
             if not inStore:
-                item = NodeItem(BeaconNodeItemType, session.beaconHash, session.os, session.privilege, session.hostname)
-                item.connectedListenerHash = session.listenerHash
+                item = NodeItem(BeaconNodeItemType, session.beacon_hash, session.os, session.privilege, session.hostname)
+                item.connectedListenerHash = session.listener_hash
                 item.signaller.signal.connect(self.updateConnectors)
                 self.scene.addItem(item)
                 self.listNodeItem.append(item)
-                print("[+] add beacon", session.beaconHash)
+                print("[+] add beacon", session.beacon_hash)
 
         #
         # Update listener
         #
-        responses= self.grpcClient.getListeners()
+        responses= self.grpcClient.listListeners()
         listeners = list()
         for listener in responses:
             listeners.append(listener)
@@ -271,7 +271,7 @@ class Graph(QWidget):
         for ix, nodeItem in enumerate(self.listNodeItem):
             runing=False
             for listener in listeners:
-                if nodeItem.isResponsableForListener(listener.listenerHash):
+                if nodeItem.isResponsableForListener(listener.listener_hash):
                     runing=True
             if not runing:
                 # primary listener
@@ -287,33 +287,33 @@ class Graph(QWidget):
                     
                 # beacon listener
                 elif self.listNodeItem[ix].type == BeaconNodeItemType:
-                    if listener.listenerHash in self.listNodeItem[ix].listenerHash:
+                    if listener.listener_hash in self.listNodeItem[ix].listenerHash:
                         for ix2, connector in enumerate(self.listConnector):
                             if self.listNodeItem[ix2].listenerHash in connector.listener.listenerHash:
                                 print("[-] delete connector")
                                 self.scene.removeItem(self.listConnector[ix2])
                                 del self.listConnector[ix2]
                         print("[-] delete secondary listener", nodeItem.listenerHash)
-                        self.listNodeItem[ix].listenerHash.remove(listener.listenerHash)
+                        self.listNodeItem[ix].listenerHash.remove(listener.listener_hash)
 
         # add listener
         for listener in listeners:
             inStore=False
             for ix, nodeItem in enumerate(self.listNodeItem):
-                if nodeItem.isResponsableForListener(listener.listenerHash):
+                if nodeItem.isResponsableForListener(listener.listener_hash):
                     inStore=True
             if not inStore:
-                if not listener.beaconHash:
-                    item = NodeItem(ListenerNodeItemType, listener.listenerHash)
+                if not listener.beacon_hash:
+                    item = NodeItem(ListenerNodeItemType, listener.listener_hash)
                     item.signaller.signal.connect(self.updateConnectors)
                     self.scene.addItem(item)
                     self.listNodeItem.append(item)
-                    print("[+] add primary listener", listener.listenerHash)
+                    print("[+] add primary listener", listener.listener_hash)
                 else:
                     for nodeItem2 in self.listNodeItem:
-                        if nodeItem2.beaconHash == listener.beaconHash:
-                            nodeItem2.listenerHash.append(listener.listenerHash)
-                            print("[+] add secondary listener", listener.listenerHash)
+                        if nodeItem2.beaconHash == listener.beacon_hash:
+                            nodeItem2.listenerHash.append(listener.listener_hash)
+                            print("[+] add secondary listener", listener.listener_hash)
 
         #
         # Update connectors
@@ -361,4 +361,3 @@ class GetGraphInfoWorker(QObject):
 
     def quit(self):
         self.exit=True
-

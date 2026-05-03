@@ -22,13 +22,13 @@ TeamServerHelpService::TeamServerHelpService(
 {
 }
 
-grpc::Status TeamServerHelpService::getHelp(const teamserverapi::Command& command, teamserverapi::CommandResponse* commandResponse) const
+grpc::Status TeamServerHelpService::getHelp(const teamserverapi::CommandHelpRequest& command, teamserverapi::CommandHelpResponse* commandResponse) const
 {
-    m_logger->trace("GetHelp");
+    m_logger->trace("GetCommandHelp");
 
-    const std::string input = command.cmd();
-    const std::string beaconHash = command.beaconhash();
-    const std::string listenerHash = command.listenerhash();
+    const std::string input = command.command();
+    const std::string beaconHash = command.session().beacon_hash();
+    const std::string listenerHash = command.session().listener_hash();
 
     std::vector<std::string> splitedCmd;
     splitList(input, " ", splitedCmd);
@@ -42,12 +42,15 @@ grpc::Status TeamServerHelpService::getHelp(const teamserverapi::Command& comman
             output = buildSpecificHelp(splitedCmd[1]);
     }
 
-    teamserverapi::CommandResponse commandResponseTmp;
-    commandResponseTmp.set_cmd(input);
-    commandResponseTmp.set_response(output);
+    teamserverapi::CommandHelpResponse commandResponseTmp;
+    commandResponseTmp.set_status(output.empty() ? teamserverapi::KO : teamserverapi::OK);
+    commandResponseTmp.set_command(input);
+    commandResponseTmp.set_help(output);
+    if (output.empty())
+        commandResponseTmp.set_message("No help available.");
     *commandResponse = commandResponseTmp;
 
-    m_logger->trace("GetHelp end");
+    m_logger->trace("GetCommandHelp end");
     return grpc::Status::OK;
 }
 

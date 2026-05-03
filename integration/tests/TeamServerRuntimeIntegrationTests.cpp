@@ -257,7 +257,7 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
     listenersContext.AddMetadata("clientid", "integration-test");
 
     teamserverapi::Empty empty;
-    std::unique_ptr<grpc::ClientReader<teamserverapi::Listener>> listeners = stub->GetListeners(&listenersContext, empty);
+    std::unique_ptr<grpc::ClientReader<teamserverapi::Listener>> listeners = stub->ListListeners(&listenersContext, empty);
     teamserverapi::Listener listener;
     std::vector<teamserverapi::Listener> streamedListeners;
     while (listeners->Read(&listener))
@@ -273,7 +273,7 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
     sessionsContext.AddMetadata("authorization", "Bearer " + token);
     sessionsContext.AddMetadata("clientid", "integration-test");
 
-    std::unique_ptr<grpc::ClientReader<teamserverapi::Session>> sessions = stub->GetSessions(&sessionsContext, empty);
+    std::unique_ptr<grpc::ClientReader<teamserverapi::Session>> sessions = stub->ListSessions(&sessionsContext, empty);
     teamserverapi::Session session;
     std::vector<teamserverapi::Session> streamedSessions;
     while (sessions->Read(&session))

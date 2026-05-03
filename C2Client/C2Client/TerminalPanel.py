@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .grpc_status import is_response_ok, terminal_response_text
 from .TerminalModules.Batcave import batcave
 from .TerminalModules.Credentials import credentials
 
@@ -170,6 +171,10 @@ BeaconFileWindowsPattern = "Beacon-{}.exe"
 BeaconFileLinuxGenerated = "Beacon-linux"
 
 ErrorInstruction = "Error"
+
+
+def isTerminalResponseError(response):
+    return not is_response_ok(response) or ErrorInstruction in terminal_response_text(response)
 
 HelpInstruction = "Help"
 
@@ -531,10 +536,10 @@ class Terminal(QWidget):
 
     def runReloadModules(self, commandLine, instructions):
         commandTeamServer = GrpcReloadModulesInstruction
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-        result = resultTermCommand.result
+        result = terminal_response_text(resultTermCommand)
         self.printInTerminal(commandLine, result)
         return   
         
@@ -549,10 +554,10 @@ class Terminal(QWidget):
         if cmd == "start" or cmd == "stop" or cmd == "unbind":
 
             commandTeamServer = GrpcSocksInstruction + " " + cmd
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-            result = resultTermCommand.result
+            result = terminal_response_text(resultTermCommand)
             self.printInTerminal(commandLine, result)
             return   
             
@@ -565,10 +570,10 @@ class Terminal(QWidget):
             beaconHash = instructions[2]
 
             commandTeamServer = GrpcSocksInstruction + " " + cmd + " " + beaconHash
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-            result = resultTermCommand.result
+            result = terminal_response_text(resultTermCommand)
             self.printInTerminal(commandLine, result)
         
         else:
@@ -599,11 +604,11 @@ class Terminal(QWidget):
                 return  
 
             commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-            result = resultTermCommand.result
-            if ErrorInstruction in result:
+            result = terminal_response_text(resultTermCommand)
+            if isTerminalResponseError(resultTermCommand):
                 self.printInTerminal(commandLine, result)
                 return   
 
@@ -624,11 +629,11 @@ class Terminal(QWidget):
                     return  
 
                 commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
-                termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-                resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+                termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+                resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-                result = resultTermCommand.result
-                if ErrorInstruction in result:
+                result = terminal_response_text(resultTermCommand)
+                if isTerminalResponseError(resultTermCommand):
                     self.printInTerminal(commandLine, result)
                     return  
 
@@ -656,7 +661,11 @@ class Terminal(QWidget):
         cmd = instructions[1].lower()
 
         if cmd == GetSubInstruction.lower():
-            currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+            try:
+                currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+            except (RuntimeError, json.JSONDecodeError) as exc:
+                self.printInTerminal(commandLine, str(exc))
+                return
 
             toPrint = ""
             for cred in currentcredentials:
@@ -679,7 +688,13 @@ class Terminal(QWidget):
             cred["domain"] = domain
             cred["username"] = username
             cred["manual"] = credential
-            credentials.addCredentials(self.grpcClient, TeamServerApi_pb2, json.dumps(cred))
+            try:
+                result = credentials.addCredentials(self.grpcClient, TeamServerApi_pb2, json.dumps(cred))
+            except (RuntimeError, json.JSONDecodeError) as exc:
+                self.printInTerminal(commandLine, str(exc))
+                return
+            if result:
+                self.printInTerminal(commandLine, result)
             return
 
         elif cmd == SearchSubInstruction.lower():
@@ -689,7 +704,11 @@ class Terminal(QWidget):
             
             searchPatern = instructions[2]
 
-            currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+            try:
+                currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
+            except (RuntimeError, json.JSONDecodeError) as exc:
+                self.printInTerminal(commandLine, str(exc))
+                return
 
             toPrint = ""
             for cred in currentcredentials:
@@ -716,11 +735,11 @@ class Terminal(QWidget):
         hostListenerHash = instructions[2]
 
         commandTeamServer = GrpcInfoListenerInstruction+" "+hostListenerHash
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
+        result = terminal_response_text(resultTermCommand)
+        if isTerminalResponseError(resultTermCommand):
             self.printInTerminal(commandLine, result)
             return        
 
@@ -749,11 +768,11 @@ class Terminal(QWidget):
             return  
 
         commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+hostListenerHash+" "+filename
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
+        result = terminal_response_text(resultTermCommand)
+        if isTerminalResponseError(resultTermCommand):
             self.printInTerminal(commandLine, result)
             return  
                 
@@ -958,13 +977,13 @@ class DropperWorker(QObject):
     def run(self):
 
         commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerDownload
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
         logging.debug("DropperWorker GenerateAndHostGeneric start")
 
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
+        result = terminal_response_text(resultTermCommand)
+        if isTerminalResponseError(resultTermCommand):
             self.finished.emit(self.commandLine, result)
             return        
 
@@ -985,11 +1004,11 @@ class DropperWorker(QObject):
 
         if  self.listenerBeacon != self.listenerDownload:
             commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerBeacon
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)    
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)    
 
-            result = resultTermCommand.result
-            if ErrorInstruction in result:
+            result = terminal_response_text(resultTermCommand)
+            if isTerminalResponseError(resultTermCommand):
                 self.finished.emit(self.commandLine, result)
                 return   
 
@@ -1020,11 +1039,11 @@ class DropperWorker(QObject):
         commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+self.listenerBeacon+" "+targetOs
         if targetOs == "windows":
             commandTeamServer += " " + self.targetArch
-        termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer)
-        resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
+        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-        result = resultTermCommand.result
-        if ErrorInstruction in result:
+        result = terminal_response_text(resultTermCommand)
+        if isTerminalResponseError(resultTermCommand):
             self.finished.emit(self.commandLine, result)
             return   
 
@@ -1091,11 +1110,11 @@ class DropperWorker(QObject):
 
             filename = os.path.basename(dropperPath)
             commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-            result = resultTermCommand.result
-            if ErrorInstruction in result:
+            result = terminal_response_text(resultTermCommand)
+            if isTerminalResponseError(resultTermCommand):
                 self.finished.emit(self.commandLine, result)
                 return  
             
@@ -1109,11 +1128,11 @@ class DropperWorker(QObject):
 
             filename = os.path.basename(shellcodePath)
             commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
-            termCommand = TeamServerApi_pb2.TermCommand(cmd=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.sendTermCmd(termCommand)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-            result = resultTermCommand.result
-            if ErrorInstruction in result:
+            result = terminal_response_text(resultTermCommand)
+            if isTerminalResponseError(resultTermCommand):
                 self.finished.emit(self.commandLine, result)
                 return  
                 

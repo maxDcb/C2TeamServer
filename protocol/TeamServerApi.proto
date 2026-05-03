@@ -3,27 +3,41 @@ syntax = "proto3";
 package teamserverapi;
 
 
-// Interface exported by the server.
 service TeamServerApi
 {
   rpc Authenticate(AuthRequest) returns (AuthResponse) {}
-  rpc GetListeners(Empty) returns (stream Listener) {}
-  rpc AddListener(Listener) returns (Response) {}
-  rpc StopListener(Listener) returns (Response) {}
 
-  rpc GetSessions(Empty) returns (stream Session) {}
-  rpc StopSession(Session) returns (Response) {}
+  rpc ListListeners(Empty) returns (stream Listener) {}
+  rpc AddListener(Listener) returns (OperationAck) {}
+  rpc StopListener(ListenerSelector) returns (OperationAck) {}
 
-  rpc GetHelp(Command) returns (CommandResponse) {}
-  rpc SendCmdToSession(Command) returns (Response) {}
-  rpc GetResponseFromSession(Session) returns (stream CommandResponse) {}
+  rpc ListSessions(Empty) returns (stream Session) {}
+  rpc StopSession(SessionSelector) returns (OperationAck) {}
 
-  rpc SendTermCmd(TermCommand) returns (TermCommand) {}
+  rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
+  rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
+  rpc StreamSessionCommandResults(SessionSelector) returns (stream CommandResult) {}
+
+  rpc ExecuteTerminalCommand(TerminalCommandRequest) returns (TerminalCommandResponse) {}
+}
+
+
+enum Status
+{
+  OK = 0;
+  KO = 1;
 }
 
 
 message Empty
 {
+}
+
+
+message OperationAck
+{
+  Status status = 1;
+  string message = 2;
 }
 
 
@@ -42,71 +56,108 @@ message AuthResponse
 }
 
 
-enum Status
+message ListenerSelector
 {
-  OK = 0;
-  KO = 1;
+  string listener_hash = 1;
 }
 
 
-message Response
+message SessionSelector
 {
-  Status status = 1;
-  bytes message = 2;
+  string beacon_hash = 1;
+  string listener_hash = 2;
 }
 
 
 message Listener
 {
-  string listenerHash = 1;
+  string listener_hash = 1;
   string type = 2;
   int32 port = 3;
   string ip = 4;
+  int32 session_count = 5;
   string project = 6;
   string token = 7;
   string domain = 8;
-  int32 numberOfSession = 5;
-  string beaconHash = 9;
+  string beacon_hash = 9;
 }
 
 
 message Session
 {
-  string beaconHash = 1;
-  string listenerHash = 2;
+  string beacon_hash = 1;
+  string listener_hash = 2;
   string hostname = 3;
   string username = 4;
   string arch = 5;
   string privilege = 6;
   string os = 7;
-  string lastProofOfLife = 8;
+  string last_proof_of_life = 8;
   bool killed = 9;
-  string internalIps = 10;
-  string processId = 11;
-  string additionalInformation = 12;
+  string internal_ips = 10;
+  string process_id = 11;
+  string additional_information = 12;
 }
 
 
-message Command
+message CommandHelpRequest
 {
-  string beaconHash = 1;
-  string listenerHash = 2;
-  string cmd = 3;
+  SessionSelector session = 1;
+  string command = 2;
 }
 
 
-message CommandResponse
+message CommandHelpResponse
 {
-  string beaconHash = 1;
-  string instruction = 2;
-  string cmd = 3;
-  bytes response = 4;
+  Status status = 1;
+  string command = 2;
+  string help = 3;
+  string message = 4;
 }
 
 
-message TermCommand
+message SessionCommandRequest
 {
-  string cmd = 1;
-  string result = 2;
-  bytes data = 3;
+  SessionSelector session = 1;
+  string command = 2;
+  string command_id = 3;
+}
+
+
+message CommandAck
+{
+  Status status = 1;
+  string command_id = 2;
+  string message = 3;
+}
+
+
+message CommandResult
+{
+  Status status = 1;
+  SessionSelector session = 2;
+  string command_id = 3;
+  // Prepared beacon/module instruction that produced the result.
+  string instruction = 4;
+  // Original operator command line.
+  string command = 5;
+  bytes output = 6;
+  string message = 7;
+}
+
+
+message TerminalCommandRequest
+{
+  string command = 1;
+  bytes data = 2;
+}
+
+
+message TerminalCommandResponse
+{
+  Status status = 1;
+  string command = 2;
+  string result = 3;
+  bytes data = 4;
+  string message = 5;
 }

@@ -6,6 +6,8 @@ build-*/
 C2Client/.cmdHistory
 C2Client/.termHistory
 C2Client/.venv/
+C2Client/.env
+.env
 __pycache__/
 .pytest_cache/
 C2Client/Beacon.exe
@@ -14,3 +16,4 @@ C2Client/C2Client/TerminalModules/__pycache__/
 C2Client/loader.bin
 updateRelease.sh
 Beacon*
+C2Client/vendor

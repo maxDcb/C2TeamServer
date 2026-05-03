@@ -21,7 +21,7 @@ public:
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         CommonCommands& commonCommands);
 
-    grpc::Status getHelp(const teamserverapi::Command& command, teamserverapi::CommandResponse* commandResponse) const;
+    grpc::Status getHelp(const teamserverapi::CommandHelpRequest& command, teamserverapi::CommandHelpResponse* commandResponse) const;
 
 private:
     bool isWindowsSession(const std::string& beaconHash, const std::string& listenerHash) const;

@@ -132,20 +132,29 @@ void testUploadCommands()
         credentials,
         modules);
 
-    teamserverapi::TermCommand uploadCommand;
-    uploadCommand.set_cmd("putIntoUploadDir listener-pri hello.bin");
+    teamserverapi::TerminalCommandRequest uploadCommand;
+    uploadCommand.set_command("putIntoUploadDir listener-pri hello.bin");
     uploadCommand.set_data("PAYLOAD");
 
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "listener-pri", "hello.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
+    assert(response.message().empty());
     assert(readFile(downloadDir / "hello.bin") == "PAYLOAD");
 
-    teamserverapi::TermCommand batcaveCommand;
-    batcaveCommand.set_cmd("batcaveUpload tool.bin");
+    assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "listener-pri", "../bad.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: filename not allowed.");
+    assert(response.message() == "Error: filename not allowed.");
+
+    teamserverapi::TerminalCommandRequest batcaveCommand;
+    batcaveCommand.set_command("batcaveUpload tool.bin");
     batcaveCommand.set_data("TOOL");
     assert(service.handleCommand("batcaveUpload", {"batcaveUpload", "tool.bin"}, batcaveCommand, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
+    assert(response.message().empty());
     assert(readFile(fs::path(runtimeConfig.toolsDirectoryPath) / "tool.bin") == "TOOL");
 }
 
@@ -166,19 +175,27 @@ void testCredentialCommands()
         credentials,
         modules);
 
-    teamserverapi::TermCommand addCommand;
-    addCommand.set_cmd("addCred");
+    teamserverapi::TerminalCommandRequest addCommand;
+    addCommand.set_command("addCred");
     addCommand.set_data(R"({"username":"alice","password":"secret"})");
 
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand("addCred", {"addCred"}, addCommand, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(credentials.size() == 1);
 
-    teamserverapi::TermCommand getCommand;
-    getCommand.set_cmd("getCred");
+    addCommand.set_data("{not-json}");
+    assert(service.handleCommand("addCred", {"addCred"}, addCommand, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: invalid credential payload.");
+
+    teamserverapi::TerminalCommandRequest getCommand;
+    getCommand.set_command("getCred");
     assert(service.handleCommand("getCred", {"getCred"}, getCommand, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(response.result().find("alice") != std::string::npos);
+    assert(response.message().empty());
 }
 
 void testReloadModulesUsesInjectedLoader()
@@ -205,10 +222,11 @@ void testReloadModulesUsesInjectedLoader()
             return loaded;
         });
 
-    teamserverapi::TermCommand command;
-    command.set_cmd("reloadModules");
-    teamserverapi::TermCommand response;
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("reloadModules");
+    teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand("reloadModules", {"reloadModules"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
     assert(modules.size() == 1);
     assert(modules.front()->getName() == "ReloadedModule");
     assert(response.result().empty());

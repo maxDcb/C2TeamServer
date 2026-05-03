@@ -25,10 +25,13 @@ from .ListenerPanel import Listeners
 from .SessionPanel import Sessions
 from .ConsolePanel import ConsolesTab
 from .GraphPanel import Graph
+from .env import load_c2_env
 
 import qdarktheme
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+for noisy_logger in ("openai", "httpx", "httpcore"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 
@@ -188,6 +191,8 @@ class App(QMainWindow):
 
 def main() -> None:
     """Entry point used by the project script."""
+
+    load_c2_env()
 
     parser = argparse.ArgumentParser(description='TeamServer IP and port.')
     parser.add_argument('--ip', default='127.0.0.1', help='IP address (default: 127.0.0.1)')

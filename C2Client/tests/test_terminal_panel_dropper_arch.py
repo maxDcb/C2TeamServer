@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+from PyQt6.QtWidgets import QWidget
+
 import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
@@ -11,15 +13,25 @@ class FakeGrpc:
     def __init__(self):
         self.commands = []
 
-    def sendTermCmd(self, command):
-        self.commands.append(command.cmd)
-        if command.cmd.startswith(terminal_panel.GrpcInfoListenerInstruction):
+    def executeTerminalCommand(self, command):
+        self.commands.append(command.command)
+        if command.command.startswith(terminal_panel.GrpcInfoListenerInstruction):
             return SimpleNamespace(result="http\n127.0.0.1\n8080\n/uploads/\n", data=b"")
-        if command.cmd.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
+        if command.command.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
             return SimpleNamespace(result="ok", data=b"beacon")
-        if command.cmd.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
+        if command.command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
             return SimpleNamespace(result="ok", data=b"")
         return SimpleNamespace(result="Error: unexpected command", data=b"")
+
+
+class FakeKoGrpc:
+    def executeTerminalCommand(self, command):
+        return SimpleNamespace(
+            status=terminal_panel.TeamServerApi_pb2.KO,
+            result="raw failure",
+            message="Reload failed.",
+            data=b"",
+        )
 
 
 class FakeDropperModule:
@@ -84,6 +96,17 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     assert donut_calls[0][2] == "arm64"
     assert (tmp_path / "Beacon-arm64.exe").read_bytes() == b"beacon"
     assert results == [("Dropper FakeDropper dl beacon --arch arm64", "generated")]
+
+
+def test_terminal_command_error_message_uses_status_message(qtbot):
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeKoGrpc())
+    qtbot.addWidget(terminal)
+
+    terminal.runReloadModules("ReloadModules", ["ReloadModules"])
+
+    assert "Reload failed." in terminal.editorOutput.toPlainText()
+    assert "raw failure" not in terminal.editorOutput.toPlainText()
 
 
 def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):

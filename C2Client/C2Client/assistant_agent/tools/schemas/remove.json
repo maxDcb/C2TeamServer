@@ -1,0 +1,28 @@
+{
+  "name": "remove",
+  "description": "Delete a file or directory recursively on the beacon host.",
+  "command_template": "remove {path:q}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "path": {
+        "type": "string",
+        "description": "Path to remove."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "path"
+    ],
+    "additionalProperties": false
+  }
+}

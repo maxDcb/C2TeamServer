@@ -23,8 +23,8 @@ directory, rewrites the gRPC port, starts the real TeamServer binary, performs
 an authenticated gRPC round-trip, and verifies stable empty-state RPCs:
 
 - `Authenticate`
-- `GetListeners`
-- `GetSessions`
+- `ListListeners`
+- `ListSessions`
 
 ## Next Step
 

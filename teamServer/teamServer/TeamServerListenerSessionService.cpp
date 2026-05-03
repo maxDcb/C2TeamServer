@@ -67,9 +67,9 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
     std::vector<std::shared_ptr<Listener>>& listeners,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
     CommonCommands& commonCommands,
-    std::vector<teamserverapi::CommandResponse>& cmdResponses,
+    std::vector<teamserverapi::CommandResult>& cmdResponses,
     std::unordered_map<std::string, std::vector<int>>& sentResponses,
-    std::vector<C2Message>& sentC2Messages,
+    std::vector<BeaconCommandContext>& sentCommands,
     PrepMsgCallback prepMsg)
     : m_logger(std::move(logger)),
       m_config(config),
@@ -78,19 +78,19 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
       m_commonCommands(commonCommands),
       m_cmdResponses(cmdResponses),
       m_sentResponses(sentResponses),
-      m_sentC2Messages(sentC2Messages),
+      m_sentCommands(sentCommands),
       m_prepMsg(std::move(prepMsg))
 {
 }
 
 grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerListenerSessionService::ListenerEmitter& emit)
 {
-    m_logger->trace("GetListeners");
+    m_logger->trace("ListListeners");
 
     for (size_t i = 0; i < m_listeners.size(); i++)
     {
         teamserverapi::Listener listener;
-        listener.set_listenerhash(m_listeners[i]->getListenerHash());
+        listener.set_listener_hash(m_listeners[i]->getListenerHash());
 
         std::string type = m_listeners[i]->getType();
         listener.set_type(type);
@@ -114,7 +114,7 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
             listener.set_domain(m_listeners[i]->getParam1());
             listener.set_port(std::stoi(m_listeners[i]->getParam2()));
         }
-        listener.set_numberofsession(m_listeners[i]->getNumberOfSession());
+        listener.set_session_count(static_cast<int32_t>(m_listeners[i]->getNumberOfSession()));
 
         if (!emit(listener))
             return grpc::Status::OK;
@@ -131,8 +131,8 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
                 m_logger->trace("|-> sessionListenerList {0} {1} {2}", it->getType(), it->getParam1(), it->getParam2());
 
                 teamserverapi::Listener childListener;
-                childListener.set_listenerhash(it->getListenerHash());
-                childListener.set_beaconhash(session->getBeaconHash());
+                childListener.set_listener_hash(it->getListenerHash());
+                childListener.set_beacon_hash(session->getBeaconHash());
                 std::string childType = it->getType();
                 childListener.set_type(childType);
                 if (childType == ListenerTcpType)
@@ -152,14 +152,15 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
         }
     }
 
-    m_logger->trace("GetListeners end");
+    m_logger->trace("ListListeners end");
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::Listener& listenerToCreate)
+grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::Listener& listenerToCreate, teamserverapi::OperationAck* response)
 {
     m_logger->trace("AddListener");
     const std::string type = listenerToCreate.type();
+    response->set_status(teamserverapi::KO);
 
     if (type == ListenerGithubType)
     {
@@ -176,6 +177,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         if (object != m_listeners.end())
         {
             m_logger->warn("Add listener failed: Listener already exist");
+            response->set_message("Listener already exists.");
             return grpc::Status::OK;
         }
     }
@@ -196,6 +198,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
             m_logger->warn("Add listener failed: DNS listener already running on {0}:{1}",
                 listenerToCreate.domain(),
                 std::to_string(listenerToCreate.port()));
+            response->set_message("DNS listener already exists.");
             return grpc::Status::OK;
         }
     }
@@ -214,9 +217,12 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         if (object != m_listeners.end())
         {
             m_logger->warn("Add listener failed: Listener already exist");
+            response->set_message("Listener already exists.");
             return grpc::Status::OK;
         }
     }
+
+    bool created = false;
 
     if (type == ListenerTcpType)
     {
@@ -225,6 +231,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         {
             listenerTcp->setIsPrimary();
             m_listeners.push_back(std::move(listenerTcp));
+            created = true;
             m_logger->info("AddListener Tcp {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
         }
         else
@@ -239,6 +246,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         {
             listenerHttp->setIsPrimary();
             m_listeners.push_back(std::move(listenerHttp));
+            created = true;
             m_logger->info("AddListener Http {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
         }
         else
@@ -253,6 +261,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         {
             listenerHttps->setIsPrimary();
             m_listeners.push_back(std::move(listenerHttps));
+            created = true;
             m_logger->info("AddListener Https {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
         }
         else
@@ -265,6 +274,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         std::shared_ptr<ListenerGithub> listenerGithub = std::make_shared<ListenerGithub>(listenerToCreate.project(), listenerToCreate.token(), m_config);
         listenerGithub->setIsPrimary();
         m_listeners.push_back(std::move(listenerGithub));
+        created = true;
         m_logger->info("AddListener Github {0}:{1}", listenerToCreate.project(), listenerToCreate.token());
     }
     else if (type == ListenerDnsType)
@@ -272,19 +282,30 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         std::shared_ptr<ListenerDns> listenerDns = std::make_shared<ListenerDns>(listenerToCreate.domain(), listenerToCreate.port(), m_config);
         listenerDns->setIsPrimary();
         m_listeners.push_back(std::move(listenerDns));
+        created = true;
         m_logger->info("AddListener Dns {0}:{1}", listenerToCreate.domain(), std::to_string(listenerToCreate.port()));
+    }
+
+    if (created)
+    {
+        response->set_status(teamserverapi::OK);
+        response->set_message("Listener created.");
+    }
+    else if (response->message().empty())
+    {
+        response->set_message("Listener could not be created.");
     }
 
     m_logger->trace("AddListener end");
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi::Listener& listenerToStop, teamserverapi::Response* response)
+grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi::ListenerSelector& listenerToStop, teamserverapi::OperationAck* response)
 {
-    (void)response;
     m_logger->trace("StopListener");
+    response->set_status(teamserverapi::KO);
 
-    const std::string listenerHash = listenerToStop.listenerhash();
+    const std::string listenerHash = listenerToStop.listener_hash();
     bool removedPrimary = false;
     bool stopCommandSent = false;
 
@@ -328,13 +349,17 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
 
                     if (!c2Message.instruction().empty())
                     {
-                        std::string uuid = generateUUID8();
-                        c2Message.set_uuid(uuid);
+                        const std::string commandId = generateUUID8();
+                        c2Message.set_uuid(commandId);
                         m_listeners[i]->queueTask(beaconHash, c2Message);
 
-                        c2Message.set_cmd(input);
-                        c2Message.set_data("");
-                        m_sentC2Messages.push_back(std::move(c2Message));
+                        m_sentCommands.push_back(BeaconCommandContext{
+                            commandId,
+                            beaconHash,
+                            session->getListenerHash(),
+                            input,
+                            c2Message.instruction(),
+                        });
                         stopCommandSent = true;
                     }
                 }
@@ -343,12 +368,19 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
     }
 
     if (removedPrimary || stopCommandSent)
+    {
+        response->set_status(teamserverapi::OK);
+        response->set_message("Listener stop requested.");
         m_logger->info("StopListener completed for {0} (primary removed: {1}, stop commands sent: {2})",
             listenerHash,
             removedPrimary ? "yes" : "no",
             stopCommandSent ? "yes" : "no");
+    }
     else
+    {
+        response->set_message("Listener not found.");
         m_logger->warn("StopListener request ignored: listener {0} not found", listenerHash);
+    }
 
     m_logger->trace("StopListener end");
     return grpc::Status::OK;
@@ -385,7 +417,7 @@ bool TeamServerListenerSessionService::isListenerAlive(const std::string& listen
 
 grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerListenerSessionService::SessionEmitter& emit)
 {
-    m_logger->trace("GetSessions");
+    m_logger->trace("ListSessions");
 
     for (size_t i = 0; i < m_listeners.size(); i++)
     {
@@ -399,18 +431,18 @@ grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerLi
                 continue;
 
             teamserverapi::Session sessionTmp;
-            sessionTmp.set_listenerhash(session->getListenerHash());
-            sessionTmp.set_beaconhash(session->getBeaconHash());
+            sessionTmp.set_listener_hash(session->getListenerHash());
+            sessionTmp.set_beacon_hash(session->getBeaconHash());
             sessionTmp.set_hostname(session->getHostname());
             sessionTmp.set_username(session->getUsername());
             sessionTmp.set_arch(session->getArch());
             sessionTmp.set_privilege(session->getPrivilege());
             sessionTmp.set_os(session->getOs());
-            sessionTmp.set_lastproofoflife(session->getLastProofOfLife());
+            sessionTmp.set_last_proof_of_life(session->getLastProofOfLife());
             sessionTmp.set_killed(session->isSessionKilled());
-            sessionTmp.set_internalips(session->getInternalIps());
-            sessionTmp.set_processid(session->getProcessId());
-            sessionTmp.set_additionalinformation(session->getAdditionalInformation());
+            sessionTmp.set_internal_ips(session->getInternalIps());
+            sessionTmp.set_process_id(session->getProcessId());
+            sessionTmp.set_additional_information(session->getAdditionalInformation());
 
             if (!session->isSessionKilled() && isListenerAlive(session->getListenerHash()))
             {
@@ -420,16 +452,17 @@ grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerLi
         }
     }
 
-    m_logger->trace("GetSessions end");
+    m_logger->trace("ListSessions end");
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::Session& sessionToStop, teamserverapi::Response* response)
+grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::SessionSelector& sessionToStop, teamserverapi::OperationAck* response)
 {
     m_logger->trace("StopSession");
+    response->set_status(teamserverapi::KO);
 
-    const std::string beaconHash = sessionToStop.beaconhash();
-    const std::string listenerHash = sessionToStop.listenerhash();
+    const std::string beaconHash = sessionToStop.beacon_hash();
+    const std::string listenerHash = sessionToStop.listener_hash();
 
     if (beaconHash.size() == SizeBeaconHash)
     {
@@ -451,6 +484,8 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
                 {
                     m_listeners[i]->queueTask(beaconHash, c2Message);
                     m_listeners[i]->markSessionKilled(beaconHash);
+                    response->set_status(teamserverapi::OK);
+                    response->set_message("Session stop command queued.");
                     m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
                 }
 
@@ -460,18 +495,30 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
         }
     }
 
+    response->set_message("Session not found.");
     m_logger->warn("StopSession request ignored: session {0} on listener {1} not found", beaconHash, listenerHash);
     m_logger->trace("StopSession end");
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerListenerSessionService::sendCmdToSession(const teamserverapi::Command& command, teamserverapi::Response* response)
+grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserverapi::SessionCommandRequest& command, teamserverapi::CommandAck* response)
 {
-    m_logger->trace("SendCmdToSession");
+    m_logger->trace("SendSessionCommand");
 
-    const std::string input = command.cmd();
-    const std::string beaconHash = command.beaconhash();
-    const std::string listenerHash = command.listenerhash();
+    const std::string input = command.command();
+    const std::string beaconHash = command.session().beacon_hash();
+    const std::string listenerHash = command.session().listener_hash();
+    const std::string commandId = command.command_id().empty() ? generateUUID8() : command.command_id();
+
+    response->set_status(teamserverapi::KO);
+    response->set_command_id(commandId);
+
+    if (input.empty())
+    {
+        response->set_message("Empty command.");
+        m_logger->trace("SendSessionCommand end");
+        return grpc::Status::OK;
+    }
 
     for (size_t i = 0; i < m_listeners.size(); i++)
     {
@@ -482,45 +529,56 @@ grpc::Status TeamServerListenerSessionService::sendCmdToSession(const teamserver
         bool isWindows = session && session->getOs() == "Windows";
         std::string windowsArch = session ? session->getArch() : "x64";
 
-        if (!input.empty())
+        C2Message c2Message;
+        int res = m_prepMsg(input, c2Message, isWindows, windowsArch);
+
+        m_logger->debug("SendSessionCommand {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+
+        if (res != 0)
         {
-            C2Message c2Message;
-            int res = m_prepMsg(input, c2Message, isWindows, windowsArch);
-
-            m_logger->debug("SendCmdToSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
-
-            if (res != 0)
-            {
-                std::string hint = c2Message.returnvalue();
-                response->set_message(hint);
-                response->set_status(teamserverapi::KO);
-                m_logger->debug("SendCmdToSession Fail prepMsg {0}", hint);
-            }
-
-            if (!c2Message.instruction().empty())
-            {
-                m_logger->info("Queued command for beacon {} -> '{}'", beaconHash.substr(0, 8), input);
-
-                const std::string& inputFile = c2Message.inputfile();
-                const std::string& payload = c2Message.data();
-                if (!inputFile.empty() && !payload.empty())
-                {
-                    std::string md5 = computeBufferMd5(payload);
-                    m_logger->info("File attached to task: '{}' | size={} bytes | MD5={}", inputFile, payload.size(), md5);
-                }
-
-                std::string uuid = generateUUID8();
-                c2Message.set_uuid(uuid);
-                m_listeners[i]->queueTask(beaconHash, c2Message);
-
-                c2Message.set_cmd(input);
-                c2Message.set_data("");
-                m_sentC2Messages.push_back(std::move(c2Message));
-            }
+            std::string hint = c2Message.returnvalue();
+            response->set_message(hint);
+            m_logger->debug("SendSessionCommand Fail prepMsg {0}", hint);
+            m_logger->trace("SendSessionCommand end");
+            return grpc::Status::OK;
         }
+
+        if (c2Message.instruction().empty())
+        {
+            response->set_message("Command did not produce a beacon task.");
+            m_logger->trace("SendSessionCommand end");
+            return grpc::Status::OK;
+        }
+
+        m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
+
+        const std::string& inputFile = c2Message.inputfile();
+        const std::string& payload = c2Message.data();
+        if (!inputFile.empty() && !payload.empty())
+        {
+            std::string md5 = computeBufferMd5(payload);
+            m_logger->info("File attached to task: '{}' | size={} bytes | MD5={}", inputFile, payload.size(), md5);
+        }
+
+        const std::string instruction = c2Message.instruction();
+        c2Message.set_uuid(commandId);
+        m_listeners[i]->queueTask(beaconHash, c2Message);
+
+        m_sentCommands.push_back(BeaconCommandContext{
+            commandId,
+            beaconHash,
+            listenerHash,
+            input,
+            instruction,
+        });
+
+        response->set_status(teamserverapi::OK);
+        m_logger->trace("SendSessionCommand end");
+        return grpc::Status::OK;
     }
 
-    m_logger->trace("SendCmdToSession end");
+    response->set_message("Session not found.");
+    m_logger->trace("SendSessionCommand end");
     return grpc::Status::OK;
 }
 
@@ -541,7 +599,7 @@ int TeamServerListenerSessionService::handleCmdResponse()
             C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
             while (!c2Message.instruction().empty())
             {
-                m_logger->trace("GetResponseFromSession {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
+                m_logger->trace("StreamSessionCommandResults {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
 
                 std::string instructionCmd = c2Message.instruction();
                 std::string errorMsg;
@@ -569,34 +627,58 @@ int TeamServerListenerSessionService::handleCmdResponse()
                         m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
                 }
 
-                std::string cmd = c2Message.cmd();
-                for (size_t jj = 0; jj < m_sentC2Messages.size(); jj++)
-                {
-                    if (m_sentC2Messages[jj].uuid() == c2Message.uuid())
+                std::string commandId = c2Message.uuid();
+                std::string listenerHash = session->getListenerHash();
+                std::string commandLine = c2Message.cmd();
+                std::string responseInstruction = instructionCmd;
+                const std::string translatedInstruction = m_commonCommands.translateCmdToInstruction(instructionCmd);
+                if (!translatedInstruction.empty())
+                    responseInstruction = translatedInstruction;
+
+                auto sentCommand = std::find_if(
+                    m_sentCommands.begin(),
+                    m_sentCommands.end(),
+                    [&commandId](const BeaconCommandContext& context)
                     {
-                        cmd = m_sentC2Messages[jj].cmd();
-                        m_sentC2Messages.erase(m_sentC2Messages.begin() + static_cast<long>(jj));
-                        break;
-                    }
+                        return context.commandId == commandId;
+                    });
+                bool trackedCommand = false;
+                if (sentCommand != m_sentCommands.end())
+                {
+                    trackedCommand = true;
+                    listenerHash = sentCommand->listenerHash;
+                    commandLine = sentCommand->commandLine;
+                    if (responseInstruction.empty())
+                        responseInstruction = sentCommand->instruction;
+                    m_sentCommands.erase(sentCommand);
                 }
 
-                teamserverapi::CommandResponse commandResponseTmp;
-                commandResponseTmp.set_beaconhash(beaconHash);
-                commandResponseTmp.set_instruction(cmd);
-                commandResponseTmp.set_cmd("");
+                teamserverapi::CommandResult commandResponseTmp;
+                commandResponseTmp.set_status(errorMsg.empty() ? teamserverapi::OK : teamserverapi::KO);
+                commandResponseTmp.mutable_session()->set_beacon_hash(beaconHash);
+                commandResponseTmp.mutable_session()->set_listener_hash(listenerHash);
+                commandResponseTmp.set_command_id(commandId);
+                commandResponseTmp.set_instruction(responseInstruction);
+                commandResponseTmp.set_command(commandLine);
                 if (!errorMsg.empty())
                 {
-                    commandResponseTmp.set_response(errorMsg);
+                    commandResponseTmp.set_message(errorMsg);
+                    commandResponseTmp.set_output(errorMsg);
                     m_cmdResponses.push_back(commandResponseTmp);
                 }
                 else if (!c2Message.returnvalue().empty())
                 {
-                    commandResponseTmp.set_response(c2Message.returnvalue());
+                    commandResponseTmp.set_output(c2Message.returnvalue());
+                    m_cmdResponses.push_back(commandResponseTmp);
+                }
+                else if (trackedCommand)
+                {
+                    commandResponseTmp.set_output("");
                     m_cmdResponses.push_back(commandResponseTmp);
                 }
                 else
                 {
-                    m_logger->debug("GetResponseFromSession no output");
+                    m_logger->debug("StreamSessionCommandResults no output");
                 }
 
                 c2Message = m_listeners[i]->getTaskResult(beaconHash);
@@ -609,12 +691,14 @@ int TeamServerListenerSessionService::handleCmdResponse()
 }
 
 grpc::Status TeamServerListenerSessionService::streamResponsesForSession(
-    const std::string& targetSession,
+    const teamserverapi::SessionSelector& targetSession,
     const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
-    const TeamServerListenerSessionService::CommandResponseEmitter& emit)
+    const TeamServerListenerSessionService::CommandResultEmitter& emit)
 {
-    m_logger->trace("GetResponseFromSession");
+    m_logger->trace("StreamSessionCommandResults");
 
+    const std::string targetBeaconHash = targetSession.beacon_hash();
+    const std::string targetListenerHash = targetSession.listener_hash();
     const std::string clientId = extractClientId(metadata);
     if (clientId.empty())
         return grpc::Status::OK;
@@ -625,7 +709,8 @@ grpc::Status TeamServerListenerSessionService::streamResponsesForSession(
     std::vector<int>& sentIndices = m_sentResponses[clientId];
     for (size_t i = 0; i < m_cmdResponses.size(); ++i)
     {
-        if (targetSession == m_cmdResponses[i].beaconhash())
+        if (targetBeaconHash == m_cmdResponses[i].session().beacon_hash()
+            && targetListenerHash == m_cmdResponses[i].session().listener_hash())
         {
             if (std::find(sentIndices.begin(), sentIndices.end(), static_cast<int>(i)) == sentIndices.end())
             {

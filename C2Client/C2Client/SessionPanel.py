@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .grpc_status import is_response_ok, operation_ack_text
       
 
 #
@@ -57,6 +58,8 @@ class Sessions(QWidget):
 
         self.label = QLabel('Sessions')
         self.layout.addWidget(self.label)
+        self.statusLabel = QLabel("")
+        self.layout.addWidget(self.statusLabel)
 
         # List of sessions
         self.listSession = QTableWidget()
@@ -81,11 +84,18 @@ class Sessions(QWidget):
         self.getSessionsWorker = GetSessionsWorker()
         self.getSessionsWorker.moveToThread(self.thread)
         self.thread.started.connect(self.getSessionsWorker.run)
-        self.getSessionsWorker.checkin.connect(self.getSessions)
+        self.getSessionsWorker.checkin.connect(self.listSessions)
         self.thread.start()
 
         self.setLayout(self.layout)
 
+    def setStatusMessage(self, ack, successFallback):
+        message = operation_ack_text(ack, successFallback)
+        self.statusLabel.setText(message)
+        if is_response_ok(ack):
+            self.statusLabel.setStyleSheet("color: #0a7f2e;")
+        else:
+            self.statusLabel.setStyleSheet("color: #b00020;")
 
     def resizeEvent(self, event):
         super().resizeEvent(event) 
@@ -138,14 +148,15 @@ class Sessions(QWidget):
 
 
     def stopSession(self, beaconHash, listenerHash):
-        session = TeamServerApi_pb2.Session(
-            beaconHash=beaconHash, listenerHash=listenerHash)
-        self.grpcClient.stopSession(session)
-        self.getSessions()
+        session = TeamServerApi_pb2.SessionSelector(
+            beacon_hash=beaconHash, listener_hash=listenerHash)
+        ack = self.grpcClient.stopSession(session)
+        self.setStatusMessage(ack, "Session stop command accepted.")
+        self.listSessions()
 
 
-    def getSessions(self):
-        responses = self.grpcClient.getSessions()
+    def listSessions(self):
+        responses = self.grpcClient.listSessions()
 
         sessions = list()
         for response in responses:
@@ -155,7 +166,7 @@ class Sessions(QWidget):
         for ix, item in enumerate(self.listSessionObject):
             runing=False
             for session in sessions:
-                if session.beaconHash == item.beaconHash:
+                if session.beacon_hash == item.beaconHash:
                     runing=True
             # set idl
             if not runing:
@@ -165,11 +176,11 @@ class Sessions(QWidget):
             inStore=False
             for sessionStore in self.listSessionObject:
                 #maj
-                if session.listenerHash == sessionStore.listenerHash and session.beaconHash == sessionStore.beaconHash:
-                    self.sessionScriptSignal.emit("update", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
+                if session.listener_hash == sessionStore.listenerHash and session.beacon_hash == sessionStore.beaconHash:
+                    self.sessionScriptSignal.emit("update", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
                     inStore=True
-                    sessionStore.lastProofOfLife=session.lastProofOfLife
-                    sessionStore.listenerHash=session.listenerHash
+                    sessionStore.lastProofOfLife=session.last_proof_of_life
+                    sessionStore.listenerHash=session.listener_hash
                     if session.hostname:
                         sessionStore.hostname=session.hostname
                     if session.username:
@@ -180,29 +191,29 @@ class Sessions(QWidget):
                         sessionStore.privilege=session.privilege
                     if session.os:
                         sessionStore.os=session.os
-                    if session.lastProofOfLife:
-                        sessionStore.lastProofOfLife=session.lastProofOfLife
+                    if session.last_proof_of_life:
+                        sessionStore.lastProofOfLife=session.last_proof_of_life
                     if session.killed:
                         sessionStore.killed=session.killed
-                    if session.internalIps:
-                        sessionStore.internalIps=session.internalIps
-                    if session.processId:
-                        sessionStore.processId=session.processId
-                    if session.additionalInformation:
-                        sessionStore.additionalInformation=session.additionalInformation
+                    if session.internal_ips:
+                        sessionStore.internalIps=session.internal_ips
+                    if session.process_id:
+                        sessionStore.processId=session.process_id
+                    if session.additional_information:
+                        sessionStore.additionalInformation=session.additional_information
             # add
             if not inStore:
-                self.sessionScriptSignal.emit("start", session.beaconHash, session.listenerHash, session.hostname, session.username, session.arch, session.privilege, session.os, session.lastProofOfLife, session.killed)
+                self.sessionScriptSignal.emit("start", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
 
                 # print(session)
 
                 self.listSessionObject.append(
                     Session(
                         self.idSession,
-                        session.listenerHash, session.beaconHash, 
+                        session.listener_hash, session.beacon_hash, 
                         session.hostname, session.username, session.arch,
-                        session.privilege, session.os, session.lastProofOfLife,
-                        session.killed, session.internalIps, session.processId, session.additionalInformation
+                        session.privilege, session.os, session.last_proof_of_life,
+                        session.killed, session.internal_ips, session.process_id, session.additional_information
                         )
                     )
                 self.idSession = self.idSession+1

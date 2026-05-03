@@ -1,0 +1,28 @@
+{
+  "name": "cat",
+  "description": "Read a file on a beacon host.",
+  "command_template": "cat {path:q}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "path": {
+        "type": "string",
+        "description": "File path to read."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "path"
+    ],
+    "additionalProperties": false
+  }
+}

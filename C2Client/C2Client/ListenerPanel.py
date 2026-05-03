@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .grpc_status import is_response_ok, operation_ack_text
 
 
 #
@@ -76,6 +77,8 @@ class Listeners(QWidget):
 
         self.label = QLabel(ListenerTabTitle)
         self.layout.addWidget(self.label)
+        self.statusLabel = QLabel("")
+        self.layout.addWidget(self.statusLabel)
 
         # List of sessions
         self.listListener = QTableWidget()
@@ -101,11 +104,18 @@ class Listeners(QWidget):
         self.getListenerWorker = GetListenerWorker()
         self.getListenerWorker.moveToThread(self.thread)
         self.thread.started.connect(self.getListenerWorker.run)
-        self.getListenerWorker.checkin.connect(self.getListeners)
+        self.getListenerWorker.checkin.connect(self.listListeners)
         self.thread.start()
 
         self.setLayout(self.layout)
 
+    def setStatusMessage(self, ack, successFallback):
+        message = operation_ack_text(ack, successFallback)
+        self.statusLabel.setText(message)
+        if is_response_ok(ack):
+            self.statusLabel.setStyleSheet("color: #0a7f2e;")
+        else:
+            self.statusLabel.setStyleSheet("color: #b00020;")
 
     def __del__(self):
         self.getListenerWorker.quit()
@@ -166,19 +176,21 @@ class Listeners(QWidget):
             type=message[0],
             ip=message[1],
             port=int(message[2]))
-        self.grpcClient.addListener(listener)
+        ack = self.grpcClient.addListener(listener)
+        self.setStatusMessage(ack, "Listener command accepted.")
 
 
     # send message for stoping a listener
     def stopListener(self, listenerHash):
-        listener = TeamServerApi_pb2.Listener(
-        listenerHash=listenerHash)
-        self.grpcClient.stopListener(listener)
+        listener = TeamServerApi_pb2.ListenerSelector(
+        listener_hash=listenerHash)
+        ack = self.grpcClient.stopListener(listener)
+        self.setStatusMessage(ack, "Listener stop command accepted.")
 
 
     # query the server to get the list of listeners
-    def getListeners(self):
-        responses = self.grpcClient.getListeners()
+    def listListeners(self):
+        responses = self.grpcClient.listListeners()
 
         listeners = list()
         for response in responses:
@@ -188,7 +200,7 @@ class Listeners(QWidget):
         for ix, listenerStore in enumerate(self.listListenerObject):
             runing=False
             for listener in listeners:
-                if listener.listenerHash == listenerStore.listenerHash:
+                if listener.listener_hash == listenerStore.listenerHash:
                     runing=True
             # delete
             if not runing:
@@ -199,9 +211,9 @@ class Listeners(QWidget):
             # if listener is already on our list
             for ix, listenerStore in enumerate(self.listListenerObject):
                 # maj
-                if listener.listenerHash == listenerStore.listenerHash:
+                if listener.listener_hash == listenerStore.listenerHash:
                     inStore=True
-                    listenerStore.nbSession=listener.numberOfSession
+                    listenerStore.nbSession=listener.session_count
             # add
             # if listener is not yet already on our list
             if not inStore:
@@ -209,13 +221,13 @@ class Listeners(QWidget):
                 self.listenerScriptSignal.emit("start", "", "", "")
 
                 if listener.type == GithubType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.project, listener.token[0:10], listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count))
                 elif listener.type == DnsType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.domain, listener.port, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count))
                 elif listener.type == SmbType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.domain, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count))
                 else:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listenerHash, listener.type, listener.ip, listener.port, listener.numberOfSession))
+                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count))
                 self.idListener = self.idListener+1
 
         self.printListeners()

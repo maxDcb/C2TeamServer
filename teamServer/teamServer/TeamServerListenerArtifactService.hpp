@@ -29,8 +29,8 @@ public:
     grpc::Status handleCommand(
         const std::string& instruction,
         const std::vector<std::string>& splitedCmd,
-        const teamserverapi::TermCommand& command,
-        teamserverapi::TermCommand* response) const;
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response) const;
 
 private:
     std::string resolvePublicAddress() const;
@@ -43,11 +43,11 @@ private:
     grpc::Status handleInfoListener(
         const std::vector<std::string>& splitedCmd,
         const std::string& cmd,
-        teamserverapi::TermCommand* response) const;
+        teamserverapi::TerminalCommandResponse* response) const;
     grpc::Status handleGetBeaconBinary(
         const std::vector<std::string>& splitedCmd,
         const std::string& cmd,
-        teamserverapi::TermCommand* response) const;
+        teamserverapi::TerminalCommandResponse* response) const;
 
     std::shared_ptr<spdlog::logger> m_logger;
     const nlohmann::json& m_config;

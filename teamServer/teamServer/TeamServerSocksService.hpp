@@ -41,7 +41,7 @@ public:
 
     ~TeamServerSocksService();
 
-    grpc::Status handleCommand(const std::vector<std::string>& splitedCmd, teamserverapi::TermCommand* response);
+    grpc::Status handleCommand(const std::vector<std::string>& splitedCmd, teamserverapi::TerminalCommandResponse* response);
     void shutdown();
     void run();
 

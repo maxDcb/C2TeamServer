@@ -13,6 +13,20 @@ const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
 const std::string AddCredentialInstruction = "addCred";
 const std::string GetCredentialInstruction = "getCred";
+
+void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
+{
+    response->set_status(teamserverapi::OK);
+    response->set_result(result);
+    response->clear_message();
+}
+
+void setTerminalError(teamserverapi::TerminalCommandResponse* response, const std::string& result)
+{
+    response->set_status(teamserverapi::KO);
+    response->set_result(result);
+    response->set_message(result);
+}
 } // namespace
 
 TeamServerTermLocalService::TeamServerTermLocalService(
@@ -45,12 +59,14 @@ bool TeamServerTermLocalService::canHandle(const std::string& instruction) const
 grpc::Status TeamServerTermLocalService::handleCommand(
     const std::string& instruction,
     const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TermCommand& command,
-    teamserverapi::TermCommand* response)
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response)
 {
-    response->set_cmd("");
+    response->set_status(teamserverapi::OK);
+    response->set_command(command.command());
     response->set_result("");
     response->set_data("");
+    response->clear_message();
 
     if (instruction == PutIntoUploadDirInstruction)
         return handlePutIntoUploadDir(splitedCmd, command, response);
@@ -63,7 +79,9 @@ grpc::Status TeamServerTermLocalService::handleCommand(
     if (instruction == ReloadModulesInstruction)
         return handleReloadModules(response);
 
+    response->set_status(teamserverapi::KO);
     response->set_result("Error: not implemented.");
+    response->set_message("Terminal command not implemented.");
     return grpc::Status::OK;
 }
 
@@ -116,14 +134,14 @@ std::string TeamServerTermLocalService::resolveDownloadFolderForListener(const s
 
 grpc::Status TeamServerTermLocalService::handlePutIntoUploadDir(
     const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TermCommand& command,
-    teamserverapi::TermCommand* response)
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response)
 {
-    m_logger->debug("putIntoUploadDir {0}", command.cmd());
+    m_logger->debug("putIntoUploadDir {0}", command.command());
 
     if (splitedCmd.size() != 3)
     {
-        response->set_result("Error: putIntoUploadDir take tow arguements.");
+        setTerminalError(response, "Error: putIntoUploadDir take tow arguements.");
         return grpc::Status::OK;
     }
 
@@ -131,14 +149,14 @@ grpc::Status TeamServerTermLocalService::handlePutIntoUploadDir(
     const std::string& filename = splitedCmd[2];
     if (!isValidFilename(filename))
     {
-        response->set_result("Error: filename not allowed.");
+        setTerminalError(response, "Error: filename not allowed.");
         return grpc::Status::OK;
     }
 
     const std::string downloadFolder = resolveDownloadFolderForListener(listenerHash);
     if (downloadFolder.empty())
     {
-        response->set_result("Error: Listener don't have a download folder.");
+        setTerminalError(response, "Error: Listener don't have a download folder.");
         m_logger->warn("Listener {0} has no download folder configured; unable to store {1}", listenerHash, filename);
         return grpc::Status::OK;
     }
@@ -149,31 +167,34 @@ grpc::Status TeamServerTermLocalService::handlePutIntoUploadDir(
     {
         outputFile << command.data();
         outputFile.close();
-        response->set_result("ok");
+        setTerminalOk(response, "ok");
         m_logger->info("Stored uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
         return grpc::Status::OK;
     }
 
-    response->set_result("Error: Cannot write file.");
+    setTerminalError(response, "Error: Cannot write file.");
     m_logger->warn("Failed to store uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath);
     return grpc::Status::OK;
 }
 
 grpc::Status TeamServerTermLocalService::handleBatcaveUpload(
     const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TermCommand& command,
-    teamserverapi::TermCommand* response)
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response)
 {
-    m_logger->debug("batcaveUpload {0}", command.cmd());
+    m_logger->debug("batcaveUpload {0}", command.command());
 
     if (splitedCmd.size() != 2)
+    {
+        setTerminalError(response, "Error: batcaveUpload take one arguement.");
         return grpc::Status::OK;
+    }
 
     const std::string& filename = splitedCmd[1];
     m_logger->debug("batcaveUpload {0}", filename);
     if (!isValidFilename(filename))
     {
-        response->set_result("Error: filename not allowed.");
+        setTerminalError(response, "Error: filename not allowed.");
         return grpc::Status::OK;
     }
 
@@ -183,39 +204,48 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUpload(
     {
         outputFile << command.data();
         outputFile.close();
-        response->set_result("ok");
+        setTerminalOk(response, "ok");
         m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath);
         return grpc::Status::OK;
     }
 
-    response->set_result("Error: Cannot write file.");
+    setTerminalError(response, "Error: Cannot write file.");
     m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath);
     return grpc::Status::OK;
 }
 
 grpc::Status TeamServerTermLocalService::handleAddCredential(
-    const teamserverapi::TermCommand& command,
-    teamserverapi::TermCommand* response)
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response)
 {
     m_logger->debug("AddCredentials command received");
 
-    json cred = json::parse(command.data());
+    json cred;
+    try
+    {
+        cred = json::parse(command.data());
+    }
+    catch (const json::parse_error&)
+    {
+        setTerminalError(response, "Error: invalid credential payload.");
+        return grpc::Status::OK;
+    }
+
     m_credentials.push_back(cred);
     m_logger->info("Stored credential entry. Total credentials: {0}", m_credentials.size());
-    response->set_result("ok");
+    setTerminalOk(response, "ok");
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerTermLocalService::handleGetCredential(teamserverapi::TermCommand* response)
+grpc::Status TeamServerTermLocalService::handleGetCredential(teamserverapi::TerminalCommandResponse* response)
 {
     m_logger->debug("GetCredentials command received");
-    response->set_result(m_credentials.dump());
+    setTerminalOk(response, m_credentials.dump());
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::TermCommand* response)
+grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::TerminalCommandResponse* response)
 {
-    (void)response;
     m_logger->info("Reloading TeamServer modules from directory: {0}", m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
 
     m_moduleCmd.clear();
@@ -228,5 +258,6 @@ grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::Term
     else
         m_logger->info("Reloaded {0} TeamServer module(s) from {1}", reloadedModules, m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
 
+    setTerminalOk(response, "");
     return grpc::Status::OK;
 }

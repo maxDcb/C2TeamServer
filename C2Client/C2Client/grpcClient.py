@@ -130,14 +130,14 @@ class GrpcClient:
         logging.info("Authenticated against TeamServer as %s", username)
         return response.token
 
-    def getListeners(self) -> Any:
+    def listListeners(self) -> Any:
         """Return the list of listeners registered on the TeamServer."""
 
         empty = TeamServerApi_pb2.Empty()
         try:
-            return self.stub.GetListeners(empty, metadata=self.metadata)
+            return self.stub.ListListeners(empty, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("GetListeners RPC failed: %s", exc)
+            logging.error("ListListeners RPC failed: %s", exc)
             raise
 
     def addListener(self, listener: Any) -> Any:
@@ -158,14 +158,14 @@ class GrpcClient:
             logging.error("StopListener RPC failed: %s", exc)
             raise
 
-    def getSessions(self) -> Any:
+    def listSessions(self) -> Any:
         """Return all active sessions."""
 
         empty = TeamServerApi_pb2.Empty()
         try:
-            return self.stub.GetSessions(empty, metadata=self.metadata)
+            return self.stub.ListSessions(empty, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("GetSessions RPC failed: %s", exc)
+            logging.error("ListSessions RPC failed: %s", exc)
             raise
 
     def stopSession(self, session: Any) -> Any:
@@ -177,38 +177,38 @@ class GrpcClient:
             logging.error("StopSession RPC failed: %s", exc)
             raise
 
-    def sendCmdToSession(self, command: Any) -> Any:
+    def sendSessionCommand(self, command: Any) -> Any:
         """Send a command to the specified session."""
 
         try:
-            return self.stub.SendCmdToSession(command, metadata=self.metadata)
+            return self.stub.SendSessionCommand(command, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("SendCmdToSession RPC failed: %s", exc)
+            logging.error("SendSessionCommand RPC failed: %s", exc)
             raise
 
-    def getResponseFromSession(self, session: Any) -> Iterable[Any]:
+    def streamSessionCommandResults(self, session: Any) -> Iterable[Any]:
         """Yield responses for a given session."""
 
         try:
-            return self.stub.GetResponseFromSession(session, metadata=self.metadata)
+            return self.stub.StreamSessionCommandResults(session, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("GetResponseFromSession RPC failed: %s", exc)
+            logging.error("StreamSessionCommandResults RPC failed: %s", exc)
             raise
 
-    def getHelp(self, command: Any) -> Any:
+    def getCommandHelp(self, command: Any) -> Any:
         """Return help information for a command."""
 
         try:
-            return self.stub.GetHelp(command, metadata=self.metadata)
+            return self.stub.GetCommandHelp(command, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("GetHelp RPC failed: %s", exc)
+            logging.error("GetCommandHelp RPC failed: %s", exc)
             raise
 
-    def sendTermCmd(self, command: Any) -> Any:
+    def executeTerminalCommand(self, command: Any) -> Any:
         """Send a command to the TeamServer terminal."""
 
         try:
-            return self.stub.SendTermCmd(command, metadata=self.metadata)
+            return self.stub.ExecuteTerminalCommand(command, metadata=self.metadata)
         except grpc.RpcError as exc:
-            logging.error("SendTermCmd RPC failed: %s", exc)
+            logging.error("ExecuteTerminalCommand RPC failed: %s", exc)
             raise

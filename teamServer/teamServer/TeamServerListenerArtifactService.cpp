@@ -28,6 +28,20 @@ std::string readBinaryFile(const std::string& path)
     std::ifstream input(path, std::ios::binary);
     return std::string((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 }
+
+void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
+{
+    response->set_status(teamserverapi::OK);
+    response->set_result(result);
+    response->clear_message();
+}
+
+void setTerminalError(teamserverapi::TerminalCommandResponse* response, const std::string& result)
+{
+    response->set_status(teamserverapi::KO);
+    response->set_result(result);
+    response->set_message(result);
+}
 } // namespace
 
 TeamServerListenerArtifactService::TeamServerListenerArtifactService(
@@ -52,19 +66,23 @@ bool TeamServerListenerArtifactService::canHandle(const std::string& instruction
 grpc::Status TeamServerListenerArtifactService::handleCommand(
     const std::string& instruction,
     const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TermCommand& command,
-    teamserverapi::TermCommand* response) const
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response) const
 {
-    response->set_cmd("");
+    response->set_status(teamserverapi::OK);
+    response->set_command(command.command());
     response->set_result("");
     response->set_data("");
+    response->clear_message();
 
     if (instruction == InfoListenerInstruction)
-        return handleInfoListener(splitedCmd, command.cmd(), response);
+        return handleInfoListener(splitedCmd, command.command(), response);
     if (instruction == GetBeaconBinaryInstruction)
-        return handleGetBeaconBinary(splitedCmd, command.cmd(), response);
+        return handleGetBeaconBinary(splitedCmd, command.command(), response);
 
+    response->set_status(teamserverapi::KO);
     response->set_result("Error: not implemented.");
+    response->set_message("Terminal command not implemented.");
     return grpc::Status::OK;
 }
 
@@ -142,13 +160,13 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
 grpc::Status TeamServerListenerArtifactService::handleInfoListener(
     const std::vector<std::string>& splitedCmd,
     const std::string& cmd,
-    teamserverapi::TermCommand* response) const
+    teamserverapi::TerminalCommandResponse* response) const
 {
     m_logger->debug("infoListener {0}", cmd);
 
     if (splitedCmd.size() != 2)
     {
-        response->set_result("Error: infoListener take one arguement.");
+        setTerminalError(response, "Error: infoListener take one arguement.");
         return grpc::Status::OK;
     }
 
@@ -161,12 +179,12 @@ grpc::Status TeamServerListenerArtifactService::handleInfoListener(
             const std::string result = resolvePrimaryListenerInfo(listener);
             if (result.empty())
             {
-                response->set_result("Error: No IP or Hostname in config.");
+                setTerminalError(response, "Error: No IP or Hostname in config.");
                 return grpc::Status::OK;
             }
 
             m_logger->debug("infoListener found in primary listeners {0}", hash);
-            response->set_result(result);
+            setTerminalOk(response, result);
             return grpc::Status::OK;
         }
 
@@ -192,27 +210,27 @@ grpc::Status TeamServerListenerArtifactService::handleInfoListener(
                 result += "none";
 
                 m_logger->debug("infoListener found in beacon listener {0} {1} {2}", it->getType(), it->getParam1(), it->getParam2());
-                response->set_result(result);
+                setTerminalOk(response, result);
                 return grpc::Status::OK;
             }
         }
     }
 
     m_logger->error("Error: Listener {} not found.", listenerHash);
-    response->set_result("Error: Listener not found.");
+    setTerminalError(response, "Error: Listener not found.");
     return grpc::Status::OK;
 }
 
 grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
     const std::vector<std::string>& splitedCmd,
     const std::string& cmd,
-    teamserverapi::TermCommand* response) const
+    teamserverapi::TerminalCommandResponse* response) const
 {
     m_logger->debug("getBeaconBinary {0}", cmd);
 
     if (splitedCmd.size() < 2 || splitedCmd.size() > 4)
     {
-        response->set_result("Error: getBeaconBinary take one listener hash and optional OS/architecture arguments.");
+        setTerminalError(response, "Error: getBeaconBinary take one listener hash and optional OS/architecture arguments.");
         return grpc::Status::OK;
     }
 
@@ -229,14 +247,14 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
 
         if (targetArch.empty())
         {
-            response->set_result("Error: Unsupported architecture.");
+            setTerminalError(response, "Error: Unsupported architecture.");
             return grpc::Status::OK;
         }
 
         if (std::find(m_runtimeConfig.supportedWindowsArchs.begin(), m_runtimeConfig.supportedWindowsArchs.end(), targetArch)
             == m_runtimeConfig.supportedWindowsArchs.end())
         {
-            response->set_result("Error: Unsupported architecture.");
+            setTerminalError(response, "Error: Unsupported architecture.");
             return grpc::Status::OK;
         }
     }
@@ -251,13 +269,13 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
             if (!beaconFile.good())
             {
                 m_logger->error("Error: Beacons {0} {1} {2} not found.", listener->getType(), targetOs, targetArch);
-                response->set_result("Error: Beacons not found.");
+                setTerminalError(response, "Error: Beacons not found.");
                 return grpc::Status::OK;
             }
 
             m_logger->info("getBeaconBinary found in primary listeners {0} {1} {2}", listener->getType(), targetOs, targetArch);
             response->set_data(readBinaryFile(beaconFilePath));
-            response->set_result("ok");
+            setTerminalOk(response, "ok");
             return grpc::Status::OK;
         }
 
@@ -279,18 +297,18 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
                 if (!beaconFile.good())
                 {
                     m_logger->error("Error: Beacons {0} {1} {2} not found.", it->getType(), targetOs, targetArch);
-                    response->set_result("Error: Beacons not found.");
+                    setTerminalError(response, "Error: Beacons not found.");
                     return grpc::Status::OK;
                 }
 
                 m_logger->info("getBeaconBinary found in beacon listeners {0} {1} {2}", it->getType(), targetOs, targetArch);
                 response->set_data(readBinaryFile(beaconFilePath));
-                response->set_result("ok");
+                setTerminalOk(response, "ok");
                 return grpc::Status::OK;
             }
         }
     }
 
-    response->set_result("Error: Listener not found.");
+    setTerminalError(response, "Error: Listener not found.");
     return grpc::Status::OK;
 }

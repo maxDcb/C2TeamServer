@@ -1,0 +1,33 @@
+{
+  "name": "upload",
+  "description": "Upload a local file from the operator machine to a beacon host.",
+  "command_template": "upload {local_path:q} {remote_path:q}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "local_path": {
+        "type": "string",
+        "description": "Path on the operator machine."
+      },
+      "remote_path": {
+        "type": "string",
+        "description": "Destination path on the beacon host."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "local_path",
+      "remote_path"
+    ],
+    "additionalProperties": false
+  }
+}
