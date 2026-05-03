@@ -283,26 +283,20 @@ class Assistant(QWidget):
         command = context.get("command_line") or "unknown command"
         command_id = context.get("command_id") or "unknown"
         beacon_hash = context.get("beacon_hash") or "unknown"
-        listener_hash = context.get("listener_hash") or "unknown"
-
-        lines = []
-        if prefix:
-            lines.append(prefix)
-        lines.extend(
-            [
-                f"Pending command: {command}",
-                f"Command ID: {command_id}",
-                f"Beacon: {beacon_hash}",
-                f"Listener: {listener_hash}",
-            ]
-        )
+        command_id_short = self._short_id(command_id)
+        beacon_hash_short = self._short_id(beacon_hash)
+        status = prefix or "Waiting for beacon command result."
 
         if self.pending_tool_timeout_ms > 0:
-            lines.append(f"Timeout: {self.pending_tool_timeout_ms // 1000}s")
+            timeout = f", timeout {self.pending_tool_timeout_ms // 1000}s"
         else:
-            lines.append("Timeout: disabled")
+            timeout = ", timeout disabled"
 
-        return "\n".join(lines)
+        return f"{status} Command `{command}` on beacon `{beacon_hash_short}` (cmd `{command_id_short}`{timeout})."
+
+    def _short_id(self, value):
+        text = str(value or "unknown")
+        return text[:8] if len(text) > 8 else text
 
 
     def _start_agent_turn(self, user_input):

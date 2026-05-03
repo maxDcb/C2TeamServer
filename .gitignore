@@ -6,6 +6,8 @@ build-*/
 C2Client/.cmdHistory
 C2Client/.termHistory
 C2Client/.venv/
+C2Client/.env
+.env
 __pycache__/
 .pytest_cache/
 C2Client/Beacon.exe

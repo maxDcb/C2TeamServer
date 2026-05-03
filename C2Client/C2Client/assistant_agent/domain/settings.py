@@ -3,20 +3,28 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from ...env import load_c2_env
 from ..storage.paths import default_storage_dir, prompts_dir
 
 from agent_core import CoreSettings
 from agent_core.prompt_repository import load_prompt
 
+DEFAULT_MEMORY_MODEL = "gpt-4.1-mini"
+
 
 def build_c2_agent_settings(*, storage_dir: Path | None = None) -> CoreSettings:
+    load_c2_env()
+
     if storage_dir is None:
         storage_dir = default_storage_dir()
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_root = prompts_dir()
     model = os.getenv("C2_ASSISTANT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
-    memory_model = os.getenv("C2_ASSISTANT_MEMORY_MODEL", model)
+    memory_model = os.getenv(
+        "C2_ASSISTANT_MEMORY_MODEL",
+        os.getenv("OPENAI_MEMORY_MODEL", DEFAULT_MEMORY_MODEL),
+    )
 
     return CoreSettings(
         openai_api_key=os.getenv("OPENAI_API_KEY"),

@@ -48,7 +48,7 @@ def pending_message():
         is_pending=True,
         pending_id="pending-1",
         metadata={
-            "command_id": "cmd-1",
+            "command_id": "4078543f88cc4403aa587856afdfbfea",
             "beacon_hash": "beacon-12345678",
             "listener_hash": "listener-1",
             "command_line": "run touch /tmp/hello",
@@ -141,10 +141,8 @@ def test_status_command_reports_pending_context(qtbot, monkeypatch):
     assistant.runCommand()
 
     output = assistant.editorOutput.toPlainText()
-    assert "Pending command: run touch /tmp/hello" in output
-    assert "Command ID: cmd-1" in output
-    assert "Beacon: beacon-12345678" in output
-    assert "Listener: listener-1" in output
+    assert "Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, timeout 300s)." in output
+    assert "listener-1" not in output
 
 
 def test_console_receive_resumes_matching_pending_command_id(qtbot, monkeypatch):
@@ -231,11 +229,12 @@ def test_pending_response_starts_timeout_timer(qtbot, monkeypatch):
 
     assert assistant.awaiting_tool_result is True
     assert assistant.pending_tool_id == "pending-1"
-    assert assistant.pending_tool_context["command_id"] == "cmd-1"
+    assert assistant.pending_tool_context["command_id"] == "4078543f88cc4403aa587856afdfbfea"
     assert assistant.pending_tool_context["command_line"] == "run touch /tmp/hello"
     assert assistant.pending_tool_timer.isActive() is True
-    assert "Waiting for beacon command result." in assistant.editorOutput.toPlainText()
-    assert "Command ID: cmd-1" in assistant.editorOutput.toPlainText()
+    output = assistant.editorOutput.toPlainText()
+    assert "Waiting for beacon command result. Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, timeout 1s)." in output
+    assert "4078543f88cc4403aa587856afdfbfea" not in output
 
 
 def test_pending_timeout_clears_state_and_reports(qtbot, monkeypatch):
