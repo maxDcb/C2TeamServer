@@ -132,10 +132,18 @@ class Assistant(QWidget):
 
         if awaiting_result:
             pending_id = self.pending_tool_id
+            tool_output = self._format_tool_result_for_resume(
+                beacon_hash=beaconHash,
+                listener_hash=listenerHash,
+                command_id=commandId,
+                command=command_text,
+                output=display_output,
+            )
+            self.printInTerminal("Analysis:", f"Received result for command `{commandId or command_text}`. Resuming assistant.")
             self._clear_pending_tool_state()
 
             if pending_id:
-                self._start_agent_resume(pending_id, display_output)
+                self._start_agent_resume(pending_id, tool_output)
         else:
             combined = command_text
             if output_text:
@@ -148,6 +156,20 @@ class Assistant(QWidget):
                     command=command_text,
                     output=output_text,
                 )
+
+
+    def _format_tool_result_for_resume(self, *, beacon_hash, listener_hash, command_id, command, output):
+        return "\n".join(
+            [
+                "Command result received from TeamServer.",
+                f"command_id: {command_id or 'unknown'}",
+                f"beacon_hash: {beacon_hash or 'unknown'}",
+                f"listener_hash: {listener_hash or 'unknown'}",
+                f"command: {command or 'unknown'}",
+                "output:",
+                output or "[no output]",
+            ]
+        )
 
     def event(self, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
@@ -193,7 +215,15 @@ class Assistant(QWidget):
             self._show_local_help()
             return
 
+        if local_command == "/status":
+            self._show_pending_status()
+            return
+
         if local_command in {"/cancel", "/reset"}:
+            if not self.awaiting_tool_result:
+                self.printInTerminal("Analysis:", "No pending command wait to cancel.")
+                return
+
             self._clear_pending_tool_state()
             self.printInTerminal("Analysis:", "Pending command wait cancelled.")
             return
@@ -228,12 +258,51 @@ class Assistant(QWidget):
             "\n".join(
                 [
                     "/help - Show AssistantPanel local commands.",
+                    "/status - Show the current assistant pending command state.",
                     "/cancel - Cancel the current pending beacon result wait.",
                     "/reset - Alias for /cancel.",
                     timeout_line,
                 ]
             ),
         )
+
+
+    def _show_pending_status(self):
+        self.printInTerminal("Analysis:", self._format_pending_status())
+
+
+    def _format_pending_status(self, prefix=None):
+        if not self.awaiting_tool_result:
+            with self._response_lock:
+                busy = self._response_thread is not None and self._response_thread.is_alive()
+            if busy:
+                return "Assistant is processing a request. No beacon command result is pending yet."
+            return "No pending beacon command result."
+
+        context = self.pending_tool_context or {}
+        command = context.get("command_line") or "unknown command"
+        command_id = context.get("command_id") or "unknown"
+        beacon_hash = context.get("beacon_hash") or "unknown"
+        listener_hash = context.get("listener_hash") or "unknown"
+
+        lines = []
+        if prefix:
+            lines.append(prefix)
+        lines.extend(
+            [
+                f"Pending command: {command}",
+                f"Command ID: {command_id}",
+                f"Beacon: {beacon_hash}",
+                f"Listener: {listener_hash}",
+            ]
+        )
+
+        if self.pending_tool_timeout_ms > 0:
+            lines.append(f"Timeout: {self.pending_tool_timeout_ms // 1000}s")
+        else:
+            lines.append("Timeout: disabled")
+
+        return "\n".join(lines)
 
 
     def _start_agent_turn(self, user_input):
@@ -303,6 +372,7 @@ class Assistant(QWidget):
                 "command_line": metadata.get("command_line") or arguments.get("command_line"),
             }
             self._start_pending_tool_timer()
+            self.printInTerminal("Analysis:", self._format_pending_status("Waiting for beacon command result."))
         else:
             self._stop_pending_tool_timer()
 
@@ -326,13 +396,15 @@ class Assistant(QWidget):
 
         context = self.pending_tool_context or {}
         command = context.get("command_line") or context.get("command_id") or "command"
+        command_id = context.get("command_id")
         beacon_hash = context.get("beacon_hash")
         target = f" on beacon {beacon_hash[:8]}" if beacon_hash else ""
+        command_id_text = f" Command ID: {command_id}." if command_id else ""
 
         self._clear_pending_tool_state()
         self.printInTerminal(
             "Analysis:",
-            f"Timed out waiting for result of `{command}`{target}. The assistant is ready for a new request.",
+            f"Timed out waiting for result of `{command}`{target}.{command_id_text} The assistant is ready for a new request.",
         )
 
     def _handle_assistant_error(self, error_message):
