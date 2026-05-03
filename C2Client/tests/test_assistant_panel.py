@@ -20,6 +20,11 @@ class FakeAssistantAgent:
     def __init__(self, grpc_client):
         self.grpc_client = grpc_client
         self.domain_hooks = FakeDomainHooks()
+        self.turns = []
+
+    def run_user_turn(self, user_input):
+        self.turns.append(user_input)
+        return SimpleNamespace(content="ok", is_pending=False)
 
 
 def build_assistant(qtbot, monkeypatch, *, timeout_ms=300000):
@@ -69,6 +74,18 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     assert "/status - Show the current assistant pending command state." in output
     assert "/cancel - Cancel the current pending beacon result wait." in output
     assert "/reset - Alias for /cancel." in output
+
+
+def test_unknown_slash_command_redirects_to_help_without_calling_assistant(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+
+    assistant.commandEditor.setText("/unknown")
+    assistant.runCommand()
+
+    output = assistant.editorOutput.toPlainText()
+    assert "Unknown local assistant command `/unknown`." in output
+    assert "Assistant commands:" in output
+    assert assistant.agent.turns == []
 
 
 def test_default_pending_timeout_is_two_minutes(qtbot, monkeypatch):

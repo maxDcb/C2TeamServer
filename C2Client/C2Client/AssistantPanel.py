@@ -228,6 +228,11 @@ class Assistant(QWidget):
             self.printInTerminal("Analysis:", "Pending command wait cancelled.")
             return
 
+        if local_command.startswith("/"):
+            self.printInTerminal("Analysis:", f"Unknown local assistant command `{commandLine.strip()}`.")
+            self._show_local_help()
+            return
+
         if self.awaiting_tool_result:
             self.printInTerminal("Analysis:", "Waiting for previous command output before continuing.")
             return
