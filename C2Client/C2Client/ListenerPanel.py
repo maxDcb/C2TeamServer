@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .grpc_status import is_response_ok, operation_ack_text
 
 
 #
@@ -76,6 +77,8 @@ class Listeners(QWidget):
 
         self.label = QLabel(ListenerTabTitle)
         self.layout.addWidget(self.label)
+        self.statusLabel = QLabel("")
+        self.layout.addWidget(self.statusLabel)
 
         # List of sessions
         self.listListener = QTableWidget()
@@ -106,6 +109,13 @@ class Listeners(QWidget):
 
         self.setLayout(self.layout)
 
+    def setStatusMessage(self, ack, successFallback):
+        message = operation_ack_text(ack, successFallback)
+        self.statusLabel.setText(message)
+        if is_response_ok(ack):
+            self.statusLabel.setStyleSheet("color: #0a7f2e;")
+        else:
+            self.statusLabel.setStyleSheet("color: #b00020;")
 
     def __del__(self):
         self.getListenerWorker.quit()
@@ -166,14 +176,16 @@ class Listeners(QWidget):
             type=message[0],
             ip=message[1],
             port=int(message[2]))
-        self.grpcClient.addListener(listener)
+        ack = self.grpcClient.addListener(listener)
+        self.setStatusMessage(ack, "Listener command accepted.")
 
 
     # send message for stoping a listener
     def stopListener(self, listenerHash):
         listener = TeamServerApi_pb2.ListenerSelector(
         listener_hash=listenerHash)
-        self.grpcClient.stopListener(listener)
+        ack = self.grpcClient.stopListener(listener)
+        self.setStatusMessage(ack, "Listener stop command accepted.")
 
 
     # query the server to get the list of listeners

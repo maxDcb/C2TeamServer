@@ -25,6 +25,7 @@ from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .TerminalModules.Credentials import credentials
+from .grpc_status import is_response_ok, response_message
 
 
 #
@@ -598,8 +599,12 @@ class Console(QWidget):
                     command=commandLine,
                 )
                 response = self.grpcClient.getCommandHelp(command)
-                self.printInTerminal(response.command, "", "")
-                self.printInTerminal("", response.command, response.help)
+                command_text = getattr(response, "command", commandLine) or commandLine
+                self.printInTerminal(command_text, "", "")
+                if is_response_ok(response):
+                    self.printInTerminal("", command_text, response.help)
+                else:
+                    self.printInTerminal("", command_text, response_message(response, "No help available."))
 
             else:
                 self.printInTerminal(commandLine, "", "")
@@ -614,10 +619,20 @@ class Console(QWidget):
                 )
                 result = self.grpcClient.sendSessionCommand(command)
                 command_id = getattr(result, "command_id", command_id) or command_id
+                if not is_response_ok(result):
+                    message = response_message(result, "Command was rejected by TeamServer.")
+                    self.printInTerminal("", commandLine, message)
+                    with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                        logFile.write('[+] rejected: \"' + commandLine + '\"')
+                        logFile.write('\n' + message + '\n')
+                    self.setCursorEditorAtEnd()
+                    return
+
                 context = "Host " + self.hostname + " - Username " + self.username
                 self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
-                if result.message:
-                    self.printInTerminal("", commandLine, result.message)
+                ack_message = response_message(result)
+                if ack_message:
+                    self.printInTerminal("", commandLine, ack_message)
 
         self.setCursorEditorAtEnd()
 
@@ -630,6 +645,8 @@ class Console(QWidget):
             listener_hash = response.session.listener_hash or self.listenerHash
             command_text = response.command or response.instruction
             decoded_response = response.output.decode('utf-8', 'replace')
+            if not is_response_ok(response):
+                decoded_response = response_message(response) or decoded_response or "Command failed."
             self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
             self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???

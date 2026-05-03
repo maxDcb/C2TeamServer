@@ -1,4 +1,5 @@
 from ..grpcClient import TeamServerApi_pb2
+from ..grpc_status import operation_ack_text
 
 
 def OnStart(grpcClient):
@@ -9,7 +10,9 @@ def OnStart(grpcClient):
             ip="0.0.0.0",
             port=8443)
 
-	grpcClient.addListener(listener)
+	ack = grpcClient.addListener(listener)
+	message = operation_ack_text(ack, "Listener command accepted.")
+	if message:
+		output += message + "\n"
 
 	return output
-

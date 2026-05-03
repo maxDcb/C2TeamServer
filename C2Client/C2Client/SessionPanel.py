@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .grpc_status import is_response_ok, operation_ack_text
       
 
 #
@@ -57,6 +58,8 @@ class Sessions(QWidget):
 
         self.label = QLabel('Sessions')
         self.layout.addWidget(self.label)
+        self.statusLabel = QLabel("")
+        self.layout.addWidget(self.statusLabel)
 
         # List of sessions
         self.listSession = QTableWidget()
@@ -86,6 +89,13 @@ class Sessions(QWidget):
 
         self.setLayout(self.layout)
 
+    def setStatusMessage(self, ack, successFallback):
+        message = operation_ack_text(ack, successFallback)
+        self.statusLabel.setText(message)
+        if is_response_ok(ack):
+            self.statusLabel.setStyleSheet("color: #0a7f2e;")
+        else:
+            self.statusLabel.setStyleSheet("color: #b00020;")
 
     def resizeEvent(self, event):
         super().resizeEvent(event) 
@@ -140,7 +150,8 @@ class Sessions(QWidget):
     def stopSession(self, beaconHash, listenerHash):
         session = TeamServerApi_pb2.SessionSelector(
             beacon_hash=beaconHash, listener_hash=listenerHash)
-        self.grpcClient.stopSession(session)
+        ack = self.grpcClient.stopSession(session)
+        self.setStatusMessage(ack, "Session stop command accepted.")
         self.listSessions()
 
 

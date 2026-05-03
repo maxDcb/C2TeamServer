@@ -2,6 +2,7 @@ import json
 import re
 
 from ...grpcClient import GrpcClient
+from ...grpc_status import is_response_ok, terminal_response_text
 
 GetCredentialsInstruction = "getCred"
 AddCredentialsInstruction = "addCred"
@@ -11,7 +12,9 @@ def getCredentials(grpcClient: GrpcClient, TeamServerApi_pb2):
     commandTeamServer = GetCredentialsInstruction
     termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=b"")
     resultTermCommand = grpcClient.executeTerminalCommand(termCommand)
-    result = resultTermCommand.result
+    result = terminal_response_text(resultTermCommand)
+    if not is_response_ok(resultTermCommand):
+        raise RuntimeError(result)
     return result
 
 
@@ -25,7 +28,9 @@ def addCredentials(grpcClient: GrpcClient,TeamServerApi_pb2, cred: str):
     commandTeamServer = AddCredentialsInstruction
     termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=cred.encode())
     resultTermCommand = grpcClient.executeTerminalCommand(termCommand)
-    result = resultTermCommand.result
+    result = terminal_response_text(resultTermCommand)
+    if not is_response_ok(resultTermCommand):
+        raise RuntimeError(result)
     return result
 
 
