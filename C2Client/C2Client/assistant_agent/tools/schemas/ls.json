@@ -1,7 +1,7 @@
 {
   "name": "ls",
-  "description": "List a directory on a beacon host.",
-  "command_template": "ls {path:q}",
+  "description": "List a directory on a beacon host. Omit path to list the current working directory.",
+  "command_template": "ls {path:q?}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -15,13 +15,13 @@
       },
       "path": {
         "type": "string",
-        "description": "Directory path to list."
+        "description": "Directory path to list. Leave empty for the current working directory.",
+        "default": ""
       }
     },
     "required": [
       "beacon_hash",
-      "listener_hash",
-      "path"
+      "listener_hash"
     ],
     "additionalProperties": false
   }

@@ -1,0 +1,63 @@
+{
+  "name": "taskScheduler",
+  "description": "Create and optionally run a scheduled task on a local or remote Windows host.",
+  "command_template": "taskScheduler -c {command:q} [-s {server:q}] [-t {task_name:q}] [-a {arguments:q}] [-u {username:q}] [-p {password:q}] [--no-run {skip_run:flag}] [--nocleanup {keep_task:flag}]",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "command": {
+        "type": "string",
+        "description": "Executable or command to run in the scheduled task."
+      },
+      "server": {
+        "type": "string",
+        "description": "Optional target host passed with -s. Omit for localhost.",
+        "default": ""
+      },
+      "task_name": {
+        "type": "string",
+        "description": "Optional task name passed with -t. The module chooses a random name if omitted.",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional command arguments passed with -a.",
+        "default": ""
+      },
+      "username": {
+        "type": "string",
+        "description": "Optional DOMAIN\\user for task registration passed with -u.",
+        "default": ""
+      },
+      "password": {
+        "type": "string",
+        "description": "Optional password passed with -p.",
+        "default": ""
+      },
+      "skip_run": {
+        "type": "boolean",
+        "description": "Include --no-run to register the task without running it.",
+        "default": false
+      },
+      "keep_task": {
+        "type": "boolean",
+        "description": "Include --nocleanup to keep the task after it starts.",
+        "default": false
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

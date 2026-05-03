@@ -15,7 +15,8 @@
       },
       "pid": {
         "type": "integer",
-        "description": "Process id to terminate."
+        "description": "Process id to terminate.",
+        "minimum": 0
       }
     },
     "required": [

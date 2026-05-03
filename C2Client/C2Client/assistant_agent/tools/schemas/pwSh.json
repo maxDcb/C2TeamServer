@@ -1,0 +1,54 @@
+{
+  "name": "pwSh",
+  "description": "Initialize or use the in-memory PowerShell runner.",
+  "command_template": "pwSh {action} {input_file:q?} {type_for_dll:q?} {command:raw?} {script_path:q?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "action": {
+        "type": "string",
+        "description": "PwSh action accepted by init().",
+        "enum": [
+          "init",
+          "run",
+          "import",
+          "script"
+        ]
+      },
+      "input_file": {
+        "type": "string",
+        "description": "Custom runner DLL for init. Omit to use PowerShellRunner.dll.",
+        "default": ""
+      },
+      "type_for_dll": {
+        "type": "string",
+        "description": "Fully-qualified runner type for custom init DLL.",
+        "default": ""
+      },
+      "command": {
+        "type": "string",
+        "description": "PowerShell command text for run.",
+        "default": ""
+      },
+      "script_path": {
+        "type": "string",
+        "description": "PowerShell script path for import or script. The module searches the release Tools directory.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "action"
+    ],
+    "additionalProperties": false
+  }
+}

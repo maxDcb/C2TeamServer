@@ -1,0 +1,50 @@
+{
+  "name": "sshExec",
+  "description": "Execute a command over SSH.",
+  "command_template": "sshExec -h {host:q} [-P {port}] -u {username:q} -p {password:q} -- {command:raw}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "host": {
+        "type": "string",
+        "description": "SSH host name or IP."
+      },
+      "port": {
+        "type": "integer",
+        "description": "SSH port. Defaults to 22 in the module.",
+        "minimum": 1,
+        "maximum": 65535,
+        "default": 22
+      },
+      "username": {
+        "type": "string",
+        "description": "SSH username."
+      },
+      "password": {
+        "type": "string",
+        "description": "SSH password."
+      },
+      "command": {
+        "type": "string",
+        "description": "Remote command tail passed after --."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "host",
+      "username",
+      "password",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

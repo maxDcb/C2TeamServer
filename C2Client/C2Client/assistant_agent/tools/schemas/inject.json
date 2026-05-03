@@ -1,0 +1,54 @@
+{
+  "name": "inject",
+  "description": "Inject raw shellcode or Donut-generated payload into a process.",
+  "command_template": "inject {payload_type} {input_file:q} {pid} {method:q?} {arguments:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "payload_type": {
+        "type": "string",
+        "description": "Payload source type accepted by init(): -r raw shellcode, -e .NET executable, or -d .NET DLL.",
+        "enum": [
+          "-r",
+          "-e",
+          "-d"
+        ]
+      },
+      "input_file": {
+        "type": "string",
+        "description": "Raw shellcode, .NET executable, or .NET DLL path. The module also searches release Tools and Windows beacons directories."
+      },
+      "pid": {
+        "type": "integer",
+        "description": "Target process id.",
+        "minimum": 0
+      },
+      "method": {
+        "type": "string",
+        "description": "DLL method name. Required only when payload_type is -d.",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional arguments passed to the .NET executable or DLL method.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "payload_type",
+      "input_file",
+      "pid"
+    ],
+    "additionalProperties": false
+  }
+}

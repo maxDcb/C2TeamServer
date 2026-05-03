@@ -26,7 +26,7 @@ def load_tool_specs(schema_dir: Path | None = None) -> list[C2ToolSpec]:
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:
         raise ValueError(f"Duplicate C2 assistant tool names: {', '.join(duplicates)}")
-    return specs
+    return sorted(specs, key=lambda spec: spec.name)
 
 
 def _load_tool_spec(path: Path) -> C2ToolSpec:

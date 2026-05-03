@@ -9,7 +9,11 @@ from .loader import load_tool_specs
 from agent_core import ToolRegistry
 
 
-def build_c2_tool_registry(grpc_client: Any, *, schema_dir: Path | None = None) -> ToolRegistry:
+def build_c2_tool_registry(
+    grpc_client: Any,
+    *,
+    schema_dir: Path | None = None,
+) -> ToolRegistry:
     registry = ToolRegistry()
     for spec in load_tool_specs(schema_dir):
         registry.register(C2CommandTool(spec, grpc_client))

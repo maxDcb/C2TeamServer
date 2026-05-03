@@ -1,0 +1,58 @@
+{
+  "name": "dotnetExec",
+  "description": "Load or run .NET assemblies using DotnetExec::init() actions.",
+  "command_template": "dotnetExec {action} {module_name:q} {input_file:q?} {type_for_dll:q?} {method_name:q?} {arguments:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "action": {
+        "type": "string",
+        "description": "DotnetExec action.",
+        "enum": [
+          "load",
+          "runExe",
+          "runDll"
+        ]
+      },
+      "module_name": {
+        "type": "string",
+        "description": "Short module name used for loaded assemblies, or the loaded module to run."
+      },
+      "input_file": {
+        "type": "string",
+        "description": "Assembly path for load. Required for action load.",
+        "default": ""
+      },
+      "type_for_dll": {
+        "type": "string",
+        "description": "Fully-qualified type name for DLL load. Leave empty for EXE load.",
+        "default": ""
+      },
+      "method_name": {
+        "type": "string",
+        "description": "Method name for runDll. Required for action runDll.",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional runExe/runDll argument tail.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "action",
+      "module_name"
+    ],
+    "additionalProperties": false
+  }
+}

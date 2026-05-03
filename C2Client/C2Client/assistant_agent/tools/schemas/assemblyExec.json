@@ -1,0 +1,51 @@
+{
+  "name": "assemblyExec",
+  "description": "Prepare AssemblyExec execution mode or payload execution.",
+  "command_template": "assemblyExec {action} {input_file:q?} {method:q?} {arguments:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "action": {
+        "type": "string",
+        "description": "Execution mode selector or payload type accepted by init(): thread, process, processWithSpoofedParent, -r, -e, or -d.",
+        "enum": [
+          "thread",
+          "process",
+          "processWithSpoofedParent",
+          "-r",
+          "-e",
+          "-d"
+        ]
+      },
+      "input_file": {
+        "type": "string",
+        "description": "Raw shellcode, .NET executable, or .NET DLL path. Required for -r, -e, and -d. The module also searches the release Tools directory.",
+        "default": ""
+      },
+      "method": {
+        "type": "string",
+        "description": "DLL method name. Required only when action is -d.",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional arguments passed to the .NET executable or DLL method.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "action"
+    ],
+    "additionalProperties": false
+  }
+}

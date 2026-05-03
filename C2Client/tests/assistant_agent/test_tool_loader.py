@@ -7,11 +7,16 @@ def test_tool_loader_loads_unique_json_tool_specs():
     specs = load_tool_specs()
     names = [spec.name for spec in specs]
 
+    assert "assemblyExec" in names
+    assert "dcomExec" in names
     assert "ls" in names
+    assert "screenShot" in names
     assert "run" in names
+    assert "winRm" in names
     assert len(names) == len(set(names))
     assert all(spec.description for spec in specs)
     assert all(spec.command_template for spec in specs)
+    assert all(spec.source_path.suffix == ".json" for spec in specs)
     assert all(spec.parameters["type"] == "object" for spec in specs)
     assert all("beacon_hash" in spec.parameters["required"] for spec in specs)
     assert all("listener_hash" in spec.parameters["required"] for spec in specs)

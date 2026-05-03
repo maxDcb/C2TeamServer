@@ -1,0 +1,53 @@
+{
+  "name": "winRm",
+  "description": "Execute a command through WinRM.",
+  "command_template": "winRm {auth_mode} {username:q?} {password:q?} {target:q} {command:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "auth_mode": {
+        "type": "string",
+        "description": "Authentication mode accepted by init(): -u explicit credentials, -k Kerberos/current ticket, or -n no password/current token.",
+        "enum": [
+          "-u",
+          "-k",
+          "-n"
+        ]
+      },
+      "username": {
+        "type": "string",
+        "description": "DOMAIN\\Username for -u mode.",
+        "default": ""
+      },
+      "password": {
+        "type": "string",
+        "description": "Password for -u mode.",
+        "default": ""
+      },
+      "target": {
+        "type": "string",
+        "description": "Target host name or IP."
+      },
+      "command": {
+        "type": "string",
+        "description": "Optional remote command tail.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "auth_mode",
+      "target"
+    ],
+    "additionalProperties": false
+  }
+}

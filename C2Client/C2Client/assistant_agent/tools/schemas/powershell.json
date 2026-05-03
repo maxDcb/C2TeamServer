@@ -1,0 +1,43 @@
+{
+  "name": "powershell",
+  "description": "Run a PowerShell command, import a script with -i, or execute a script with -s.",
+  "command_template": "powershell {mode?} {script_path:q?} {command:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "mode": {
+        "type": "string",
+        "description": "Optional file mode: -i to import a PowerShell script as a module, or -s to execute a script file.",
+        "enum": [
+          "-i",
+          "-s",
+          ""
+        ],
+        "default": ""
+      },
+      "script_path": {
+        "type": "string",
+        "description": "Script path required when mode is -i or -s. The module also searches the release Scripts directory.",
+        "default": ""
+      },
+      "command": {
+        "type": "string",
+        "description": "PowerShell command text for direct execution.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash"
+    ],
+    "additionalProperties": false
+  }
+}

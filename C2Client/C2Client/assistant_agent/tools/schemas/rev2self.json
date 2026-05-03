@@ -1,7 +1,7 @@
 {
-  "name": "tree",
-  "description": "Recursively list a directory tree on a beacon host. Omit path for the current working directory.",
-  "command_template": "tree {path:q?}",
+  "name": "rev2self",
+  "description": "Return the beacon to its original token context.",
+  "command_template": "rev2self",
   "parameters": {
     "type": "object",
     "properties": {
@@ -12,11 +12,6 @@
       "listener_hash": {
         "type": "string",
         "description": "Full listener hash for the target beacon session."
-      },
-      "path": {
-        "type": "string",
-        "description": "Directory root to inspect. Leave empty for the current working directory.",
-        "default": ""
       }
     },
     "required": [

@@ -1,7 +1,7 @@
 {
-  "name": "loadModule",
-  "description": "Load a beacon module into memory. Use this when a module is missing before retrying a command.",
-  "command_template": "loadModule {module_to_load}",
+  "name": "miniDump",
+  "description": "Dump LSASS to an XORed file or decrypt an XORed dump locally.",
+  "command_template": "miniDump {action} {path:q}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -13,15 +13,24 @@
         "type": "string",
         "description": "Full listener hash for the target beacon session."
       },
-      "module_to_load": {
+      "action": {
         "type": "string",
-        "description": "Module filename or path to load. Ask the operator for the exact release-side module name or path if it is not already known."
+        "description": "MiniDump action.",
+        "enum": [
+          "dump",
+          "decrypt"
+        ]
+      },
+      "path": {
+        "type": "string",
+        "description": "Output file for dump, or input XORed dump path for decrypt."
       }
     },
     "required": [
       "beacon_hash",
       "listener_hash",
-      "module_to_load"
+      "action",
+      "path"
     ],
     "additionalProperties": false
   }

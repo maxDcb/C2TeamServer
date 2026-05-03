@@ -1,0 +1,38 @@
+{
+  "name": "coffLoader",
+  "description": "Load a COFF object file and execute an exported function.",
+  "command_template": "coffLoader {coff_file:q} {function_name:q} {packed_arguments:raw?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "coff_file": {
+        "type": "string",
+        "description": "Local COFF object file path."
+      },
+      "function_name": {
+        "type": "string",
+        "description": "Exported function to call, for example go."
+      },
+      "packed_arguments": {
+        "type": "string",
+        "description": "Optional COFF argument format and values, for example: Zs c:\\ 0.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "coff_file",
+      "function_name"
+    ],
+    "additionalProperties": false
+  }
+}

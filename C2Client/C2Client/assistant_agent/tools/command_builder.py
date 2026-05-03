@@ -5,7 +5,12 @@ from typing import Any
 
 from .loader import C2ToolSpec
 
-_PLACEHOLDER_RE = re.compile(r"\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<modifier>raw|q))?(?P<optional>\?)?\}")
+_OPTIONAL_SEGMENT_RE = re.compile(r"\[(?P<body>[^\[\]]+)\]")
+_PLACEHOLDER_RE = re.compile(r"\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<modifier>raw|q|flag))?(?P<optional>\?)?\}")
+
+
+class _OmitOptionalSegment(Exception):
+    pass
 
 
 def quote_argument(value: object) -> str:
@@ -29,19 +34,45 @@ def quote_argument(value: object) -> str:
 def build_command_line(spec: C2ToolSpec, arguments: dict[str, Any]) -> str:
     _validate_required_arguments(spec, arguments)
 
+    def render_optional_segment(match: re.Match[str]) -> str:
+        body = match.group("body")
+        try:
+            return _render_template_part(body, arguments, implicit_optional=True)
+        except _OmitOptionalSegment:
+            return ""
+
+    template = _OPTIONAL_SEGMENT_RE.sub(render_optional_segment, spec.command_template)
+    rendered = _render_template_part(template, arguments, implicit_optional=False)
+    return " ".join(rendered.split())
+
+
+def _render_template_part(template: str, arguments: dict[str, Any], *, implicit_optional: bool) -> str:
     def replace(match: re.Match[str]) -> str:
         name = match.group("name")
         modifier = match.group("modifier")
-        optional = bool(match.group("optional"))
+        optional = bool(match.group("optional")) or implicit_optional
 
         if name not in arguments:
             if optional:
+                if implicit_optional:
+                    raise _OmitOptionalSegment()
                 return ""
             raise KeyError(f"Missing command template argument: {name}")
 
         value = arguments[name]
+        if modifier == "flag":
+            if value is True:
+                return ""
+            if optional:
+                if implicit_optional:
+                    raise _OmitOptionalSegment()
+                return ""
+            raise ValueError(f"Flag argument must be true: {name}")
+
         if value is None or (isinstance(value, str) and not value.strip()):
             if optional:
+                if implicit_optional:
+                    raise _OmitOptionalSegment()
                 return ""
             raise ValueError(f"Argument must not be empty: {name}")
 
@@ -51,8 +82,7 @@ def build_command_line(spec: C2ToolSpec, arguments: dict[str, Any]) -> str:
             return quote_argument(str(value).strip())
         return str(value).strip()
 
-    rendered = _PLACEHOLDER_RE.sub(replace, spec.command_template)
-    return " ".join(rendered.split())
+    return _PLACEHOLDER_RE.sub(replace, template)
 
 
 def _validate_required_arguments(spec: C2ToolSpec, arguments: dict[str, Any]) -> None:

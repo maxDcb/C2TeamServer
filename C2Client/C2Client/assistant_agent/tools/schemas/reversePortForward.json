@@ -1,0 +1,42 @@
+{
+  "name": "reversePortForward",
+  "description": "Start a reverse port forward from the beacon to a local service.",
+  "command_template": "reversePortForward {remote_port} {local_host:q} {local_port}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "remote_port": {
+        "type": "integer",
+        "description": "Port to listen on remotely.",
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "local_host": {
+        "type": "string",
+        "description": "Local host reachable from the teamserver side to forward traffic to."
+      },
+      "local_port": {
+        "type": "integer",
+        "description": "Local port to forward traffic to.",
+        "minimum": 1,
+        "maximum": 65535
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "remote_port",
+      "local_host",
+      "local_port"
+    ],
+    "additionalProperties": false
+  }
+}

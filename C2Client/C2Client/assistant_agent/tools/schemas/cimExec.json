@@ -1,0 +1,53 @@
+{
+  "name": "cimExec",
+  "description": "Execute a command over CIM/WMI with explicit init() options.",
+  "command_template": "cimExec -h {hostname:q} -c {command:q} [-n {namespace_name:q}] [-a {arguments:q}] [-u {username:q}] [-p {password:q}]",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "hostname": {
+        "type": "string",
+        "description": "Target host name or IP."
+      },
+      "command": {
+        "type": "string",
+        "description": "Executable or command to start remotely."
+      },
+      "namespace_name": {
+        "type": "string",
+        "description": "CIM namespace passed with -n. Defaults to root/cimv2 in the module.",
+        "default": ""
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional command arguments passed with -a.",
+        "default": ""
+      },
+      "username": {
+        "type": "string",
+        "description": "Optional username passed with -u.",
+        "default": ""
+      },
+      "password": {
+        "type": "string",
+        "description": "Optional password passed with -p.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "hostname",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

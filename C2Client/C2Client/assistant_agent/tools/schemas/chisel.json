@@ -1,0 +1,47 @@
+{
+  "name": "chisel",
+  "description": "Manage Chisel status, stop a running instance, or launch a Chisel client payload.",
+  "command_template": "chisel {binary_path_or_action:q} {pid?} {client_subcommand?} {server:q?} {reverse:q?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "binary_path_or_action": {
+        "type": "string",
+        "description": "Use status, stop, or the local Chisel executable path to package and launch."
+      },
+      "pid": {
+        "type": "integer",
+        "description": "PID to stop when binary_path_or_action is stop."
+      },
+      "client_subcommand": {
+        "type": "string",
+        "description": "Use client when launching Chisel.",
+        "default": ""
+      },
+      "server": {
+        "type": "string",
+        "description": "Attacker host:port for Chisel client mode.",
+        "default": ""
+      },
+      "reverse": {
+        "type": "string",
+        "description": "Reverse mapping such as R:socks or R:LOCAL_PORT:TARGET_IP:REMOTE_PORT.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "binary_path_or_action"
+    ],
+    "additionalProperties": false
+  }
+}

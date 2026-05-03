@@ -1,0 +1,63 @@
+{
+  "name": "dcomExec",
+  "description": "Execute a command over DCOM with the flags parsed by DcomExec::init().",
+  "command_template": "dcomExec -h {hostname:q} -c {command:q} [-a {arguments:q}] [-w {working_dir:q}] [-k {spn:q}] [-u {username:q}] [-p {password:q}] [-n {no_password:flag}]",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "hostname": {
+        "type": "string",
+        "description": "Target host name or IP."
+      },
+      "command": {
+        "type": "string",
+        "description": "Executable or command to start remotely."
+      },
+      "arguments": {
+        "type": "string",
+        "description": "Optional command arguments passed with -a.",
+        "default": ""
+      },
+      "working_dir": {
+        "type": "string",
+        "description": "Optional remote working directory passed with -w.",
+        "default": ""
+      },
+      "spn": {
+        "type": "string",
+        "description": "Optional Kerberos SPN passed with -k.",
+        "default": ""
+      },
+      "username": {
+        "type": "string",
+        "description": "Optional username passed with -u. If set, also set password or no_password.",
+        "default": ""
+      },
+      "password": {
+        "type": "string",
+        "description": "Optional password passed with -p.",
+        "default": ""
+      },
+      "no_password": {
+        "type": "boolean",
+        "description": "Include -n to use no password/current credential behavior.",
+        "default": false
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "hostname",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

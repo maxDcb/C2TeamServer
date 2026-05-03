@@ -1,0 +1,67 @@
+{
+  "name": "spawnAs",
+  "description": "Spawn a command under explicit credentials.",
+  "command_template": "spawnAs [-d {domain:q}] [-l {logon_type}] [-p {load_profile:flag}] [-w {show_window:flag}] [--netonly {net_only:flag}] {username:q} {password:q} -- {command:raw}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "username": {
+        "type": "string",
+        "description": "Username in Username, DOMAIN\\Username, or user@domain form."
+      },
+      "password": {
+        "type": "string",
+        "description": "Password for the supplied user."
+      },
+      "command": {
+        "type": "string",
+        "description": "Program and arguments to launch after the -- separator."
+      },
+      "domain": {
+        "type": "string",
+        "description": "Optional domain override passed with -d.",
+        "default": ""
+      },
+      "logon_type": {
+        "type": "integer",
+        "description": "Optional Windows logon type passed with -l. Supported by init(): 2 interactive or 9 new credentials.",
+        "enum": [
+          2,
+          9
+        ],
+        "default": 2
+      },
+      "load_profile": {
+        "type": "boolean",
+        "description": "Include -p/--with-profile to load the user profile.",
+        "default": false
+      },
+      "show_window": {
+        "type": "boolean",
+        "description": "Include -w/--show-window.",
+        "default": false
+      },
+      "net_only": {
+        "type": "boolean",
+        "description": "Include --netonly for LOGON32_LOGON_NEW_CREDENTIALS.",
+        "default": false
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "username",
+      "password",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

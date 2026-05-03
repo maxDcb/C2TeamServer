@@ -1,0 +1,49 @@
+{
+  "name": "evasion",
+  "description": "Run an Evasion module action.",
+  "command_template": "evasion {action} {address:q?} {value:q?}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "action": {
+        "type": "string",
+        "description": "Evasion action accepted by init().",
+        "enum": [
+          "CheckHooks",
+          "DisableETW",
+          "Unhook",
+          "UnhookPerunsFart",
+          "AmsiBypass",
+          "Introspection",
+          "ReadMemory",
+          "PatchMemory",
+          "RemotePatch"
+        ]
+      },
+      "address": {
+        "type": "string",
+        "description": "Address/module value for Introspection, ReadMemory, or PatchMemory.",
+        "default": ""
+      },
+      "value": {
+        "type": "string",
+        "description": "Size for ReadMemory or patch bytes/value for PatchMemory.",
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "action"
+    ],
+    "additionalProperties": false
+  }
+}

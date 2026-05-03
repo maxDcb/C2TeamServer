@@ -1,7 +1,7 @@
 {
-  "name": "loadModule",
-  "description": "Load a beacon module into memory. Use this when a module is missing before retrying a command.",
-  "command_template": "loadModule {module_to_load}",
+  "name": "stealToken",
+  "description": "Steal and impersonate a token from a process id.",
+  "command_template": "stealToken {pid}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -13,15 +13,16 @@
         "type": "string",
         "description": "Full listener hash for the target beacon session."
       },
-      "module_to_load": {
-        "type": "string",
-        "description": "Module filename or path to load. Ask the operator for the exact release-side module name or path if it is not already known."
+      "pid": {
+        "type": "integer",
+        "description": "Process id whose token should be impersonated.",
+        "minimum": 0
       }
     },
     "required": [
       "beacon_hash",
       "listener_hash",
-      "module_to_load"
+      "pid"
     ],
     "additionalProperties": false
   }

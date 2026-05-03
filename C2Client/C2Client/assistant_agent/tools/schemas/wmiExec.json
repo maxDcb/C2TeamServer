@@ -1,0 +1,58 @@
+{
+  "name": "wmiExec",
+  "description": "Execute a command through WMI.",
+  "command_template": "wmiExec {auth_mode} {username:q?} {password:q?} {dc:q?} {target:q} {command:raw}",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "auth_mode": {
+        "type": "string",
+        "description": "Authentication mode accepted by init(): -u explicit credentials, -k Kerberos using a DC, or -n no password/current token.",
+        "enum": [
+          "-u",
+          "-k",
+          "-n"
+        ]
+      },
+      "username": {
+        "type": "string",
+        "description": "DOMAIN\\Username for -u mode.",
+        "default": ""
+      },
+      "password": {
+        "type": "string",
+        "description": "Password for -u mode.",
+        "default": ""
+      },
+      "dc": {
+        "type": "string",
+        "description": "Domain controller or DOMAIN\\dc value for -k mode.",
+        "default": ""
+      },
+      "target": {
+        "type": "string",
+        "description": "Target host name or IP."
+      },
+      "command": {
+        "type": "string",
+        "description": "Remote command tail."
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "auth_mode",
+      "target",
+      "command"
+    ],
+    "additionalProperties": false
+  }
+}

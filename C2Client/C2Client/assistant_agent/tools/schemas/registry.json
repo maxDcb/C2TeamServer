@@ -1,0 +1,77 @@
+{
+  "name": "registry",
+  "description": "Manipulate local or remote Windows registry keys.",
+  "command_template": "registry {operation} [-s {server:q}] -h {root_key:q} -k {sub_key:q} [-n {value_name:q}] [-d {value_data:q}] [-t {value_type}]",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "beacon_hash": {
+        "type": "string",
+        "description": "Full beacon hash identifying the session that should execute the command."
+      },
+      "listener_hash": {
+        "type": "string",
+        "description": "Full listener hash for the target beacon session."
+      },
+      "operation": {
+        "type": "string",
+        "description": "Registry operation accepted by init().",
+        "enum": [
+          "set",
+          "deleteValue",
+          "delete",
+          "delvalue",
+          "query",
+          "get",
+          "createKey",
+          "create",
+          "deleteKey",
+          "delkey"
+        ]
+      },
+      "server": {
+        "type": "string",
+        "description": "Optional remote host passed with -s.",
+        "default": ""
+      },
+      "root_key": {
+        "type": "string",
+        "description": "Root hive passed with -h, for example HKLM, HKCU, HKU, HKCR, or HKCC."
+      },
+      "sub_key": {
+        "type": "string",
+        "description": "Subkey path passed with -k."
+      },
+      "value_name": {
+        "type": "string",
+        "description": "Value name passed with -n. Required for set, query/get, and deleteValue/delete/delvalue.",
+        "default": ""
+      },
+      "value_data": {
+        "type": "string",
+        "description": "Value data passed with -d for set.",
+        "default": ""
+      },
+      "value_type": {
+        "type": "string",
+        "description": "Registry value type passed with -t. Defaults to REG_SZ in the module.",
+        "enum": [
+          "REG_SZ",
+          "REG_DWORD",
+          "REG_QWORD",
+          "REG_EXPAND_SZ",
+          ""
+        ],
+        "default": ""
+      }
+    },
+    "required": [
+      "beacon_hash",
+      "listener_hash",
+      "operation",
+      "root_key",
+      "sub_key"
+    ],
+    "additionalProperties": false
+  }
+}
