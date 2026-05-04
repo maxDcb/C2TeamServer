@@ -44,7 +44,7 @@ def test_stop_session_ack_message_is_displayed(qtbot, monkeypatch):
 
     sessions.stopSession("beacon", "listener")
 
-    assert sessions.statusLabel.text() == "Session not found."
+    assert sessions.statusLabel.text() == "Stop session: Session not found."
     assert "#b00020" in sessions.statusLabel.styleSheet()
 
 

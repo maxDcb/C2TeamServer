@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
+from .ui_status import apply_status, format_action_status, status_kind_for_ok
 
 
 #
@@ -163,16 +164,12 @@ class Listeners(QWidget):
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
                 self.listListener.setColumnWidth(index, width)
 
-    def setStatusMessage(self, ack, successFallback):
+    def setStatusMessage(self, ack, successFallback, action="Operation"):
         message = operation_ack_text(ack, successFallback)
-        self.setInlineStatus(message, is_response_ok(ack))
+        self.setInlineStatus(format_action_status(action, message), is_response_ok(ack))
 
     def setInlineStatus(self, message, ok=True):
-        self.statusLabel.setText(message)
-        if ok:
-            self.statusLabel.setStyleSheet("color: #0a7f2e;")
-        else:
-            self.statusLabel.setStyleSheet("color: #b00020;")
+        apply_status(self.statusLabel, message, status_kind_for_ok(ok))
 
     def updateActionButtons(self):
         hasSelection = self.selectedListener() is not None
@@ -264,7 +261,7 @@ class Listeners(QWidget):
             ip=message[1],
             port=int(message[2]))
         ack = self.grpcClient.addListener(listener)
-        self.setStatusMessage(ack, "Listener command accepted.")
+        self.setStatusMessage(ack, "Listener command accepted.", action="Add listener")
 
 
     # send message for stoping a listener
@@ -272,7 +269,7 @@ class Listeners(QWidget):
         listener = TeamServerApi_pb2.ListenerSelector(
         listener_hash=listenerHash)
         ack = self.grpcClient.stopListener(listener)
-        self.setStatusMessage(ack, "Listener stop command accepted.")
+        self.setStatusMessage(ack, "Listener stop command accepted.", action="Stop listener")
 
 
     # query the server to get the list of listeners

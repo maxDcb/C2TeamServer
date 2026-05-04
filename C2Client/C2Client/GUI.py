@@ -28,6 +28,17 @@ from .SessionPanel import Sessions
 from .ConsolePanel import ConsolesTab
 from .GraphPanel import Graph
 from .env import env_bool, env_int, env_value, load_c2_env
+from .ui_status import (
+    DEFAULT_LAST_ERROR_TEXT,
+    DEFAULT_LAST_RPC_TEXT,
+    StatusKind,
+    apply_error,
+    apply_status,
+    clear_status,
+    compact_message,
+    format_last_error,
+    format_last_rpc,
+)
 
 import qdarktheme
 
@@ -68,8 +79,8 @@ class CredentialDialog(QDialog):
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self.password_input)
 
-        self.error_label = QLabel("Username and password are required.")
-        self.error_label.setStyleSheet("color: red;")
+        self.error_label = QLabel()
+        apply_error(self.error_label, "Username and password are required.")
         self.error_label.setVisible(False)
         layout.addWidget(self.error_label)
 
@@ -160,8 +171,8 @@ class App(QMainWindow):
         """Initialise the persistent connection and RPC status widgets."""
 
         self.connectionStatusLabel = QLabel(self)
-        self.rpcStatusLabel = QLabel("Last RPC: none", self)
-        self.errorStatusLabel = QLabel("Last error: none", self)
+        self.rpcStatusLabel = QLabel(DEFAULT_LAST_RPC_TEXT, self)
+        self.errorStatusLabel = QLabel(DEFAULT_LAST_ERROR_TEXT, self)
 
         for label in (self.connectionStatusLabel, self.rpcStatusLabel, self.errorStatusLabel):
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -182,31 +193,26 @@ class App(QMainWindow):
         cert_path = getattr(self.grpcClient, "ca_cert_path", "")
         cert_name = os.path.basename(cert_path) if cert_path else "unknown cert"
         tls_mode = "dev TLS" if self.devMode else "TLS"
-        self.connectionStatusLabel.setText(
+        apply_status(
+            self.connectionStatusLabel,
             f"{state} | {endpoint} | user {self.operatorUsername} | {tls_mode} | cert {cert_name}{client_id_text}",
+            StatusKind.SUCCESS if connected else StatusKind.ERROR,
         )
-        color = "#0a7f2e" if connected else "#b00020"
-        self.connectionStatusLabel.setStyleSheet(f"color: {color};")
 
     def updateRpcStatus(self, operation: str, ok: bool, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.setConnectionStatus(ok)
-        self.rpcStatusLabel.setText(f"Last RPC: {operation or 'unknown'} at {timestamp}")
+        self.rpcStatusLabel.setText(format_last_rpc(operation, timestamp))
 
         if not ok:
-            self._lastRpcError = self.compactStatusMessage(f"{operation}: {message}")
-            self.errorStatusLabel.setText(f"Last error: {self._lastRpcError}")
-            self.errorStatusLabel.setStyleSheet("color: #b00020;")
+            self._lastRpcError = format_last_error(operation, message)
+            apply_error(self.errorStatusLabel, f"Last error: {self._lastRpcError}")
         elif not self._lastRpcError:
-            self.errorStatusLabel.setText("Last error: none")
-            self.errorStatusLabel.setStyleSheet("")
+            clear_status(self.errorStatusLabel, DEFAULT_LAST_ERROR_TEXT)
 
     @staticmethod
     def compactStatusMessage(message: str, limit: int = 160) -> str:
-        text = " ".join(str(message or "").split())
-        if len(text) <= limit:
-            return text
-        return text[: limit - 3] + "..."
+        return compact_message(message, limit=limit)
 
     def topLayout(self) -> None:
         """Initialise the upper part of the main window."""

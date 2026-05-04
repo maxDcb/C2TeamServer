@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
+from .ui_status import apply_status, format_action_status, status_kind_for_ok
       
 
 #
@@ -144,16 +145,12 @@ class Sessions(QWidget):
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
                 self.listSession.setColumnWidth(index, width)
 
-    def setStatusMessage(self, ack, successFallback):
+    def setStatusMessage(self, ack, successFallback, action="Operation"):
         message = operation_ack_text(ack, successFallback)
-        self.setInlineStatus(message, is_response_ok(ack))
+        self.setInlineStatus(format_action_status(action, message), is_response_ok(ack))
 
     def setInlineStatus(self, message, ok=True):
-        self.statusLabel.setText(message)
-        if ok:
-            self.statusLabel.setStyleSheet("color: #0a7f2e;")
-        else:
-            self.statusLabel.setStyleSheet("color: #b00020;")
+        apply_status(self.statusLabel, message, status_kind_for_ok(ok))
 
     def updateActionButtons(self):
         hasSelection = self.selectedSession() is not None
@@ -250,7 +247,7 @@ class Sessions(QWidget):
         session = TeamServerApi_pb2.SessionSelector(
             beacon_hash=beaconHash, listener_hash=listenerHash)
         ack = self.grpcClient.stopSession(session)
-        self.setStatusMessage(ack, "Session stop command accepted.")
+        self.setStatusMessage(ack, "Session stop command accepted.", action="Stop session")
         self.listSessions()
 
 

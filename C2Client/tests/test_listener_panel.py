@@ -33,7 +33,7 @@ def test_add_listener_ack_message_is_displayed(qtbot, monkeypatch):
 
     listeners.addListener(["https", "0.0.0.0", "8443"])
 
-    assert listeners.statusLabel.text() == "Listener already exists."
+    assert listeners.statusLabel.text() == "Add listener: Listener already exists."
     assert "#b00020" in listeners.statusLabel.styleSheet()
 
 

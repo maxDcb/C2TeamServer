@@ -12,7 +12,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 4 | Utiliser `.env` comme defaults CLI | S | Fort | Fait. `C2_IP`, `C2_PORT` et `C2_DEV_MODE` alimentent les defaults CLI, avec arguments CLI prioritaires. |
 | 5 | Rendre les actions principales visibles | S | Fort | Fait. Boutons `Add Listener`, `Interact`, `Stop`, `Copy ID`, `Refresh`; le clic droit reste disponible comme raccourci. |
 | 6 | Ajouter copie rapide des IDs et infos session | S | Moyen | Copie beacon hash, listener hash, host, user, internal IP depuis tables et graph. |
-| 7 | Ameliorer les messages d'erreur et d'etat | S | Fort | Normaliser success/error dans les panneaux, afficher l'action concernee, conserver la derniere erreur visible. |
+| 7 | Ameliorer les messages d'erreur et d'etat | S | Fort | Fait. Helper UI commun pour success/error/info, prefixe action, compactage des messages longs, barre RPC et statuts panels harmonises. |
 | 8 | Nettoyer le bruit console/debug | S | Moyen | Remplacer les `print()` UI par logging, supprimer debug accidentels, rendre les erreurs scripts visibles sans casser l'UI. |
 | 9 | Ajouter filtres, recherche et tri tables | M | Fort | Filtrer sessions/listeners par host, user, OS, privilege, listener, status; tri par last seen et privilege. Client-only au depart. |
 | 10 | Humaniser l'etat des sessions | M | Fort | Badges `alive`, `stale`, `killed`, last seen relatif, couleur discrete par privilege/OS, detection session inactive. |
