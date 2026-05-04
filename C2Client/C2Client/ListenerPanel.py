@@ -1,5 +1,7 @@
 import time
 import logging
+import re
+from ipaddress import ip_address
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
@@ -23,7 +25,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
-from .ui_status import apply_status, format_action_status, status_kind_for_ok
+from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,71 @@ TcpType = "tcp"
 GithubType = "github"
 DnsType = "dns"
 SmbType = "smb"
+
+DOMAIN_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+GITHUB_PROJECT_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _text(value):
+    return str(value or "").strip()
+
+
+def _validate_port(port):
+    portText = _text(port)
+    if not portText.isdigit():
+        return False, "Port must be a number between 1 and 65535."
+
+    parsedPort = int(portText)
+    if parsedPort < 1 or parsedPort > 65535:
+        return False, "Port must be a number between 1 and 65535."
+    return True, ""
+
+
+def _is_valid_domain(domain):
+    domainText = _text(domain).rstrip(".")
+    if not domainText or len(domainText) > 253:
+        return False
+    if "://" in domainText or "/" in domainText or ":" in domainText:
+        return False
+    return all(DOMAIN_LABEL_PATTERN.match(label) for label in domainText.split("."))
+
+
+def _is_valid_github_project(project):
+    projectParts = _text(project).split("/")
+    if len(projectParts) > 2:
+        return False
+    return all(GITHUB_PROJECT_PART_PATTERN.match(part) for part in projectParts)
+
+
+def validate_listener_fields(listenerType, param1, param2):
+    listenerType = _text(listenerType).lower()
+    param1 = _text(param1)
+    param2 = _text(param2)
+
+    if listenerType in {HttpType, HttpsType, TcpType}:
+        if not param1:
+            return False, "IP is required."
+        try:
+            ip_address(param1)
+        except ValueError:
+            return False, "IP must be a valid IPv4 or IPv6 address."
+        return _validate_port(param2)
+
+    if listenerType == DnsType:
+        if not _is_valid_domain(param1):
+            return False, "Domain must be a valid DNS name."
+        return _validate_port(param2)
+
+    if listenerType == GithubType:
+        if not param1:
+            return False, "GitHub project is required."
+        if not _is_valid_github_project(param1):
+            return False, "GitHub project must use a simple name or owner/repo."
+        if not param2:
+            return False, "GitHub token is required."
+        return True, ""
+
+    return False, "Unknown listener type."
 
 
 #
@@ -248,21 +315,29 @@ class Listeners(QWidget):
 
     # send message for adding a listener
     def addListener(self, message):
-        if message[0]=="github":
+        listenerType = _text(message[0]) if len(message) > 0 else ""
+        param1 = _text(message[1]) if len(message) > 1 else ""
+        param2 = _text(message[2]) if len(message) > 2 else ""
+        valid, error = validate_listener_fields(listenerType, param1, param2)
+        if not valid:
+            self.setInlineStatus(format_action_status("Add listener", error), False)
+            return
+
+        if listenerType=="github":
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            project=message[1],
-            token=message[2])
-        elif message[0]=="dns":
+            type=listenerType,
+            project=param1,
+            token=param2)
+        elif listenerType=="dns":
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            domain=message[1],
-            port=int(message[2]))
+            type=listenerType,
+            domain=param1,
+            port=int(param2))
         else:
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            ip=message[1],
-            port=int(message[2]))
+            type=listenerType,
+            ip=param1,
+            port=int(param2))
         ack = self.grpcClient.addListener(listener)
         self.setStatusMessage(ack, "Listener command accepted.", action="Add listener")
 
@@ -373,38 +448,90 @@ class CreateListner(QWidget):
         self.param2.setText("8443")
         layout.addRow(self.labelPort, self.param2)
 
+        self.errorLabel = QLabel("")
+        self.errorLabel.setMinimumHeight(18)
+        self.errorLabel.setWordWrap(True)
+        self.errorLabel.setVisible(False)
+        layout.addRow(self.errorLabel)
+
         self.buttonOk = QPushButton('&OK', clicked=self.checkAndSend)
         layout.addRow(self.buttonOk)
 
         self.setLayout(layout)
         self.setWindowTitle(AddListenerWindowTitle)
+        self.param1.textChanged.connect(self.clearValidationError)
+        self.param2.textChanged.connect(self.clearValidationError)
+        self.changeLabels()
 
 
     def changeLabels(self):
+        self.clearValidationError()
         if self.qcombo.currentText() == HttpType:
             self.labelIP.setText(IpLabel)
             self.labelPort.setText(PortLabel)
+            self.param1.setPlaceholderText("0.0.0.0")
+            self.param2.setPlaceholderText("1-65535")
+            if not self.param1.text().strip():
+                self.param1.setText("0.0.0.0")
+            if not self.param2.text().strip():
+                self.param2.setText("8443")
         elif self.qcombo.currentText() == HttpsType:
             self.labelIP.setText(IpLabel)
             self.labelPort.setText(PortLabel)
+            self.param1.setPlaceholderText("0.0.0.0")
+            self.param2.setPlaceholderText("1-65535")
+            if not self.param1.text().strip():
+                self.param1.setText("0.0.0.0")
+            if not self.param2.text().strip():
+                self.param2.setText("8443")
         elif self.qcombo.currentText() == TcpType:
             self.labelIP.setText(IpLabel)
             self.labelPort.setText(PortLabel)
+            self.param1.setPlaceholderText("0.0.0.0")
+            self.param2.setPlaceholderText("1-65535")
+            if not self.param1.text().strip():
+                self.param1.setText("0.0.0.0")
+            if not self.param2.text().strip():
+                self.param2.setText("8443")
         elif self.qcombo.currentText() == GithubType:
             self.labelIP.setText(ProjectLabel)
             self.labelPort.setText(TokenLabel)
+            self.param1.setPlaceholderText("project or owner/repo")
+            self.param2.setPlaceholderText("GitHub token")
+            if self.param1.text().strip() == "0.0.0.0":
+                self.param1.clear()
+            if self.param2.text().strip() == "8443":
+                self.param2.clear()
         elif self.qcombo.currentText() == DnsType:
             self.labelIP.setText(DomainLabel)
             self.labelPort.setText(PortLabel)
+            self.param1.setPlaceholderText("example.com")
+            self.param2.setPlaceholderText("1-65535")
+            if self.param1.text().strip() == "0.0.0.0":
+                self.param1.clear()
+            if not self.param2.text().strip():
+                self.param2.setText("8443")
+
+    def clearValidationError(self):
+        clear_status(self.errorLabel, "")
+        self.errorLabel.setVisible(False)
+
+    def showValidationError(self, message):
+        apply_error(self.errorLabel, message)
+        self.errorLabel.setVisible(True)
 
 
     def checkAndSend(self):
-        type = self.type.currentText()
-        param1 = self.param1.text()
-        param2 = self.param2.text()
+        type = self.type.currentText().strip()
+        param1 = self.param1.text().strip()
+        param2 = self.param2.text().strip()
+
+        valid, error = validate_listener_fields(type, param1, param2)
+        if not valid:
+            self.showValidationError(error)
+            return
 
         result = [type, param1, param2]
-
         self.procDone.emit(result)
         self.close()
 

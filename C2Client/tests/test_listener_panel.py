@@ -1,6 +1,14 @@
 from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
 
-from C2Client.ListenerPanel import Listener, Listeners
+from C2Client.ListenerPanel import (
+    CreateListner,
+    DnsType,
+    GithubType,
+    HttpsType,
+    Listener,
+    Listeners,
+    validate_listener_fields,
+)
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -8,12 +16,14 @@ class StubGrpc:
     def __init__(self):
         self.add_ack = None
         self.stop_ack = None
+        self.added_listeners = []
         self.stopped_listeners = []
 
     def listListeners(self):
         return []
 
     def addListener(self, listener):
+        self.added_listeners.append(listener)
         return self.add_ack or type("Ack", (), {"status": TeamServerApi_pb2.OK, "message": "Listener created."})()
 
     def stopListener(self, listener):
@@ -35,6 +45,69 @@ def test_add_listener_ack_message_is_displayed(qtbot, monkeypatch):
 
     assert listeners.statusLabel.text() == "Add listener: Listener already exists."
     assert "#b00020" in listeners.statusLabel.styleSheet()
+
+
+def test_listener_validation_rejects_bad_network_fields():
+    assert validate_listener_fields(HttpsType, "127.0.0.1", "8443") == (True, "")
+    assert validate_listener_fields(HttpsType, "999.1.1.1", "8443") == (
+        False,
+        "IP must be a valid IPv4 or IPv6 address.",
+    )
+    assert validate_listener_fields(HttpsType, "127.0.0.1", "70000") == (
+        False,
+        "Port must be a number between 1 and 65535.",
+    )
+    assert validate_listener_fields(DnsType, "https://example.com", "53") == (
+        False,
+        "Domain must be a valid DNS name.",
+    )
+    assert validate_listener_fields(GithubType, "owner/repo", "token") == (True, "")
+
+
+def test_add_listener_invalid_fields_are_not_sent(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    grpc = StubGrpc()
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    listeners.listListenerObject = []
+    qtbot.addWidget(listeners)
+
+    listeners.addListener(["https", "999.1.1.1", "8443"])
+
+    assert grpc.added_listeners == []
+    assert listeners.statusLabel.text() == "Add listener: IP must be a valid IPv4 or IPv6 address."
+    assert "#b00020" in listeners.statusLabel.styleSheet()
+
+
+def test_add_listener_form_blocks_invalid_port(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+    emitted = []
+    form.procDone.connect(lambda values: emitted.append(values))
+
+    form.qcombo.setCurrentText(HttpsType)
+    form.param1.setText("127.0.0.1")
+    form.param2.setText("70000")
+    form.checkAndSend()
+
+    assert emitted == []
+    assert form.errorLabel.isHidden() is False
+    assert form.errorLabel.text() == "Port must be a number between 1 and 65535."
+
+
+def test_add_listener_form_emits_trimmed_valid_values(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+    emitted = []
+    form.procDone.connect(lambda values: emitted.append(values))
+
+    form.qcombo.setCurrentText(HttpsType)
+    form.param1.setText(" 127.0.0.1 ")
+    form.param2.setText(" 8443 ")
+    form.checkAndSend()
+
+    assert emitted == [[HttpsType, "127.0.0.1", "8443"]]
 
 
 def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):

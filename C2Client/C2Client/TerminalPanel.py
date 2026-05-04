@@ -439,6 +439,10 @@ InfoProcessing = "Processing..."
 ErrorCmdUnknow = "Error: Command Unknown"
 ErrorFileNotFound = "Error: File doesn't exist."
 ErrorListener = "Error: Download listener must be of type http or https."
+TerminalWelcomeMessage = (
+    "Local TeamServer terminal. Type Help to list available commands, "
+    "or Help <command> for command-specific details."
+)
 
 
 #
@@ -470,6 +474,7 @@ class Terminal(QWidget):
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
+        self.printInTerminal("Terminal", TerminalWelcomeMessage)
 
 
     def nextCompletion(self):

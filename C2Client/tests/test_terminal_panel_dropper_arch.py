@@ -112,6 +112,16 @@ def test_terminal_command_error_message_uses_status_message(qtbot):
     assert "raw failure" not in terminal.editorOutput.toPlainText()
 
 
+def test_terminal_shows_welcome_message(qtbot):
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    output = terminal.editorOutput.toPlainText()
+    assert "Local TeamServer terminal." in output
+    assert "Type Help to list available commands" in output
+
+
 def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 

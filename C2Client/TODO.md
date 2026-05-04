@@ -18,7 +18,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 10 | Humaniser l'etat des sessions | M | Fort | Badges `alive`, `stale`, `killed`, last seen relatif, couleur discrete par privilege/OS, detection session inactive. |
 | 11 | Ameliorer la console beacon | M | Fort | Recherche output, clear, export log, pause autoscroll, bouton resend, affichage `queued/done/error` par `command_id`. |
 | 12 | Transformer `ScriptPanel` en vrai panneau d'automations | M | Moyen | Lister hooks charges, afficher erreurs par script, activer/desactiver un script, executer une action script manuelle. |
-| 13 | Ameliorer le formulaire listener | M | Moyen | Validation port/IP/domain/token avant RPC, defaults par type, erreurs inline, previsualisation de la config envoyee. |
+| 13 | Ameliorer le formulaire listener | M | Moyen | Partiel. Validation port/IP/domain/token avant RPC, defaults par type et erreurs inline; previsualisation de la config encore a faire. |
 | 14 | Ajouter un panneau details session | M | Fort | Vue laterale avec metadata, listeners associes, notes locales, dernieres commandes, boutons d'action contextuels. |
 | 15 | Ameliorer le graph | M | Moyen | Zoom, fit-to-view, layout persistant, clic node pour ouvrir details/console, couleurs par listener/status. |
 | 16 | Generer des formulaires de commandes depuis les schemas assistant | L | Fort | Utiliser `assistant_agent/tools/schemas/*.json` pour proposer des commandes guidees sans tout taper a la main. |
