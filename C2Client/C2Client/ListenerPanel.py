@@ -3,9 +3,11 @@ import logging
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFormLayout,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
@@ -70,6 +72,8 @@ class Listeners(QWidget):
         super(QWidget, self).__init__(parent)
 
         self.grpcClient = grpcClient
+        self.idListener = 0
+        self.listListenerObject = []
                 
         self.createListenerWindow = None
 
@@ -77,9 +81,33 @@ class Listeners(QWidget):
         self.layout = QGridLayout(widget)
 
         self.label = QLabel(ListenerTabTitle)
-        self.layout.addWidget(self.label)
+        self.headerLayout = QHBoxLayout()
+        self.headerLayout.addWidget(self.label)
+        self.headerLayout.addStretch(1)
+
+        self.addListenerButton = QPushButton("Add Listener")
+        self.addListenerButton.setToolTip("Create a new primary listener.")
+        self.addListenerButton.clicked.connect(self.listenerForm)
+        self.headerLayout.addWidget(self.addListenerButton)
+
+        self.stopListenerButton = QPushButton("Stop")
+        self.stopListenerButton.setToolTip("Stop the selected listener.")
+        self.stopListenerButton.clicked.connect(self.stopSelectedListener)
+        self.headerLayout.addWidget(self.stopListenerButton)
+
+        self.copyListenerIdButton = QPushButton("Copy ID")
+        self.copyListenerIdButton.setToolTip("Copy the selected listener hash.")
+        self.copyListenerIdButton.clicked.connect(self.copySelectedListenerId)
+        self.headerLayout.addWidget(self.copyListenerIdButton)
+
+        self.refreshButton = QPushButton("Refresh")
+        self.refreshButton.setToolTip("Refresh listeners now.")
+        self.refreshButton.clicked.connect(self.listListeners)
+        self.headerLayout.addWidget(self.refreshButton)
+        self.layout.addLayout(self.headerLayout, 0, 0)
+
         self.statusLabel = QLabel("")
-        self.layout.addWidget(self.statusLabel)
+        self.layout.addWidget(self.statusLabel, 1, 0)
 
         # List of sessions
         self.listListener = QTableWidget()
@@ -92,12 +120,13 @@ class Listeners(QWidget):
         # self.listListener.cellPressed.connect(self.listListenerClicked)
         self.listListener.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listListener.customContextMenuRequested.connect(self.showContextMenu)
+        self.listListener.itemSelectionChanged.connect(self.updateActionButtons)
 
         self.listListener.verticalHeader().setVisible(False)
         header = self.listListener.horizontalHeader()      
         for i in range(header.count()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-        self.layout.addWidget(self.listListener)
+        self.layout.addWidget(self.listListener, 2, 0)
 
         # Thread to get listeners every second
         # https://realpython.com/python-pyqt-qthread/
@@ -109,14 +138,48 @@ class Listeners(QWidget):
         self.thread.start()
 
         self.setLayout(self.layout)
+        self.updateActionButtons()
 
     def setStatusMessage(self, ack, successFallback):
         message = operation_ack_text(ack, successFallback)
+        self.setInlineStatus(message, is_response_ok(ack))
+
+    def setInlineStatus(self, message, ok=True):
         self.statusLabel.setText(message)
-        if is_response_ok(ack):
+        if ok:
             self.statusLabel.setStyleSheet("color: #0a7f2e;")
         else:
             self.statusLabel.setStyleSheet("color: #b00020;")
+
+    def updateActionButtons(self):
+        hasSelection = self.selectedListener() is not None
+        self.stopListenerButton.setEnabled(hasSelection)
+        self.copyListenerIdButton.setEnabled(hasSelection)
+
+    def selectedListener(self):
+        selectedRows = self.listListener.selectionModel().selectedRows() if self.listListener.selectionModel() else []
+        if not selectedRows:
+            return None
+
+        row = selectedRows[0].row()
+        if row < 0 or row >= len(self.listListenerObject):
+            return None
+        return self.listListenerObject[row]
+
+    def stopSelectedListener(self):
+        listenerStore = self.selectedListener()
+        if listenerStore is None:
+            self.setInlineStatus("Select a listener first.", False)
+            return
+        self.stopListener(listenerStore.listenerHash)
+
+    def copySelectedListenerId(self):
+        listenerStore = self.selectedListener()
+        if listenerStore is None:
+            self.setInlineStatus("Select a listener first.", False)
+            return
+        QApplication.clipboard().setText(listenerStore.listenerHash)
+        self.setInlineStatus("Listener ID copied to clipboard.")
 
     def __del__(self):
         self.getListenerWorker.quit()
@@ -250,6 +313,7 @@ class Listeners(QWidget):
 
             port = QTableWidgetItem(str(listenerStore.port))
             self.listListener.setItem(ix, 3, port)
+        self.updateActionButtons()
 
 
 class CreateListner(QWidget):

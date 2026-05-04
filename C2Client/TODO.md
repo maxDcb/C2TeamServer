@@ -10,7 +10,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 2 | Centraliser toutes les configs client dans `.env` | XS | Fort | Fait. Helpers types dans `env.py`, resolution des chemins, branchement certificat, protocol root, logs, refresh intervals, gRPC, UI et assistant. |
 | 3 | Completer `C2Client/.env.example` | XS | Moyen | Fait. Exemple enrichi avec connexion, auth, certificat, protocol root, UI, gRPC, assistant et modules locaux. |
 | 4 | Utiliser `.env` comme defaults CLI | S | Fort | Fait. `C2_IP`, `C2_PORT` et `C2_DEV_MODE` alimentent les defaults CLI, avec arguments CLI prioritaires. |
-| 5 | Rendre les actions principales visibles | S | Fort | Boutons `Add Listener`, `Interact`, `Stop`, `Copy ID`, `Refresh`; garder le clic droit comme raccourci, pas comme seul chemin. |
+| 5 | Rendre les actions principales visibles | S | Fort | Fait. Boutons `Add Listener`, `Interact`, `Stop`, `Copy ID`, `Refresh`; le clic droit reste disponible comme raccourci. |
 | 6 | Ajouter copie rapide des IDs et infos session | S | Moyen | Copie beacon hash, listener hash, host, user, internal IP depuis tables et graph. |
 | 7 | Ameliorer les messages d'erreur et d'etat | S | Fort | Normaliser success/error dans les panneaux, afficher l'action concernee, conserver la derniere erreur visible. |
 | 8 | Nettoyer le bruit console/debug | S | Moyen | Remplacer les `print()` UI par logging, supprimer debug accidentels, rendre les erreurs scripts visibles sans casser l'UI. |

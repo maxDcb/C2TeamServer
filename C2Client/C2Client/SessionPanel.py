@@ -3,9 +3,12 @@ import logging
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
+    QApplication,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QTableView,
     QTableWidget,
     QTableWidgetItem,
@@ -53,14 +56,40 @@ class Sessions(QWidget):
         super(QWidget, self).__init__(parent)
 
         self.grpcClient = grpcClient
+        self.idSession = 0
+        self.listSessionObject = []
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
 
         self.label = QLabel('Sessions')
-        self.layout.addWidget(self.label)
+        self.headerLayout = QHBoxLayout()
+        self.headerLayout.addWidget(self.label)
+        self.headerLayout.addStretch(1)
+
+        self.interactButton = QPushButton("Interact")
+        self.interactButton.setToolTip("Open an interactive console for the selected session.")
+        self.interactButton.clicked.connect(self.interactWithSelectedSession)
+        self.headerLayout.addWidget(self.interactButton)
+
+        self.stopButton = QPushButton("Stop")
+        self.stopButton.setToolTip("Queue a stop command for the selected session.")
+        self.stopButton.clicked.connect(self.stopSelectedSession)
+        self.headerLayout.addWidget(self.stopButton)
+
+        self.copySessionIdButton = QPushButton("Copy ID")
+        self.copySessionIdButton.setToolTip("Copy the selected beacon hash.")
+        self.copySessionIdButton.clicked.connect(self.copySelectedSessionId)
+        self.headerLayout.addWidget(self.copySessionIdButton)
+
+        self.refreshButton = QPushButton("Refresh")
+        self.refreshButton.setToolTip("Refresh sessions now.")
+        self.refreshButton.clicked.connect(self.listSessions)
+        self.headerLayout.addWidget(self.refreshButton)
+        self.layout.addLayout(self.headerLayout, 0, 0)
+
         self.statusLabel = QLabel("")
-        self.layout.addWidget(self.statusLabel)
+        self.layout.addWidget(self.statusLabel, 1, 0)
 
         # List of sessions
         self.listSession = QTableWidget()
@@ -71,13 +100,14 @@ class Sessions(QWidget):
 
         self.listSession.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listSession.customContextMenuRequested.connect(self.showContextMenu)
+        self.listSession.itemSelectionChanged.connect(self.updateActionButtons)
 
         self.listSession.verticalHeader().setVisible(False)
         header = self.listSession.horizontalHeader()      
         for i in range(header.count()):
             header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)     
         QTimer.singleShot(100, self.switch_to_interactive)
-        self.layout.addWidget(self.listSession)
+        self.layout.addWidget(self.listSession, 2, 0)
 
         # Thread to fetch sessions every second
         # https://realpython.com/python-pyqt-qthread/
@@ -89,14 +119,62 @@ class Sessions(QWidget):
         self.thread.start()
 
         self.setLayout(self.layout)
+        self.updateActionButtons()
 
     def setStatusMessage(self, ack, successFallback):
         message = operation_ack_text(ack, successFallback)
+        self.setInlineStatus(message, is_response_ok(ack))
+
+    def setInlineStatus(self, message, ok=True):
         self.statusLabel.setText(message)
-        if is_response_ok(ack):
+        if ok:
             self.statusLabel.setStyleSheet("color: #0a7f2e;")
         else:
             self.statusLabel.setStyleSheet("color: #b00020;")
+
+    def updateActionButtons(self):
+        hasSelection = self.selectedSession() is not None
+        self.interactButton.setEnabled(hasSelection)
+        self.stopButton.setEnabled(hasSelection)
+        self.copySessionIdButton.setEnabled(hasSelection)
+
+    def selectedSession(self):
+        selectedRows = self.listSession.selectionModel().selectedRows() if self.listSession.selectionModel() else []
+        if not selectedRows:
+            return None
+
+        row = selectedRows[0].row()
+        if row < 0 or row >= len(self.listSessionObject):
+            return None
+        return self.listSessionObject[row]
+
+    def sessionByShortBeaconHash(self, beaconHashPrefix):
+        for sessionStore in self.listSessionObject:
+            if sessionStore.beaconHash[0:8] == beaconHashPrefix:
+                return sessionStore
+        return None
+
+    def interactWithSelectedSession(self):
+        sessionStore = self.selectedSession()
+        if sessionStore is None:
+            self.setInlineStatus("Select a session first.", False)
+            return
+        self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
+
+    def stopSelectedSession(self):
+        sessionStore = self.selectedSession()
+        if sessionStore is None:
+            self.setInlineStatus("Select a session first.", False)
+            return
+        self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
+
+    def copySelectedSessionId(self):
+        sessionStore = self.selectedSession()
+        if sessionStore is None:
+            self.setInlineStatus("Select a session first.", False)
+            return
+        QApplication.clipboard().setText(sessionStore.beaconHash)
+        self.setInlineStatus("Beacon ID copied to clipboard.")
 
     def resizeEvent(self, event):
         super().resizeEvent(event) 
@@ -137,15 +215,18 @@ class Sessions(QWidget):
     # catch Interact and Stop menu click
     def  actionClicked(self, action):
         hash = self.item
-        for ix, sessionStore in enumerate(self.listSessionObject):
-            if sessionStore.beaconHash[0:8] == hash:
-                if action.text() == "Interact":
-                    self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
-                elif action.text() == "Stop":
-                    self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
-                elif action.text() == "Delete":
-                    self.listSessionObject.pop(ix)
-            self.printSessions()
+        for ix, sessionStore in enumerate(list(self.listSessionObject)):
+            if sessionStore.beaconHash[0:8] != hash:
+                continue
+            if action.text() == "Interact":
+                self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
+            elif action.text() == "Stop":
+                self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
+            elif action.text() == "Delete":
+                self.listSessionObject.pop(ix)
+            break
+        self.printSessions()
+        self.updateActionButtons()
 
 
     def stopSession(self, beaconHash, listenerHash):
@@ -263,6 +344,7 @@ class Sessions(QWidget):
 
             killed = QTableWidgetItem(str(sessionStore.killed))
             self.listSession.setItem(ix, 10, killed)
+        self.updateActionButtons()
 
 
 class GetSessionsWorker(QObject):
