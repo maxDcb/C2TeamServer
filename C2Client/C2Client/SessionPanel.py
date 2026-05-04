@@ -47,6 +47,18 @@ def _to_text(value):
     return str(value or "").strip()
 
 
+def _to_text_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    try:
+        return [_to_text(item) for item in value if _to_text(item)]
+    except TypeError:
+        text = _to_text(value)
+        return [text] if text else []
+
+
 def _is_truthy(value):
     if isinstance(value, bool):
         return value
@@ -325,6 +337,36 @@ class Sessions(QWidget):
             if sessionStore.beaconHash[0:8] == beaconHashPrefix:
                 return sessionStore
         return None
+
+    def scriptSnapshot(self):
+        snapshots = []
+        for sessionStore in self.listSessionObject:
+            state, stateTooltip = resolve_session_state(
+                sessionStore.killed,
+                sessionStore.lastProofOfLife,
+                self.sessionStaleAfterMs,
+            )
+            snapshots.append(
+                {
+                    "id": sessionStore.id,
+                    "beacon_hash": _to_text(sessionStore.beaconHash),
+                    "listener_hash": _to_text(sessionStore.listenerHash),
+                    "hostname": _to_text(sessionStore.hostname),
+                    "username": _to_text(sessionStore.username),
+                    "arch": _to_text(sessionStore.arch),
+                    "privilege": _to_text(sessionStore.privilege),
+                    "os": _to_text(sessionStore.os),
+                    "last_proof_of_life": _to_text(sessionStore.lastProofOfLife),
+                    "killed": _is_truthy(sessionStore.killed),
+                    "internal_ips": _to_text_list(sessionStore.internalIps),
+                    "internal_ips_text": _to_text(sessionStore.internalIps),
+                    "process_id": _to_text(sessionStore.processId),
+                    "additional_information": _to_text(sessionStore.additionalInformation),
+                    "state": state,
+                    "state_detail": stateTooltip,
+                }
+            )
+        return snapshots
 
     def interactWithSelectedSession(self):
         sessionStore = self.selectedSession()

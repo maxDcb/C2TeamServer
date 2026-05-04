@@ -173,6 +173,56 @@ def test_session_toolbar_actions_use_selected_session(qtbot, monkeypatch):
     assert grpc.stopped_sessions[-1].listener_hash == "listener-full-hash"
 
 
+def test_session_script_snapshot_exposes_beacon_context(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+
+    parent = QWidget()
+    sessions = Sessions(parent, StubGrpc())
+    sessions.sessionStaleAfterMs = 1_000_000
+    sessions.listSessionObject = [
+        Session(
+            0,
+            "listener-full-hash",
+            "beacon-full-hash",
+            "host1",
+            "user1",
+            "x64",
+            "HIGH",
+            "Windows",
+            datetime.now().isoformat(),
+            False,
+            "10.0.0.5, 192.168.56.20",
+            "1234",
+            "note",
+        )
+    ]
+    qtbot.addWidget(sessions)
+
+    snapshot = sessions.scriptSnapshot()
+
+    assert snapshot == [
+        {
+            "id": 0,
+            "beacon_hash": "beacon-full-hash",
+            "listener_hash": "listener-full-hash",
+            "hostname": "host1",
+            "username": "user1",
+            "arch": "x64",
+            "privilege": "HIGH",
+            "os": "Windows",
+            "last_proof_of_life": sessions.listSessionObject[0].lastProofOfLife,
+            "killed": False,
+            "internal_ips": ["10.0.0.5", "192.168.56.20"],
+            "internal_ips_text": "10.0.0.5, 192.168.56.20",
+            "process_id": "1234",
+            "additional_information": "note",
+            "state": SESSION_STATE_ALIVE,
+            "state_detail": snapshot[0]["state_detail"],
+        }
+    ]
+    assert snapshot[0]["state_detail"].startswith("Last seen now.")
+
+
 def test_session_table_keeps_user_column_width_after_refresh(qtbot, monkeypatch):
     monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
 

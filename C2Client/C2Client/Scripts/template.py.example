@@ -1,6 +1,15 @@
 from ..grpcClient import GrpcClient, TeamServerApi_pb2
 
 
+def ManualStart(grpcClient: GrpcClient, context: dict) -> str:
+    sessions = context.get("sessions", [])
+    listeners = context.get("listeners", [])
+    output = "Scrip test.py: ManualStart\n"
+    output += f"Known sessions: {len(sessions)}\n"
+    output += f"Known listeners: {len(listeners)}\n"
+    return output
+
+
 def OnStart(grpcClient: GrpcClient) -> str:
     output = "Scrip test.py: OnStart\n"
     return output
@@ -61,4 +70,3 @@ def OnConsoleSend(grpcClient: GrpcClient) -> str:
 def OnConsoleReceive(grpcClient: GrpcClient) -> str:
     output = "Scrip test.py: OnConsoleReceive\n"
     return output
-

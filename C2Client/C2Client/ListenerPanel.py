@@ -256,6 +256,21 @@ class Listeners(QWidget):
             return None
         return self.listListenerObject[row]
 
+    def scriptSnapshot(self):
+        snapshots = []
+        for listenerStore in self.listListenerObject:
+            snapshots.append(
+                {
+                    "id": listenerStore.id,
+                    "listener_hash": _text(listenerStore.listenerHash),
+                    "type": _text(listenerStore.type),
+                    "host": _text(listenerStore.host),
+                    "port": listenerStore.port,
+                    "session_count": listenerStore.nbSession,
+                }
+            )
+        return snapshots
+
     def stopSelectedListener(self):
         listenerStore = self.selectedListener()
         if listenerStore is None:

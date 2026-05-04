@@ -22,15 +22,25 @@ class DummyWidget(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+    def scriptSnapshot(self):
+        return [{"source": self.__class__.__name__}]
+
+
+class DummyScript:
+    def __init__(self):
+        self.provider = None
+        self.sessionScriptMethod = lambda *a, **k: None
+        self.listenerScriptMethod = lambda *a, **k: None
+        self.mainScriptMethod = lambda *a, **k: None
+
+    def setClientStateProvider(self, provider):
+        self.provider = provider
+
 
 class DummyConsole(QWidget):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.script = SimpleNamespace(
-            sessionScriptMethod=lambda *a, **k: None,
-            listenerScriptMethod=lambda *a, **k: None,
-            mainScriptMethod=lambda *a, **k: None,
-        )
+        self.script = DummyScript()
         self.assistant = SimpleNamespace(sessionAssistantMethod=lambda *a, **k: None)
 
     def addConsole(self, *args, **kwargs):
@@ -56,6 +66,10 @@ def test_gui_startup(qtbot, monkeypatch):
     assert isinstance(app.consoleWidget, DummyConsole)
     assert isinstance(app.listenersWidget, DummyWidget)
     assert isinstance(app.sessionsWidget, DummyWidget)
+    assert app.consoleWidget.script.provider() == {
+        "sessions": [{"source": "DummyWidget"}],
+        "listeners": [{"source": "DummyWidget"}],
+    }
     assert "Connected | 127.0.0.1:50051" in app.connectionStatusLabel.text()
     assert app.rpcStatusLabel.text() == "Last RPC: none"
 

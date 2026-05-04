@@ -143,6 +143,28 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
     assert grpc.stopped_listeners[-1].listener_hash == "listener-full-hash"
 
 
+def test_listener_script_snapshot_exposes_listener_context(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    parent = QWidget()
+    listeners = Listeners(parent, StubGrpc())
+    listeners.listListenerObject = [
+        Listener(0, "listener-full-hash", "https", "0.0.0.0", 8443, 2)
+    ]
+    qtbot.addWidget(listeners)
+
+    assert listeners.scriptSnapshot() == [
+        {
+            "id": 0,
+            "listener_hash": "listener-full-hash",
+            "type": "https",
+            "host": "0.0.0.0",
+            "port": 8443,
+            "session_count": 2,
+        }
+    ]
+
+
 def test_listener_table_keeps_user_column_width_after_refresh(qtbot, monkeypatch):
     monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
 

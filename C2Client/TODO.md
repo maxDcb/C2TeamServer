@@ -17,7 +17,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 9 | [ ] | Ajouter filtres, recherche et tri tables | M | Fort | Filtrer sessions/listeners par host, user, OS, privilege, listener, status; tri par last seen et privilege. Client-only au depart. |
 | 10 | [x] | Humaniser l'etat des sessions | M | Fort | Fait. Etat `Alive/Stale/Killed/Unknown`, last seen relatif, seuil `C2_SESSION_STALE_AFTER_MS=30000`, couleurs discretes et OS complet en tooltip. |
 | 11 | [x] | Ameliorer la console beacon | M | Fort | Recherche output, clear, export log, pause autoscroll, bouton resend, affichage `queued/done/error` par `command_id`. |
-| 12 | [ ] | Transformer `ScriptPanel` en vrai panneau d'automations | M | Moyen | Lister hooks charges, afficher erreurs par script, activer/desactiver un script, executer une action script manuelle. |
+| 12 | [x] | Transformer `ScriptPanel` en vrai panneau d'automations | M | Moyen | Fait. Table scripts/hooks, enable/disable, erreurs par script, compteur d'activations, run manuel et hook `ManualStart(context)` avec snapshots sessions/listeners; subtilites de triggers en tooltip. |
 | 13 | [ ] | Ameliorer le formulaire listener | M | Moyen | Partiel. Validation port/IP/domain/token avant RPC, defaults par type et erreurs inline; previsualisation de la config encore a faire. |
 | 14 | [ ] | Ajouter un panneau details session | M | Fort | Vue laterale avec metadata, listeners associes, notes locales, dernieres commandes, boutons d'action contextuels. |
 | 15 | [ ] | Ameliorer le graph | M | Moyen | Zoom, fit-to-view, layout persistant, clic node pour ouvrir details/console, couleurs par listener/status. |

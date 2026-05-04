@@ -172,6 +172,14 @@ class App(QMainWindow):
 
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
 
+        if hasattr(self.consoleWidget.script, "setClientStateProvider"):
+            self.consoleWidget.script.setClientStateProvider(
+                lambda: {
+                    "sessions": self.sessionsWidget.scriptSnapshot(),
+                    "listeners": self.listenersWidget.scriptSnapshot(),
+                }
+            )
+
         self.consoleWidget.script.mainScriptMethod("start", "", "", "")
 
     def setupStatusBar(self) -> None:
