@@ -3,8 +3,10 @@ import logging
 import os
 import signal
 import sys
+from datetime import datetime
 from typing import Optional, Tuple
 
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -34,6 +36,12 @@ for noisy_logger in ("openai", "httpx", "httpcore"):
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+
+class RpcStatusEvents(QObject):
+    """Bridge gRPC worker-thread status callbacks back to the Qt UI thread."""
+
+    rpcStatus = pyqtSignal(str, bool, str)
 
 
 class CredentialDialog(QDialog):
@@ -109,6 +117,8 @@ class App(QMainWindow):
             raise e
 
         self.createPayloadWindow: Optional[QWidget] = None
+        self.operatorUsername = username or getattr(self.grpcClient, "username", "") or "unknown"
+        self._lastRpcError = ""
         
         self.title = 'Exploration C2'
         self.left = 0
@@ -117,6 +127,12 @@ class App(QMainWindow):
         self.height = 1000
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
+
+        self.rpcStatusEvents = RpcStatusEvents(self)
+        self.rpcStatusEvents.rpcStatus.connect(self.updateRpcStatus)
+        if hasattr(self.grpcClient, "set_status_callback"):
+            self.grpcClient.set_status_callback(self.rpcStatusEvents.rpcStatus.emit)
+        self.setupStatusBar()
         
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -139,6 +155,58 @@ class App(QMainWindow):
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
 
         self.consoleWidget.script.mainScriptMethod("start", "", "", "")
+
+    def setupStatusBar(self) -> None:
+        """Initialise the persistent connection and RPC status widgets."""
+
+        self.connectionStatusLabel = QLabel(self)
+        self.rpcStatusLabel = QLabel("Last RPC: none", self)
+        self.errorStatusLabel = QLabel("Last error: none", self)
+
+        for label in (self.connectionStatusLabel, self.rpcStatusLabel, self.errorStatusLabel):
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+
+        status_bar = self.statusBar()
+        status_bar.setSizeGripEnabled(False)
+        status_bar.addWidget(self.connectionStatusLabel, 5)
+        status_bar.addPermanentWidget(self.rpcStatusLabel, 2)
+        status_bar.addPermanentWidget(self.errorStatusLabel, 4)
+
+        self.setConnectionStatus(True)
+
+    def setConnectionStatus(self, connected: bool) -> None:
+        state = "Connected" if connected else "RPC error"
+        endpoint = getattr(self.grpcClient, "endpoint", f"{self.ip}:{self.port}")
+        client_id = getattr(self.grpcClient, "client_id", "")
+        client_id_text = f" | client {client_id[:8]}" if client_id else ""
+        cert_path = getattr(self.grpcClient, "ca_cert_path", "")
+        cert_name = os.path.basename(cert_path) if cert_path else "unknown cert"
+        tls_mode = "dev TLS" if self.devMode else "TLS"
+        self.connectionStatusLabel.setText(
+            f"{state} | {endpoint} | user {self.operatorUsername} | {tls_mode} | cert {cert_name}{client_id_text}",
+        )
+        color = "#0a7f2e" if connected else "#b00020"
+        self.connectionStatusLabel.setStyleSheet(f"color: {color};")
+
+    def updateRpcStatus(self, operation: str, ok: bool, message: str) -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.setConnectionStatus(ok)
+        self.rpcStatusLabel.setText(f"Last RPC: {operation or 'unknown'} at {timestamp}")
+
+        if not ok:
+            self._lastRpcError = self.compactStatusMessage(f"{operation}: {message}")
+            self.errorStatusLabel.setText(f"Last error: {self._lastRpcError}")
+            self.errorStatusLabel.setStyleSheet("color: #b00020;")
+        elif not self._lastRpcError:
+            self.errorStatusLabel.setText("Last error: none")
+            self.errorStatusLabel.setStyleSheet("")
+
+    @staticmethod
+    def compactStatusMessage(message: str, limit: int = 160) -> str:
+        text = " ".join(str(message or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: limit - 3] + "..."
 
     def topLayout(self) -> None:
         """Initialise the upper part of the main window."""

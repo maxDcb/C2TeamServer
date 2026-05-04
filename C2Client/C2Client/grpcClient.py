@@ -8,13 +8,14 @@ metadata injection and basic error reporting.
 import logging
 import os
 import uuid
-from typing import Any, Iterable, List, Tuple, Optional
+from typing import Any, Callable, Iterable, List, Tuple, Optional
 
 import grpc
 from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
 MetadataType = List[Tuple[str, str]]
+StatusCallback = Callable[[str, bool, str], None]
 
 
 class GrpcClient:
@@ -45,6 +46,18 @@ class GrpcClient:
         username: Optional[str] = None,
         password: Optional[str] = None,
     ) -> None:
+        self.ip = ip
+        self.port = port
+        self.endpoint = f"{ip}:{port}"
+        self.devMode = devMode
+        self.username = username or ""
+        self.ca_cert_path = ""
+        self.client_id = str(uuid.uuid4())[:16]
+        self.last_rpc_operation = ""
+        self.last_rpc_ok = True
+        self.last_rpc_message = ""
+        self._status_callback: Optional[StatusCallback] = None
+
         env_cert_path = os.getenv('C2_CERT_PATH')
 
         if env_cert_path and os.path.isfile(env_cert_path):
@@ -60,6 +73,7 @@ class GrpcClient:
                 "Using default certificate: %s. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.",
                 ca_cert,
             )
+        self.ca_cert_path = ca_cert
 
         if os.path.exists(ca_cert):
             with open(ca_cert, 'rb') as fh:
@@ -103,12 +117,56 @@ class GrpcClient:
         if token is None:
             if username is None or password is None:
                 username, password = self._load_credentials_from_env()
+            self.username = username
             token = self._authenticate(username, password)
 
         self.metadata: MetadataType = [
             ("authorization", f"Bearer {token}"),
-            ("clientid", str(uuid.uuid4())[:16]),
+            ("clientid", self.client_id),
         ]
+        self._notify_rpc_status("Connect", True)
+
+    def set_status_callback(self, callback: Optional[StatusCallback]) -> None:
+        """Register a callback receiving RPC status updates."""
+
+        self._status_callback = callback
+
+    def _notify_rpc_status(self, operation: str, ok: bool, message: str = "") -> None:
+        self.last_rpc_operation = operation
+        self.last_rpc_ok = ok
+        self.last_rpc_message = message
+        if self._status_callback:
+            self._status_callback(operation, ok, message)
+
+    def _rpc_error_message(self, exc: grpc.RpcError) -> str:
+        details = ""
+        try:
+            details = exc.details() or ""
+        except Exception:
+            details = ""
+        return details or str(exc)
+
+    def _unary_rpc(self, operation: str, call: Callable[[], Any]) -> Any:
+        try:
+            response = call()
+            self._notify_rpc_status(operation, True)
+            return response
+        except grpc.RpcError as exc:
+            message = self._rpc_error_message(exc)
+            logging.error("%s RPC failed: %s", operation, exc)
+            self._notify_rpc_status(operation, False, message)
+            raise
+
+    def _stream_rpc(self, operation: str, call: Callable[[], Iterable[Any]]) -> Iterable[Any]:
+        try:
+            for response in call():
+                yield response
+            self._notify_rpc_status(operation, True)
+        except grpc.RpcError as exc:
+            message = self._rpc_error_message(exc)
+            logging.error("%s RPC failed: %s", operation, exc)
+            self._notify_rpc_status(operation, False, message)
+            raise
 
     def _load_credentials_from_env(self) -> Tuple[str, str]:
         username = os.getenv("C2_USERNAME")
@@ -128,87 +186,58 @@ class GrpcClient:
             raise ValueError(f"grpcClient: authentication failed: {message}")
 
         logging.info("Authenticated against TeamServer as %s", username)
+        self._notify_rpc_status("Authenticate", True)
         return response.token
 
     def listListeners(self) -> Any:
         """Return the list of listeners registered on the TeamServer."""
 
         empty = TeamServerApi_pb2.Empty()
-        try:
-            return self.stub.ListListeners(empty, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("ListListeners RPC failed: %s", exc)
-            raise
+        return self._stream_rpc("ListListeners", lambda: self.stub.ListListeners(empty, metadata=self.metadata))
 
     def addListener(self, listener: Any) -> Any:
         """Add a new listener on the TeamServer."""
 
-        try:
-            return self.stub.AddListener(listener, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("AddListener RPC failed: %s", exc)
-            raise
+        return self._unary_rpc("AddListener", lambda: self.stub.AddListener(listener, metadata=self.metadata))
 
     def stopListener(self, listener: Any) -> Any:
         """Stop a running listener."""
 
-        try:
-            return self.stub.StopListener(listener, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("StopListener RPC failed: %s", exc)
-            raise
+        return self._unary_rpc("StopListener", lambda: self.stub.StopListener(listener, metadata=self.metadata))
 
     def listSessions(self) -> Any:
         """Return all active sessions."""
 
         empty = TeamServerApi_pb2.Empty()
-        try:
-            return self.stub.ListSessions(empty, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("ListSessions RPC failed: %s", exc)
-            raise
+        return self._stream_rpc("ListSessions", lambda: self.stub.ListSessions(empty, metadata=self.metadata))
 
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 
-        try:
-            return self.stub.StopSession(session, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("StopSession RPC failed: %s", exc)
-            raise
+        return self._unary_rpc("StopSession", lambda: self.stub.StopSession(session, metadata=self.metadata))
 
     def sendSessionCommand(self, command: Any) -> Any:
         """Send a command to the specified session."""
 
-        try:
-            return self.stub.SendSessionCommand(command, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("SendSessionCommand RPC failed: %s", exc)
-            raise
+        return self._unary_rpc("SendSessionCommand", lambda: self.stub.SendSessionCommand(command, metadata=self.metadata))
 
     def streamSessionCommandResults(self, session: Any) -> Iterable[Any]:
         """Yield responses for a given session."""
 
-        try:
-            return self.stub.StreamSessionCommandResults(session, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("StreamSessionCommandResults RPC failed: %s", exc)
-            raise
+        return self._stream_rpc(
+            "StreamSessionCommandResults",
+            lambda: self.stub.StreamSessionCommandResults(session, metadata=self.metadata),
+        )
 
     def getCommandHelp(self, command: Any) -> Any:
         """Return help information for a command."""
 
-        try:
-            return self.stub.GetCommandHelp(command, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("GetCommandHelp RPC failed: %s", exc)
-            raise
+        return self._unary_rpc("GetCommandHelp", lambda: self.stub.GetCommandHelp(command, metadata=self.metadata))
 
     def executeTerminalCommand(self, command: Any) -> Any:
         """Send a command to the TeamServer terminal."""
 
-        try:
-            return self.stub.ExecuteTerminalCommand(command, metadata=self.metadata)
-        except grpc.RpcError as exc:
-            logging.error("ExecuteTerminalCommand RPC failed: %s", exc)
-            raise
+        return self._unary_rpc(
+            "ExecuteTerminalCommand",
+            lambda: self.stub.ExecuteTerminalCommand(command, metadata=self.metadata),
+        )

@@ -56,3 +56,28 @@ def test_gui_startup(qtbot, monkeypatch):
     assert isinstance(app.consoleWidget, DummyConsole)
     assert isinstance(app.listenersWidget, DummyWidget)
     assert isinstance(app.sessionsWidget, DummyWidget)
+    assert "Connected | 127.0.0.1:50051" in app.connectionStatusLabel.text()
+    assert app.rpcStatusLabel.text() == "Last RPC: none"
+
+
+def test_gui_status_bar_updates_rpc_status(qtbot, monkeypatch):
+    monkeypatch.setattr(GUI, 'GrpcClient', lambda *args, **kwargs: object())
+
+    def fake_top(self):
+        self.sessionsWidget = DummyWidget()
+        self.listenersWidget = DummyWidget()
+
+    def fake_bot(self):
+        self.consoleWidget = DummyConsole()
+
+    monkeypatch.setattr(GUI.App, 'topLayout', fake_top)
+    monkeypatch.setattr(GUI.App, 'botLayout', fake_bot)
+
+    app = GUI.App('127.0.0.1', 50051, False)
+    qtbot.addWidget(app)
+
+    app.updateRpcStatus("ListSessions", False, "deadline exceeded")
+
+    assert "RPC error" in app.connectionStatusLabel.text()
+    assert "Last RPC: ListSessions" in app.rpcStatusLabel.text()
+    assert "ListSessions: deadline exceeded" in app.errorStatusLabel.text()
