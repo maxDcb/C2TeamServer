@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
+from .panel_style import apply_dark_panel_style
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,7 @@ class Sessions(QWidget):
         self.grpcClient = grpcClient
         self.idSession = 0
         self.listSessionObject = []
+        apply_dark_panel_style(self)
         self.sessionStaleAfterMs = env_int(
             "C2_SESSION_STALE_AFTER_MS",
             DEFAULT_SESSION_STALE_AFTER_MS,

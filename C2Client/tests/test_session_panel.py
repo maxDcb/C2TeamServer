@@ -40,6 +40,9 @@ def test_sessions_table_labels_arch_as_beacon_process(qtbot, monkeypatch):
     sessions.listSessionObject = []
     qtbot.addWidget(sessions)
 
+    assert "#0b1117" in sessions.styleSheet()
+    assert "#263241" in sessions.styleSheet()
+
     sessions.printSessions()
 
     arch_header = sessions.listSession.horizontalHeaderItem(4)

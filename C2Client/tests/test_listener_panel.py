@@ -176,6 +176,9 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
     ]
     qtbot.addWidget(listeners)
 
+    assert "#0b1117" in listeners.styleSheet()
+    assert "#263241" in listeners.styleSheet()
+
     listeners.printListeners()
     assert listeners.addListenerButton.isEnabled() is True
     assert listeners.stopListenerButton.isEnabled() is False

@@ -86,6 +86,8 @@ def test_script_panel_lists_hooks_and_import_errors(qtbot, monkeypatch):
     script_panel = Script(None, object())
     qtbot.addWidget(script_panel)
 
+    assert "#0b1117" in script_panel.styleSheet()
+    assert "#263241" in script_panel.styleSheet()
     assert script_panel.automationTable.rowCount() == 2
     assert script_panel.scriptStates["ConsoleContextScript"]["hooks"] == ["OnConsoleSend"]
     assert script_panel.scriptStates["C2Client.Scripts.badScript"]["errors"] == 1

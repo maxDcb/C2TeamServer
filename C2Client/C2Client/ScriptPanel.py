@@ -32,6 +32,7 @@ from .console_style import (
     append_console_spacing,
     move_editor_to_end,
 )
+from .panel_style import apply_dark_panel_style
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +155,7 @@ class Script(QWidget):
 
     def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
+        apply_dark_panel_style(self)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
