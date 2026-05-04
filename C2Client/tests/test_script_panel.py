@@ -91,6 +91,22 @@ def test_script_panel_lists_hooks_and_import_errors(qtbot, monkeypatch):
     assert script_panel.scriptStates["C2Client.Scripts.badScript"]["errors"] == 1
 
 
+def test_script_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
+    OnStartScript.calls = 0
+    monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [OnStartScript])
+    monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
+
+    script_panel = Script(None, object())
+    qtbot.addWidget(script_panel)
+    script_panel.mainScriptMethod("start", "", "", "")
+
+    output = script_panel.editorOutput.toPlainText()
+    assert "[system] Loaded automations:" in output
+    assert "[script] OnStart" in output
+    assert "[+]" not in output
+    assert output.endswith("\n\n")
+
+
 def test_console_hook_receives_context_and_legacy_signature_still_works(qtbot, monkeypatch):
     ConsoleContextScript.calls = []
     LegacyConsoleScript.calls = 0
@@ -176,6 +192,7 @@ def test_manual_run_replays_last_hook_context(qtbot, monkeypatch):
 
 
 def test_onstart_trigger_subtlety_is_available_in_hook_tooltip(qtbot, monkeypatch):
+    OnStartScript.calls = 0
     monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [OnStartScript])
     monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
 

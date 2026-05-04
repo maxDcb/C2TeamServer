@@ -4,19 +4,23 @@ import json
 import logging
 import re
 import subprocess
-from datetime import datetime
-
 from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut
 from PyQt6.QtWidgets import (
     QCompleter,
     QLineEdit,
-    QPlainTextEdit,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .console_style import (
+    apply_console_output_style,
+    append_console_block,
+    append_console_spacing,
+    move_editor_to_end,
+)
 from .env import env_path
 from .grpc_status import is_response_ok, terminal_response_text
 from .TerminalModules.Batcave import batcave
@@ -466,15 +470,15 @@ class Terminal(QWidget):
 
         self.logFileName=LogFileName
 
-        self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
+        self.editorOutput = QTextBrowser()
+        apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
-        self.printInTerminal("Terminal", TerminalWelcomeMessage)
+        self.printInTerminal("Terminal", TerminalWelcomeMessage, role="system")
 
 
     def nextCompletion(self):
@@ -492,17 +496,18 @@ class Terminal(QWidget):
         return super().event(event)
 
 
-    def printInTerminal(self, cmd, result):
-        now = datetime.now()
-        formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
-
-        if cmd:
-            self.editorOutput.appendHtml(formater.format(cmd))
-            self.editorOutput.insertPlainText("\n")
-        if result:
-            self.editorOutput.insertPlainText(result)
-            self.editorOutput.insertPlainText("\n")
-
+    def printInTerminal(self, cmd, result, role="user"):
+        normalized_role = role if role in {"system", "user"} else "user"
+        has_entry = bool(cmd or result)
+        append_console_block(
+            self.editorOutput,
+            cmd,
+            result,
+            marker=f"[{normalized_role}]",
+            tone=normalized_role,
+        )
+        if has_entry:
+            append_console_spacing(self.editorOutput)
         self.setCursorEditorAtEnd()
         
 
@@ -987,9 +992,7 @@ class Terminal(QWidget):
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.editorOutput.setTextCursor(cursor)
+        move_editor_to_end(self.editorOutput)
 
 
 class DropperWorker(QObject):

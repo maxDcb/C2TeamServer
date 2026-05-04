@@ -9,7 +9,7 @@ from datetime import datetime
 from threading import Thread, Lock, Semaphore
 
 from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QTextCursor, QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCompleter,
@@ -18,12 +18,19 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
+)
+
+from .console_style import (
+    apply_console_output_style,
+    append_console_block,
+    append_console_spacing,
+    move_editor_to_end,
 )
 
 logger = logging.getLogger(__name__)
@@ -188,8 +195,8 @@ class Script(QWidget):
         manualLayout.addWidget(self.runHookButton)
         self.layout.addLayout(manualLayout)
 
-        self.editorOutput = QPlainTextEdit()
-        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
+        self.editorOutput = QTextBrowser()
+        apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 5)
 
@@ -586,17 +593,36 @@ class Script(QWidget):
 
 
     def printInTerminal(self, cmd, result):
-        now = datetime.now()
-        formater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [+] </span>'+'<span style="color:red;">{}</span>'+'</p>'
-
         self.sem.acquire()
-        if cmd:
-            self.editorOutput.appendHtml(formater.format(cmd))
-            self.editorOutput.insertPlainText("\n")
-        if result:
-            self.editorOutput.insertPlainText(result)
-            self.editorOutput.insertPlainText("\n")
-        self.sem.release()
+        try:
+            marker, tone = self._console_role_for_header(cmd)
+            has_entry = bool(cmd or result)
+            append_console_block(
+                self.editorOutput,
+                cmd,
+                result,
+                marker=marker,
+                tone=tone,
+            )
+            if has_entry:
+                append_console_spacing(self.editorOutput)
+        finally:
+            self.sem.release()
+
+    def _console_role_for_header(self, header):
+        normalized = str(header or "").strip().rstrip(":").lower()
+        if normalized in {
+            "loaded automations",
+            "automation command",
+            "manual context error",
+            "manual run blocked",
+        }:
+            return "[system]", "system"
+        if normalized in {"script load errors", "script error"}:
+            return "[error]", "error"
+        if normalized == "manual run":
+            return "[user]", "user"
+        return "[script]", "script"
 
 
     def runCommand(self):
@@ -619,9 +645,7 @@ class Script(QWidget):
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.editorOutput.setTextCursor(cursor)
+        move_editor_to_end(self.editorOutput)
 
 
 class CommandEditor(QLineEdit):

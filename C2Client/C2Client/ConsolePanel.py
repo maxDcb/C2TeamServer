@@ -3,12 +3,13 @@ import os
 import time
 import re, html
 import uuid
+import json
 import logging
 from datetime import datetime
 from threading import Thread, Lock
 
 from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
+from PyQt6.QtGui import QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
     QTabWidget,
@@ -29,10 +30,19 @@ from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .TerminalModules.Credentials import credentials
+from .console_style import (
+    CONSOLE_COLORS,
+    apply_console_output_style,
+    console_header_html,
+    console_pre_html,
+    console_status_html,
+    move_editor_to_end,
+)
 from .env import env_path
 from .grpc_status import is_response_ok, response_message
 
 logger = logging.getLogger(__name__)
+CONSOLE_EVENT_PREFIX = "[console] "
 
 
 #
@@ -519,6 +529,7 @@ class Console(QWidget):
         self.logFileName=self.hostname+"_"+self.username+"_"+self.beaconHash+".log"
         self.lastCommandLine = ""
         self.commandStatusById = {}
+        self.renderedResponseIds = set()
 
         self.searchInput = QLineEdit()
         self.searchInput.setPlaceholderText("Search output")
@@ -558,8 +569,9 @@ class Console(QWidget):
         self.editorOutput = QTextEdit()
         self.editorOutput.setReadOnly(True)
         self.editorOutput.setAcceptRichText(True)
-        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
+        apply_console_output_style(self.editorOutput)
         self.layout.addWidget(self.editorOutput, 8)
+        self.loadConsoleLog()
 
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
@@ -594,7 +606,7 @@ class Console(QWidget):
 
     def setConsoleNotice(self, message, is_error=False):
         self.consoleNoticeLabel.setText(message)
-        color = "#b42318" if is_error else "#344054"
+        color = CONSOLE_COLORS["error"] if is_error else CONSOLE_COLORS["muted"]
         self.consoleNoticeLabel.setStyleSheet(f"color: {color};")
 
     def findNextSearchMatch(self, backward=False):
@@ -658,6 +670,62 @@ class Console(QWidget):
             return text
         return text[:limit - 3] + "..."
 
+    def consoleLogPath(self):
+        return os.path.join(logsDir, self.logFileName)
+
+    def appendConsoleEvent(self, event, **payload):
+        os.makedirs(logsDir, exist_ok=True)
+        eventPayload = {
+            "event": event,
+            "timestamp": datetime.now().strftime("%Y:%m:%d %H:%M:%S"),
+            **payload,
+        }
+        with open(self.consoleLogPath(), "a", encoding="utf-8") as logFile:
+            logFile.write(CONSOLE_EVENT_PREFIX)
+            logFile.write(json.dumps(eventPayload, sort_keys=True))
+            logFile.write("\n")
+
+    def loadConsoleLog(self):
+        path = self.consoleLogPath()
+        if not os.path.exists(path):
+            return
+
+        loadedEvents = 0
+        with open(path, encoding="utf-8", errors="replace") as logFile:
+            for line in logFile:
+                if not line.startswith(CONSOLE_EVENT_PREFIX):
+                    continue
+                rawPayload = line[len(CONSOLE_EVENT_PREFIX):].strip()
+                try:
+                    eventPayload = json.loads(rawPayload)
+                except json.JSONDecodeError:
+                    continue
+                if self.renderConsoleEvent(eventPayload):
+                    loadedEvents += 1
+
+        if loadedEvents:
+            self.setConsoleNotice(f"Loaded {loadedEvents} log events.")
+            self.setCursorEditorAtEnd(force=True)
+
+    def renderConsoleEvent(self, eventPayload):
+        status = eventPayload.get("event", "")
+        if status not in {"queued", "done", "error"}:
+            return False
+
+        command_id = eventPayload.get("command_id", "")
+        command = eventPayload.get("command", "")
+        output = eventPayload.get("output", "")
+        source = eventPayload.get("source", "")
+        timestamp = eventPayload.get("timestamp", "")
+
+        self.setCommandStatus(command_id, status, command, output if status == "error" else "")
+        self.printCommandStatusInTerminal(command_id, status, command or output, timestamp=timestamp)
+        if status in {"done", "error"} and output:
+            self.printInTerminal("", "", output)
+            if command_id and source != "ack":
+                self.renderedResponseIds.add(command_id)
+        return True
+
     def setCommandStatus(self, command_id, status, command_line="", message=""):
         if not command_id:
             return
@@ -674,41 +742,32 @@ class Console(QWidget):
             notice += f" - {detail}"
         self.setConsoleNotice(notice, status == "error")
 
-    def printCommandStatusInTerminal(self, command_id, status, message=""):
-        if not command_id:
-            return
-        now = datetime.now()
-        colors = {
-            "queued": "#b54708",
-            "done": "#067647",
-            "error": "#b42318",
+    def printCommandStatusInTerminal(self, command_id, status, message="", timestamp=None):
+        tones = {
+            "queued": "warning",
+            "done": "success",
+            "error": "error",
         }
-        color = colors.get(status, "#344054")
-        status_text = html.escape(status)
-        command_id_text = html.escape(self._shortCommandId(command_id))
-        message_text = html.escape(self._shortText(message, 140))
-        terminal_line = (
-            '<p style="white-space:pre">'
-            f'<span style="color:blue;">[{now.strftime("%Y:%m:%d %H:%M:%S").rstrip()}]</span>'
-            f' <span style="color:{color};">[{status_text}]</span>'
-            f' <span style="color:#667085;">{command_id_text}</span>'
+        terminal_line = console_status_html(
+            status,
+            self._shortCommandId(command_id or "unknown"),
+            self._shortText(message, 140),
+            tone=tones.get(status, "info"),
+            timestamp=timestamp,
         )
-        if message_text:
-            terminal_line += f' <span style="color:#344054;">{message_text}</span>'
-        terminal_line += "</p>"
         self.editorOutput.insertHtml(terminal_line)
         self.editorOutput.insertPlainText("\n")
 
     def printInTerminal(self, cmdSent, cmdReived, result):
-        now = datetime.now()
-        sendFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:orange;"> [&gt;&gt;] </span>'+'<span style="color:orange;">{}</span>'+'</p>'
-        receiveFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:red;"> [&lt;&lt;] </span>'+'<span style="color:red;">{}</span>'+'</p>'
-
         if cmdSent:
-            self.editorOutput.insertHtml(sendFormater.format(cmdSent))
+            self.editorOutput.insertHtml(
+                console_header_html(cmdSent, marker="[>>]", tone="command")
+            )
             self.editorOutput.insertPlainText("\n")
         elif cmdReived:
-            self.editorOutput.insertHtml(receiveFormater.format(cmdReived))
+            self.editorOutput.insertHtml(
+                console_header_html(cmdReived, marker="[<<]", tone="response")
+            )
             self.editorOutput.insertPlainText("\n")
         if result:
 
@@ -718,14 +777,7 @@ class Console(QWidget):
             # Convert remaining color SGR
             html_body = ansi_to_html(s)
 
-            html = (
-                "<pre style=\"margin:0;"
-                "white-space:pre-wrap;"
-                "font-family:'JetBrainsMono Nerd Font','FiraCode Nerd Font','DejaVu Sans Mono','Noto Sans Mono',monospace;\">"
-                f"{html_body}"
-                "</pre>"
-            )
-            self.editorOutput.insertHtml(html)
+            self.editorOutput.insertHtml(console_pre_html(html_body))
             self.editorOutput.insertHtml("<br/>")
             self.editorOutput.insertPlainText("\n")
 
@@ -778,7 +830,6 @@ class Console(QWidget):
             self.setCursorEditorAtEnd()
             return
 
-        self.printInTerminal(commandLine, "", "")
         command_id = uuid.uuid4().hex
         command = TeamServerApi_pb2.SessionCommandRequest(
             session=TeamServerApi_pb2.SessionSelector(
@@ -793,8 +844,15 @@ class Console(QWidget):
         if not is_response_ok(result):
             message = response_message(result, "Command was rejected by TeamServer.")
             self.setCommandStatus(command_id, "error", commandLine, message)
-            self.printCommandStatusInTerminal(command_id, "error", message)
-            self.printInTerminal("", commandLine, message)
+            self.printCommandStatusInTerminal(command_id, "error", commandLine)
+            self.printInTerminal("", "", message)
+            self.appendConsoleEvent(
+                "error",
+                command_id=command_id,
+                command=commandLine,
+                output=message,
+                source="ack",
+            )
             with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
                 logFile.write('[+] rejected: \"' + commandLine + '\"')
                 logFile.write('\n' + message + '\n')
@@ -803,11 +861,12 @@ class Console(QWidget):
 
         self.setCommandStatus(command_id, "queued", commandLine)
         self.printCommandStatusInTerminal(command_id, "queued", commandLine)
+        self.appendConsoleEvent("queued", command_id=command_id, command=commandLine)
         context = "Host " + self.hostname + " - Username " + self.username
         self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
         ack_message = response_message(result)
         if ack_message:
-            self.printInTerminal("", commandLine, ack_message)
+            self.printInTerminal("", "", ack_message)
 
         self.setCursorEditorAtEnd()
 
@@ -817,6 +876,8 @@ class Console(QWidget):
         for response in responses:
             context = "Host " + self.hostname + " - Username " + self.username
             command_id = getattr(response, "command_id", "")
+            if command_id and command_id in self.renderedResponseIds:
+                continue
             listener_hash = response.session.listener_hash or self.listenerHash
             command_text = response.command or response.instruction
             decoded_response = response.output.decode('utf-8', 'replace')
@@ -827,11 +888,19 @@ class Console(QWidget):
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in command_text:
                 credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
-            self.printInTerminal("", command_text, decoded_response)
             status = "done" if response_ok else "error"
-            status_detail = command_text if response_ok else decoded_response
             self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
-            self.printCommandStatusInTerminal(command_id, status, status_detail)
+            self.printCommandStatusInTerminal(command_id, status, command_text)
+            self.printInTerminal("", "", decoded_response)
+            if command_id:
+                self.renderedResponseIds.add(command_id)
+            self.appendConsoleEvent(
+                status,
+                command_id=command_id,
+                command=command_text,
+                output=decoded_response,
+                source="response",
+            )
             self.setCursorEditorAtEnd()
 
             with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
@@ -842,9 +911,7 @@ class Console(QWidget):
     def setCursorEditorAtEnd(self, force=False):
         if not force and self.isAutoscrollPaused():
             return
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.editorOutput.setTextCursor(cursor)
+        move_editor_to_end(self.editorOutput)
     
 
 class GetSessionResponse(QObject):

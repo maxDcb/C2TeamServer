@@ -76,6 +76,22 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     assert "/reset - Alias for /cancel." in output
 
 
+def test_assistant_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant.editorOutput.clear()
+
+    assistant.printInTerminal("System", "ready")
+    assistant.printInTerminal("User:", "hello")
+    assistant.printInTerminal("Analysis:", "ok")
+
+    output = assistant.editorOutput.toPlainText()
+    assert "[system]\nready" in output
+    assert "[user]\nhello" in output
+    assert "[assistant]\nok" in output
+    assert "[+]" not in output
+    assert "color:#d0d5dd" in assistant.editorOutput.toHtml()
+
+
 def test_unknown_slash_command_redirects_to_help_without_calling_assistant(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
 

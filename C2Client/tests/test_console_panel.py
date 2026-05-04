@@ -68,7 +68,10 @@ def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, mo
     console.runCommand()
 
     assert emitted == []
-    assert "Session not found." in console.editorOutput.toPlainText()
+    output = console.editorOutput.toPlainText()
+    assert "Session not found." in output
+    assert "[error]" in output
+    assert "[<<]" not in output
     command_id = grpc.sent_commands[0].command_id
     assert console.commandStatusById[command_id]["status"] == "error"
     assert 'rejected: "whoami"' in (tmp_path / 'host_user_beacon.log').read_text()
@@ -122,7 +125,9 @@ def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
     first_command_id = grpc.sent_commands[0].command_id
     assert console.lastCommandLine == 'whoami'
     assert console.commandStatusById[first_command_id]["status"] == "queued"
-    assert "[queued]" in console.editorOutput.toPlainText()
+    output = console.editorOutput.toPlainText()
+    assert "[queued]" in output
+    assert "[>>]" not in output
 
     console.resendLastCommand()
 
@@ -144,7 +149,10 @@ def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
     console.displayResponse()
 
     assert console.commandStatusById[first_command_id]["status"] == "done"
-    assert "[done]" in console.editorOutput.toPlainText()
+    output = console.editorOutput.toPlainText()
+    assert "[done]" in output
+    assert "[<<]" not in output
+    assert output.index("[done]") < output.index("user")
 
 
 def test_console_search_clear_and_export_controls(tmp_path, qtbot, monkeypatch):
@@ -170,3 +178,45 @@ def test_console_search_clear_and_export_controls(tmp_path, qtbot, monkeypatch):
 
     console.clearConsoleOutput()
     assert console.editorOutput.toPlainText() == ""
+
+
+def test_console_replays_structured_log_on_reopen(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+
+    grpc = StubGrpc()
+    parent = QWidget()
+    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+
+    console.commandEditor.setText('whoami')
+    console.runCommand()
+    command_id = grpc.sent_commands[0].command_id
+    grpc.responses = [
+        SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            session=SimpleNamespace(listener_hash="listener"),
+            command="whoami",
+            instruction="",
+            command_id=command_id,
+            output=b"user",
+            message="",
+        )
+    ]
+    console.displayResponse()
+
+    log_text = (tmp_path / 'host_user_beacon.log').read_text()
+    assert '[console]' in log_text
+
+    reopened = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(reopened)
+
+    output = reopened.editorOutput.toPlainText()
+    assert "[queued]" in output
+    assert "[done]" in output
+    assert "[>>]" not in output
+    assert "whoami" in output
+    assert "user" in output
+    assert reopened.commandStatusById[command_id]["status"] == "done"
+    assert command_id in reopened.renderedResponseIds

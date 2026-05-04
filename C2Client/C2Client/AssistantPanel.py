@@ -1,10 +1,9 @@
 import os
-from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
 
 from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QTextCursor, QShortcut
+from PyQt6.QtGui import QShortcut
 from PyQt6.QtWidgets import (
     QLineEdit,
     QTextBrowser,
@@ -15,9 +14,21 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .assistant_agent import C2AssistantAgent
+from .console_style import (
+    apply_console_output_style,
+    append_console_block,
+    append_console_spacing,
+    move_editor_to_end,
+)
 from .env import env_int
 
 DEFAULT_PENDING_TOOL_TIMEOUT_MS = 2 * 60 * 1000
+
+ASSISTANT_HEADER_ROLES = {
+    "system": ("[system]", "system", False),
+    "user": ("[user]", "user", False),
+    "analysis": ("[assistant]", "assistant", False),
+}
 
 
 def _load_pending_tool_timeout_ms():
@@ -48,7 +59,7 @@ class Assistant(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QTextBrowser()
-        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
+        apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
         # Force word wrapping
         self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
@@ -176,27 +187,40 @@ class Assistant(QWidget):
         return super().event(event)
 
 
-    def printInTerminal(self, header="", message="", detail=""):
-        now = datetime.now()
-        formater = (
-            '<p style="white-space:pre-wrap; word-wrap:break-word;">'
-            '<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'
-            '<span style="color:red;"> [+] </span>'
-            '<span style="color:red;">{}</span>'
-            '</p>'
-        )
-
+    def printInTerminal(self, header="", message="", detail="", rich_message=False):
         self.sem.acquire()
         try:
-            if header:
-                self.editorOutput.append(formater.format(header))
-            for text in (message, detail):
-                if text:
-                    self.editorOutput.append(text)
+            has_entry = bool(header or message or detail)
+            marker, tone, show_label = self._console_role_for_header(header)
+            append_console_block(
+                self.editorOutput,
+                header,
+                message,
+                marker=marker,
+                tone=tone,
+                rich_message=rich_message,
+                show_label=show_label,
+            )
+            if detail:
+                append_console_block(
+                    self.editorOutput,
+                    "",
+                    detail,
+                    tone=tone,
+                    rich_message=rich_message,
+                )
+            if has_entry:
+                append_console_spacing(self.editorOutput)
 
             self.setCursorEditorAtEnd()
         finally:
             self.sem.release()
+
+    def _console_role_for_header(self, header):
+        normalized = str(header or "").strip().rstrip(":").lower()
+        if normalized in ASSISTANT_HEADER_ROLES:
+            return ASSISTANT_HEADER_ROLES[normalized]
+        return "[assistant]", "assistant", True
 
 
     def runCommand(self):
@@ -355,7 +379,11 @@ class Assistant(QWidget):
     def _process_assistant_response(self, message):
         assistant_reply = getattr(message, "content", "") or ""
         if assistant_reply:
-            self.printInTerminal("Analysis:", markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]))
+            self.printInTerminal(
+                "Analysis:",
+                markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]),
+                rich_message=True,
+            )
 
         if getattr(message, "is_pending", False):
             metadata = getattr(message, "metadata", {}) or {}
@@ -411,9 +439,7 @@ class Assistant(QWidget):
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.editorOutput.setTextCursor(cursor)
+        move_editor_to_end(self.editorOutput)
 
 
 class CommandEditor(QLineEdit):

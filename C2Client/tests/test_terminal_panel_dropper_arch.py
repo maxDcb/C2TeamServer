@@ -118,8 +118,28 @@ def test_terminal_shows_welcome_message(qtbot):
     qtbot.addWidget(terminal)
 
     output = terminal.editorOutput.toPlainText()
+    lines = output.splitlines()
+    assert "[system] Terminal" in lines[0]
+    assert lines[1].startswith("Local TeamServer terminal.")
+    assert lines[2] == ""
+    assert "[+]" not in output
     assert "Local TeamServer terminal." in output
     assert "Type Help to list available commands" in output
+
+
+def test_terminal_user_commands_use_user_badge(qtbot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    terminal.commandEditor.setText("Help")
+    terminal.runCommand()
+
+    output = terminal.editorOutput.toPlainText()
+    assert "[user] Help" in output
+    assert output.endswith("\n\n")
+    assert "[+]" not in output
 
 
 def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):
