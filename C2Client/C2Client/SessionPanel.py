@@ -1,7 +1,6 @@
 import time
-import logging
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -9,12 +8,12 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
-    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QWidget,
     QHeaderView,
     QAbstractItemView,
+    QSizePolicy,
 )
 
 from .grpcClient import TeamServerApi_pb2
@@ -50,6 +49,8 @@ class Sessions(QWidget):
 
     idSession = 0
     listSessionObject = []
+    COLUMN_WIDTHS = [76, 76, 140, 116, 62, 84, 98, 64, 156, 132, 58]
+    STRETCH_COLUMN = 8
 
 
     def __init__(self, parent, grpcClient):
@@ -61,40 +62,46 @@ class Sessions(QWidget):
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
+        self.layout.setContentsMargins(4, 4, 4, 4)
+        self.layout.setHorizontalSpacing(6)
+        self.layout.setVerticalSpacing(4)
+        self.layout.setColumnStretch(0, 1)
+        self.layout.setRowStretch(2, 1)
 
         self.label = QLabel('Sessions')
         self.headerLayout = QHBoxLayout()
+        self.headerLayout.setSpacing(4)
         self.headerLayout.addWidget(self.label)
         self.headerLayout.addStretch(1)
 
-        self.interactButton = QPushButton("Interact")
+        self.interactButton = self.createToolbarButton("Open", "Open an interactive console for the selected session.")
         self.interactButton.setToolTip("Open an interactive console for the selected session.")
         self.interactButton.clicked.connect(self.interactWithSelectedSession)
         self.headerLayout.addWidget(self.interactButton)
 
-        self.stopButton = QPushButton("Stop")
-        self.stopButton.setToolTip("Queue a stop command for the selected session.")
+        self.stopButton = self.createToolbarButton("Stop", "Queue a stop command for the selected session.")
         self.stopButton.clicked.connect(self.stopSelectedSession)
         self.headerLayout.addWidget(self.stopButton)
 
-        self.copySessionIdButton = QPushButton("Copy ID")
-        self.copySessionIdButton.setToolTip("Copy the selected beacon hash.")
+        self.copySessionIdButton = self.createToolbarButton("Copy", "Copy the selected beacon hash.")
         self.copySessionIdButton.clicked.connect(self.copySelectedSessionId)
         self.headerLayout.addWidget(self.copySessionIdButton)
 
-        self.refreshButton = QPushButton("Refresh")
-        self.refreshButton.setToolTip("Refresh sessions now.")
+        self.refreshButton = self.createToolbarButton("Refresh", "Refresh sessions now.", width=70)
         self.refreshButton.clicked.connect(self.listSessions)
         self.headerLayout.addWidget(self.refreshButton)
         self.layout.addLayout(self.headerLayout, 0, 0)
 
         self.statusLabel = QLabel("")
+        self.statusLabel.setMinimumHeight(18)
         self.layout.addWidget(self.statusLabel, 1, 0)
 
         # List of sessions
         self.listSession = QTableWidget()
         self.listSession.setShowGrid(False)
+        self.listSession.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.listSession.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.listSession.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.listSession.setRowCount(0)
         self.listSession.setColumnCount(11)
 
@@ -103,10 +110,7 @@ class Sessions(QWidget):
         self.listSession.itemSelectionChanged.connect(self.updateActionButtons)
 
         self.listSession.verticalHeader().setVisible(False)
-        header = self.listSession.horizontalHeader()      
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)     
-        QTimer.singleShot(100, self.switch_to_interactive)
+        self.configureTableColumns()
         self.layout.addWidget(self.listSession, 2, 0)
 
         # Thread to fetch sessions every second
@@ -120,6 +124,25 @@ class Sessions(QWidget):
 
         self.setLayout(self.layout)
         self.updateActionButtons()
+
+    def createToolbarButton(self, text, tooltip, width=58):
+        button = QPushButton(text)
+        button.setToolTip(tooltip)
+        button.setFixedHeight(26)
+        button.setMinimumWidth(width)
+        button.setMaximumWidth(width)
+        return button
+
+    def configureTableColumns(self):
+        header = self.listSession.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(44)
+        for index, width in enumerate(self.COLUMN_WIDTHS):
+            if index == self.STRETCH_COLUMN:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
+                self.listSession.setColumnWidth(index, width)
 
     def setStatusMessage(self, ack, successFallback):
         message = operation_ack_text(ack, successFallback)
@@ -179,16 +202,10 @@ class Sessions(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event) 
         self.listSession.verticalHeader().setVisible(False)
-        header = self.listSession.horizontalHeader()      
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-        QTimer.singleShot(100, self.switch_to_interactive)
 
 
     def switch_to_interactive(self):
-        header = self.listSession.horizontalHeader()   
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+        return
 
     def __del__(self):
         self.getSessionsWorker.quit()
@@ -306,10 +323,19 @@ class Sessions(QWidget):
     # don't clear the list each time but just when it's necessary
     def printSessions(self):
         self.listSession.setRowCount(len(self.listSessionObject))
-        self.listSession.setHorizontalHeaderLabels(["Beacon ID", "Listener ID", "Host", "User", "Beacon Arch", "Privilege", "Operating System", "Process ID", "Internal IP", "ProofOfLife", "Killed"])
+        self.listSession.setHorizontalHeaderLabels(["Beacon", "Listener", "Host", "User", "Arch", "Priv", "OS", "PID", "Internal IP", "Last Seen", "Killed"])
         archHeader = self.listSession.horizontalHeaderItem(4)
         if archHeader is not None:
             archHeader.setToolTip("Architecture du process beacon")
+        for index, tooltip in {
+            0: "Beacon hash",
+            1: "Listener hash",
+            8: "Internal IP addresses",
+            9: "Last proof of life",
+        }.items():
+            headerItem = self.listSession.horizontalHeaderItem(index)
+            if headerItem is not None:
+                headerItem.setToolTip(tooltip)
         for ix, sessionStore in enumerate(self.listSessionObject):
 
             beaconHash = QTableWidgetItem(sessionStore.beaconHash[0:8])
@@ -337,6 +363,7 @@ class Sessions(QWidget):
             self.listSession.setItem(ix, 7, processId)
             
             internalIps = QTableWidgetItem(sessionStore.internalIps)
+            internalIps.setToolTip(sessionStore.internalIps)
             self.listSession.setItem(ix, 8, internalIps)
 
             pol = QTableWidgetItem(sessionStore.lastProofOfLife.split(".", 1)[0])

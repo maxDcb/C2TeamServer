@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
 
 from C2Client.SessionPanel import Session, Sessions
 from C2Client.grpcClient import TeamServerApi_pb2
@@ -28,7 +28,7 @@ def test_sessions_table_labels_arch_as_beacon_process(qtbot, monkeypatch):
     sessions.printSessions()
 
     arch_header = sessions.listSession.horizontalHeaderItem(4)
-    assert arch_header.text() == "Beacon Arch"
+    assert arch_header.text() == "Arch"
     assert arch_header.toolTip() == "Architecture du process beacon"
 
 
@@ -80,6 +80,9 @@ def test_session_toolbar_actions_use_selected_session(qtbot, monkeypatch):
     assert sessions.interactButton.isEnabled() is False
     assert sessions.stopButton.isEnabled() is False
     assert sessions.copySessionIdButton.isEnabled() is False
+    assert sessions.interactButton.text() == "Open"
+    assert sessions.copySessionIdButton.text() == "Copy"
+    assert sessions.listSession.horizontalHeader().sectionResizeMode(8) == QHeaderView.ResizeMode.Stretch
 
     sessions.listSession.selectRow(0)
 
@@ -97,3 +100,36 @@ def test_session_toolbar_actions_use_selected_session(qtbot, monkeypatch):
     sessions.stopButton.click()
     assert grpc.stopped_sessions[-1].beacon_hash == "beacon-full-hash"
     assert grpc.stopped_sessions[-1].listener_hash == "listener-full-hash"
+
+
+def test_session_table_keeps_user_column_width_after_refresh(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+
+    parent = QWidget()
+    sessions = Sessions(parent, StubGrpc())
+    sessions.listSessionObject = [
+        Session(
+            0,
+            "listener-full-hash",
+            "beacon-full-hash",
+            "host1",
+            "user1",
+            "x64",
+            "HIGH",
+            "Windows",
+            "2026-05-04T12:00:00",
+            False,
+            "10.0.0.5, 192.168.56.20",
+            "1234",
+            "",
+        )
+    ]
+    qtbot.addWidget(sessions)
+
+    sessions.printSessions()
+    sessions.listSession.setColumnWidth(2, 224)
+    sessions.printSessions()
+
+    assert sessions.listSession.columnWidth(2) == 224
+    assert sessions.listSession.item(0, 8).text() == "10.0.0.5, 192.168.56.20"
+    assert sessions.listSession.item(0, 8).toolTip() == "10.0.0.5, 192.168.56.20"

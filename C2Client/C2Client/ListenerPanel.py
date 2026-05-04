@@ -1,5 +1,4 @@
 import time
-import logging
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
@@ -12,12 +11,12 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPushButton,
-    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QWidget,
     QHeaderView,
     QAbstractItemView,
+    QSizePolicy,
 )
 
 from .grpcClient import TeamServerApi_pb2
@@ -66,6 +65,8 @@ class Listeners(QWidget):
 
     idListener = 0
     listListenerObject = []
+    COLUMN_WIDTHS = [76, 70, 160, 72]
+    STRETCH_COLUMN = 2
 
 
     def __init__(self, parent, grpcClient):
@@ -79,40 +80,45 @@ class Listeners(QWidget):
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
+        self.layout.setContentsMargins(4, 4, 4, 4)
+        self.layout.setHorizontalSpacing(6)
+        self.layout.setVerticalSpacing(4)
+        self.layout.setColumnStretch(0, 1)
+        self.layout.setRowStretch(2, 1)
 
         self.label = QLabel(ListenerTabTitle)
         self.headerLayout = QHBoxLayout()
+        self.headerLayout.setSpacing(4)
         self.headerLayout.addWidget(self.label)
         self.headerLayout.addStretch(1)
 
-        self.addListenerButton = QPushButton("Add Listener")
-        self.addListenerButton.setToolTip("Create a new primary listener.")
+        self.addListenerButton = self.createToolbarButton("Add", "Create a new primary listener.")
         self.addListenerButton.clicked.connect(self.listenerForm)
         self.headerLayout.addWidget(self.addListenerButton)
 
-        self.stopListenerButton = QPushButton("Stop")
-        self.stopListenerButton.setToolTip("Stop the selected listener.")
+        self.stopListenerButton = self.createToolbarButton("Stop", "Stop the selected listener.")
         self.stopListenerButton.clicked.connect(self.stopSelectedListener)
         self.headerLayout.addWidget(self.stopListenerButton)
 
-        self.copyListenerIdButton = QPushButton("Copy ID")
-        self.copyListenerIdButton.setToolTip("Copy the selected listener hash.")
+        self.copyListenerIdButton = self.createToolbarButton("Copy", "Copy the selected listener hash.")
         self.copyListenerIdButton.clicked.connect(self.copySelectedListenerId)
         self.headerLayout.addWidget(self.copyListenerIdButton)
 
-        self.refreshButton = QPushButton("Refresh")
-        self.refreshButton.setToolTip("Refresh listeners now.")
+        self.refreshButton = self.createToolbarButton("Refresh", "Refresh listeners now.", width=70)
         self.refreshButton.clicked.connect(self.listListeners)
         self.headerLayout.addWidget(self.refreshButton)
         self.layout.addLayout(self.headerLayout, 0, 0)
 
         self.statusLabel = QLabel("")
+        self.statusLabel.setMinimumHeight(18)
         self.layout.addWidget(self.statusLabel, 1, 0)
 
         # List of sessions
         self.listListener = QTableWidget()
         self.listListener.setShowGrid(False)
+        self.listListener.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.listListener.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.listListener.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         self.listListener.setRowCount(0)
         self.listListener.setColumnCount(4)
@@ -123,9 +129,7 @@ class Listeners(QWidget):
         self.listListener.itemSelectionChanged.connect(self.updateActionButtons)
 
         self.listListener.verticalHeader().setVisible(False)
-        header = self.listListener.horizontalHeader()      
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        self.configureTableColumns()
         self.layout.addWidget(self.listListener, 2, 0)
 
         # Thread to get listeners every second
@@ -139,6 +143,25 @@ class Listeners(QWidget):
 
         self.setLayout(self.layout)
         self.updateActionButtons()
+
+    def createToolbarButton(self, text, tooltip, width=58):
+        button = QPushButton(text)
+        button.setToolTip(tooltip)
+        button.setFixedHeight(26)
+        button.setMinimumWidth(width)
+        button.setMaximumWidth(width)
+        return button
+
+    def configureTableColumns(self):
+        header = self.listListener.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(44)
+        for index, width in enumerate(self.COLUMN_WIDTHS):
+            if index == self.STRETCH_COLUMN:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
+                self.listListener.setColumnWidth(index, width)
 
     def setStatusMessage(self, ack, successFallback):
         message = operation_ack_text(ack, successFallback)
@@ -299,7 +322,14 @@ class Listeners(QWidget):
 
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["Listener ID", "Type", "Host", "Port"])
+        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host", "Port"])
+        for index, tooltip in {
+            0: "Listener hash",
+            2: "Bind IP, domain, project, or pivot host",
+        }.items():
+            headerItem = self.listListener.horizontalHeaderItem(index)
+            if headerItem is not None:
+                headerItem.setToolTip(tooltip)
         for ix, listenerStore in enumerate(self.listListenerObject):
 
             listenerHash = QTableWidgetItem(listenerStore.listenerHash[0:8])
@@ -309,6 +339,7 @@ class Listeners(QWidget):
             self.listListener.setItem(ix, 1, type)
 
             host = QTableWidgetItem(listenerStore.host)
+            host.setToolTip(listenerStore.host)
             self.listListener.setItem(ix, 2, host)
 
             port = QTableWidgetItem(str(listenerStore.port))

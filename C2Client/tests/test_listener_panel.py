@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
 
 from C2Client.ListenerPanel import Listener, Listeners
 from C2Client.grpcClient import TeamServerApi_pb2
@@ -52,6 +52,10 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
     assert listeners.addListenerButton.isEnabled() is True
     assert listeners.stopListenerButton.isEnabled() is False
     assert listeners.copyListenerIdButton.isEnabled() is False
+    assert listeners.addListenerButton.text() == "Add"
+    assert listeners.copyListenerIdButton.text() == "Copy"
+    assert listeners.listListener.horizontalHeaderItem(0).text() == "ID"
+    assert listeners.listListener.horizontalHeader().sectionResizeMode(2) == QHeaderView.ResizeMode.Stretch
 
     listeners.listListener.selectRow(0)
 
@@ -64,3 +68,22 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
 
     listeners.stopListenerButton.click()
     assert grpc.stopped_listeners[-1].listener_hash == "listener-full-hash"
+
+
+def test_listener_table_keeps_user_column_width_after_refresh(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    parent = QWidget()
+    listeners = Listeners(parent, StubGrpc())
+    listeners.listListenerObject = [
+        Listener(0, "listener-full-hash", "https", "192.168.56.120", 8443, 0)
+    ]
+    qtbot.addWidget(listeners)
+
+    listeners.printListeners()
+    listeners.listListener.setColumnWidth(0, 123)
+    listeners.printListeners()
+
+    assert listeners.listListener.columnWidth(0) == 123
+    assert listeners.listListener.item(0, 2).text() == "192.168.56.120"
+    assert listeners.listListener.item(0, 2).toolTip() == "192.168.56.120"
