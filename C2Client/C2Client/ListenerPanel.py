@@ -4,6 +4,7 @@ import re
 from ipaddress import ip_address
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -52,6 +53,61 @@ SmbType = "smb"
 
 DOMAIN_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 GITHUB_PROJECT_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+PORT_FIELD_TYPES = {HttpType, HttpsType, TcpType, DnsType}
+PRIMARY_LISTENER_TYPES = [HttpType, HttpsType, TcpType, GithubType, DnsType]
+AUTO_FIELD_VALUES = {"0.0.0.0", "8443", "8080", "4444", "53"}
+LISTENER_FORM_CONFIG = {
+    HttpType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "8080",
+        "help": "HTTP listener bound on a local interface.",
+        "secret": False,
+    },
+    HttpsType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "8443",
+        "help": "HTTPS listener bound on a local interface.",
+        "secret": False,
+    },
+    TcpType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "4444",
+        "help": "Raw TCP listener bound on a local interface.",
+        "secret": False,
+    },
+    GithubType: {
+        "param1_label": ProjectLabel,
+        "param2_label": TokenLabel,
+        "param1_placeholder": "project or owner/repo",
+        "param2_placeholder": "GitHub token",
+        "default_param1": "",
+        "default_param2": "",
+        "help": "GitHub listener using a simple project name or owner/repo.",
+        "secret": True,
+    },
+    DnsType: {
+        "param1_label": DomainLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "example.com",
+        "param2_placeholder": "1-65535",
+        "default_param1": "",
+        "default_param2": "53",
+        "help": "DNS listener for a controlled domain.",
+        "secret": False,
+    },
+}
 
 
 def _text(value):
@@ -445,22 +501,30 @@ class CreateListner(QWidget):
         super().__init__()
         
         layout = QFormLayout()
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(8)
         self.labelType = QLabel(TypeLabel)
         self.qcombo = QComboBox(self)
-        self.qcombo.addItems([HttpType , HttpsType, TcpType, GithubType, DnsType])
+        self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
         self.qcombo.setCurrentIndex(1)
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
+        self.helpLabel = QLabel("")
+        self.helpLabel.setWordWrap(True)
+        layout.addRow(self.helpLabel)
+
         self.labelIP = QLabel(IpLabel)
         self.param1 = QLineEdit()
-        self.param1.setText("0.0.0.0")
+        self.param1.setClearButtonEnabled(True)
         layout.addRow(self.labelIP, self.param1)
 
         self.labelPort = QLabel(PortLabel)
         self.param2 = QLineEdit()
-        self.param2.setText("8443")
+        self.param2.setClearButtonEnabled(True)
+        self.portValidator = QIntValidator(1, 65535, self)
         layout.addRow(self.labelPort, self.param2)
 
         self.errorLabel = QLabel("")
@@ -469,63 +533,84 @@ class CreateListner(QWidget):
         self.errorLabel.setVisible(False)
         layout.addRow(self.errorLabel)
 
-        self.buttonOk = QPushButton('&OK', clicked=self.checkAndSend)
-        layout.addRow(self.buttonOk)
+        self.buttonLayout = QHBoxLayout()
+        self.buttonLayout.addStretch(1)
+        self.cancelButton = QPushButton("Cancel", clicked=self.close)
+        self.buttonOk = QPushButton("Add", clicked=self.checkAndSend)
+        self.buttonOk.setDefault(True)
+        self.buttonLayout.addWidget(self.cancelButton)
+        self.buttonLayout.addWidget(self.buttonOk)
+        layout.addRow(self.buttonLayout)
 
         self.setLayout(layout)
         self.setWindowTitle(AddListenerWindowTitle)
-        self.param1.textChanged.connect(self.clearValidationError)
-        self.param2.textChanged.connect(self.clearValidationError)
+        self.setMinimumWidth(360)
+        self.param1.textChanged.connect(self.updateFormState)
+        self.param2.textChanged.connect(self.updateFormState)
+        self.param1.returnPressed.connect(self.checkAndSend)
+        self.param2.returnPressed.connect(self.checkAndSend)
         self.changeLabels()
 
 
     def changeLabels(self):
         self.clearValidationError()
-        if self.qcombo.currentText() == HttpType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-            self.param1.setPlaceholderText("0.0.0.0")
-            self.param2.setPlaceholderText("1-65535")
-            if not self.param1.text().strip():
-                self.param1.setText("0.0.0.0")
-            if not self.param2.text().strip():
-                self.param2.setText("8443")
-        elif self.qcombo.currentText() == HttpsType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-            self.param1.setPlaceholderText("0.0.0.0")
-            self.param2.setPlaceholderText("1-65535")
-            if not self.param1.text().strip():
-                self.param1.setText("0.0.0.0")
-            if not self.param2.text().strip():
-                self.param2.setText("8443")
-        elif self.qcombo.currentText() == TcpType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-            self.param1.setPlaceholderText("0.0.0.0")
-            self.param2.setPlaceholderText("1-65535")
-            if not self.param1.text().strip():
-                self.param1.setText("0.0.0.0")
-            if not self.param2.text().strip():
-                self.param2.setText("8443")
-        elif self.qcombo.currentText() == GithubType:
-            self.labelIP.setText(ProjectLabel)
-            self.labelPort.setText(TokenLabel)
-            self.param1.setPlaceholderText("project or owner/repo")
-            self.param2.setPlaceholderText("GitHub token")
-            if self.param1.text().strip() == "0.0.0.0":
-                self.param1.clear()
-            if self.param2.text().strip() == "8443":
-                self.param2.clear()
-        elif self.qcombo.currentText() == DnsType:
-            self.labelIP.setText(DomainLabel)
-            self.labelPort.setText(PortLabel)
-            self.param1.setPlaceholderText("example.com")
-            self.param2.setPlaceholderText("1-65535")
-            if self.param1.text().strip() == "0.0.0.0":
-                self.param1.clear()
-            if not self.param2.text().strip():
-                self.param2.setText("8443")
+        listenerType = self.qcombo.currentText()
+        config = LISTENER_FORM_CONFIG[listenerType]
+
+        self.labelIP.setText(config["param1_label"])
+        self.labelPort.setText(config["param2_label"])
+        self.helpLabel.setText(config["help"])
+        self.param1.setPlaceholderText(config["param1_placeholder"])
+        self.param2.setPlaceholderText(config["param2_placeholder"])
+        self.param1.setToolTip(config["param1_placeholder"])
+        self.param2.setToolTip(config["param2_placeholder"])
+
+        if listenerType in PORT_FIELD_TYPES:
+            self.param2.setValidator(self.portValidator)
+            self.param2.setEchoMode(QLineEdit.EchoMode.Normal)
+        else:
+            self.param2.setValidator(None)
+            self.param2.setEchoMode(
+                QLineEdit.EchoMode.Password if config["secret"] else QLineEdit.EchoMode.Normal
+            )
+
+        self.applyParam1Default(listenerType, config["default_param1"])
+        self.applyParam2Default(listenerType, config["default_param2"])
+        self.updateFormState()
+
+    def applyParam1Default(self, listenerType, defaultValue):
+        current = self.param1.text().strip()
+        shouldReset = not current or current in AUTO_FIELD_VALUES
+
+        if listenerType in {HttpType, HttpsType, TcpType}:
+            shouldReset = shouldReset or not self.looksLikeIp(current)
+        elif listenerType == DnsType:
+            shouldReset = shouldReset or self.looksLikeIp(current) or "/" in current or ":" in current
+        elif listenerType == GithubType:
+            shouldReset = shouldReset or self.looksLikeIp(current) or "://" in current
+
+        if shouldReset:
+            self.param1.setText(defaultValue)
+
+    def applyParam2Default(self, listenerType, defaultValue):
+        current = self.param2.text().strip()
+        if listenerType in PORT_FIELD_TYPES:
+            shouldReset = not current or current in AUTO_FIELD_VALUES or not current.isdigit()
+        else:
+            shouldReset = current in AUTO_FIELD_VALUES or current.isdigit()
+
+        if shouldReset:
+            self.param2.setText(defaultValue)
+
+    def looksLikeIp(self, value):
+        candidate = _text(value)
+        if candidate and candidate not in AUTO_FIELD_VALUES:
+            try:
+                ip_address(candidate)
+                return True
+            except ValueError:
+                return False
+        return False
 
     def clearValidationError(self):
         clear_status(self.errorLabel, "")
@@ -535,6 +620,14 @@ class CreateListner(QWidget):
         apply_error(self.errorLabel, message)
         self.errorLabel.setVisible(True)
 
+    def updateFormState(self):
+        self.clearValidationError()
+        valid, _ = validate_listener_fields(
+            self.type.currentText(),
+            self.param1.text(),
+            self.param2.text(),
+        )
+        self.buttonOk.setEnabled(valid)
 
     def checkAndSend(self):
         type = self.type.currentText().strip()

@@ -1,9 +1,10 @@
-from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
+from PyQt6.QtWidgets import QApplication, QHeaderView, QLineEdit, QWidget
 
 from C2Client.ListenerPanel import (
     CreateListner,
     DnsType,
     GithubType,
+    HttpType,
     HttpsType,
     Listener,
     Listeners,
@@ -94,6 +95,60 @@ def test_add_listener_form_blocks_invalid_port(qtbot):
     assert emitted == []
     assert form.errorLabel.isHidden() is False
     assert form.errorLabel.text() == "Port must be a number between 1 and 65535."
+
+
+def test_add_listener_form_updates_fields_by_type(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+
+    assert form.qcombo.currentText() == HttpsType
+    assert form.labelIP.text() == "IP"
+    assert form.param1.text() == "0.0.0.0"
+    assert form.param2.text() == "8443"
+    assert form.buttonOk.isEnabled() is True
+    assert "HTTPS listener" in form.helpLabel.text()
+
+    form.qcombo.setCurrentText(DnsType)
+
+    assert form.labelIP.text() == "Domain"
+    assert form.labelPort.text() == "Port"
+    assert form.param1.text() == ""
+    assert form.param2.text() == "53"
+    assert form.buttonOk.isEnabled() is False
+
+    form.param1.setText("example.com")
+    assert form.buttonOk.isEnabled() is True
+
+
+def test_add_listener_form_masks_github_token_and_requires_values(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+
+    form.qcombo.setCurrentText(GithubType)
+
+    assert form.labelIP.text() == "Project"
+    assert form.labelPort.text() == "Token"
+    assert form.param2.echoMode() == QLineEdit.EchoMode.Password
+    assert form.buttonOk.isEnabled() is False
+
+    form.param1.setText("owner/repo")
+    form.param2.setText("token")
+
+    assert form.buttonOk.isEnabled() is True
+
+
+def test_add_listener_form_resets_incompatible_values_when_type_changes(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+
+    form.qcombo.setCurrentText(GithubType)
+    form.param1.setText("owner/repo")
+    form.param2.setText("token")
+    form.qcombo.setCurrentText(HttpType)
+
+    assert form.param1.text() == "0.0.0.0"
+    assert form.param2.text() == "8080"
+    assert form.buttonOk.isEnabled() is True
 
 
 def test_add_listener_form_emits_trimmed_valid_values(qtbot):
