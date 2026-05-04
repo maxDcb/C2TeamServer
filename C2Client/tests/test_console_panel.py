@@ -16,11 +16,13 @@ class StubGrpc:
     def __init__(self):
         self.reject_commands = False
         self.responses = []
+        self.sent_commands = []
 
     def getCommandHelp(self, command):
         return SimpleNamespace(status=TeamServerApi_pb2.OK, command=command.command, help="help", message="")
 
     def sendSessionCommand(self, command):
+        self.sent_commands.append(command)
         if self.reject_commands:
             return SimpleNamespace(status=TeamServerApi_pb2.KO, message="Session not found.", command_id=command.command_id)
         return SimpleNamespace(status=TeamServerApi_pb2.OK, message="", command_id=command.command_id)
@@ -67,6 +69,8 @@ def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, mo
 
     assert emitted == []
     assert "Session not found." in console.editorOutput.toPlainText()
+    command_id = grpc.sent_commands[0].command_id
+    assert console.commandStatusById[command_id]["status"] == "error"
     assert 'rejected: "whoami"' in (tmp_path / 'host_user_beacon.log').read_text()
 
 
@@ -98,4 +102,71 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
 
     assert "Command failed." in console.editorOutput.toPlainText()
     assert "raw failure" not in console.editorOutput.toPlainText()
+    assert console.commandStatusById["cmd-1"]["status"] == "error"
     assert emitted[0][-2] == "Command failed."
+
+
+def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+
+    grpc = StubGrpc()
+    parent = QWidget()
+    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+
+    console.commandEditor.setText('whoami')
+    console.runCommand()
+
+    first_command_id = grpc.sent_commands[0].command_id
+    assert console.lastCommandLine == 'whoami'
+    assert console.commandStatusById[first_command_id]["status"] == "queued"
+    assert "[queued]" in console.editorOutput.toPlainText()
+
+    console.resendLastCommand()
+
+    assert len(grpc.sent_commands) == 2
+    assert grpc.sent_commands[1].command == 'whoami'
+
+    grpc.responses = [
+        SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            session=SimpleNamespace(listener_hash="listener"),
+            command="whoami",
+            instruction="",
+            command_id=first_command_id,
+            output=b"user",
+            message="",
+        )
+    ]
+
+    console.displayResponse()
+
+    assert console.commandStatusById[first_command_id]["status"] == "done"
+    assert "[done]" in console.editorOutput.toPlainText()
+
+
+def test_console_search_clear_and_export_controls(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+
+    parent = QWidget()
+    console = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+
+    console.printInTerminal("whoami", "", "")
+    console.printInTerminal("", "whoami", "needle output")
+
+    console.searchInput.setText("needle")
+    assert console.findNextSearchMatch() is True
+    assert console.consoleNoticeLabel.text() in {"Match found.", "Search wrapped."}
+
+    export_path = console.exportConsoleOutput()
+    assert os.path.exists(export_path)
+    with open(export_path, encoding="utf-8") as exportFile:
+        assert "needle output" in exportFile.read()
+
+    console.clearConsoleOutput()
+    assert console.editorOutput.toPlainText() == ""

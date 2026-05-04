@@ -8,7 +8,7 @@ from datetime import datetime
 from threading import Thread, Lock
 
 from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor, QShortcut
+from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
     QTabWidget,
@@ -17,6 +17,9 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QLineEdit,
     QCompleter,
+    QCheckBox,
+    QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
 )
@@ -514,6 +517,43 @@ class Console(QWidget):
         self.hostname=hostname.replace("\\", "_").replace(" ", "_")
         self.username=username.replace("\\", "_").replace(" ", "_")
         self.logFileName=self.hostname+"_"+self.username+"_"+self.beaconHash+".log"
+        self.lastCommandLine = ""
+        self.commandStatusById = {}
+
+        self.searchInput = QLineEdit()
+        self.searchInput.setPlaceholderText("Search output")
+        self.searchInput.returnPressed.connect(self.findNextSearchMatch)
+
+        self.findPreviousButton = QPushButton("Prev")
+        self.findPreviousButton.clicked.connect(
+            lambda _checked=False: self.findNextSearchMatch(backward=True)
+        )
+        self.findNextButton = QPushButton("Next")
+        self.findNextButton.clicked.connect(
+            lambda _checked=False: self.findNextSearchMatch()
+        )
+        self.clearOutputButton = QPushButton("Clear")
+        self.clearOutputButton.clicked.connect(self.clearConsoleOutput)
+        self.exportLogButton = QPushButton("Export")
+        self.exportLogButton.clicked.connect(self.exportConsoleOutput)
+        self.resendButton = QPushButton("Resend")
+        self.resendButton.clicked.connect(self.resendLastCommand)
+        self.pauseAutoscrollCheckBox = QCheckBox("Pause scroll")
+        self.pauseAutoscrollCheckBox.toggled.connect(self.onAutoscrollToggled)
+        self.consoleNoticeLabel = QLabel("")
+        self.consoleNoticeLabel.setMinimumWidth(180)
+        self.consoleNoticeLabel.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        toolbarLayout = QHBoxLayout()
+        toolbarLayout.addWidget(self.searchInput, 3)
+        toolbarLayout.addWidget(self.findPreviousButton)
+        toolbarLayout.addWidget(self.findNextButton)
+        toolbarLayout.addWidget(self.clearOutputButton)
+        toolbarLayout.addWidget(self.exportLogButton)
+        toolbarLayout.addWidget(self.resendButton)
+        toolbarLayout.addWidget(self.pauseAutoscrollCheckBox)
+        toolbarLayout.addWidget(self.consoleNoticeLabel, 2)
+        self.layout.addLayout(toolbarLayout)
 
         self.editorOutput = QTextEdit()
         self.editorOutput.setReadOnly(True)
@@ -552,6 +592,113 @@ class Console(QWidget):
             return True
         return super().event(event)
 
+    def setConsoleNotice(self, message, is_error=False):
+        self.consoleNoticeLabel.setText(message)
+        color = "#b42318" if is_error else "#344054"
+        self.consoleNoticeLabel.setStyleSheet(f"color: {color};")
+
+    def findNextSearchMatch(self, backward=False):
+        search_text = self.searchInput.text().strip()
+        if search_text == "":
+            self.setConsoleNotice("Search term required.", True)
+            return False
+
+        original_cursor = self.editorOutput.textCursor()
+        flags = QTextDocument.FindFlag.FindBackward if backward else QTextDocument.FindFlag(0)
+        if self.editorOutput.find(search_text, flags):
+            self.setConsoleNotice("Match found.")
+            return True
+
+        cursor = self.editorOutput.textCursor()
+        if backward:
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+        else:
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.editorOutput.setTextCursor(cursor)
+
+        if self.editorOutput.find(search_text, flags):
+            self.setConsoleNotice("Search wrapped.")
+            return True
+
+        self.editorOutput.setTextCursor(original_cursor)
+        self.setConsoleNotice("No match.", True)
+        return False
+
+    def clearConsoleOutput(self):
+        self.editorOutput.clear()
+        self.setConsoleNotice("Output cleared.")
+
+    def exportConsoleOutput(self):
+        os.makedirs(logsDir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        base_name = os.path.splitext(self.logFileName)[0]
+        output_path = os.path.join(logsDir, f"{base_name}_console_{timestamp}.log")
+        with open(output_path, "w", encoding="utf-8") as exportFile:
+            exportFile.write(self.editorOutput.toPlainText().rstrip())
+            exportFile.write("\n")
+        self.setConsoleNotice("Exported " + os.path.basename(output_path))
+        return output_path
+
+    def onAutoscrollToggled(self, checked):
+        if checked:
+            self.setConsoleNotice("Autoscroll paused.")
+            return
+        self.setConsoleNotice("Autoscroll enabled.")
+        self.setCursorEditorAtEnd(force=True)
+
+    def isAutoscrollPaused(self):
+        return self.pauseAutoscrollCheckBox.isChecked()
+
+    def _shortCommandId(self, command_id):
+        return (command_id or "unknown")[:8]
+
+    def _shortText(self, text, limit=90):
+        text = " ".join(str(text or "").split())
+        if len(text) <= limit:
+            return text
+        return text[:limit - 3] + "..."
+
+    def setCommandStatus(self, command_id, status, command_line="", message=""):
+        if not command_id:
+            return
+        self.commandStatusById[command_id] = {
+            "status": status,
+            "command": command_line,
+            "message": message,
+            "updated_at": time.time(),
+        }
+
+        detail = self._shortText(command_line or message)
+        notice = f"{status} {self._shortCommandId(command_id)}"
+        if detail:
+            notice += f" - {detail}"
+        self.setConsoleNotice(notice, status == "error")
+
+    def printCommandStatusInTerminal(self, command_id, status, message=""):
+        if not command_id:
+            return
+        now = datetime.now()
+        colors = {
+            "queued": "#b54708",
+            "done": "#067647",
+            "error": "#b42318",
+        }
+        color = colors.get(status, "#344054")
+        status_text = html.escape(status)
+        command_id_text = html.escape(self._shortCommandId(command_id))
+        message_text = html.escape(self._shortText(message, 140))
+        terminal_line = (
+            '<p style="white-space:pre">'
+            f'<span style="color:blue;">[{now.strftime("%Y:%m:%d %H:%M:%S").rstrip()}]</span>'
+            f' <span style="color:{color};">[{status_text}]</span>'
+            f' <span style="color:#667085;">{command_id_text}</span>'
+        )
+        if message_text:
+            terminal_line += f' <span style="color:#344054;">{message_text}</span>'
+        terminal_line += "</p>"
+        self.editorOutput.insertHtml(terminal_line)
+        self.editorOutput.insertPlainText("\n")
+
     def printInTerminal(self, cmdSent, cmdReived, result):
         now = datetime.now()
         sendFormater = '<p style="white-space:pre">'+'<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'+'<span style="color:orange;"> [&gt;&gt;] </span>'+'<span style="color:orange;">{}</span>'+'</p>'
@@ -582,68 +729,85 @@ class Console(QWidget):
             self.editorOutput.insertHtml("<br/>")
             self.editorOutput.insertPlainText("\n")
 
+    def resendLastCommand(self):
+        if self.lastCommandLine == "":
+            self.setConsoleNotice("No command to resend.", True)
+            return
+        self.executeCommand(self.lastCommandLine)
+
     def runCommand(self):
         commandLine = self.commandEditor.displayText()
         self.commandEditor.clearLine()
+        self.executeCommand(commandLine)
+
+    def executeCommand(self, commandLine):
         self.setCursorEditorAtEnd()
 
         if commandLine == "":
             self.printInTerminal("", "", "")
+            self.setCursorEditorAtEnd()
+            return
 
-        else:
-            with open(CmdHistoryFileName, 'a') as cmdHistoryFile:
-                cmdHistoryFile.write(commandLine)
-                cmdHistoryFile.write('\n')
+        self.lastCommandLine = commandLine
 
-            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
-                logFile.write('[+] send: \"' + commandLine + '\"')
-                logFile.write('\n')
+        with open(CmdHistoryFileName, 'a') as cmdHistoryFile:
+            cmdHistoryFile.write(commandLine)
+            cmdHistoryFile.write('\n')
 
-            self.commandEditor.setCmdHistory()
-            instructions = commandLine.split()
-            if instructions[0]==HelpInstruction:
-                command = TeamServerApi_pb2.CommandHelpRequest(
-                    session=TeamServerApi_pb2.SessionSelector(
-                        beacon_hash=self.beaconHash,
-                        listener_hash=self.listenerHash,
-                    ),
-                    command=commandLine,
-                )
-                response = self.grpcClient.getCommandHelp(command)
-                command_text = getattr(response, "command", commandLine) or commandLine
-                self.printInTerminal(command_text, "", "")
-                if is_response_ok(response):
-                    self.printInTerminal("", command_text, response.help)
-                else:
-                    self.printInTerminal("", command_text, response_message(response, "No help available."))
+        with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+            logFile.write('[+] send: \"' + commandLine + '\"')
+            logFile.write('\n')
 
+        self.commandEditor.setCmdHistory()
+        instructions = commandLine.split()
+        if instructions[0]==HelpInstruction:
+            command = TeamServerApi_pb2.CommandHelpRequest(
+                session=TeamServerApi_pb2.SessionSelector(
+                    beacon_hash=self.beaconHash,
+                    listener_hash=self.listenerHash,
+                ),
+                command=commandLine,
+            )
+            response = self.grpcClient.getCommandHelp(command)
+            command_text = getattr(response, "command", commandLine) or commandLine
+            self.printInTerminal(command_text, "", "")
+            if is_response_ok(response):
+                self.printInTerminal("", command_text, response.help)
             else:
-                self.printInTerminal(commandLine, "", "")
-                command_id = uuid.uuid4().hex
-                command = TeamServerApi_pb2.SessionCommandRequest(
-                    session=TeamServerApi_pb2.SessionSelector(
-                        beacon_hash=self.beaconHash,
-                        listener_hash=self.listenerHash,
-                    ),
-                    command=commandLine,
-                    command_id=command_id,
-                )
-                result = self.grpcClient.sendSessionCommand(command)
-                command_id = getattr(result, "command_id", command_id) or command_id
-                if not is_response_ok(result):
-                    message = response_message(result, "Command was rejected by TeamServer.")
-                    self.printInTerminal("", commandLine, message)
-                    with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
-                        logFile.write('[+] rejected: \"' + commandLine + '\"')
-                        logFile.write('\n' + message + '\n')
-                    self.setCursorEditorAtEnd()
-                    return
+                self.printInTerminal("", command_text, response_message(response, "No help available."))
+            self.setCursorEditorAtEnd()
+            return
 
-                context = "Host " + self.hostname + " - Username " + self.username
-                self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
-                ack_message = response_message(result)
-                if ack_message:
-                    self.printInTerminal("", commandLine, ack_message)
+        self.printInTerminal(commandLine, "", "")
+        command_id = uuid.uuid4().hex
+        command = TeamServerApi_pb2.SessionCommandRequest(
+            session=TeamServerApi_pb2.SessionSelector(
+                beacon_hash=self.beaconHash,
+                listener_hash=self.listenerHash,
+            ),
+            command=commandLine,
+            command_id=command_id,
+        )
+        result = self.grpcClient.sendSessionCommand(command)
+        command_id = getattr(result, "command_id", command_id) or command_id
+        if not is_response_ok(result):
+            message = response_message(result, "Command was rejected by TeamServer.")
+            self.setCommandStatus(command_id, "error", commandLine, message)
+            self.printCommandStatusInTerminal(command_id, "error", message)
+            self.printInTerminal("", commandLine, message)
+            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+                logFile.write('[+] rejected: \"' + commandLine + '\"')
+                logFile.write('\n' + message + '\n')
+            self.setCursorEditorAtEnd()
+            return
+
+        self.setCommandStatus(command_id, "queued", commandLine)
+        self.printCommandStatusInTerminal(command_id, "queued", commandLine)
+        context = "Host " + self.hostname + " - Username " + self.username
+        self.consoleScriptSignal.emit("send", self.beaconHash, self.listenerHash, context, commandLine, "", command_id)
+        ack_message = response_message(result)
+        if ack_message:
+            self.printInTerminal("", commandLine, ack_message)
 
         self.setCursorEditorAtEnd()
 
@@ -656,14 +820,18 @@ class Console(QWidget):
             listener_hash = response.session.listener_hash or self.listenerHash
             command_text = response.command or response.instruction
             decoded_response = response.output.decode('utf-8', 'replace')
-            if not is_response_ok(response):
+            response_ok = is_response_ok(response)
+            if not response_ok:
                 decoded_response = response_message(response) or decoded_response or "Command failed."
             self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
-            self.setCursorEditorAtEnd()
             # check the response for mimikatz and not the cmd line ???
             if "-e mimikatz.exe" in command_text:
                 credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
             self.printInTerminal("", command_text, decoded_response)
+            status = "done" if response_ok else "error"
+            status_detail = command_text if response_ok else decoded_response
+            self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
+            self.printCommandStatusInTerminal(command_id, status, status_detail)
             self.setCursorEditorAtEnd()
 
             with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
@@ -671,7 +839,9 @@ class Console(QWidget):
                 logFile.write('\n' + decoded_response  + '\n')
                 logFile.write('\n')
 
-    def setCursorEditorAtEnd(self):
+    def setCursorEditorAtEnd(self, force=False):
+        if not force and self.isAutoscrollPaused():
+            return
         cursor = self.editorOutput.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self.editorOutput.setTextCursor(cursor)

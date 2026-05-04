@@ -16,7 +16,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 8 | [x] | Nettoyer le bruit console/debug | S | Moyen | Fait. Logging par defaut en WARNING, `print()` UI remplaces, erreurs de scripts visibles dans l'onglet Script sans casser l'UI. |
 | 9 | [ ] | Ajouter filtres, recherche et tri tables | M | Fort | Filtrer sessions/listeners par host, user, OS, privilege, listener, status; tri par last seen et privilege. Client-only au depart. |
 | 10 | [x] | Humaniser l'etat des sessions | M | Fort | Fait. Etat `Alive/Stale/Killed/Unknown`, last seen relatif, seuil `C2_SESSION_STALE_AFTER_MS=30000`, couleurs discretes et OS complet en tooltip. |
-| 11 | [ ] | Ameliorer la console beacon | M | Fort | Recherche output, clear, export log, pause autoscroll, bouton resend, affichage `queued/done/error` par `command_id`. |
+| 11 | [x] | Ameliorer la console beacon | M | Fort | Recherche output, clear, export log, pause autoscroll, bouton resend, affichage `queued/done/error` par `command_id`. |
 | 12 | [ ] | Transformer `ScriptPanel` en vrai panneau d'automations | M | Moyen | Lister hooks charges, afficher erreurs par script, activer/desactiver un script, executer une action script manuelle. |
 | 13 | [ ] | Ameliorer le formulaire listener | M | Moyen | Partiel. Validation port/IP/domain/token avant RPC, defaults par type et erreurs inline; previsualisation de la config encore a faire. |
 | 14 | [ ] | Ajouter un panneau details session | M | Fort | Vue laterale avec metadata, listeners associes, notes locales, dernieres commandes, boutons d'action contextuels. |
