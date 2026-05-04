@@ -1,9 +1,8 @@
 import sys
 import os
 import time
-from threading import Thread, Lock
 
-from PyQt6.QtCore import QObject, Qt, QThread, QLineF, pyqtSignal
+from PyQt6.QtCore import QObject, QPointF, Qt, QThread, QLineF, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QGraphicsLineItem,
@@ -70,6 +69,8 @@ class NodeItem(QGraphicsPixmapItem):
     signaller = Signaller()
 
     def __init__(self, type, hash, os="",  privilege="", hostname="", parent=None):
+        self.autoPositioned = False
+        self.userMoved = False
         if type == ListenerNodeItemType:
             self.type = ListenerNodeItemType
             pixmap = self.addImageNode(PrimaryListenerImage, "")
@@ -109,6 +110,8 @@ class NodeItem(QGraphicsPixmapItem):
             return False
 
     def mouseMoveEvent(self, event):
+        self.userMoved = True
+        self.autoPositioned = False
         super().mouseMoveEvent(event)
         self.signaller.trigger() 
 
@@ -176,7 +179,12 @@ class Connector(QGraphicsLineItem):
         
         
 class Graph(QWidget):
-    listNodeItem = []
+    PRIMARY_LISTENER_X = 40
+    BEACON_X = 260
+    SECONDARY_LISTENER_X = 480
+    NODE_Y_START = 40
+    NODE_Y_GAP = 120
+
     listNodeItem = []
     listConnector = []
 
@@ -187,6 +195,8 @@ class Graph(QWidget):
         height = self.frameGeometry().height()
 
         self.grpcClient = grpcClient
+        self.listNodeItem = []
+        self.listConnector = []
 
         self.scene = QGraphicsScene()
 
@@ -219,6 +229,32 @@ class Graph(QWidget):
         for connector in self.listConnector:
             connector.update_line()
 
+    def applyAutoLayout(self):
+        primaryListeners = [
+            item for item in self.listNodeItem
+            if item.type == ListenerNodeItemType
+        ]
+        beacons = [
+            item for item in self.listNodeItem
+            if item.type == BeaconNodeItemType
+        ]
+        secondaryListenerBeacons = [
+            item for item in beacons
+            if item.listenerHash
+        ]
+
+        self.positionNodeColumn(primaryListeners, self.PRIMARY_LISTENER_X)
+        self.positionNodeColumn(beacons, self.BEACON_X)
+        self.positionNodeColumn(secondaryListenerBeacons, self.SECONDARY_LISTENER_X)
+        self.updateConnectors()
+        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-80, -80, 160, 160))
+
+    def positionNodeColumn(self, nodes, x):
+        for index, node in enumerate(nodes):
+            if node.userMoved:
+                continue
+            node.setPos(QPointF(x, self.NODE_Y_START + index * self.NODE_Y_GAP))
+            node.autoPositioned = True
 
     # Update the graphe every X sec with information from the team server
     def updateGraph(self):
@@ -340,6 +376,7 @@ class Graph(QWidget):
         for item in self.listNodeItem:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.applyAutoLayout()
 
         
 class GetGraphInfoWorker(QObject):
