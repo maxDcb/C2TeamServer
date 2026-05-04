@@ -478,7 +478,7 @@ class Terminal(QWidget):
         self.commandEditor = CommandEditor()
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
-        self.printInTerminal("Terminal", TerminalWelcomeMessage, role="system")
+        self.printInTerminal(" ", TerminalWelcomeMessage, role="system")
 
 
     def nextCompletion(self):
