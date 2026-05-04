@@ -1,4 +1,5 @@
 import time
+import logging
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 from PyQt6.QtWidgets import (
@@ -23,6 +24,8 @@ from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
+
+logger = logging.getLogger(__name__)
 
 
 #
@@ -423,8 +426,8 @@ class GetListenerWorker(QObject):
                 if self.receivers(self.checkin) > 0:
                     self.checkin.emit()
                 time.sleep(self.refreshIntervalSeconds)
-        except Exception as e:
-            pass
+        except Exception:
+            logger.exception("Listener refresh worker stopped unexpectedly")
 
     def quit(self):
         self.exit=True

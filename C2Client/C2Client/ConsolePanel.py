@@ -3,6 +3,7 @@ import os
 import time
 import re, html
 import uuid
+import logging
 from datetime import datetime
 from threading import Thread, Lock
 
@@ -27,6 +28,8 @@ from .AssistantPanel import Assistant
 from .TerminalModules.Credentials import credentials
 from .env import env_path
 from .grpc_status import is_response_ok, response_message
+
+logger = logging.getLogger(__name__)
 
 
 #
@@ -454,9 +457,13 @@ class ConsolesTab(QWidget):
         
     @pyqtSlot()
     def on_click(self):
-        print("\n")
         for currentQTableWidgetItem in self.tableWidget.selectedItems():
-            print(currentQTableWidgetItem.row(), currentQTableWidgetItem.column(), currentQTableWidgetItem.text())
+            logger.debug(
+                "Selected console table cell row=%s column=%s text=%s",
+                currentQTableWidgetItem.row(),
+                currentQTableWidgetItem.column(),
+                currentQTableWidgetItem.text(),
+            )
 
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False

@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+logger = logging.getLogger(__name__)
+
 
 #
 # scripts
@@ -47,16 +49,22 @@ package_name = "C2Client.Scripts"
 # Load all scripts as modules
 # ----------------------------
 LoadedScripts = []
+FailedScripts = []
 for entry in scripts_path.iterdir():
     if entry.suffix == ".py" and entry.name != "__init__.py":
         modname = f"{package_name}.{entry.stem}"
         try:
             m = importlib.import_module(modname)
             LoadedScripts.append(m)
-            print(f"Successfully imported {modname}")
-        except Exception as e:
-            print(f"Failed to import {modname}: {e}")
-            traceback.print_exc()
+            logger.debug("Imported script module %s", modname)
+        except Exception as exc:
+            FailedScripts.append(f"{modname}: {exc}")
+            logger.warning(
+                "Failed to import script module %s: %s",
+                modname,
+                exc,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
 
 
 #
@@ -89,6 +97,8 @@ class Script(QWidget):
         for script in LoadedScripts:
             output += script.__name__ + "\n"
         self.printInTerminal("Loaded Scripts:", output)
+        if FailedScripts:
+            self.printInTerminal("Script load errors:", "\n".join(FailedScripts))
 
 
     def nextCompletion(self):
@@ -100,79 +110,90 @@ class Script(QWidget):
 
 
     def sessionScriptMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
+        hooks = {
+            "start": "OnSessionStart",
+            "stop": "OnSessionStop",
+            "update": "OnSessionUpdate",
+        }
+        hookName = hooks.get(action)
+        if not hookName:
+            return
+
         for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnSessionStart")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnSessionStop")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionStop", output)
-                elif action == "update":
-                    methode = getattr(script, "OnSessionUpdate")
-                    output = methode(self.grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed)
-                    if output:
-                        self.printInTerminal("OnSessionUpdate", output)
-            except:
-                continue
+            self.runScriptHook(
+                script,
+                hookName,
+                hookName,
+                beaconHash,
+                listenerHash,
+                hostname,
+                username,
+                arch,
+                privilege,
+                os,
+                lastProofOfLife,
+                killed,
+            )
 
     
     def listenerScriptMethod(self, action, hash, str3, str4):
+        hooks = {
+            "start": "OnListenerStart",
+            "stop": "OnListenerStop",
+        }
+        hookName = hooks.get(action)
+        if not hookName:
+            return
+
         for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnListenerStart")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnListenerStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnListenerStop")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnListenerStop", output)
-            except:
-                continue
+            self.runScriptHook(script, hookName, hookName)
 
 
     def consoleScriptMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
+        hooks = {
+            "receive": "OnConsoleReceive",
+            "send": "OnConsoleSend",
+        }
+        hookName = hooks.get(action)
+        if not hookName:
+            return
+
         for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "receive":
-                    methode = getattr(script, "OnConsoleReceive")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnConsoleReceive", output)
-                elif action == "send":
-                    methode = getattr(script, "OnConsoleSend")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnConsoleSend", output)
-            except:
-                continue
+            self.runScriptHook(script, hookName, hookName)
 
     def mainScriptMethod(self, action, str2, str3, str4):
+        hooks = {
+            "start": "OnStart",
+            "stop": "OnStop",
+        }
+        hookName = hooks.get(action)
+        if not hookName:
+            return
+
         for script in LoadedScripts:
-            scriptName = script.__name__            
-            try:
-                if action == "start":
-                    methode = getattr(script, "OnStart")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnStart", output)
-                elif action == "stop":
-                    methode = getattr(script, "OnStop")
-                    output = methode(self.grpcClient)
-                    if output:
-                        self.printInTerminal("OnStop", output)
-            except:
-                continue
+            self.runScriptHook(script, hookName, hookName)
+
+    def runScriptHook(self, script, hookName, displayName, *args):
+        scriptName = getattr(script, "__name__", script.__class__.__name__)
+        hook = getattr(script, hookName, None)
+        if hook is None:
+            return
+
+        try:
+            output = hook(self.grpcClient, *args)
+        except Exception as exc:
+            logger.warning(
+                "Script hook %s.%s failed: %s",
+                scriptName,
+                hookName,
+                exc,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
+            self.printInTerminal("Script error:", f"{scriptName}.{hookName}: {exc}")
+            return
+
+        if output:
+            self.printInTerminal(displayName, output)
 
 
     def event(self, event):

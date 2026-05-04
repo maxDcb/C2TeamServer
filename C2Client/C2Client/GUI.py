@@ -42,9 +42,16 @@ from .ui_status import (
 
 import qdarktheme
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-for noisy_logger in ("openai", "httpx", "httpcore"):
-    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+def configureLogging() -> None:
+    level_name = env_value("C2_LOG_LEVEL", "WARNING").strip().upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.getLogger().setLevel(level)
+    for noisy_logger in ("openai", "httpx", "httpcore"):
+        logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+
+configureLogging()
 
 signal.signal(signal.SIGINT, signal.SIG_DFL)
 

@@ -32,17 +32,19 @@ class StubGrpc:
         ]
 
 
-def test_graph_auto_layout_separates_new_nodes(qtbot, monkeypatch):
+def test_graph_auto_layout_separates_new_nodes(qtbot, monkeypatch, capsys):
     monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
 
     graph = Graph(QWidget(), StubGrpc())
     qtbot.addWidget(graph)
 
     graph.updateGraph()
+    captured = capsys.readouterr()
 
     listeners = [node for node in graph.listNodeItem if node.type == ListenerNodeItemType]
     beacons = [node for node in graph.listNodeItem if node.type == BeaconNodeItemType]
 
+    assert captured.out == ""
     assert len(listeners) == 2
     assert len(beacons) == 2
     assert len({(node.pos().x(), node.pos().y()) for node in graph.listNodeItem}) == 4

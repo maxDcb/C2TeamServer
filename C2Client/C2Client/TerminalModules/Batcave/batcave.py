@@ -1,8 +1,11 @@
 from pathlib import Path
+import logging
 import requests
 import json
 import zipfile
 import os
+
+logger = logging.getLogger(__name__)
 
 BatcaveUrl = "https://github.com/exploration-batcave/batcave"
 BatcaveCache = os.path.join(Path(__file__).parent, 'cache') 
@@ -28,7 +31,7 @@ def fetchBatcaveJson():
                 if json_response.status_code == 200:
                     json_data = json_response.json()
                     return json_data
-    print("Failed to Fetch Json")
+    logger.warning("Failed to fetch Batcave JSON")
     return {}
 
 
@@ -96,8 +99,7 @@ def unzipFile(zipfilepath: str):
         extractedFiles = zip_ref.namelist()
 
     if len(extractedFiles) != 1:
-        print("Weird, we should have 1 file per zip but got this " + str(extractedFiles))
-        print("Will take the first and continue with the life, but check the logs")
+        logger.warning("Expected one file per Batcave zip, got %s", extractedFiles)
     return os.path.join(extractDir, extractedFiles[0])
 
 

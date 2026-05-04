@@ -24,6 +24,8 @@ from .TerminalModules.Credentials import credentials
 
 from git import Repo 
 
+logger = logging.getLogger(__name__)
+
 
 #
 # Dropper modules
@@ -61,13 +63,18 @@ for repo in repositories:
     repoPath = os.path.join(dropperModulesDir, repoName)
 
     if not os.path.exists(repoPath):
-        print(f"Cloning {repoName} in {repoPath}.")
+        logger.info("Cloning %s in %s.", repoName, repoPath)
         try:
             Repo.clone_from(repo, repoPath)
-        except Exception as e:
-                print(f"Failed to clone {repoName}: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Failed to clone %s: %s",
+                repoName,
+                exc,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
     else:
-        print(f"Repository {repoName} already exists in {dropperModulesDir}.")
+        logger.debug("Repository %s already exists in %s.", repoName, dropperModulesDir)
 
 for moduleName in os.listdir(dropperModulesDir):
     modulePath = os.path.join(dropperModulesDir, moduleName)
@@ -79,9 +86,14 @@ for moduleName in os.listdir(dropperModulesDir):
                 # Dynamically import the module
                 importedModule = __import__(moduleName)
                 DropperModules.append(importedModule)
-                print(f"Successfully imported {moduleName}")
-            except ImportError as e:
-                print(f"Failed to import {moduleName}: {e}")
+                logger.debug("Imported dropper module %s", moduleName)
+            except ImportError as exc:
+                logger.warning(
+                    "Failed to import dropper module %s: %s",
+                    moduleName,
+                    exc,
+                    exc_info=logger.isEnabledFor(logging.DEBUG),
+                )
 
 #
 # ShellCode modules
@@ -122,13 +134,18 @@ for repo in repositories:
     repoPath = os.path.join(shellCodeModulesDir, repoName)
 
     if not os.path.exists(repoPath):
-        print(f"Cloning {repoName} in {repoPath}.")
+        logger.info("Cloning %s in %s.", repoName, repoPath)
         try:
             Repo.clone_from(repo, repoPath)
-        except Exception as e:
-                print(f"Failed to clone {repoName}: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Failed to clone %s: %s",
+                repoName,
+                exc,
+                exc_info=logger.isEnabledFor(logging.DEBUG),
+            )
     else:
-        print(f"Repository {repoName} already exists in {shellCodeModulesDir}.")
+        logger.debug("Repository %s already exists in %s.", repoName, shellCodeModulesDir)
 
 for moduleName in os.listdir(shellCodeModulesDir):
     modulePath = os.path.join(shellCodeModulesDir, moduleName)
@@ -140,9 +157,14 @@ for moduleName in os.listdir(shellCodeModulesDir):
                 # Dynamically import the module
                 importedModule = __import__(moduleName)
                 ShellCodeModules.append(importedModule)
-                print(f"Successfully imported {moduleName}")
-            except ImportError as e:
-                print(f"Failed to import {moduleName}: {e}")
+                logger.debug("Imported shellcode module %s", moduleName)
+            except ImportError as exc:
+                logger.warning(
+                    "Failed to import shellcode module %s: %s",
+                    moduleName,
+                    exc,
+                    exc_info=logger.isEnabledFor(logging.DEBUG),
+                )
 
 
 #
@@ -995,7 +1017,7 @@ class DropperWorker(QObject):
         termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
         resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
-        logging.debug("DropperWorker GenerateAndHostGeneric start")
+        logger.debug("DropperWorker GenerateAndHostGeneric start")
 
         result = terminal_response_text(resultTermCommand)
         if isTerminalResponseError(resultTermCommand):
@@ -1042,12 +1064,12 @@ class DropperWorker(QObject):
         targetOs = "windows"
         for module in DropperModules:
             if self.moduleName == module.__name__.lower():
-                logging.debug("DropperWorker GenerateAndHostGeneric check OS for module: %s", self.moduleName)
+                logger.debug("DropperWorker GenerateAndHostGeneric check OS for module: %s", self.moduleName)
                 try:
                     getTargetOs = getattr(module, "getTargetOsExploration")
-                    print(getTargetOs)
+                    logger.debug("Dropper module %s target OS hook: %s", self.moduleName, getTargetOs)
                     targetOs = getTargetOs().lower()
-                    print(targetOs)
+                    logger.debug("Dropper module %s target OS: %s", self.moduleName, targetOs)
                 except AttributeError:
                     targetOs = "windows"
 
@@ -1072,7 +1094,7 @@ class DropperWorker(QObject):
 
         urlDownload =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath
 
-        logging.debug("DropperWorker GenerateAndHostGeneric urlDownload: %s", urlDownload)
+        logger.debug("DropperWorker GenerateAndHostGeneric urlDownload: %s", urlDownload)
 
         # Generate the payload
         droppersPath = []
@@ -1080,7 +1102,7 @@ class DropperWorker(QObject):
         cmdToRun = ""
         for module in DropperModules:
             if self.moduleName == module.__name__.lower():
-                logging.debug("GenerateAndHostGeneric DropperModule: %s", self.moduleName)
+                logger.debug("GenerateAndHostGeneric DropperModule: %s", self.moduleName)
 
                 shellcodeGenerator = self.shellcodeGenerator
                 shellcodeGeneratorLower = shellcodeGenerator.lower()
@@ -1088,7 +1110,7 @@ class DropperWorker(QObject):
 
                 # Check shellcode generator
                 if shellcodeGeneratorLower == ShellcodeGeneratorDonut.lower():
-                    print(DonutShellcodeGeneratorMessage)
+                    logger.debug(DonutShellcodeGeneratorMessage)
                     donutError = createDonutShellcode(beaconFilePath, beaconArg, self.targetArch)
                     if donutError:
                         self.finished.emit(self.commandLine, "Error: " + donutError)
@@ -1099,10 +1121,10 @@ class DropperWorker(QObject):
 
                 else:
                     for ShellCodeModule in ShellCodeModules:
-                        logging.debug("ShellCodeModule: %s", ShellCodeModule)
+                        logger.debug("ShellCodeModule: %s", ShellCodeModule)
 
                         if shellcodeGeneratorLower == ShellCodeModule.__name__.lower():
-                            logging.debug("GenerateAndHostGeneric ShellCodeModule: %s", ShellCodeModule.__name__)
+                            logger.debug("GenerateAndHostGeneric ShellCodeModule: %s", ShellCodeModule.__name__)
 
                             genShellcode = getattr(ShellCodeModule, "buildLoaderShellcode")
                             genShellcode(beaconFilePath, "", beaconArg, 3)

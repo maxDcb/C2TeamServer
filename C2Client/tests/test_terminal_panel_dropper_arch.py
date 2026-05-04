@@ -63,7 +63,7 @@ def test_dropper_arch_help_and_file_names_are_arch_specific():
     assert terminal_panel.makeBeaconFilePath("linux", "x64") == "./Beacon-linux"
 
 
-def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qtbot):
+def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qtbot, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(terminal_panel, "DropperModules", [FakeDropperModule])
     donut_calls = []
@@ -89,8 +89,11 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
 
     results = []
     worker.finished.connect(lambda command, result: results.append((command, result)))
+    capsys.readouterr()
     worker.run()
+    captured = capsys.readouterr()
 
+    assert captured.out == ""
     assert "getBeaconBinary beacon windows arm64" in grpc.commands
     assert donut_calls[0][0] == "./Beacon-arm64.exe"
     assert donut_calls[0][2] == "arm64"
