@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 
 
@@ -319,6 +320,7 @@ class GetListenerWorker(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.exit = False
+        self.refreshIntervalSeconds = env_int("C2_LISTENER_REFRESH_MS", 2000, minimum=100) / 1000
 
     def __del__(self):
         self.exit=True
@@ -328,7 +330,7 @@ class GetListenerWorker(QObject):
             while self.exit==False:
                 if self.receivers(self.checkin) > 0:
                     self.checkin.emit()
-                time.sleep(2)
+                time.sleep(self.refreshIntervalSeconds)
         except Exception as e:
             pass
 

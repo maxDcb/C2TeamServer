@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
 )
 
+from .env import env_int
+
 
 #
 # Constant
@@ -346,6 +348,7 @@ class GetGraphInfoWorker(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.exit = False
+        self.refreshIntervalSeconds = env_int("C2_GRAPH_REFRESH_MS", 2000, minimum=100) / 1000
 
     def __del__(self):
         self.exit=True
@@ -355,7 +358,7 @@ class GetGraphInfoWorker(QObject):
             while self.exit==False:
                 if self.receivers(self.checkin) > 0:
                     self.checkin.emit()
-                time.sleep(2)
+                time.sleep(self.refreshIntervalSeconds)
         except Exception as e:
             pass
 

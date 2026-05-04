@@ -81,3 +81,27 @@ def test_gui_status_bar_updates_rpc_status(qtbot, monkeypatch):
     assert "RPC error" in app.connectionStatusLabel.text()
     assert "Last RPC: ListSessions" in app.rpcStatusLabel.text()
     assert "ListSessions: deadline exceeded" in app.errorStatusLabel.text()
+
+
+def test_parse_client_args_uses_env_defaults(monkeypatch):
+    monkeypatch.setenv("C2_IP", "10.10.10.5")
+    monkeypatch.setenv("C2_PORT", "5443")
+    monkeypatch.setenv("C2_DEV_MODE", "true")
+
+    args = GUI.parse_client_args([])
+
+    assert args.ip == "10.10.10.5"
+    assert args.port == 5443
+    assert args.dev is True
+
+
+def test_parse_client_args_keeps_cli_priority(monkeypatch):
+    monkeypatch.setenv("C2_IP", "10.10.10.5")
+    monkeypatch.setenv("C2_PORT", "5443")
+    monkeypatch.setenv("C2_DEV_MODE", "true")
+
+    args = GUI.parse_client_args(["--ip", "127.0.0.2", "--port", "6000", "--no-dev"])
+
+    assert args.ip == "127.0.0.2"
+    assert args.port == 6000
+    assert args.dev is False

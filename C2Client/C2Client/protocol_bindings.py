@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from pathlib import Path
 from typing import Tuple
+
+from .env import env_path
 
 
 def _candidate_protocol_roots() -> list[Path]:
     candidates: list[Path] = []
 
-    env_value = os.getenv("C2_PROTOCOL_PYTHON_ROOT")
-    if env_value:
-        candidates.append(Path(env_value).expanduser())
+    env_root = env_path("C2_PROTOCOL_PYTHON_ROOT")
+    if env_root:
+        candidates.append(env_root)
 
     repo_root = Path(__file__).resolve().parents[2]
     candidates.extend(sorted(repo_root.glob("build*/generated/python_protocol")))

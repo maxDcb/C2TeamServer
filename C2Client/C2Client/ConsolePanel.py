@@ -25,25 +25,29 @@ from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .TerminalModules.Credentials import credentials
+from .env import env_path
 from .grpc_status import is_response_ok, response_message
 
 
 #
 # Log
 #
-try:
-    import pkg_resources
-    logsDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'logs' 
-    )
+configuredLogsDir = env_path("C2_LOG_DIR")
+if configuredLogsDir:
+    logsDir = str(configuredLogsDir)
+else:
+    try:
+        import pkg_resources
+        logsDir = pkg_resources.resource_filename(
+            'C2Client',
+            'logs'
+        )
 
-except ImportError:
-    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+    except ImportError:
+        logsDir = os.path.join(os.path.dirname(__file__), 'logs')
 
 if not os.path.exists(logsDir):
     os.makedirs(logsDir)
-
 
 #
 # Constant

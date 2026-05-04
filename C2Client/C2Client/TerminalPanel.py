@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .env import env_path
 from .grpc_status import is_response_ok, terminal_response_text
 from .TerminalModules.Batcave import batcave
 from .TerminalModules.Credentials import credentials
@@ -27,20 +28,25 @@ from git import Repo
 #
 # Dropper modules
 #
+configuredDropperModulesDir = env_path("C2_DROPPER_MODULES_DIR")
+configuredDropperModulesPath = env_path("C2_DROPPER_MODULES_CONF")
 try:
     import pkg_resources
-    dropperModulesDir = pkg_resources.resource_filename(
+    defaultDropperModulesDir = pkg_resources.resource_filename(
         'C2Client',  
         'DropperModules' 
     )
-    DropperModulesPath = pkg_resources.resource_filename(
+    defaultDropperModulesPath = pkg_resources.resource_filename(
         'C2Client',  
         'DropperModules.conf'  
     )
 
 except ImportError:
-    dropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
-    DropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
+    defaultDropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
+    defaultDropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
+
+dropperModulesDir = str(configuredDropperModulesDir) if configuredDropperModulesDir else defaultDropperModulesDir
+DropperModulesPath = str(configuredDropperModulesPath) if configuredDropperModulesPath else defaultDropperModulesPath
 
 if not os.path.exists(dropperModulesDir):
     os.makedirs(dropperModulesDir)
@@ -83,20 +89,25 @@ for moduleName in os.listdir(dropperModulesDir):
 
 import donut
 
+configuredShellCodeModulesDir = env_path("C2_SHELLCODE_MODULES_DIR")
+configuredShellCodeModulesPath = env_path("C2_SHELLCODE_MODULES_CONF")
 try:
     import pkg_resources
-    shellCodeModulesDir = pkg_resources.resource_filename(
+    defaultShellCodeModulesDir = pkg_resources.resource_filename(
         'C2Client',  
         'ShellCodeModules' 
     )
-    ShellCodeModulesPath = pkg_resources.resource_filename(
+    defaultShellCodeModulesPath = pkg_resources.resource_filename(
         'C2Client',  
         'ShellCodeModules.conf'  
     )
 
 except ImportError:
-    shellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
-    ShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
+    defaultShellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
+    defaultShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
+
+shellCodeModulesDir = str(configuredShellCodeModulesDir) if configuredShellCodeModulesDir else defaultShellCodeModulesDir
+ShellCodeModulesPath = str(configuredShellCodeModulesPath) if configuredShellCodeModulesPath else defaultShellCodeModulesPath
 
 if not os.path.exists(shellCodeModulesDir):
     os.makedirs(shellCodeModulesDir)
@@ -137,15 +148,19 @@ for moduleName in os.listdir(shellCodeModulesDir):
 #
 # Log
 #
-try:
-    import pkg_resources
-    logsDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'logs' 
-    )
+configuredLogsDir = env_path("C2_LOG_DIR")
+if configuredLogsDir:
+    logsDir = str(configuredLogsDir)
+else:
+    try:
+        import pkg_resources
+        logsDir = pkg_resources.resource_filename(
+            'C2Client',
+            'logs'
+        )
 
-except ImportError:
-    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+    except ImportError:
+        logsDir = os.path.join(os.path.dirname(__file__), 'logs')
 
 if not os.path.exists(logsDir):
     os.makedirs(logsDir)

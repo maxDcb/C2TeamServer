@@ -27,7 +27,7 @@ from .ListenerPanel import Listeners
 from .SessionPanel import Sessions
 from .ConsolePanel import ConsolesTab
 from .GraphPanel import Graph
-from .env import load_c2_env
+from .env import env_bool, env_int, env_value, load_c2_env
 
 import qdarktheme
 
@@ -257,20 +257,43 @@ class App(QMainWindow):
         self.createPayloadWindow.show()
 
 
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI parser using environment-backed defaults."""
+
+    default_ip = env_value("C2_IP", "127.0.0.1")
+    default_port = env_int("C2_PORT", 50051, minimum=1, maximum=65535)
+    default_dev_mode = env_bool("C2_DEV_MODE", False)
+
+    parser = argparse.ArgumentParser(description='TeamServer IP and port.')
+    parser.add_argument('--ip', default=default_ip, help=f'IP address (default: {default_ip})')
+    parser.add_argument('--port', type=int, default=default_port, help=f'Port number (default: {default_port})')
+    parser.add_argument(
+        '--dev',
+        action=argparse.BooleanOptionalAction,
+        default=default_dev_mode,
+        help='Enable developer mode to disable the SSL hostname check.',
+    )
+    return parser
+
+
+def parse_client_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
+    """Parse client arguments after loading `.env` values."""
+
+    load_c2_env()
+    return build_arg_parser().parse_args(argv)
+
+
 def main() -> None:
     """Entry point used by the project script."""
 
-    load_c2_env()
-
-    parser = argparse.ArgumentParser(description='TeamServer IP and port.')
-    parser.add_argument('--ip', default='127.0.0.1', help='IP address (default: 127.0.0.1)')
-    parser.add_argument('--port', type=int, default=50051, help='Port number (default: 50051)')
-    parser.add_argument('--dev', action='store_true', help='Enable developer mode to disable the SSL hostname check.')
-
-    args = parser.parse_args()
+    args = parse_client_args()
 
     app = QApplication(sys.argv)
-    app.setStyleSheet(qdarktheme.load_stylesheet())
+    theme = env_value("C2_UI_THEME", "dark").strip().lower()
+    if theme in {"dark", "light"}:
+        app.setStyleSheet(qdarktheme.load_stylesheet(theme))
+    elif theme not in {"native", "none"}:
+        app.setStyleSheet(qdarktheme.load_stylesheet())
 
     username = os.getenv("C2_USERNAME")
     password = os.getenv("C2_PASSWORD")

@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Callable, Iterable, List, Tuple, Optional
 
 import grpc
+from .env import env_int, env_path
 from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
@@ -58,10 +59,16 @@ class GrpcClient:
         self.last_rpc_message = ""
         self._status_callback: Optional[StatusCallback] = None
 
-        env_cert_path = os.getenv('C2_CERT_PATH')
+        configured_cert_path = env_path("C2_CERT_PATH")
 
-        if env_cert_path and os.path.isfile(env_cert_path):
-            ca_cert = env_cert_path
+        if configured_cert_path:
+            if not configured_cert_path.is_file():
+                logging.error(
+                    "Configured C2 certificate does not exist: %s",
+                    configured_cert_path,
+                )
+                raise ValueError(f"grpcClient: configured certificate not found: {configured_cert_path}")
+            ca_cert = str(configured_cert_path)
             logging.info("Using certificate from environment variable: %s", ca_cert)
         else:
             try:
@@ -86,28 +93,32 @@ class GrpcClient:
             raise ValueError("grpcClient: Certificate not found")
 
         credentials = grpc.ssl_channel_credentials(root_certs)
+        self.max_message_mb = env_int("C2_GRPC_MAX_MESSAGE_MB", 512, minimum=1)
+        self.max_message_bytes = self.max_message_mb * 1024 * 1024
+        self.connect_timeout_ms = env_int("C2_GRPC_CONNECT_TIMEOUT_MS", 0, minimum=0)
+        channel_options = [
+            ('grpc.max_send_message_length', self.max_message_bytes),
+            ('grpc.max_receive_message_length', self.max_message_bytes),
+        ]
         if devMode:
             self.channel = grpc.secure_channel(
                 f"{ip}:{port}",
                 credentials,
                 options=[
                     ('grpc.ssl_target_name_override', 'localhost'),
-                    ('grpc.max_send_message_length', 512 * 1024 * 1024),
-                    ('grpc.max_receive_message_length', 512 * 1024 * 1024),
+                    *channel_options,
                 ],
             )
         else:
             self.channel = grpc.secure_channel(
                 f"{ip}:{port}",
                 credentials,
-                options=[
-                    ('grpc.max_send_message_length', 512 * 1024 * 1024),
-                    ('grpc.max_receive_message_length', 512 * 1024 * 1024),
-                ],
+                options=channel_options,
             )
 
         try:
-            grpc.channel_ready_future(self.channel).result()
+            timeout = self.connect_timeout_ms / 1000 if self.connect_timeout_ms else None
+            grpc.channel_ready_future(self.channel).result(timeout=timeout)
         except grpc.RpcError as exc:
             logging.error("Failed to connect to gRPC server: %s", exc)
             raise ValueError("grpcClient: unable to connect") from exc

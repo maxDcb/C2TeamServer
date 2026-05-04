@@ -15,19 +15,17 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .assistant_agent import C2AssistantAgent
+from .env import env_int
 
 DEFAULT_PENDING_TOOL_TIMEOUT_MS = 2 * 60 * 1000
 
 
 def _load_pending_tool_timeout_ms():
-    value = os.environ.get("C2_ASSISTANT_PENDING_TIMEOUT_MS")
-    if not value:
-        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
-
-    try:
-        return max(0, int(value))
-    except ValueError:
-        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
+    return env_int(
+        "C2_ASSISTANT_PENDING_TIMEOUT_MS",
+        DEFAULT_PENDING_TOOL_TIMEOUT_MS,
+        minimum=0,
+    )
 
 
 #
