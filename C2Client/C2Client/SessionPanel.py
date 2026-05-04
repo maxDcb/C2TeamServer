@@ -1,7 +1,9 @@
 import time
 import logging
+from datetime import datetime, timedelta
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -23,6 +25,148 @@ from .grpc_status import is_response_ok, operation_ack_text
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
 
 logger = logging.getLogger(__name__)
+
+
+SESSION_STATE_ALIVE = "Alive"
+SESSION_STATE_STALE = "Stale"
+SESSION_STATE_KILLED = "Killed"
+SESSION_STATE_UNKNOWN = "Unknown"
+SESSION_STATE_COLORS = {
+    SESSION_STATE_ALIVE: "#0a7f2e",
+    SESSION_STATE_STALE: "#a05a00",
+    SESSION_STATE_KILLED: "#b00020",
+    SESSION_STATE_UNKNOWN: "#6b7280",
+}
+HIGH_PRIVILEGE_COLOR = "#a05a00"
+DEFAULT_SESSION_STALE_AFTER_MS = 30000
+DISPLAY_NOW_UNDER_MS = 2000
+HIGH_PRIVILEGE_VALUES = {"high", "root", "administrator", "admin", "system"}
+
+
+def _to_text(value):
+    return str(value or "").strip()
+
+
+def _is_truthy(value):
+    if isinstance(value, bool):
+        return value
+    return _to_text(value).lower() in {"1", "true", "yes", "y", "killed"}
+
+
+def parse_last_seen(value):
+    text = _to_text(value)
+    if not text or text == "-1":
+        return None
+
+    try:
+        ageSeconds = float(text)
+    except ValueError:
+        ageSeconds = None
+    if ageSeconds is not None:
+        if ageSeconds < 0:
+            return None
+        return datetime.now() - timedelta(seconds=ageSeconds)
+
+    normalized = text.replace("Z", "+00:00")
+    candidates = [normalized]
+    if "." in normalized:
+        candidates.append(normalized.split(".", 1)[0])
+
+    for candidate in candidates:
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    return None
+
+
+def _numeric_age_ms(value):
+    text = _to_text(value)
+    try:
+        ageSeconds = float(text)
+    except ValueError:
+        return None
+    if ageSeconds < 0:
+        return None
+    return max(0, int(ageSeconds * 1000))
+
+
+def last_seen_age_ms(value, now=None):
+    numericAgeMs = _numeric_age_ms(value)
+    if numericAgeMs is not None:
+        return numericAgeMs, True
+
+    lastSeen = parse_last_seen(value)
+    if lastSeen is None:
+        return None, False
+
+    now = now or datetime.now()
+    return max(0, int((now - lastSeen).total_seconds() * 1000)), False
+
+
+def format_relative_age(ageSeconds):
+    if ageSeconds < 1:
+        return "now"
+    if ageSeconds < 60:
+        return f"{ageSeconds}s ago"
+    if ageSeconds < 3600:
+        return f"{ageSeconds // 60}m ago"
+    if ageSeconds < 86400:
+        return f"{ageSeconds // 3600}h ago"
+    return f"{ageSeconds // 86400}d ago"
+
+
+def format_relative_age_ms(ageMs, *, precise_subsecond=False):
+    if ageMs < DISPLAY_NOW_UNDER_MS:
+        return "now"
+    return format_relative_age(ageMs // 1000)
+
+
+def humanize_last_seen(value, now=None):
+    text = _to_text(value)
+    ageMs, preciseSubsecond = last_seen_age_ms(text, now=now)
+    if ageMs is None:
+        return "unknown", "Last proof of life unavailable.", None
+
+    label = format_relative_age_ms(ageMs, precise_subsecond=preciseSubsecond)
+    return label, f"Last proof of life: {text}", parse_last_seen(text)
+
+
+def resolve_session_state(killed, lastProofOfLife, staleAfterMs=DEFAULT_SESSION_STALE_AFTER_MS, now=None):
+    if _is_truthy(killed):
+        return SESSION_STATE_KILLED, "Killed flag set by TeamServer."
+
+    ageMs, preciseSubsecond = last_seen_age_ms(lastProofOfLife, now=now)
+    if ageMs is None:
+        return SESSION_STATE_UNKNOWN, "No valid last proof of life."
+
+    label = format_relative_age_ms(ageMs, precise_subsecond=preciseSubsecond)
+    aliveCutoffMs = max(staleAfterMs, DISPLAY_NOW_UNDER_MS - 1)
+    if ageMs <= aliveCutoffMs:
+        return SESSION_STATE_ALIVE, f"Last seen {label}. Stale after {staleAfterMs} ms."
+    return SESSION_STATE_STALE, f"Last seen {label}. Stale after {staleAfterMs} ms."
+
+
+def normalize_os_label(osDescription):
+    text = _to_text(osDescription)
+    lowered = text.lower()
+    if not text:
+        return "Unknown"
+    if "windows" in lowered:
+        return "Windows"
+    if "linux" in lowered:
+        return "Linux"
+    if "darwin" in lowered or "macos" in lowered or "mac os" in lowered:
+        return "macOS"
+    return text.split()[0]
+
+
+def color_table_item(item, color):
+    item.setForeground(QColor(color))
+    return item
 
 
 #
@@ -53,7 +197,7 @@ class Sessions(QWidget):
 
     idSession = 0
     listSessionObject = []
-    COLUMN_WIDTHS = [76, 76, 140, 116, 62, 84, 98, 64, 156, 132, 58]
+    COLUMN_WIDTHS = [76, 76, 140, 116, 62, 84, 92, 64, 156, 92, 78]
     STRETCH_COLUMN = 8
 
 
@@ -63,6 +207,11 @@ class Sessions(QWidget):
         self.grpcClient = grpcClient
         self.idSession = 0
         self.listSessionObject = []
+        self.sessionStaleAfterMs = env_int(
+            "C2_SESSION_STALE_AFTER_MS",
+            DEFAULT_SESSION_STALE_AFTER_MS,
+            minimum=1,
+        )
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
@@ -320,15 +469,17 @@ class Sessions(QWidget):
     # don't clear the list each time but just when it's necessary
     def printSessions(self):
         self.listSession.setRowCount(len(self.listSessionObject))
-        self.listSession.setHorizontalHeaderLabels(["Beacon", "Listener", "Host", "User", "Arch", "Priv", "OS", "PID", "Internal IP", "Last Seen", "Killed"])
+        self.listSession.setHorizontalHeaderLabels(["Beacon", "Listener", "Host", "User", "Arch", "Priv", "OS", "PID", "Internal IP", "Last Seen", "State"])
         archHeader = self.listSession.horizontalHeaderItem(4)
         if archHeader is not None:
             archHeader.setToolTip("Architecture du process beacon")
         for index, tooltip in {
             0: "Beacon hash",
             1: "Listener hash",
+            6: "Operating system family; full description is available in each cell tooltip",
             8: "Internal IP addresses",
-            9: "Last proof of life",
+            9: "Relative last proof of life",
+            10: "Session state computed from killed flag and last proof of life",
         }.items():
             headerItem = self.listSession.horizontalHeaderItem(index)
             if headerItem is not None:
@@ -351,9 +502,14 @@ class Sessions(QWidget):
             self.listSession.setItem(ix, 4, arch)
 
             privilege = QTableWidgetItem(sessionStore.privilege)
+            if _to_text(sessionStore.privilege).lower() in HIGH_PRIVILEGE_VALUES:
+                color_table_item(privilege, HIGH_PRIVILEGE_COLOR)
+                privilege.setToolTip("High privilege beacon process.")
             self.listSession.setItem(ix, 5, privilege)
 
-            os = QTableWidgetItem(sessionStore.os)
+            osLabel = normalize_os_label(sessionStore.os)
+            os = QTableWidgetItem(osLabel)
+            os.setToolTip(_to_text(sessionStore.os) or "Unknown OS")
             self.listSession.setItem(ix, 6, os)
 
             processId = QTableWidgetItem(sessionStore.processId)
@@ -363,11 +519,20 @@ class Sessions(QWidget):
             internalIps.setToolTip(sessionStore.internalIps)
             self.listSession.setItem(ix, 8, internalIps)
 
-            pol = QTableWidgetItem(sessionStore.lastProofOfLife.split(".", 1)[0])
+            lastSeenLabel, lastSeenTooltip, _ = humanize_last_seen(sessionStore.lastProofOfLife)
+            pol = QTableWidgetItem(lastSeenLabel)
+            pol.setToolTip(lastSeenTooltip)
             self.listSession.setItem(ix, 9, pol)
 
-            killed = QTableWidgetItem(str(sessionStore.killed))
-            self.listSession.setItem(ix, 10, killed)
+            state, stateTooltip = resolve_session_state(
+                sessionStore.killed,
+                sessionStore.lastProofOfLife,
+                staleAfterMs=self.sessionStaleAfterMs,
+            )
+            stateItem = color_table_item(QTableWidgetItem(state), SESSION_STATE_COLORS[state])
+            stateItem.setToolTip(stateTooltip)
+            stateItem.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.listSession.setItem(ix, 10, stateItem)
         self.updateActionButtons()
 
 
