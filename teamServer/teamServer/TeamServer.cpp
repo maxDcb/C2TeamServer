@@ -61,7 +61,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_logger,
         m_listeners,
         m_moduleCmd,
-        m_commonCommands);
+        m_commonCommands,
+        TeamServerCommandCatalog(runtimeConfig));
     m_listenerSessionService = std::make_unique<TeamServerListenerSessionService>(
         m_logger,
         m_config,
