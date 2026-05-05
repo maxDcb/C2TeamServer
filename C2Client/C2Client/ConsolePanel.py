@@ -82,6 +82,7 @@ MODULE_COMMAND_ALIASES = {
     "listprocesses": "ps",
     "printworkingdirectory": "pwd",
 }
+PID_COMPLETION_PLACEHOLDER = "<pid>"
 
 
 def _completion_suffix(command_name: Any, example: Any):
@@ -173,6 +174,14 @@ def _source_flag_args(args: list[Any]) -> list[Any]:
     ]
 
 
+def _inject_payload_flag_args(args: list[Any]) -> list[Any]:
+    return [
+        arg
+        for arg in args
+        if _arg_name(arg) in {"--raw", "--donut-exe", "--donut-dll"}
+    ]
+
+
 def _argument_artifact_completion_values(artifact: Any) -> list[str]:
     return _dedupe_values([
         str(getattr(artifact, "name", "") or "").strip(),
@@ -184,14 +193,35 @@ def _artifact_value_continuations(arg: Any, command_name: str = "") -> list[str]
     name = _arg_name(arg)
     if command_name == "inject":
         if name == "--donut-dll":
-            return ["--pid", "--method"]
+            return ["--pid", "--method", "--"]
         if name in {"--raw", "--donut-exe"}:
-            return ["--pid"]
+            continuations = ["--pid"]
+            if name == "--donut-exe":
+                continuations.append("--")
+            return continuations
     if name == "--donut-exe":
         return ["--"]
     if name == "--donut-dll":
         return ["--method"]
     return []
+
+
+def _add_inject_pid_continuations(children: list[tuple[str, list]], arg: Any) -> None:
+    pid_entry = _find_entry(children, "--pid")
+    if pid_entry is None:
+        return
+
+    _add_completion_path(pid_entry[1], [PID_COMPLETION_PLACEHOLDER])
+    value_entry = _find_entry(pid_entry[1], PID_COMPLETION_PLACEHOLDER)
+    if value_entry is None:
+        return
+
+    name = _arg_name(arg)
+    if name == "--donut-exe":
+        _add_completion_value(value_entry[1], "--")
+    elif name == "--donut-dll":
+        _add_completion_value(value_entry[1], "--method")
+        _add_completion_value(value_entry[1], "--")
 
 
 def _add_artifact_completions(
@@ -209,6 +239,8 @@ def _add_artifact_completions(
             if artifact_entry is not None:
                 for continuation in continuations:
                     _add_completion_value(artifact_entry[1], continuation)
+                if command_name == "inject":
+                    _add_inject_pid_continuations(artifact_entry[1], arg)
 
 
 def _build_flag_entries(
@@ -234,6 +266,18 @@ def _build_flag_entries(
         for value in getattr(arg, "values", []):
             _add_completion_value(flag_entry[1], value)
         _add_artifact_completions(flag_entry[1], grpcClient, arg, session, command_name)
+
+        if command_name == "inject" and name == "--pid":
+            _add_completion_path(flag_entry[1], [PID_COMPLETION_PLACEHOLDER])
+            value_entry = _find_entry(flag_entry[1], PID_COMPLETION_PLACEHOLDER)
+            if value_entry is not None:
+                payload_flags = _build_flag_entries(
+                    _inject_payload_flag_args(args),
+                    grpcClient,
+                    session,
+                    command_name=command_name,
+                )
+                _merge_completion_entries(value_entry[1], payload_flags)
     return entries
 
 
@@ -1283,16 +1327,28 @@ class CodeCompleter(QCompleter):
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
+        self.placeholderValues: dict[str, str] = {}
         self.createModel(data)
 
     def updateData(self, data):
         self.createModel(data)
 
     def splitPath(self, path):
-        return path.split(' ')
+        parts = path.split(' ')
+        self.placeholderValues = {}
+        if parts and parts[0] == "inject":
+            for index, part in enumerate(parts[:-1]):
+                if part == "--pid" and parts[index + 1]:
+                    self.placeholderValues[PID_COMPLETION_PLACEHOLDER] = parts[index + 1]
+                    parts[index + 1] = PID_COMPLETION_PLACEHOLDER
+                    break
+        return parts
 
     def pathFromIndex(self, ix):
-        return ix.data(CodeCompleter.ConcatenationRole)
+        value = ix.data(CodeCompleter.ConcatenationRole)
+        for placeholder, replacement in self.placeholderValues.items():
+            value = value.replace(placeholder, replacement)
+        return value
 
     def createModel(self, data):
         def addItems(parent, elements, t=""):

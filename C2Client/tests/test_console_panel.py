@@ -7,7 +7,7 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.ConsolePanel import CommandEditor, Console, ConsolesTab, build_completer_data, command_specs_to_completer_data
+from C2Client.ConsolePanel import CodeCompleter, CommandEditor, Console, ConsolesTab, build_completer_data, command_specs_to_completer_data
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -445,10 +445,46 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     server_data = command_specs_to_completer_data([inject_spec], grpcClient=grpc)
     inject_children = _completion_children(server_data, "inject")
     raw_children = _completion_children(inject_children, "--raw")
-    assert ("--pid", []) in _completion_children(raw_children, "payloads/loader.bin")
+    assert _completion_children(raw_children, "payloads/loader.bin")
+    assert _completion_children(_completion_children(raw_children, "payloads/loader.bin"), "--pid")
+    assert ("--", []) in _completion_children(_completion_children(inject_children, "--donut-exe"), "SharpHound.exe")
     inject_dll_children = _completion_children(inject_children, "--donut-dll")
-    assert ("--pid", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
+    assert _completion_children(_completion_children(inject_dll_children, "Tools/Example.dll"), "--pid")
     assert ("--method", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
+    assert ("--", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
+    exe_payload_children = _completion_children(_completion_children(inject_children, "--donut-exe"), "SharpHound.exe")
+    exe_payload_pid_children = _completion_children(exe_payload_children, "--pid")
+    assert ("--", []) in _completion_children(exe_payload_pid_children, "<pid>")
+
+    pid_children = _completion_children(inject_children, "--pid")
+    pid_value_children = _completion_children(pid_children, "<pid>")
+    assert _completion_children(pid_value_children, "--raw")
+    assert _completion_children(pid_value_children, "--donut-exe")
+    pid_first_exe_children = _completion_children(pid_value_children, "--donut-exe")
+    assert ("--", []) in _completion_children(pid_first_exe_children, "SharpHound.exe")
+
+    completer = CodeCompleter(server_data)
+    assert completer.splitPath("inject --pid 4321 --donut-exe ") == [
+        "inject",
+        "--pid",
+        "<pid>",
+        "--donut-exe",
+        "",
+    ]
+    assert completer.splitPath("inject --donut-exe SharpHound.exe --pid 4321 ") == [
+        "inject",
+        "--donut-exe",
+        "SharpHound.exe",
+        "--pid",
+        "<pid>",
+        "",
+    ]
+    model = completer.model()
+    inject_item = next(model.item(row) for row in range(model.rowCount()) if model.item(row).text() == "inject")
+    pid_item = next(inject_item.child(row) for row in range(inject_item.rowCount()) if inject_item.child(row).text() == "--pid")
+    pid_value_item = next(pid_item.child(row) for row in range(pid_item.rowCount()) if pid_item.child(row).text() == "<pid>")
+    raw_item = next(pid_value_item.child(row) for row in range(pid_value_item.rowCount()) if pid_value_item.child(row).text() == "--raw")
+    assert completer.pathFromIndex(raw_item.index()) == "inject --pid 4321 --raw"
 
 
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():
