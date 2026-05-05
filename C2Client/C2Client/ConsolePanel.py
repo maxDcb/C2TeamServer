@@ -145,12 +145,32 @@ def _add_example_completions(children: list[tuple[str, list]], command: Any) -> 
             _add_completion_value(children, suffix)
 
 
-def _add_first_arg_value_completions(children: list[tuple[str, list]], command: Any) -> None:
+def _arg_is_flag(arg: Any) -> bool:
+    name = str(getattr(arg, "name", "") or "").strip()
+    arg_type = str(getattr(arg, "type", "") or "").strip().lower()
+    return arg_type == "flag" or name.startswith("-")
+
+
+def _add_arg_completions(children: list[tuple[str, list]], command: Any) -> None:
     args = list(getattr(command, "args", []))
-    if not args:
-        return
-    for value in getattr(args[0], "values", []):
-        _add_completion_value(children, value)
+    first_positional_done = False
+    for arg in args:
+        name = str(getattr(arg, "name", "") or "").strip()
+        if _arg_is_flag(arg):
+            if not name:
+                continue
+            _add_completion_path(children, [name])
+            flag_entry = _find_entry(children, name)
+            if flag_entry is not None:
+                for value in getattr(arg, "values", []):
+                    _add_completion_value(flag_entry[1], value)
+            continue
+
+        if first_positional_done:
+            continue
+        for value in getattr(arg, "values", []):
+            _add_completion_value(children, value)
+        first_positional_done = True
 
 
 def _normalized_module_name(value: Any) -> str:
@@ -393,7 +413,7 @@ def command_specs_to_completer_data(
             continue
         children: list[tuple[str, list]] = []
         _add_example_completions(children, command)
-        _add_first_arg_value_completions(children, command)
+        _add_arg_completions(children, command)
         _add_contextual_completions(children, command, command_specs, grpcClient, session, listener_hashes, tracked_modules)
         _add_completion_path(entries, [name])
         entry = _find_entry(entries, name)

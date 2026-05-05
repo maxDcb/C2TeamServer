@@ -333,6 +333,35 @@ def test_command_specs_seed_console_completer_from_manifest_examples():
     assert ("0.5", []) in sleep_entry
 
 
+def test_command_specs_add_flag_completions_without_positional_mode_mix():
+    assembly_spec = SimpleNamespace(
+        name="assemblyExec",
+        kind="module",
+        examples=[
+            "assemblyExec --mode process --raw shellcode.bin",
+            "assemblyExec --mode thread --donut-exe Seatbelt.exe -- -group=system",
+        ],
+        args=[
+            SimpleNamespace(name="--mode", type="flag", values=["thread", "process", "processWithSpoofedParent"]),
+            SimpleNamespace(name="--raw", type="flag", values=[]),
+            SimpleNamespace(name="--donut-exe", type="flag", values=[]),
+            SimpleNamespace(name="source_path", type="path", values=[]),
+        ],
+    )
+
+    server_data = command_specs_to_completer_data([assembly_spec])
+    assembly_children = _completion_children(server_data, "assemblyExec")
+
+    assert ("thread", []) not in assembly_children
+    assert ("process", []) not in assembly_children
+    assert ("--raw", []) in assembly_children
+    assert ("--donut-exe", []) in assembly_children
+
+    mode_children = _completion_children(assembly_children, "--mode")
+    assert _completion_children(mode_children, "thread")
+    assert ("process", [("--raw", [("shellcode.bin", [])])]) in mode_children
+
+
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():
     class FakeGrpc:
         def listCommands(self, query=None):
