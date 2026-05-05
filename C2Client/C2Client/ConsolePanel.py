@@ -73,6 +73,7 @@ SYSTEM_TAB_COUNT = 5
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
+ListModuleInstruction = "listModule"
 COMPLETER_REFRESH_SECONDS = 5.0
 
 MODULE_COMMAND_ALIASES = {
@@ -316,6 +317,25 @@ def _tracked_module_names(modules: list[Any], states: set[str]) -> list[str]:
         for module in modules
         if str(getattr(module, "state", "") or "") in states
     ])
+
+
+def _format_loaded_modules_for_console(modules: list[Any]) -> str:
+    rows = []
+    for module in modules:
+        name = str(getattr(module, "name", "") or "").strip()
+        if not name:
+            continue
+        status = str(getattr(module, "state", "") or "unknown").strip() or "unknown"
+        rows.append((name, status))
+
+    if not rows:
+        return "No loaded modules."
+
+    name_width = max(len("name"), *(len(name) for name, _status in rows))
+    lines = [f"{'name'.ljust(name_width)}  status"]
+    for name, status in rows:
+        lines.append(f"{name.ljust(name_width)}  {status}")
+    return "\n".join(lines)
 
 
 def _add_contextual_completions(
@@ -936,6 +956,22 @@ class Console(QWidget):
                 self.printInTerminal("", command_text, response.help)
             else:
                 self.printInTerminal("", command_text, response_message(response, "No help available."))
+            self.setCursorEditorAtEnd()
+            return
+
+        if instructions[0] == ListModuleInstruction:
+            self.printInTerminal(commandLine, "", "")
+            try:
+                modules = list(self.grpcClient.listModules(
+                    TeamServerApi_pb2.SessionSelector(
+                        beacon_hash=self.beaconHash,
+                        listener_hash=self.listenerHash,
+                    )
+                ))
+                self.printInTerminal("", commandLine, _format_loaded_modules_for_console(modules))
+            except Exception as exc:
+                self.printInTerminal("", commandLine, f"Error: {exc}")
+                self.setConsoleNotice("listModule failed.", True)
             self.setCursorEditorAtEnd()
             return
 

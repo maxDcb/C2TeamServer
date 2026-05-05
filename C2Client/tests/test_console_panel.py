@@ -16,6 +16,8 @@ class StubGrpc:
         self.reject_commands = False
         self.responses = []
         self.sent_commands = []
+        self.modules = []
+        self.list_modules_requests = []
 
     def getCommandHelp(self, command):
         return SimpleNamespace(status=TeamServerApi_pb2.OK, command=command.command, help="help", message="")
@@ -39,7 +41,8 @@ class StubGrpc:
         return iter([])
 
     def listModules(self, session):
-        return iter([])
+        self.list_modules_requests.append(session)
+        return iter(self.modules)
 
 
 class DummyPanel(QWidget):
@@ -91,6 +94,37 @@ def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, mo
     command_id = grpc.sent_commands[0].command_id
     assert console.commandStatusById[command_id]["status"] == "error"
     assert 'rejected: "whoami"' in (tmp_path / 'host_user_beacon.log').read_text()
+
+
+def test_list_module_command_uses_list_modules_without_queueing(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+
+    grpc = StubGrpc()
+    grpc.modules = [
+        SimpleNamespace(name="pwd", state="loaded"),
+        SimpleNamespace(name="shell", state="loading", load_count=7, command_id="cmd-1"),
+    ]
+    parent = QWidget()
+    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+    grpc.list_modules_requests.clear()
+
+    console.commandEditor.setText('listModule')
+    console.runCommand()
+
+    assert grpc.sent_commands == []
+    assert len(grpc.list_modules_requests) == 1
+    assert grpc.list_modules_requests[0].beacon_hash == "beacon"
+    assert grpc.list_modules_requests[0].listener_hash == "listener"
+    output = console.editorOutput.toPlainText()
+    assert "pwd" in output
+    assert "loaded" in output
+    assert "shell" in output
+    assert "loading" in output
+    assert "count" not in output
+    assert "cmd-1" not in output
 
 
 def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypatch):

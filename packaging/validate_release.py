@@ -240,6 +240,7 @@ def validate_base_release(release_root: Path) -> None:
     _require_non_empty_file(command_specs_root / "common" / "end.json")
     _require_non_empty_file(command_specs_root / "common" / "help.json")
     _require_non_empty_file(command_specs_root / "common" / "listener.json")
+    _require_non_empty_file(command_specs_root / "common" / "listModule.json")
     _require_non_empty_file(command_specs_root / "common" / "loadModule.json")
     _require_non_empty_file(command_specs_root / "common" / "unloadModule.json")
     _require_non_empty_file(command_specs_root / "modules" / "pwd.json")
