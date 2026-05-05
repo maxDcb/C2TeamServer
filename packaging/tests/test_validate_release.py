@@ -52,3 +52,33 @@ def test_validate_base_release_requires_command_specs(tmp_path):
     (release_root / "CommandSpecs" / "modules" / "taskScheduler.json").unlink()
     with pytest.raises(validate_release.ValidationError, match="taskScheduler.json"):
         validate_release.validate_base_release(release_root)
+
+
+def test_validate_base_release_rejects_runtime_data_roots(tmp_path):
+    release_root = tmp_path / "Release"
+    _seed_base_release(release_root)
+    (release_root / "data" / "Tools").mkdir(parents=True)
+
+    with pytest.raises(validate_release.ValidationError, match="runtime/operator data"):
+        validate_release.validate_base_release(release_root)
+
+
+def test_validate_implants_requires_linux_arch_layout(tmp_path):
+    release_root = tmp_path / "Release"
+    for arch in validate_release.EXPECTED_WINDOWS_ARCHES:
+        for filename in validate_release.EXPECTED_WINDOWS_BEACONS:
+            _write_file(release_root / "WindowsBeacons" / arch / filename)
+        for filename in validate_release.EXPECTED_WINDOWS_MODULES:
+            _write_file(release_root / "WindowsModules" / arch / filename)
+    for arch in validate_release.EXPECTED_LINUX_ARCHES:
+        for filename in validate_release.EXPECTED_LINUX_BEACONS:
+            _write_file(release_root / "LinuxBeacons" / arch / filename)
+        for filename in validate_release.EXPECTED_LINUX_MODULES:
+            _write_file(release_root / "LinuxModules" / arch / filename)
+
+    validate_release.validate_implants(release_root)
+
+    flat_beacon = release_root / "LinuxBeacons" / "BeaconHttp"
+    _write_file(flat_beacon)
+    with pytest.raises(validate_release.ValidationError, match="unexpected file"):
+        validate_release.validate_implants(release_root)

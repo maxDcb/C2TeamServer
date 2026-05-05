@@ -1,5 +1,6 @@
 #include "TeamServerInjectCommandPreparer.hpp"
 
+#include <array>
 #include <filesystem>
 #include <utility>
 
@@ -19,9 +20,16 @@ std::string resolveSourcePath(
     if (fs::exists(path))
         return path;
 
-    fs::path toolPath = fs::path(runtimeConfig.toolsDirectoryPath) / path;
-    if (fs::exists(toolPath))
-        return toolPath.string();
+    const std::array<fs::path, 3> toolCandidates = {
+        fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / windowsArch / path,
+        fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / path,
+        fs::path(runtimeConfig.toolsDirectoryPath) / path,
+    };
+    for (const fs::path& toolPath : toolCandidates)
+    {
+        if (fs::exists(toolPath))
+            return toolPath.string();
+    }
 
     fs::path beaconPath = fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / path;
     if (fs::exists(beaconPath))

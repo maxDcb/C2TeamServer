@@ -1,5 +1,6 @@
 #include "TeamServerAssemblyExecCommandPreparer.hpp"
 
+#include <array>
 #include <filesystem>
 #include <utility>
 
@@ -9,16 +10,26 @@ namespace fs = std::filesystem;
 
 namespace
 {
-std::string resolveSourcePath(const TeamServerRuntimeConfig& runtimeConfig, const std::string& path)
+std::string resolveSourcePath(
+    const TeamServerRuntimeConfig& runtimeConfig,
+    const std::string& path,
+    const std::string& windowsArch)
 {
     if (path.empty())
         return "";
     if (fs::exists(path))
         return path;
 
-    fs::path toolPath = fs::path(runtimeConfig.toolsDirectoryPath) / path;
-    if (fs::exists(toolPath))
-        return toolPath.string();
+    const std::array<fs::path, 3> toolCandidates = {
+        fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / windowsArch / path,
+        fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / path,
+        fs::path(runtimeConfig.toolsDirectoryPath) / path,
+    };
+    for (const fs::path& toolPath : toolCandidates)
+    {
+        if (fs::exists(toolPath))
+            return toolPath.string();
+    }
     return path;
 }
 
@@ -78,7 +89,7 @@ TeamServerCommandPreparerResult TeamServerAssemblyExecCommandPreparer::prepare(
 
     TeamServerShellcodeRequest shellcodeRequest;
     shellcodeRequest.generator = options.generator;
-    shellcodeRequest.sourcePath = resolveSourcePath(m_runtimeConfig, options.sourcePath);
+    shellcodeRequest.sourcePath = resolveSourcePath(m_runtimeConfig, options.sourcePath, context.windowsArch);
     shellcodeRequest.sourceType = options.sourceType;
     shellcodeRequest.arch = context.windowsArch;
     shellcodeRequest.method = options.method;

@@ -144,16 +144,17 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
 {
     const bool linuxTarget = targetOs == "Linux";
     const fs::path windowsBeaconRoot = fs::path(m_runtimeConfig.windowsBeaconsDirectoryPath) / targetArch;
+    const fs::path linuxBeaconRoot = fs::path(m_runtimeConfig.linuxBeaconsDirectoryPath) / targetArch;
     if (type == ListenerHttpType || type == ListenerHttpsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconHttp" : (windowsBeaconRoot / "BeaconHttp.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconHttp").string() : (windowsBeaconRoot / "BeaconHttp.exe").string();
     if (type == ListenerTcpType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconTcp" : (windowsBeaconRoot / "BeaconTcp.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconTcp").string() : (windowsBeaconRoot / "BeaconTcp.exe").string();
     if (primaryListener && type == ListenerGithubType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconGithub" : (windowsBeaconRoot / "BeaconGithub.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconGithub").string() : (windowsBeaconRoot / "BeaconGithub.exe").string();
     if (primaryListener && type == ListenerDnsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconDns" : (windowsBeaconRoot / "BeaconDns.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconDns").string() : (windowsBeaconRoot / "BeaconDns.exe").string();
     if (!primaryListener && type == ListenerSmbType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconSmb" : (windowsBeaconRoot / "BeaconSmb.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconSmb").string() : (windowsBeaconRoot / "BeaconSmb.exe").string();
     return "";
 }
 
@@ -237,7 +238,7 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
     const std::string& listenerHash = splitedCmd[1];
     const std::string targetOsArg = splitedCmd.size() >= 3 ? lowerCopy(splitedCmd[2]) : "windows";
     const std::string targetOs = targetOsArg == "linux" ? "Linux" : "Windows";
-    std::string targetArch = m_runtimeConfig.defaultWindowsArch;
+    std::string targetArch = targetOs == "Linux" ? m_runtimeConfig.defaultLinuxArch : m_runtimeConfig.defaultWindowsArch;
     if (targetOs == "Windows")
     {
         if (splitedCmd.size() == 4)
@@ -253,6 +254,26 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
 
         if (std::find(m_runtimeConfig.supportedWindowsArchs.begin(), m_runtimeConfig.supportedWindowsArchs.end(), targetArch)
             == m_runtimeConfig.supportedWindowsArchs.end())
+        {
+            setTerminalError(response, "Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+    }
+    else
+    {
+        if (splitedCmd.size() == 4)
+            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(splitedCmd[3]);
+        else
+            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(targetArch);
+
+        if (targetArch.empty())
+        {
+            setTerminalError(response, "Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+
+        if (std::find(m_runtimeConfig.supportedLinuxArchs.begin(), m_runtimeConfig.supportedLinuxArchs.end(), targetArch)
+            == m_runtimeConfig.supportedLinuxArchs.end())
         {
             setTerminalError(response, "Error: Unsupported architecture.");
             return grpc::Status::OK;

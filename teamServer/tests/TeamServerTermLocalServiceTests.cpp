@@ -155,7 +155,7 @@ void testUploadCommands()
     assert(response.status() == teamserverapi::OK);
     assert(response.result() == "ok");
     assert(response.message().empty());
-    assert(readFile(fs::path(runtimeConfig.toolsDirectoryPath) / "tool.bin") == "TOOL");
+    assert(readFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / "tool.bin") == "TOOL");
 }
 
 void testCredentialCommands()

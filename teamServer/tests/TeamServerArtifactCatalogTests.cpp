@@ -64,6 +64,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.windowsBeaconsDirectoryPath = (root / "WindowsBeacons").string();
     runtimeConfig.toolsDirectoryPath = (root / "Tools").string();
     runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string();
+    runtimeConfig.uploadedArtifactsDirectoryPath = (root / "UploadedArtifacts").string();
     runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string();
 
     fs::create_directories(runtimeConfig.teamServerModulesDirectoryPath);
@@ -73,12 +74,25 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
     fs::create_directories(runtimeConfig.scriptsDirectoryPath);
+    fs::create_directories(runtimeConfig.uploadedArtifactsDirectoryPath);
     fs::create_directories(runtimeConfig.generatedArtifactsDirectoryPath);
+    for (const std::string& arch : runtimeConfig.supportedLinuxArchs)
+    {
+        fs::create_directories(fs::path(runtimeConfig.linuxModulesDirectoryPath) / arch);
+        fs::create_directories(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / arch);
+        fs::create_directories(fs::path(runtimeConfig.toolsDirectoryPath) / "Linux" / arch);
+        fs::create_directories(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Linux" / arch);
+    }
     for (const std::string& arch : runtimeConfig.supportedWindowsArchs)
     {
         fs::create_directories(fs::path(runtimeConfig.windowsModulesDirectoryPath) / arch);
         fs::create_directories(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / arch);
+        fs::create_directories(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / arch);
+        fs::create_directories(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Windows" / arch);
     }
+    fs::create_directories(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows");
+    fs::create_directories(fs::path(runtimeConfig.scriptsDirectoryPath) / "Linux");
+    fs::create_directories(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any");
 
     return runtimeConfig;
 }
@@ -93,14 +107,15 @@ void writeFile(const fs::path& path, const std::string& content)
 void seedArtifacts(const TeamServerRuntimeConfig& runtimeConfig)
 {
     writeFile(fs::path(runtimeConfig.teamServerModulesDirectoryPath) / "libServerModule.so", "teamserver-module");
-    writeFile(fs::path(runtimeConfig.linuxModulesDirectoryPath) / "linuxmod.so", "linux-module");
+    writeFile(fs::path(runtimeConfig.linuxModulesDirectoryPath) / "x64" / "linuxmod.so", "linux-module");
     writeFile(fs::path(runtimeConfig.windowsModulesDirectoryPath) / "x64" / "winmod64.dll", "windows-module-x64");
     writeFile(fs::path(runtimeConfig.windowsModulesDirectoryPath) / "x86" / "winmod86.dll", "windows-module-x86");
-    writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "BeaconHttp", "linux-beacon");
+    writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "x64" / "BeaconHttp", "linux-beacon");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconHttp.exe", "windows-beacon-x64");
-    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "batcave.zip", "tool-archive");
-    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "startup.py", "script");
-    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / ".ignored.py", "hidden-script");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "batcave.zip", "tool-archive");
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "startup.ps1", "script");
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / ".ignored.ps1", "hidden-script");
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator-note.txt", "upload");
 }
 
 const TeamServerArtifactRecord* findArtifact(
@@ -132,8 +147,8 @@ void testCatalogIndexesReleaseRoots()
     TeamServerArtifactCatalog catalog(runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts();
 
-    assert(artifacts.size() == 8);
-    assert(findArtifact(artifacts, ".ignored.py", "script", "any", "any") == nullptr);
+    assert(artifacts.size() == 9);
+    assert(findArtifact(artifacts, ".ignored.ps1", "script", "windows", "any") == nullptr);
 
     const TeamServerArtifactRecord* windowsModule = findArtifact(artifacts, "winmod64.dll", "module", "windows", "x64");
     assert(windowsModule != nullptr);
@@ -147,18 +162,24 @@ void testCatalogIndexesReleaseRoots()
     assert(windowsModule->artifactId.size() == 64);
     assert(windowsModule->internalPath.find(tempRoot.path().string()) != std::string::npos);
 
-    const TeamServerArtifactRecord* linuxBeacon = findArtifact(artifacts, "BeaconHttp", "beacon", "linux", "any");
+    const TeamServerArtifactRecord* linuxBeacon = findArtifact(artifacts, "BeaconHttp", "beacon", "linux", "x64");
     assert(linuxBeacon != nullptr);
     assert(linuxBeacon->format == "binary");
     assert(linuxBeacon->scope == "implant");
     assert(linuxBeacon->target == "listener");
 
-    const TeamServerArtifactRecord* script = findArtifact(artifacts, "startup.py", "script", "any", "any");
+    const TeamServerArtifactRecord* script = findArtifact(artifacts, "startup.ps1", "script", "windows", "any");
     assert(script != nullptr);
-    assert(script->scope == "teamserver");
-    assert(script->target == "teamserver");
-    assert(script->format == "py");
-    assert(script->runtime == "python");
+    assert(script->scope == "server");
+    assert(script->target == "beacon");
+    assert(script->format == "ps1");
+    assert(script->runtime == "script");
+
+    const TeamServerArtifactRecord* upload = findArtifact(artifacts, "operator-note.txt", "upload", "any", "any");
+    assert(upload != nullptr);
+    assert(upload->scope == "operator");
+    assert(upload->target == "beacon");
+    assert(upload->runtime == "file");
 }
 
 void testCatalogFiltersArtifacts()
@@ -179,6 +200,8 @@ void testCatalogFiltersArtifacts()
 
     TeamServerArtifactQuery toolQuery;
     toolQuery.category = "tool";
+    toolQuery.platform = "windows";
+    toolQuery.arch = "x64";
     toolQuery.nameContains = "BATCAVE";
     artifacts = catalog.listArtifacts(toolQuery);
     assert(artifacts.size() == 1);
@@ -187,6 +210,7 @@ void testCatalogFiltersArtifacts()
     TeamServerArtifactQuery linuxModules;
     linuxModules.category = "module";
     linuxModules.platform = "linux";
+    linuxModules.arch = "x64";
     artifacts = catalog.listArtifacts(linuxModules);
     assert(artifacts.size() == 1);
     assert(artifacts[0].name == "linuxmod.so");
@@ -257,11 +281,11 @@ void testArtifactServiceStreamsPublicMetadataOnly()
     }).ok());
 
     assert(summaries.size() == 1);
-    assert(summaries[0].name() == "startup.py");
+    assert(summaries[0].name() == "startup.ps1");
     assert(summaries[0].category() == "script");
-    assert(summaries[0].scope() == "teamserver");
-    assert(summaries[0].target() == "teamserver");
-    assert(summaries[0].runtime() == "python");
+    assert(summaries[0].scope() == "server");
+    assert(summaries[0].target() == "beacon");
+    assert(summaries[0].runtime() == "script");
     assert(summaries[0].sha256().size() == 64);
     assert(summaries[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }

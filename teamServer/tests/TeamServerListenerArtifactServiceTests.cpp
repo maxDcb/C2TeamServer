@@ -81,6 +81,8 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
+    for (const auto& arch : runtimeConfig.supportedLinuxArchs)
+        fs::create_directories(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / arch);
     for (const auto& arch : runtimeConfig.supportedWindowsArchs)
         fs::create_directories(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / arch);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
@@ -137,6 +139,7 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x86" / "BeaconHttp.exe", "HTTPBIN-X86");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "arm64" / "BeaconHttp.exe", "HTTPBIN-ARM64");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconSmb.exe", "SMBBIN-X64");
+    writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "x64" / "BeaconHttp", "LINUX-HTTPBIN-X64");
 
     nlohmann::json config = nlohmann::json::object();
     auto primary = std::make_shared<TestListener>("listener-primary");
@@ -177,6 +180,12 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Unsupported architecture.");
     assert(response.message() == "Error: Unsupported architecture.");
+
+    command.set_command("getBeaconBinary listener-pri Linux x64");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Linux", "x64"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "ok");
+    assert(response.data() == "LINUX-HTTPBIN-X64");
 
     command.set_command("getBeaconBinary secondary");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary"}, command, &response).ok());

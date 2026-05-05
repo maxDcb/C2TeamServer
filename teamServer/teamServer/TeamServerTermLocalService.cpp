@@ -1,10 +1,12 @@
 #include "TeamServerTermLocalService.hpp"
 
+#include <filesystem>
 #include <fstream>
 
 #include "TeamServerModuleLoader.hpp"
 #include "listener/ListenerHttp.hpp"
 using json = nlohmann::json;
+namespace fs = std::filesystem;
 
 namespace
 {
@@ -198,19 +200,27 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUpload(
         return grpc::Status::OK;
     }
 
-    const std::string filePath = m_runtimeConfig.toolsDirectoryPath + "/" + filename;
+    const fs::path filePath = fs::path(m_runtimeConfig.toolsDirectoryPath) / "Any" / "any" / filename;
+    std::error_code ec;
+    fs::create_directories(filePath.parent_path(), ec);
+    if (ec)
+    {
+        setTerminalError(response, "Error: Cannot create tools directory.");
+        m_logger->warn("Failed to create tools directory for uploaded tool '{0}' at {1}", filename, filePath.parent_path().string());
+        return grpc::Status::OK;
+    }
     std::ofstream outputFile(filePath, std::ios::out | std::ios::binary);
     if (outputFile.good())
     {
         outputFile << command.data();
         outputFile.close();
         setTerminalOk(response, "ok");
-        m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath);
+        m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath.string());
         return grpc::Status::OK;
     }
 
     setTerminalError(response, "Error: Cannot write file.");
-    m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath);
+    m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath.string());
     return grpc::Status::OK;
 }
 

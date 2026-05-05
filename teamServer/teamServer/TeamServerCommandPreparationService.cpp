@@ -78,16 +78,18 @@ int TeamServerCommandPreparationService::prepareMessage(
 
     int res = 0;
     const std::string instruction = splitedCmd[0];
-    std::string normalizedWindowsArch = TeamServerRuntimeConfig::normalizeWindowsArch(windowsArch);
-    if (isWindows && normalizedWindowsArch.empty())
-        normalizedWindowsArch = "x64";
+    std::string normalizedTargetArch = isWindows
+        ? TeamServerRuntimeConfig::normalizeWindowsArch(windowsArch)
+        : TeamServerRuntimeConfig::normalizeLinuxArch(windowsArch);
+    if (normalizedTargetArch.empty())
+        normalizedTargetArch = isWindows ? m_runtimeConfig.defaultWindowsArch : m_runtimeConfig.defaultLinuxArch;
     bool isModuleFound = false;
 
     TeamServerCommandPreparerContext preparerContext;
     preparerContext.input = input;
     preparerContext.tokens = splitedCmd;
     preparerContext.isWindows = isWindows;
-    preparerContext.windowsArch = normalizedWindowsArch;
+    preparerContext.windowsArch = normalizedTargetArch;
     for (const auto& preparer : m_preparers)
     {
         if (!preparer || !preparer->canPrepare(instruction))
@@ -146,15 +148,15 @@ int TeamServerCommandPreparationService::prepareMessage(
             }
         }
 
-        m_logger->debug("Preparing common command={0} isWindows={1} windowsArch={2}", instruction, isWindows, normalizedWindowsArch);
-        res = m_commonCommands.init(splitedCmd, c2Message, isWindows, normalizedWindowsArch);
+        m_logger->debug("Preparing common command={0} isWindows={1} targetArch={2}", instruction, isWindows, normalizedTargetArch);
+        res = m_commonCommands.init(splitedCmd, c2Message, isWindows, normalizedTargetArch);
         if (instruction == LoadModuleInstruction && res == 0)
         {
             m_logger->info(
-                "loadModule resolved module input={0} isWindows={1} windowsArch={2} path={3}",
+                "loadModule resolved module input={0} isWindows={1} targetArch={2} path={3}",
                 splitedCmd.size() > 1 ? splitedCmd[1] : "",
                 isWindows,
-                normalizedWindowsArch,
+                normalizedTargetArch,
                 m_commonCommands.getLastResolvedModulePath());
         }
         isModuleFound = true;
@@ -166,8 +168,8 @@ int TeamServerCommandPreparationService::prepareMessage(
             continue;
 
         splitedCmd[0] = (*it)->getName();
-        (*it)->setWindowsArch(normalizedWindowsArch);
-        m_logger->debug("Preparing module command={0} isWindows={1} windowsArch={2}", splitedCmd[0], isWindows, normalizedWindowsArch);
+        (*it)->setWindowsArch(normalizedTargetArch);
+        m_logger->debug("Preparing module command={0} isWindows={1} targetArch={2}", splitedCmd[0], isWindows, normalizedTargetArch);
         res = (*it)->init(splitedCmd, c2Message);
         isModuleFound = true;
     }

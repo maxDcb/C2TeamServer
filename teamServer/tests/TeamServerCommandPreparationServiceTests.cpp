@@ -241,11 +241,43 @@ void testPrepareLoadModuleUsesWindowsSessionArchitecture()
     assert(commonCommands.getLastResolvedModulePath() == (windowsModulesRoot / "arm64" / "Inject.dll").string());
 }
 
+void testPrepareLoadModuleUsesLinuxSessionArchitecture()
+{
+    ScopedPath tempRoot(makeTempDirectory("loadmodule-linux-arch"));
+    fs::path windowsModulesRoot = tempRoot.path() / "WindowsModules";
+    fs::path linuxModulesRoot = tempRoot.path() / "LinuxModules";
+    writeFile(linuxModulesRoot / "x64" / "libInject.so", "LINUX-X64");
+
+    CommonCommands commonCommands;
+    commonCommands.setDirectories(
+        (tempRoot.path() / "TeamServerModules").string(),
+        linuxModulesRoot.string() + "/",
+        windowsModulesRoot.string() + "/",
+        (tempRoot.path() / "LinuxBeacons").string() + "/",
+        (tempRoot.path() / "WindowsBeacons").string() + "/",
+        (tempRoot.path() / "Tools").string() + "/",
+        (tempRoot.path() / "Scripts").string() + "/");
+
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        makeRuntimeConfig(tempRoot.path()),
+        commonCommands,
+        modules);
+
+    C2Message message;
+    assert(service.prepareMessage("loadModule libInject.so", message, false, "amd64") == 0);
+    assert(message.instruction() == LoadC2ModuleCmd);
+    assert(message.inputfile() == "libInject.so");
+    assert(message.data() == "LINUX-X64");
+    assert(commonCommands.getLastResolvedModulePath() == (linuxModulesRoot / "x64" / "libInject.so").string());
+}
+
 void testPrepareAssemblyExecUsesShellcodeServiceAndGeneratedArtifactStore()
 {
     ScopedPath tempRoot(makeTempDirectory("assemblyexec-preparer"));
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
-    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "payload.bin", "RAW-SHELLCODE");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "payload.bin", "RAW-SHELLCODE");
 
     CommonCommands commonCommands;
     std::vector<std::unique_ptr<ModuleCmd>> modules;
@@ -325,7 +357,7 @@ void testPrepareInjectUsesShellcodeServiceAndGeneratedArtifactStore()
 {
     ScopedPath tempRoot(makeTempDirectory("inject-preparer"));
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
-    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "payload.bin", "INJECT-SHELLCODE");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "payload.bin", "INJECT-SHELLCODE");
 
     CommonCommands commonCommands;
     std::vector<std::unique_ptr<ModuleCmd>> modules;
@@ -409,6 +441,7 @@ int main()
     testPrepareModuleCommandCaseInsensitive();
     testPrepareMissingCommand();
     testPrepareLoadModuleUsesWindowsSessionArchitecture();
+    testPrepareLoadModuleUsesLinuxSessionArchitecture();
     testPrepareAssemblyExecUsesShellcodeServiceAndGeneratedArtifactStore();
     testPrepareAssemblyExecDonutReportsMissingSource();
     testPrepareInjectUsesShellcodeServiceAndGeneratedArtifactStore();

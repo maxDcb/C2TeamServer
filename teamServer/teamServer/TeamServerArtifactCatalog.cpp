@@ -353,9 +353,10 @@ void collectGeneratedArtifacts(
     }
 }
 
-void collectWindowsArchArtifacts(
+void collectPlatformArchArtifacts(
     const fs::path& root,
     const std::vector<std::string>& supportedArchs,
+    const std::string& platform,
     const std::string& category,
     const std::string& scope,
     const std::string& target,
@@ -363,7 +364,38 @@ void collectWindowsArchArtifacts(
     std::vector<TeamServerArtifactRecord>& artifacts)
 {
     for (const std::string& arch : supportedArchs)
-        collectDirectoryArtifacts(root / arch, category, scope, target, "windows", arch, runtime, artifacts);
+        collectDirectoryArtifacts(root / arch, category, scope, target, platform, arch, runtime, artifacts);
+}
+
+void collectToolsArtifacts(
+    const fs::path& root,
+    const std::vector<std::string>& supportedWindowsArchs,
+    const std::vector<std::string>& supportedLinuxArchs,
+    std::vector<TeamServerArtifactRecord>& artifacts)
+{
+    collectDirectoryArtifacts(root / "Any" / "any", "tool", "server", "teamserver", "any", "any", "any", artifacts);
+    collectPlatformArchArtifacts(root / "Windows", supportedWindowsArchs, "windows", "tool", "server", "teamserver", "any", artifacts);
+    collectPlatformArchArtifacts(root / "Linux", supportedLinuxArchs, "linux", "tool", "server", "teamserver", "any", artifacts);
+}
+
+void collectScriptArtifacts(
+    const fs::path& root,
+    std::vector<TeamServerArtifactRecord>& artifacts)
+{
+    collectDirectoryArtifacts(root / "Windows", "script", "server", "beacon", "windows", "any", "script", artifacts);
+    collectDirectoryArtifacts(root / "Linux", "script", "server", "beacon", "linux", "any", "script", artifacts);
+    collectDirectoryArtifacts(root / "Any", "script", "server", "beacon", "any", "any", "script", artifacts);
+}
+
+void collectUploadedArtifacts(
+    const fs::path& root,
+    const std::vector<std::string>& supportedWindowsArchs,
+    const std::vector<std::string>& supportedLinuxArchs,
+    std::vector<TeamServerArtifactRecord>& artifacts)
+{
+    collectDirectoryArtifacts(root / "Any" / "any", "upload", "operator", "beacon", "any", "any", "file", artifacts);
+    collectPlatformArchArtifacts(root / "Windows", supportedWindowsArchs, "windows", "upload", "operator", "beacon", "file", artifacts);
+    collectPlatformArchArtifacts(root / "Linux", supportedLinuxArchs, "linux", "upload", "operator", "beacon", "file", artifacts);
 }
 
 bool sortArtifacts(const TeamServerArtifactRecord& left, const TeamServerArtifactRecord& right)
@@ -382,12 +414,13 @@ std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(c
 {
     std::vector<TeamServerArtifactRecord> allArtifacts;
     collectDirectoryArtifacts(m_runtimeConfig.teamServerModulesDirectoryPath, "module", "teamserver", "teamserver", "server", "any", "native", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.linuxModulesDirectoryPath, "module", "beacon", "beacon", "linux", "any", "native", allArtifacts);
-    collectWindowsArchArtifacts(m_runtimeConfig.windowsModulesDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "module", "beacon", "beacon", "native", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.linuxBeaconsDirectoryPath, "beacon", "implant", "listener", "linux", "any", "native", allArtifacts);
-    collectWindowsArchArtifacts(m_runtimeConfig.windowsBeaconsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "beacon", "implant", "listener", "native", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.toolsDirectoryPath, "tool", "server", "teamserver", "any", "any", "any", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.scriptsDirectoryPath, "script", "teamserver", "teamserver", "any", "any", "python", allArtifacts);
+    collectPlatformArchArtifacts(m_runtimeConfig.linuxModulesDirectoryPath, m_runtimeConfig.supportedLinuxArchs, "linux", "module", "beacon", "beacon", "native", allArtifacts);
+    collectPlatformArchArtifacts(m_runtimeConfig.windowsModulesDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "windows", "module", "beacon", "beacon", "native", allArtifacts);
+    collectPlatformArchArtifacts(m_runtimeConfig.linuxBeaconsDirectoryPath, m_runtimeConfig.supportedLinuxArchs, "linux", "beacon", "implant", "listener", "native", allArtifacts);
+    collectPlatformArchArtifacts(m_runtimeConfig.windowsBeaconsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "windows", "beacon", "implant", "listener", "native", allArtifacts);
+    collectToolsArtifacts(m_runtimeConfig.toolsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, m_runtimeConfig.supportedLinuxArchs, allArtifacts);
+    collectScriptArtifacts(m_runtimeConfig.scriptsDirectoryPath, allArtifacts);
+    collectUploadedArtifacts(m_runtimeConfig.uploadedArtifactsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, m_runtimeConfig.supportedLinuxArchs, allArtifacts);
     collectGeneratedArtifacts(m_runtimeConfig.generatedArtifactsDirectoryPath, allArtifacts);
 
     std::vector<TeamServerArtifactRecord> filteredArtifacts;

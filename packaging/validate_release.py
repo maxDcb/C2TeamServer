@@ -71,6 +71,10 @@ EXPECTED_WINDOWS_ARCHES = (
     "arm64",
 )
 
+EXPECTED_LINUX_ARCHES = (
+    "x64",
+)
+
 EXPECTED_WINDOWS_BEACONS = (
     "BeaconDns.exe",
     "BeaconDnsDll.dll",
@@ -286,6 +290,14 @@ def validate_base_release(release_root: Path) -> None:
     if not (teamserver_root / "logs").is_dir():
         raise ValidationError(f"Missing TeamServer logs directory: {teamserver_root / 'logs'}")
 
+    runtime_data_roots = ("data", "Tools", "Scripts", "UploadedArtifacts", "GeneratedArtifacts", "www")
+    packaged_data_roots = [name for name in runtime_data_roots if (release_root / name).exists()]
+    if packaged_data_roots:
+        raise ValidationError(
+            "Release staging contains runtime/operator data directories: "
+            + ", ".join(packaged_data_roots)
+        )
+
     _require_directory_exact(modules_root, EXPECTED_TEAMSERVER_MODULES)
 
     for spec in EXPECTED_COMMAND_SPECS_COMMON:
@@ -326,8 +338,16 @@ def validate_implants(release_root: Path) -> None:
         EXPECTED_WINDOWS_ARCHES,
         EXPECTED_WINDOWS_MODULES,
     )
-    _require_directory_exact(release_root / "LinuxBeacons", EXPECTED_LINUX_BEACONS)
-    _require_directory_exact(release_root / "LinuxModules", EXPECTED_LINUX_MODULES)
+    _require_arch_directories_exact(
+        release_root / "LinuxBeacons",
+        EXPECTED_LINUX_ARCHES,
+        EXPECTED_LINUX_BEACONS,
+    )
+    _require_arch_directories_exact(
+        release_root / "LinuxModules",
+        EXPECTED_LINUX_ARCHES,
+        EXPECTED_LINUX_MODULES,
+    )
 
 
 def main() -> int:

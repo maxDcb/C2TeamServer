@@ -10,44 +10,116 @@
 
 namespace fs = std::filesystem;
 
+namespace
+{
+std::string ensureTrailingSeparator(std::string path)
+{
+    if (!path.empty() && path.back() != '/' && path.back() != '\\')
+        path += '/';
+    return path;
+}
+
+std::string jsonString(const nlohmann::json& config, const char* key, const std::string& fallback)
+{
+    auto it = config.find(key);
+    if (it == config.end() || !it->is_string())
+        return fallback;
+    return it->get<std::string>();
+}
+
+std::string childPath(const std::string& root, const std::string& child)
+{
+    return ensureTrailingSeparator((fs::path(root) / child).string());
+}
+
+void parseArchList(
+    const nlohmann::json& config,
+    const char* key,
+    std::vector<std::string>& archs,
+    const std::vector<std::string>& fallback,
+    std::string (*normalizer)(const std::string&))
+{
+    auto it = config.find(key);
+    if (it == config.end() || !it->is_array())
+        return;
+
+    archs.clear();
+    for (const auto& arch : *it)
+    {
+        if (!arch.is_string())
+            continue;
+        std::string normalized = normalizer(arch.get<std::string>());
+        if (!normalized.empty() && std::find(archs.begin(), archs.end(), normalized) == archs.end())
+            archs.push_back(normalized);
+    }
+    if (archs.empty())
+        archs = fallback;
+}
+
+void ensureDirectory(const fs::path& path, const char* label, const std::shared_ptr<spdlog::logger>& logger)
+{
+    std::error_code ec;
+    if (fs::exists(path, ec) && fs::is_directory(path, ec))
+        return;
+
+    fs::create_directories(path, ec);
+    if (ec)
+        logger->error("{0} directory path don't exist and could not be created: {1}", label, path.string().c_str());
+}
+
+void ensurePlatformArchDirectories(
+    const fs::path& root,
+    const std::string& platformDirectory,
+    const std::vector<std::string>& archs,
+    const std::shared_ptr<spdlog::logger>& logger)
+{
+    for (const std::string& arch : archs)
+        ensureDirectory(root / platformDirectory / arch, platformDirectory.c_str(), logger);
+}
+} // namespace
+
 TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& config)
 {
     TeamServerRuntimeConfig runtimeConfig;
-    runtimeConfig.teamServerModulesDirectoryPath = config["TeamServerModulesDirectoryPath"].get<std::string>();
-    runtimeConfig.linuxModulesDirectoryPath = config["LinuxModulesDirectoryPath"].get<std::string>();
-    runtimeConfig.windowsModulesDirectoryPath = config["WindowsModulesDirectoryPath"].get<std::string>();
-    runtimeConfig.linuxBeaconsDirectoryPath = config["LinuxBeaconsDirectoryPath"].get<std::string>();
-    runtimeConfig.windowsBeaconsDirectoryPath = config["WindowsBeaconsDirectoryPath"].get<std::string>();
-    runtimeConfig.toolsDirectoryPath = config["ToolsDirectoryPath"].get<std::string>();
-    runtimeConfig.scriptsDirectoryPath = config["ScriptsDirectoryPath"].get<std::string>();
-    if (auto it = config.find("CommandSpecsDirectoryPath"); it != config.end() && it->is_string())
-        runtimeConfig.commandSpecsDirectoryPath = it->get<std::string>();
-    if (auto it = config.find("GeneratedArtifactsDirectoryPath"); it != config.end() && it->is_string())
-        runtimeConfig.generatedArtifactsDirectoryPath = it->get<std::string>();
+    runtimeConfig.releaseRoot = ensureTrailingSeparator(jsonString(config, "ReleaseRoot", runtimeConfig.releaseRoot));
+    runtimeConfig.dataRoot = ensureTrailingSeparator(jsonString(config, "DataRoot", runtimeConfig.dataRoot));
+
+    runtimeConfig.teamServerModulesDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "TeamServerModulesDirectoryPath", childPath(runtimeConfig.releaseRoot, "TeamServerModules")));
+    runtimeConfig.linuxModulesDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "LinuxModulesDirectoryPath", childPath(runtimeConfig.releaseRoot, "LinuxModules")));
+    runtimeConfig.windowsModulesDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "WindowsModulesDirectoryPath", childPath(runtimeConfig.releaseRoot, "WindowsModules")));
+    runtimeConfig.linuxBeaconsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "LinuxBeaconsDirectoryPath", childPath(runtimeConfig.releaseRoot, "LinuxBeacons")));
+    runtimeConfig.windowsBeaconsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "WindowsBeaconsDirectoryPath", childPath(runtimeConfig.releaseRoot, "WindowsBeacons")));
+    runtimeConfig.commandSpecsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "CommandSpecsDirectoryPath", childPath(runtimeConfig.releaseRoot, "CommandSpecs")));
+
+    runtimeConfig.toolsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "ToolsDirectoryPath", childPath(runtimeConfig.dataRoot, "Tools")));
+    runtimeConfig.scriptsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "ScriptsDirectoryPath", childPath(runtimeConfig.dataRoot, "Scripts")));
+    runtimeConfig.uploadedArtifactsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "UploadedArtifactsDirectoryPath", childPath(runtimeConfig.dataRoot, "UploadedArtifacts")));
+    runtimeConfig.generatedArtifactsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "GeneratedArtifactsDirectoryPath", childPath(runtimeConfig.dataRoot, "GeneratedArtifacts")));
+    runtimeConfig.wwwDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "WwwDirectoryPath", childPath(runtimeConfig.dataRoot, "www")));
+
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());
-    if (auto it = config.find("SupportedWindowsArchs"); it != config.end() && it->is_array())
-    {
-        runtimeConfig.supportedWindowsArchs.clear();
-        for (const auto& arch : *it)
-        {
-            if (!arch.is_string())
-                continue;
-            std::string normalized = normalizeWindowsArch(arch.get<std::string>());
-            if (!normalized.empty()
-                && std::find(runtimeConfig.supportedWindowsArchs.begin(), runtimeConfig.supportedWindowsArchs.end(), normalized)
-                    == runtimeConfig.supportedWindowsArchs.end())
-            {
-                runtimeConfig.supportedWindowsArchs.push_back(normalized);
-            }
-        }
-        if (runtimeConfig.supportedWindowsArchs.empty())
-            runtimeConfig.supportedWindowsArchs = {"x86", "x64", "arm64"};
-    }
+    if (auto it = config.find("DefaultLinuxArch"); it != config.end() && it->is_string())
+        runtimeConfig.defaultLinuxArch = normalizeLinuxArch(it->get<std::string>());
+    parseArchList(config, "SupportedWindowsArchs", runtimeConfig.supportedWindowsArchs, {"x86", "x64", "arm64"}, normalizeWindowsArch);
+    parseArchList(config, "SupportedLinuxArchs", runtimeConfig.supportedLinuxArchs, {"x64"}, normalizeLinuxArch);
     return runtimeConfig;
 }
 
-std::string TeamServerRuntimeConfig::normalizeWindowsArch(const std::string& arch)
+namespace
+{
+std::string normalizeCpuArch(const std::string& arch)
 {
     std::string lowered = arch;
     std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char c)
@@ -63,6 +135,17 @@ std::string TeamServerRuntimeConfig::normalizeWindowsArch(const std::string& arc
         return "arm64";
     return "";
 }
+} // namespace
+
+std::string TeamServerRuntimeConfig::normalizeWindowsArch(const std::string& arch)
+{
+    return normalizeCpuArch(arch);
+}
+
+std::string TeamServerRuntimeConfig::normalizeLinuxArch(const std::string& arch)
+{
+    return normalizeCpuArch(arch);
+}
 
 void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::logger>& logger) const
 {
@@ -71,6 +154,15 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
 
     if (!fs::exists(linuxModulesDirectoryPath))
         logger->error("Linux modules directory path don't exist: {0}", linuxModulesDirectoryPath.c_str());
+    else
+    {
+        for (const auto& arch : supportedLinuxArchs)
+        {
+            fs::path archPath = fs::path(linuxModulesDirectoryPath) / arch;
+            if (!fs::exists(archPath))
+                logger->error("Linux modules architecture directory path don't exist: {0}", archPath.string().c_str());
+        }
+    }
 
     if (!fs::exists(windowsModulesDirectoryPath))
         logger->error("Windows modules directory path don't exist: {0}", windowsModulesDirectoryPath.c_str());
@@ -86,6 +178,15 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
 
     if (!fs::exists(linuxBeaconsDirectoryPath))
         logger->error("Linux beacon directory path don't exist: {0}", linuxBeaconsDirectoryPath.c_str());
+    else
+    {
+        for (const auto& arch : supportedLinuxArchs)
+        {
+            fs::path archPath = fs::path(linuxBeaconsDirectoryPath) / arch;
+            if (!fs::exists(archPath))
+                logger->error("Linux beacon architecture directory path don't exist: {0}", archPath.string().c_str());
+        }
+    }
 
     if (!fs::exists(windowsBeaconsDirectoryPath))
         logger->error("Windows beacon directory path don't exist: {0}", windowsBeaconsDirectoryPath.c_str());
@@ -104,22 +205,29 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
     else if (std::find(supportedWindowsArchs.begin(), supportedWindowsArchs.end(), defaultWindowsArch) == supportedWindowsArchs.end())
         logger->error("DefaultWindowsArch is not listed in SupportedWindowsArchs: {0}", defaultWindowsArch.c_str());
 
-    if (!fs::exists(toolsDirectoryPath))
-        logger->error("Tools directory path don't exist: {0}", toolsDirectoryPath.c_str());
+    if (TeamServerRuntimeConfig::normalizeLinuxArch(defaultLinuxArch).empty())
+        logger->error("DefaultLinuxArch is not supported: {0}", defaultLinuxArch.c_str());
+    else if (std::find(supportedLinuxArchs.begin(), supportedLinuxArchs.end(), defaultLinuxArch) == supportedLinuxArchs.end())
+        logger->error("DefaultLinuxArch is not listed in SupportedLinuxArchs: {0}", defaultLinuxArch.c_str());
 
-    if (!fs::exists(scriptsDirectoryPath))
-        logger->error("Script directory path don't exist: {0}", scriptsDirectoryPath.c_str());
+    ensureDirectory(toolsDirectoryPath, "Tools", logger);
+    ensurePlatformArchDirectories(toolsDirectoryPath, "Windows", supportedWindowsArchs, logger);
+    ensurePlatformArchDirectories(toolsDirectoryPath, "Linux", supportedLinuxArchs, logger);
+
+    ensureDirectory(scriptsDirectoryPath, "Scripts", logger);
+    ensureDirectory(fs::path(scriptsDirectoryPath) / "Windows", "Windows scripts", logger);
+    ensureDirectory(fs::path(scriptsDirectoryPath) / "Linux", "Linux scripts", logger);
+
+    ensureDirectory(uploadedArtifactsDirectoryPath, "Uploaded artifacts", logger);
+    ensureDirectory(fs::path(uploadedArtifactsDirectoryPath) / "Any" / "any", "Any uploaded artifacts", logger);
+    ensurePlatformArchDirectories(uploadedArtifactsDirectoryPath, "Windows", supportedWindowsArchs, logger);
+    ensurePlatformArchDirectories(uploadedArtifactsDirectoryPath, "Linux", supportedLinuxArchs, logger);
+
+    ensureDirectory(generatedArtifactsDirectoryPath, "Generated artifacts", logger);
+    ensureDirectory(wwwDirectoryPath, "www", logger);
 
     if (!fs::exists(commandSpecsDirectoryPath))
         logger->error("Command specs directory path don't exist: {0}", commandSpecsDirectoryPath.c_str());
-
-    if (!fs::exists(generatedArtifactsDirectoryPath))
-    {
-        std::error_code ec;
-        fs::create_directories(generatedArtifactsDirectoryPath, ec);
-        if (ec)
-            logger->error("Generated artifacts directory path don't exist and could not be created: {0}", generatedArtifactsDirectoryPath.c_str());
-    }
 }
 
 void TeamServerRuntimeConfig::configureCommonCommands(CommonCommands& commonCommands) const

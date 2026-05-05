@@ -1,17 +1,15 @@
 {
     "//LogLevelValues": "trace, debug, info, warning, error, fatal",
     "LogLevel": "info",
-    "TeamServerModulesDirectoryPath": "../TeamServerModules/",
-    "LinuxModulesDirectoryPath": "../LinuxModules/",
-    "WindowsModulesDirectoryPath": "../WindowsModules/",
-    "LinuxBeaconsDirectoryPath": "../LinuxBeacons/",
-    "WindowsBeaconsDirectoryPath": "../WindowsBeacons/",
+    "ReleaseRoot": "../",
+    "DataRoot": "../data/",
     "DefaultWindowsArch": "x64",
     "SupportedWindowsArchs": ["x86", "x64", "arm64"],
-    "ToolsDirectoryPath": "../Tools/",
-    "ScriptsDirectoryPath": "../Scripts/",
-    "CommandSpecsDirectoryPath": "../CommandSpecs/",
-    "GeneratedArtifactsDirectoryPath": "../GeneratedArtifacts/",
+    "DefaultLinuxArch": "x64",
+    "SupportedLinuxArchs": ["x64"],
+    "UploadedArtifactsDirectoryPath": "../data/UploadedArtifacts/",
+    "GeneratedArtifactsDirectoryPath": "../data/GeneratedArtifacts/",
+    "WwwDirectoryPath": "../data/www/",
     "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
     "ExposedIp": "",
@@ -35,7 +33,7 @@
             "/test/ws"
         ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
-        "downloadFolder": "../www",
+        "downloadFolder": "../data/www",
         "server": {
             "headers": {
                 "Access-Control-Allow-Origin": "true",
@@ -61,7 +59,7 @@
             "/test/ws"
         ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
-        "downloadFolder": "../www",
+        "downloadFolder": "../data/www",
         "server": {
             "headers": {
                 "Access-Control-Allow-Origin": "true",
