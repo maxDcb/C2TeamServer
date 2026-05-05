@@ -142,6 +142,58 @@ EXPECTED_LINUX_BEACONS = (
 
 EXPECTED_LINUX_MODULES = EXPECTED_TEAMSERVER_MODULES
 
+EXPECTED_COMMAND_SPECS_COMMON = (
+    "sleep.json",
+    "end.json",
+    "help.json",
+    "listener.json",
+    "listModule.json",
+    "loadModule.json",
+    "unloadModule.json",
+)
+
+EXPECTED_COMMAND_SPECS_MODULES = (
+    "assemblyExec.json",
+    "cat.json",
+    "cd.json",
+    "cimExec.json",
+    "dcomExec.json",
+    "download.json",
+    "enumerateRdpSessions.json",
+    "enumerateShares.json",
+    "evasion.json",
+    "getEnv.json",
+    "inject.json",
+    "ipConfig.json",
+    "kerberosUseTicket.json",
+    "keyLogger.json",
+    "killProcess.json",
+    "ls.json",
+    "makeToken.json",
+    "miniDump.json",
+    "mkDir.json",
+    "netstat.json",
+    "ps.json",
+    "psExec.json",
+    "pwd.json",
+    "registry.json",
+    "remove.json",
+    "rev2self.json",
+    "reversePortForward.json",
+    "run.json",
+    "screenShot.json",
+    "shell.json",
+    "spawnAs.json",
+    "sshExec.json",
+    "stealToken.json",
+    "taskScheduler.json",
+    "tree.json",
+    "upload.json",
+    "whoami.json",
+    "winRm.json",
+    "wmiExec.json",
+)
+
 
 class ValidationError(RuntimeError):
     pass
@@ -236,30 +288,10 @@ def validate_base_release(release_root: Path) -> None:
 
     _require_directory_exact(modules_root, EXPECTED_TEAMSERVER_MODULES)
 
-    _require_non_empty_file(command_specs_root / "common" / "sleep.json")
-    _require_non_empty_file(command_specs_root / "common" / "end.json")
-    _require_non_empty_file(command_specs_root / "common" / "help.json")
-    _require_non_empty_file(command_specs_root / "common" / "listener.json")
-    _require_non_empty_file(command_specs_root / "common" / "listModule.json")
-    _require_non_empty_file(command_specs_root / "common" / "loadModule.json")
-    _require_non_empty_file(command_specs_root / "common" / "unloadModule.json")
-    _require_non_empty_file(command_specs_root / "modules" / "pwd.json")
-    _require_non_empty_file(command_specs_root / "modules" / "whoami.json")
-    _require_non_empty_file(command_specs_root / "modules" / "ls.json")
-    _require_non_empty_file(command_specs_root / "modules" / "cd.json")
-    _require_non_empty_file(command_specs_root / "modules" / "ps.json")
-    _require_non_empty_file(command_specs_root / "modules" / "cat.json")
-    _require_non_empty_file(command_specs_root / "modules" / "tree.json")
-    _require_non_empty_file(command_specs_root / "modules" / "run.json")
-    _require_non_empty_file(command_specs_root / "modules" / "download.json")
-    _require_non_empty_file(command_specs_root / "modules" / "upload.json")
-    _require_non_empty_file(command_specs_root / "modules" / "mkDir.json")
-    _require_non_empty_file(command_specs_root / "modules" / "remove.json")
-    _require_non_empty_file(command_specs_root / "modules" / "ipConfig.json")
-    _require_non_empty_file(command_specs_root / "modules" / "netstat.json")
-    _require_non_empty_file(command_specs_root / "modules" / "shell.json")
-    _require_non_empty_file(command_specs_root / "modules" / "assemblyExec.json")
-    _require_non_empty_file(command_specs_root / "modules" / "inject.json")
+    for spec in EXPECTED_COMMAND_SPECS_COMMON:
+        _require_non_empty_file(command_specs_root / "common" / spec)
+    for spec in EXPECTED_COMMAND_SPECS_MODULES:
+        _require_non_empty_file(command_specs_root / "modules" / spec)
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")
