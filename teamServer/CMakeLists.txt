@@ -80,24 +80,37 @@ target_link_libraries(server_core
 add_executable(TeamServer teamServer/main.cpp)
 target_link_libraries(TeamServer PRIVATE server_core)
 
+set(C2_COMMON_COMMAND_SPEC_ROOT "${CMAKE_SOURCE_DIR}/core/modules/ModuleCmd/CommandSpecs")
+file(GLOB_RECURSE C2_COMMON_COMMAND_SPEC_FILES CONFIGURE_DEPENDS
+    "${C2_COMMON_COMMAND_SPEC_ROOT}/*.json")
+file(GLOB C2_MODULE_COMMAND_SPEC_FILES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/core/modules/*/*.json")
+set(C2_COPY_MODULE_COMMAND_SPEC_COMMANDS)
+foreach(C2_MODULE_COMMAND_SPEC_FILE IN LISTS C2_MODULE_COMMAND_SPEC_FILES)
+    get_filename_component(C2_MODULE_COMMAND_SPEC_NAME "${C2_MODULE_COMMAND_SPEC_FILE}" NAME)
+    list(APPEND C2_COPY_MODULE_COMMAND_SPEC_COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${C2_MODULE_COMMAND_SPEC_FILE}" "${C2_RUNTIME_ROOT}/CommandSpecs/modules/${C2_MODULE_COMMAND_SPEC_NAME}")
+endforeach()
+add_custom_target(teamserver_copy_command_specs
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${C2_RUNTIME_ROOT}"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${C2_RUNTIME_ROOT}/CommandSpecs"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${C2_COMMON_COMMAND_SPEC_ROOT}" "${C2_RUNTIME_ROOT}/CommandSpecs"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${C2_RUNTIME_ROOT}/CommandSpecs/modules"
+    ${C2_COPY_MODULE_COMMAND_SPEC_COMMANDS}
+    DEPENDS ${C2_COMMON_COMMAND_SPEC_FILES} ${C2_MODULE_COMMAND_SPEC_FILES}
+    VERBATIM
+)
+add_dependencies(TeamServer teamserver_copy_command_specs)
+
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     $<TARGET_FILE:TeamServer> "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/$<TARGET_FILE_NAME:TeamServer>")
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/TeamServerConfig.json")
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/teamServer/teamServer/auth_credentials.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/auth_credentials.json")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/core/modules/ModuleCmd/CommandSpecs "${C2_RUNTIME_ROOT}/CommandSpecs")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E make_directory
-    "${C2_RUNTIME_ROOT}/CommandSpecs/modules")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/core/modules/PrintWorkingDirectory/pwd.json "${C2_RUNTIME_ROOT}/CommandSpecs/modules/pwd.json")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/core/modules/Whoami/whoami.json "${C2_RUNTIME_ROOT}/CommandSpecs/modules/whoami.json")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/core/modules/ListDirectory/ls.json "${C2_RUNTIME_ROOT}/CommandSpecs/modules/ls.json")
-add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/core/modules/ChangeDirectory/cd.json "${C2_RUNTIME_ROOT}/CommandSpecs/modules/cd.json")
 
 function(teamserver_add_test target_name link_target)
     add_executable(${target_name} ${ARGN})

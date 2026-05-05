@@ -224,11 +224,151 @@ void testQueueStopAndResponseDeduplication()
                .ok());
     assert(secondClientResponses.size() == 1);
 }
+
+void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    listeners.push_back(primaryListener);
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        [](const std::string& input, C2Message& c2Message, bool, const std::string&)
+        {
+            if (input.rfind("loadModule", 0) == 0)
+            {
+                c2Message.set_instruction(LoadC2ModuleCmd);
+                c2Message.set_inputfile("libPrintWorkingDirectory.so");
+                c2Message.set_data("module-bytes");
+            }
+            else if (input.rfind("unloadModule", 0) == 0)
+            {
+                c2Message.set_instruction(UnloadC2ModuleCmd);
+                c2Message.set_cmd("pwd");
+            }
+            else
+            {
+                c2Message.set_instruction("instruction");
+                c2Message.set_cmd(input);
+            }
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest loadCommand;
+    loadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    loadCommand.mutable_session()->set_listener_hash("listener-primary");
+    loadCommand.set_command("loadModule pwd");
+    loadCommand.set_command_id("load-0001");
+
+    teamserverapi::CommandAck loadResponse;
+    assert(service.sendSessionCommand(loadCommand, &loadResponse).ok());
+    assert(loadResponse.status() == teamserverapi::OK);
+
+    std::vector<teamserverapi::LoadedModule> modules;
+    teamserverapi::SessionSelector sessionSelector;
+    sessionSelector.set_beacon_hash("ABCDEFGH12345678");
+    sessionSelector.set_listener_hash("listener-primary");
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].name() == "pwd");
+    assert(modules[0].state() == "loading");
+
+    teamserverapi::CommandAck duplicateLoadResponse;
+    assert(service.sendSessionCommand(loadCommand, &duplicateLoadResponse).ok());
+    assert(duplicateLoadResponse.status() == teamserverapi::KO);
+    assert(duplicateLoadResponse.message().find("already tracked") != std::string::npos);
+
+    C2Message loadResult;
+    loadResult.set_instruction(LoadC2ModuleCmd);
+    loadResult.set_uuid("load-0001");
+    loadResult.set_returnvalue(CmdStatusSuccess);
+    assert(primaryListener->addTaskResult(loadResult, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].name() == "pwd");
+    assert(modules[0].state() == "loaded");
+    assert(modules[0].load_count() == 1);
+
+    teamserverapi::SessionCommandRequest unloadCommand;
+    unloadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    unloadCommand.mutable_session()->set_listener_hash("listener-primary");
+    unloadCommand.set_command("unloadModule pwd");
+    unloadCommand.set_command_id("unload-0001");
+
+    teamserverapi::CommandAck unloadResponse;
+    assert(service.sendSessionCommand(unloadCommand, &unloadResponse).ok());
+    assert(unloadResponse.status() == teamserverapi::OK);
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].state() == "unloading");
+
+    C2Message unloadResult;
+    unloadResult.set_instruction(UnloadC2ModuleCmd);
+    unloadResult.set_uuid("unload-0001");
+    unloadResult.set_returnvalue(CmdStatusSuccess);
+    assert(primaryListener->addTaskResult(unloadResult, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.empty());
+}
 } // namespace
 
 int main()
 {
     testCollectListenersAndSessions();
     testQueueStopAndResponseDeduplication();
+    testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
     return 0;
 }

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <ctime>
 #include <iomanip>
 #include <memory>
 #include <openssl/md5.h>
@@ -58,6 +60,79 @@ std::string extractClientId(const std::multimap<grpc::string_ref, grpc::string_r
             return std::string(meta.second.data(), meta.second.length());
     }
     return "";
+}
+
+std::string toLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+    {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+std::string currentUtcTimestamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+    std::tm utcTime {};
+#ifdef _WIN32
+    gmtime_s(&utcTime, &nowTime);
+#else
+    gmtime_r(&nowTime, &utcTime);
+#endif
+    std::ostringstream output;
+    output << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+    return output.str();
+}
+
+std::string basename(std::string value)
+{
+    const auto slash = value.find_last_of("/\\");
+    if (slash != std::string::npos)
+        value = value.substr(slash + 1);
+    return value;
+}
+
+std::string stripExtension(std::string value)
+{
+    const auto dot = value.find_last_of('.');
+    if (dot != std::string::npos)
+        value = value.substr(0, dot);
+    return value;
+}
+
+std::vector<std::string> splitCommandLine(const std::string& input)
+{
+    std::vector<std::string> parts;
+    std::string current;
+    char quote = '\0';
+    for (char c : input)
+    {
+        if ((c == '\'' || c == '"') && quote == '\0')
+        {
+            quote = c;
+            continue;
+        }
+        if (quote != '\0' && c == quote)
+        {
+            quote = '\0';
+            continue;
+        }
+        if (quote == '\0' && std::isspace(static_cast<unsigned char>(c)))
+        {
+            if (!current.empty())
+            {
+                parts.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        current += c;
+    }
+    if (!current.empty())
+        parts.push_back(current);
+    return parts;
 }
 } // namespace
 
@@ -415,6 +490,215 @@ bool TeamServerListenerSessionService::isListenerAlive(const std::string& listen
     return false;
 }
 
+std::string TeamServerListenerSessionService::sessionModuleKey(const std::string& beaconHash) const
+{
+    return beaconHash;
+}
+
+std::string TeamServerListenerSessionService::canonicalModuleName(const std::string& value) const
+{
+    std::string name = stripExtension(basename(value));
+    if (name.size() > 3 && toLower(name.substr(0, 3)) == "lib")
+        name = name.substr(3);
+    if (name.empty())
+        return "";
+
+    const std::string lowered = toLower(name);
+    if (lowered == "printworkingdirectory")
+        return "pwd";
+    if (lowered == "changedirectory")
+        return "cd";
+    if (lowered == "listdirectory")
+        return "ls";
+    if (lowered == "listprocesses")
+        return "ps";
+    if (lowered == "ipconfig")
+        return "ipConfig";
+    if (lowered == "mkdir")
+        return "mkDir";
+
+    name[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
+    return name;
+}
+
+std::string TeamServerListenerSessionService::moduleNameFromLoadTask(const std::string& input, const C2Message& c2Message) const
+{
+    std::string moduleName = canonicalModuleName(c2Message.inputfile());
+    if (!moduleName.empty())
+        return moduleName;
+
+    const std::vector<std::string> parts = splitCommandLine(input);
+    if (parts.size() >= 2)
+        return canonicalModuleName(parts[1]);
+    return "";
+}
+
+std::string TeamServerListenerSessionService::moduleNameFromUnloadTask(const std::string& input, const C2Message& c2Message) const
+{
+    std::string moduleName = canonicalModuleName(c2Message.cmd());
+    if (!moduleName.empty())
+        return moduleName;
+
+    const std::vector<std::string> parts = splitCommandLine(input);
+    if (parts.size() >= 2)
+        return canonicalModuleName(parts[1]);
+    return "";
+}
+
+bool TeamServerListenerSessionService::hasActiveModule(
+    const std::string& beaconHash,
+    const std::string& moduleName,
+    std::string& state) const
+{
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    const auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return false;
+
+    const auto moduleIt = beaconIt->second.find(toLower(moduleName));
+    if (moduleIt == beaconIt->second.end())
+        return false;
+
+    state = moduleIt->second.state;
+    return state == "loading" || state == "loaded" || state == "unloading";
+}
+
+void TeamServerListenerSessionService::markModuleLoading(
+    const std::string& beaconHash,
+    const std::string& listenerHash,
+    const std::string& moduleName,
+    const std::string& commandId,
+    const std::string& artifact)
+{
+    if (moduleName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    BeaconModuleRecord record;
+    record.beaconHash = beaconHash;
+    record.listenerHash = listenerHash;
+    record.name = moduleName;
+    record.state = "loading";
+    record.commandId = commandId;
+    record.artifact = artifact;
+    record.updatedAt = currentUtcTimestamp();
+    m_loadedModulesByBeacon[sessionModuleKey(beaconHash)][toLower(moduleName)] = record;
+}
+
+void TeamServerListenerSessionService::markModuleUnloading(
+    const std::string& beaconHash,
+    const std::string& moduleName,
+    const std::string& commandId)
+{
+    if (moduleName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return;
+
+    auto moduleIt = beaconIt->second.find(toLower(moduleName));
+    if (moduleIt == beaconIt->second.end())
+        return;
+
+    moduleIt->second.state = "unloading";
+    moduleIt->second.commandId = commandId;
+    moduleIt->second.updatedAt = currentUtcTimestamp();
+}
+
+void TeamServerListenerSessionService::applyModuleResult(
+    const std::string& beaconHash,
+    const std::string& listenerHash,
+    const std::string& commandId,
+    const std::string& instruction,
+    bool success)
+{
+    (void)instruction;
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return;
+
+    for (auto moduleIt = beaconIt->second.begin(); moduleIt != beaconIt->second.end();)
+    {
+        BeaconModuleRecord& record = moduleIt->second;
+        if (record.commandId != commandId)
+        {
+            ++moduleIt;
+            continue;
+        }
+
+        record.listenerHash = listenerHash.empty() ? record.listenerHash : listenerHash;
+        record.updatedAt = currentUtcTimestamp();
+        if (record.state == "loading")
+        {
+            if (success)
+            {
+                record.state = "loaded";
+                record.loadCount = std::max(1, record.loadCount + 1);
+                ++moduleIt;
+            }
+            else
+            {
+                moduleIt = beaconIt->second.erase(moduleIt);
+            }
+        }
+        else if (record.state == "unloading")
+        {
+            if (success)
+                moduleIt = beaconIt->second.erase(moduleIt);
+            else
+            {
+                record.state = "loaded";
+                ++moduleIt;
+            }
+        }
+        else
+        {
+            ++moduleIt;
+        }
+    }
+
+    if (beaconIt->second.empty())
+        m_loadedModulesByBeacon.erase(beaconIt);
+}
+
+grpc::Status TeamServerListenerSessionService::streamModulesForSession(
+    const teamserverapi::SessionSelector& targetSession,
+    const ModuleEmitter& emit) const
+{
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    const std::string targetBeaconHash = targetSession.beacon_hash();
+    const std::string targetListenerHash = targetSession.listener_hash();
+
+    for (const auto& [beaconHash, modules] : m_loadedModulesByBeacon)
+    {
+        if (!targetBeaconHash.empty() && beaconHash != targetBeaconHash)
+            continue;
+
+        for (const auto& [_, module] : modules)
+        {
+            if (!targetListenerHash.empty() && module.listenerHash != targetListenerHash)
+                continue;
+
+            teamserverapi::LoadedModule response;
+            response.mutable_session()->set_beacon_hash(module.beaconHash);
+            response.mutable_session()->set_listener_hash(module.listenerHash);
+            response.set_name(module.name);
+            response.set_state(module.state);
+            response.set_command_id(module.commandId);
+            response.set_artifact(module.artifact);
+            response.set_updated_at(module.updatedAt);
+            response.set_load_count(module.loadCount);
+            if (!emit(response))
+                return grpc::Status::OK;
+        }
+    }
+
+    return grpc::Status::OK;
+}
+
 grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerListenerSessionService::SessionEmitter& emit)
 {
     m_logger->trace("ListSessions");
@@ -550,6 +834,25 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             return grpc::Status::OK;
         }
 
+        const std::string instruction = c2Message.instruction();
+        std::string moduleName;
+        if (instruction == LoadC2ModuleCmd)
+        {
+            moduleName = moduleNameFromLoadTask(input, c2Message);
+            std::string existingState;
+            if (hasActiveModule(beaconHash, moduleName, existingState))
+            {
+                response->set_message("Module already tracked on this beacon: " + moduleName + " (" + existingState + ").");
+                m_logger->debug("SendSessionCommand rejected duplicate module load {0} on beacon {1}", moduleName, beaconHash);
+                m_logger->trace("SendSessionCommand end");
+                return grpc::Status::OK;
+            }
+        }
+        else if (instruction == UnloadC2ModuleCmd)
+        {
+            moduleName = moduleNameFromUnloadTask(input, c2Message);
+        }
+
         m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
 
         const std::string& inputFile = c2Message.inputfile();
@@ -560,9 +863,13 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             m_logger->info("File attached to task: '{}' | size={} bytes | MD5={}", inputFile, payload.size(), md5);
         }
 
-        const std::string instruction = c2Message.instruction();
         c2Message.set_uuid(commandId);
         m_listeners[i]->queueTask(beaconHash, c2Message);
+
+        if (instruction == LoadC2ModuleCmd)
+            markModuleLoading(beaconHash, listenerHash, moduleName, commandId, c2Message.inputfile());
+        else if (instruction == UnloadC2ModuleCmd)
+            markModuleUnloading(beaconHash, moduleName, commandId);
 
         m_sentCommands.push_back(BeaconCommandContext{
             commandId,
@@ -652,6 +959,9 @@ int TeamServerListenerSessionService::handleCmdResponse()
                         responseInstruction = sentCommand->instruction;
                     m_sentCommands.erase(sentCommand);
                 }
+
+                if (trackedCommand)
+                    applyModuleResult(beaconHash, listenerHash, commandId, responseInstruction, errorMsg.empty());
 
                 teamserverapi::CommandResult commandResponseTmp;
                 commandResponseTmp.set_status(errorMsg.empty() ? teamserverapi::OK : teamserverapi::KO);

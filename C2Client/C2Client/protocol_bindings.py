@@ -10,6 +10,32 @@ from typing import Tuple
 from .env import env_path
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _protocol_file() -> Path:
+    return _repo_root() / "protocol" / "TeamServerApi.proto"
+
+
+def _package_file(root: Path) -> Path:
+    return root / "c2client_protocol" / "TeamServerApi_pb2.py"
+
+
+def _package_mtime(root: Path) -> float:
+    try:
+        return _package_file(root).stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def _is_current_package(package_file: Path) -> bool:
+    try:
+        return package_file.stat().st_mtime >= _protocol_file().stat().st_mtime
+    except OSError:
+        return True
+
+
 def _candidate_protocol_roots() -> list[Path]:
     candidates: list[Path] = []
 
@@ -17,8 +43,14 @@ def _candidate_protocol_roots() -> list[Path]:
     if env_root:
         candidates.append(env_root)
 
-    repo_root = Path(__file__).resolve().parents[2]
-    candidates.extend(sorted(repo_root.glob("build*/generated/python_protocol")))
+    repo_root = _repo_root()
+    candidates.extend(
+        sorted(
+            repo_root.glob("build*/generated/python_protocol"),
+            key=_package_mtime,
+            reverse=True,
+        )
+    )
     candidates.append(repo_root / "build" / "generated" / "python_protocol")
 
     unique_candidates: list[Path] = []
@@ -33,8 +65,8 @@ def _candidate_protocol_roots() -> list[Path]:
 
 def _ensure_protocol_package_on_path() -> None:
     for candidate in _candidate_protocol_roots():
-        package_file = candidate / "c2client_protocol" / "TeamServerApi_pb2.py"
-        if not package_file.exists():
+        package_file = _package_file(candidate)
+        if not package_file.exists() or not _is_current_package(package_file):
             continue
         candidate_str = str(candidate)
         if candidate_str not in sys.path:

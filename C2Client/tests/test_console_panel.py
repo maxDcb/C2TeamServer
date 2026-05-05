@@ -7,7 +7,7 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.ConsolePanel import Console, ConsolesTab, command_specs_to_completer_data, merge_completer_data
+from C2Client.ConsolePanel import CommandEditor, Console, ConsolesTab, build_completer_data, command_specs_to_completer_data
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -28,6 +28,18 @@ class StubGrpc:
 
     def streamSessionCommandResults(self, session):
         return self.responses
+
+    def listCommands(self, query=None):
+        return iter([])
+
+    def listSessions(self):
+        return iter([])
+
+    def listListeners(self):
+        return iter([])
+
+    def listModules(self, session):
+        return iter([])
 
 
 class DummyPanel(QWidget):
@@ -260,9 +272,14 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
         assert page.layout().spacing() == 0
 
 
-def test_command_specs_seed_console_completer_without_losing_fallback():
+def _completion_children(entries, text):
+    return next(children for entry_text, children in entries if entry_text == text)
+
+
+def test_command_specs_seed_console_completer_from_manifest_examples():
     sleep_spec = SimpleNamespace(
         name="sleep",
+        kind="common",
         examples=["sleep 0.5"],
         args=[
             SimpleNamespace(name="seconds", type="number", values=[]),
@@ -270,15 +287,136 @@ def test_command_specs_seed_console_completer_without_losing_fallback():
     )
     custom_spec = SimpleNamespace(
         name="custom",
+        kind="module",
         examples=["custom --flag"],
         args=[],
     )
 
     server_data = command_specs_to_completer_data([sleep_spec, custom_spec])
-    merged = merge_completer_data(server_data, [("sleep", [("10", [])]), ("legacy", [])])
 
-    assert ("custom", [("--flag", [])]) in merged
-    sleep_entry = next(children for text, children in merged if text == "sleep")
+    assert ("custom", [("--flag", [])]) in server_data
+    sleep_entry = _completion_children(server_data, "sleep")
     assert ("0.5", []) in sleep_entry
-    assert ("10", []) in sleep_entry
-    assert ("legacy", []) in merged
+
+
+def test_contextual_completer_uses_artifacts_listeners_and_module_specs():
+    class FakeGrpc:
+        def listCommands(self, query=None):
+            return iter([
+                SimpleNamespace(
+                    name="help",
+                    kind="common",
+                    examples=["help loadModule"],
+                    args=[],
+                ),
+                SimpleNamespace(
+                    name="listener",
+                    kind="common",
+                    examples=["listener start tcp 10.2.4.8 4444", "listener stop <listener_hash>"],
+                    args=[
+                        SimpleNamespace(name="action", values=["start", "stop"]),
+                        SimpleNamespace(name="type_or_hash", values=["tcp", "smb"]),
+                    ],
+                ),
+                SimpleNamespace(
+                    name="loadModule",
+                    kind="common",
+                    examples=["loadModule pwd"],
+                    args=[
+                        SimpleNamespace(
+                            name="module",
+                            values=[],
+                            artifact_filter=SimpleNamespace(
+                                category="module",
+                                target="beacon",
+                                scope="",
+                                platform="session.platform",
+                                arch="session.arch",
+                                runtime="native",
+                            ),
+                        )
+                    ],
+                ),
+                SimpleNamespace(name="unloadModule", kind="common", examples=[], args=[]),
+                SimpleNamespace(name="pwd", kind="module", examples=["pwd"], args=[]),
+            ])
+
+        def listSessions(self):
+            return iter([
+                SimpleNamespace(
+                    beacon_hash="beacon-1",
+                    listener_hash="listener-1",
+                    os="Linux ubuntu",
+                    arch="x64",
+                )
+            ])
+
+        def listListeners(self):
+            return iter([SimpleNamespace(listener_hash="listener-hash")])
+
+        def listModules(self, session):
+            assert session.beacon_hash == "beacon-1"
+            assert session.listener_hash == "listener-1"
+            return iter([SimpleNamespace(name="pwd", state="loaded")])
+
+        def listArtifacts(self, query):
+            assert query.category == "module"
+            assert query.target == "beacon"
+            assert query.platform == "linux"
+            assert query.arch == "x64"
+            assert query.runtime == "native"
+            return iter([
+                SimpleNamespace(name="libPrintWorkingDirectory.so", display_name="libPrintWorkingDirectory.so"),
+                SimpleNamespace(name="libListDirectory.so", display_name="libListDirectory.so"),
+            ])
+
+    completions = build_completer_data(FakeGrpc(), beaconHash="beacon-1", listenerHash="listener-1")
+
+    listener_children = _completion_children(completions, "listener")
+    listener_stop_children = _completion_children(listener_children, "stop")
+    assert ("listener-hash", []) in listener_stop_children
+
+    load_module_children = _completion_children(completions, "loadModule")
+    assert ("pwd", []) not in load_module_children
+    assert ("printWorkingDirectory", []) not in load_module_children
+    assert ("ls", []) in load_module_children
+
+    unload_module_children = _completion_children(completions, "unloadModule")
+    assert ("pwd", []) in unload_module_children
+    assert ("ls", []) not in unload_module_children
+
+    help_children = _completion_children(completions, "help")
+    assert ("loadModule", []) in help_children
+    assert ("pwd", []) in help_children
+
+
+def test_command_editor_up_arrow_history_still_returns_last_command(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".cmdHistory").write_text("first\nsecond\n")
+
+    editor = CommandEditor(grpcClient=StubGrpc())
+    qtbot.addWidget(editor)
+
+    editor.historyUp()
+
+    assert editor.text() == "second"
+
+
+def test_command_editor_tab_cycles_completion_rows_without_reset(tmp_path, qtbot, monkeypatch):
+    class CompletionGrpc(StubGrpc):
+        def listCommands(self, query=None):
+            return iter([
+                SimpleNamespace(name="alpha", kind="module", examples=["alpha"], args=[]),
+                SimpleNamespace(name="beta", kind="module", examples=["beta"], args=[]),
+            ])
+
+    monkeypatch.chdir(tmp_path)
+    editor = CommandEditor(grpcClient=CompletionGrpc())
+    qtbot.addWidget(editor)
+
+    assert editor.codeCompleter.setCurrentRow(0) is True
+    editor.nextCompletion()
+    assert editor.codeCompleter.currentRow() == 1
+
+    editor.nextCompletion()
+    assert editor.codeCompleter.currentRow() == 0

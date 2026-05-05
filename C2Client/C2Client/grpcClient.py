@@ -236,6 +236,13 @@ class GrpcClient:
             query = TeamServerApi_pb2.CommandQuery()
         return self._stream_rpc("ListCommands", lambda: self.stub.ListCommands(query, metadata=self.metadata))
 
+    def listModules(self, session: Optional[Any] = None) -> Iterable[Any]:
+        """Return modules tracked for a beacon session."""
+
+        if session is None:
+            session = TeamServerApi_pb2.SessionSelector()
+        return self._stream_rpc("ListModules", lambda: self.stub.ListModules(session, metadata=self.metadata))
+
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 

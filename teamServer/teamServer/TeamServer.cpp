@@ -191,6 +191,15 @@ grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamse
         { return writer->Write(command); });
 }
 
+grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::LoadedModule>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_listenerSessionService->streamModulesForSession(*session, [&](const teamserverapi::LoadedModule& module)
+        { return writer->Write(module); });
+}
+
 grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
