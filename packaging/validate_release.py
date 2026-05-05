@@ -238,6 +238,13 @@ def validate_base_release(release_root: Path) -> None:
 
     _require_non_empty_file(command_specs_root / "common" / "sleep.json")
     _require_non_empty_file(command_specs_root / "common" / "end.json")
+    _require_non_empty_file(command_specs_root / "common" / "listener.json")
+    _require_non_empty_file(command_specs_root / "common" / "loadModule.json")
+    _require_non_empty_file(command_specs_root / "common" / "unloadModule.json")
+    _require_non_empty_file(command_specs_root / "modules" / "pwd.json")
+    _require_non_empty_file(command_specs_root / "modules" / "whoami.json")
+    _require_non_empty_file(command_specs_root / "modules" / "ls.json")
+    _require_non_empty_file(command_specs_root / "modules" / "cd.json")
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")

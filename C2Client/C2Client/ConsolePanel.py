@@ -27,6 +27,7 @@ from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .ArtifactPanel import Artifacts, ArtifactTabTitle
+from .CommandPanel import Commands, CommandTabTitle
 from .TerminalModules.Credentials import credentials
 from .console_style import (
     CONSOLE_COLORS,
@@ -67,7 +68,7 @@ if not os.path.exists(logsDir):
 # Constant
 #
 TerminalTabTitle = "Terminal"
-SYSTEM_TAB_COUNT = 4
+SYSTEM_TAB_COUNT = 5
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
@@ -331,6 +332,99 @@ completerData = [
 ]
 
 
+def _completion_child(text):
+    text = str(text or "").strip()
+    return (text, []) if text else None
+
+
+def _completion_suffix(command_name, example):
+    command_name = str(command_name or "").strip()
+    example = str(example or "").strip()
+    if not command_name or not example:
+        return None
+    if example == command_name:
+        return None
+    prefix = command_name + " "
+    if example.startswith(prefix):
+        return example[len(prefix):].strip()
+    return example
+
+
+def _command_spec_children(command):
+    children = []
+    seen = set()
+
+    for example in getattr(command, "examples", []):
+        child = _completion_child(_completion_suffix(getattr(command, "name", ""), example))
+        if child and child[0] not in seen:
+            children.append(child)
+            seen.add(child[0])
+
+    for arg in getattr(command, "args", []):
+        for value in getattr(arg, "values", []):
+            child = _completion_child(value)
+            if child and child[0] not in seen:
+                children.append(child)
+                seen.add(child[0])
+
+    return children
+
+
+def command_specs_to_completer_data(command_specs):
+    entries = []
+    seen = set()
+    for command in command_specs:
+        name = str(getattr(command, "name", "") or "").strip()
+        if not name or name in seen:
+            continue
+        entries.append((name, _command_spec_children(command)))
+        seen.add(name)
+    return entries
+
+
+def _merge_child_entries(primary, fallback):
+    merged = []
+    seen = set()
+    for text, children in [*primary, *fallback]:
+        if text in seen:
+            continue
+        merged.append((text, children))
+        seen.add(text)
+    return merged
+
+
+def merge_completer_data(server_data, fallback_data):
+    merged = []
+    server_by_name = {text: children for text, children in server_data}
+    fallback_by_name = {text: children for text, children in fallback_data}
+
+    for text, server_children in server_data:
+        merged.append((text, _merge_child_entries(server_children, fallback_by_name.get(text, []))))
+
+    for text, fallback_children in fallback_data:
+        if text not in server_by_name:
+            merged.append((text, fallback_children))
+    return merged
+
+
+def load_server_completer_data(grpcClient):
+    if grpcClient is None or not hasattr(grpcClient, "listCommands"):
+        return []
+    try:
+        query = TeamServerApi_pb2.CommandQuery()
+        return command_specs_to_completer_data(list(grpcClient.listCommands(query)))
+    except Exception as exc:
+        logger.debug("Falling back to static command completer data: %s", exc)
+        return []
+
+
+def build_completer_data(grpcClient=None):
+    server_data = load_server_completer_data(grpcClient)
+    if not server_data:
+        return completerData
+    return merge_completer_data(server_data, completerData)
+
+
 #
 # Fix console rendering
 #
@@ -484,6 +578,11 @@ class ConsolesTab(QWidget):
         self.tabs.addTab(tab, ArtifactTabTitle)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
+        self.commands = Commands(self, self.grpcClient)
+        tab = self.createConsolePage(self.commands)
+        self.tabs.addTab(tab, CommandTabTitle)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
+
         self.assistant = Assistant(self, self.grpcClient)
         tab = self.createConsolePage(self.assistant)
         self.tabs.addTab(tab, "Data AI")
@@ -597,7 +696,7 @@ class Console(QWidget):
         self.layout.addWidget(self.editorOutput, 8)
         self.loadConsoleLog()
 
-        self.commandEditor = CommandEditor()
+        self.commandEditor = CommandEditor(grpcClient=self.grpcClient)
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
@@ -959,7 +1058,7 @@ class GetSessionResponse(QObject):
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, grpcClient=None) -> None:
         super().__init__(parent)
 
         self.cmdHistory: list[str] = []
@@ -973,7 +1072,7 @@ class CommandEditor(QLineEdit):
         QShortcut(Qt.Key.Key_Up, self, self.historyUp)
         QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
-        self.codeCompleter = CodeCompleter(completerData, self)
+        self.codeCompleter = CodeCompleter(build_completer_data(grpcClient), self)
         # needed to clear the completer after activation
         self.codeCompleter.activated.connect(self.onActivated)
         self.setCompleter(self.codeCompleter)

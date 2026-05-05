@@ -7,7 +7,7 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.ConsolePanel import Console, ConsolesTab
+from C2Client.ConsolePanel import Console, ConsolesTab, command_specs_to_completer_data, merge_completer_data
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -230,6 +230,7 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Artifacts', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Commands', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
 
     parent = QWidget()
@@ -240,7 +241,8 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     assert consoles.tabs.objectName() == "C2ConsoleTabs"
     assert consoles.tabs.tabText(1) == "Hooks"
     assert consoles.tabs.tabText(2) == "Artifacts"
-    assert consoles.tabs.tabText(3) == "Data AI"
+    assert consoles.tabs.tabText(3) == "Commands"
+    assert consoles.tabs.tabText(4) == "Data AI"
     assert "#0b1117" in consoles.styleSheet()
     assert "#070b10" in consoles.styleSheet()
     assert consoles.layout.contentsMargins().left() == 0
@@ -256,3 +258,27 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
         assert page.layout().contentsMargins().left() == 0
         assert page.layout().contentsMargins().top() == 0
         assert page.layout().spacing() == 0
+
+
+def test_command_specs_seed_console_completer_without_losing_fallback():
+    sleep_spec = SimpleNamespace(
+        name="sleep",
+        examples=["sleep 0.5"],
+        args=[
+            SimpleNamespace(name="seconds", type="number", values=[]),
+        ],
+    )
+    custom_spec = SimpleNamespace(
+        name="custom",
+        examples=["custom --flag"],
+        args=[],
+    )
+
+    server_data = command_specs_to_completer_data([sleep_spec, custom_spec])
+    merged = merge_completer_data(server_data, [("sleep", [("10", [])]), ("legacy", [])])
+
+    assert ("custom", [("--flag", [])]) in merged
+    sleep_entry = next(children for text, children in merged if text == "sleep")
+    assert ("0.5", []) in sleep_entry
+    assert ("10", []) in sleep_entry
+    assert ("legacy", []) in merged
