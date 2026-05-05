@@ -138,6 +138,8 @@ def _merge_completion_entries(destination: list[tuple[str, list]], source: list[
 
 
 def _add_example_completions(children: list[tuple[str, list]], command: Any) -> None:
+    if _command_has_artifact_args(command):
+        return
     command_name = getattr(command, "name", "")
     for example in getattr(command, "examples", []):
         suffix = _completion_suffix(command_name, example)
@@ -151,11 +153,40 @@ def _arg_is_flag(arg: Any) -> bool:
     return arg_type == "flag" or name.startswith("-")
 
 
+def _arg_name(arg: Any) -> str:
+    return str(getattr(arg, "name", "") or "").strip()
+
+
+def _command_has_artifact_args(command: Any) -> bool:
+    return any(_arg_has_artifact_filter(arg) for arg in getattr(command, "args", []))
+
+
+def _flag_is_context_only(arg: Any) -> bool:
+    return _arg_name(arg) in {"--method"}
+
+
+def _source_flag_args(args: list[Any]) -> list[Any]:
+    return [
+        arg
+        for arg in args
+        if _arg_is_flag(arg) and _arg_name(arg) not in {"--mode", "--method"}
+    ]
+
+
 def _argument_artifact_completion_values(artifact: Any) -> list[str]:
     return _dedupe_values([
         str(getattr(artifact, "name", "") or "").strip(),
         str(getattr(artifact, "display_name", "") or "").strip(),
     ])
+
+
+def _artifact_value_continuations(arg: Any) -> list[str]:
+    name = _arg_name(arg)
+    if name == "--donut-exe":
+        return ["--"]
+    if name == "--donut-dll":
+        return ["--method"]
+    return []
 
 
 def _add_artifact_completions(
@@ -164,9 +195,56 @@ def _add_artifact_completions(
     arg: Any,
     session: Any | None,
 ) -> None:
+    continuations = _artifact_value_continuations(arg)
     for artifact in _load_artifacts_for_arg(grpcClient, arg, session):
         for value in _argument_artifact_completion_values(artifact):
             _add_completion_value(children, value)
+            artifact_entry = _find_entry(children, value)
+            if artifact_entry is not None:
+                for continuation in continuations:
+                    _add_completion_value(artifact_entry[1], continuation)
+
+
+def _build_flag_entries(
+    args: list[Any],
+    grpcClient: Any = None,
+    session: Any | None = None,
+    *,
+    include_context_only: bool = False,
+) -> list[tuple[str, list]]:
+    entries: list[tuple[str, list]] = []
+    for arg in args:
+        name = _arg_name(arg)
+        if not _arg_is_flag(arg) or not name:
+            continue
+        if not include_context_only and _flag_is_context_only(arg):
+            continue
+
+        _add_completion_path(entries, [name])
+        flag_entry = _find_entry(entries, name)
+        if flag_entry is None:
+            continue
+        for value in getattr(arg, "values", []):
+            _add_completion_value(flag_entry[1], value)
+        _add_artifact_completions(flag_entry[1], grpcClient, arg, session)
+    return entries
+
+
+def _add_mode_value_flag_completions(
+    entries: list[tuple[str, list]],
+    args: list[Any],
+    grpcClient: Any,
+    session: Any | None,
+) -> None:
+    mode_entry = _find_entry(entries, "--mode")
+    if mode_entry is None:
+        return
+
+    source_flag_entries = _build_flag_entries(_source_flag_args(args), grpcClient, session)
+    if not source_flag_entries:
+        return
+    for mode_value, children in mode_entry[1]:
+        _merge_completion_entries(children, source_flag_entries)
 
 
 def _add_arg_completions(
@@ -176,18 +254,13 @@ def _add_arg_completions(
     session: Any | None = None,
 ) -> None:
     args = list(getattr(command, "args", []))
+    flag_entries = _build_flag_entries(args, grpcClient, session)
+    _merge_completion_entries(children, flag_entries)
+    _add_mode_value_flag_completions(children, args, grpcClient, session)
+
     first_positional_done = False
     for arg in args:
-        name = str(getattr(arg, "name", "") or "").strip()
         if _arg_is_flag(arg):
-            if not name:
-                continue
-            _add_completion_path(children, [name])
-            flag_entry = _find_entry(children, name)
-            if flag_entry is not None:
-                for value in getattr(arg, "values", []):
-                    _add_completion_value(flag_entry[1], value)
-                _add_artifact_completions(flag_entry[1], grpcClient, arg, session)
             continue
 
         if first_positional_done:

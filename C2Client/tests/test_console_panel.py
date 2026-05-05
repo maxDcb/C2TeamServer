@@ -373,6 +373,7 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         examples=[
             "assemblyExec --mode process --raw shellcode.bin",
             "assemblyExec --mode thread --donut-exe Seatbelt.exe -- -group=system",
+            "assemblyExec --mode process --donut-dll Tool.dll --method EntryPoint -- arg1 arg2",
         ],
         args=[
             SimpleNamespace(name="--mode", type="flag", values=["thread", "process", "processWithSpoofedParent"]),
@@ -390,15 +391,22 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     assert ("thread", []) not in assembly_children
     assert ("process", []) not in assembly_children
     assert ("--raw", []) in assembly_children
+    assert ("--method", []) not in assembly_children
     donut_exe_children = _completion_children(assembly_children, "--donut-exe")
-    assert ("windows/Seatbelt.exe", []) in donut_exe_children
-    assert ("SharpHound.exe", []) in donut_exe_children
+    assert _completion_children(donut_exe_children, "windows/Seatbelt.exe")
+    assert _completion_children(donut_exe_children, "SharpHound.exe")
+    assert ("--", []) in _completion_children(donut_exe_children, "SharpHound.exe")
     donut_dll_children = _completion_children(assembly_children, "--donut-dll")
-    assert ("Tools/Example.dll", []) in donut_dll_children
+    assert _completion_children(donut_dll_children, "Tools/Example.dll")
+    assert ("Tool.dll", []) not in donut_dll_children
+    assert ("--method", []) in _completion_children(donut_dll_children, "Tools/Example.dll")
 
     mode_children = _completion_children(assembly_children, "--mode")
-    assert _completion_children(mode_children, "thread")
-    assert ("process", [("--raw", [("shellcode.bin", [])])]) in mode_children
+    mode_process_children = _completion_children(mode_children, "process")
+    assert ("--raw", []) in mode_process_children
+    assert _completion_children(mode_process_children, "--donut-exe")
+    assert _completion_children(mode_process_children, "--donut-dll")
+    assert ("Tool.dll", []) not in _completion_children(mode_process_children, "--donut-dll")
     assert grpc.queries[0].category == "tool"
     assert grpc.queries[0].scope == "server"
     assert grpc.queries[0].target == "teamserver"
