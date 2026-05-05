@@ -334,6 +334,39 @@ def test_command_specs_seed_console_completer_from_manifest_examples():
 
 
 def test_command_specs_add_flag_completions_without_positional_mode_mix():
+    class FakeGrpc:
+        def __init__(self):
+            self.queries = []
+
+        def listArtifacts(self, query):
+            self.queries.append(query)
+            if query.name_contains == ".exe":
+                return iter([
+                    SimpleNamespace(name="windows/Seatbelt.exe", display_name="Seatbelt.exe"),
+                    SimpleNamespace(name="SharpHound.exe", display_name="SharpHound.exe"),
+                ])
+            if query.name_contains == ".dll":
+                return iter([SimpleNamespace(name="Tools/Example.dll", display_name="Example.dll")])
+            return iter([])
+
+    artifact_filter_exe = SimpleNamespace(
+        category="tool",
+        scope="server",
+        target="teamserver",
+        platform="windows",
+        arch="",
+        runtime="any",
+        name_contains=".exe",
+    )
+    artifact_filter_dll = SimpleNamespace(
+        category="tool",
+        scope="server",
+        target="teamserver",
+        platform="windows",
+        arch="",
+        runtime="any",
+        name_contains=".dll",
+    )
     assembly_spec = SimpleNamespace(
         name="assemblyExec",
         kind="module",
@@ -344,22 +377,34 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         args=[
             SimpleNamespace(name="--mode", type="flag", values=["thread", "process", "processWithSpoofedParent"]),
             SimpleNamespace(name="--raw", type="flag", values=[]),
-            SimpleNamespace(name="--donut-exe", type="flag", values=[]),
+            SimpleNamespace(name="--donut-exe", type="flag", values=[], artifact_filter=artifact_filter_exe),
+            SimpleNamespace(name="--donut-dll", type="flag", values=[], artifact_filter=artifact_filter_dll),
             SimpleNamespace(name="source_path", type="path", values=[]),
         ],
     )
 
-    server_data = command_specs_to_completer_data([assembly_spec])
+    grpc = FakeGrpc()
+    server_data = command_specs_to_completer_data([assembly_spec], grpcClient=grpc)
     assembly_children = _completion_children(server_data, "assemblyExec")
 
     assert ("thread", []) not in assembly_children
     assert ("process", []) not in assembly_children
     assert ("--raw", []) in assembly_children
-    assert ("--donut-exe", []) in assembly_children
+    donut_exe_children = _completion_children(assembly_children, "--donut-exe")
+    assert ("windows/Seatbelt.exe", []) in donut_exe_children
+    assert ("SharpHound.exe", []) in donut_exe_children
+    donut_dll_children = _completion_children(assembly_children, "--donut-dll")
+    assert ("Tools/Example.dll", []) in donut_dll_children
 
     mode_children = _completion_children(assembly_children, "--mode")
     assert _completion_children(mode_children, "thread")
     assert ("process", [("--raw", [("shellcode.bin", [])])]) in mode_children
+    assert grpc.queries[0].category == "tool"
+    assert grpc.queries[0].scope == "server"
+    assert grpc.queries[0].target == "teamserver"
+    assert grpc.queries[0].platform == "windows"
+    assert grpc.queries[0].runtime == "any"
+    assert grpc.queries[0].name_contains == ".exe"
 
 
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():

@@ -151,7 +151,30 @@ def _arg_is_flag(arg: Any) -> bool:
     return arg_type == "flag" or name.startswith("-")
 
 
-def _add_arg_completions(children: list[tuple[str, list]], command: Any) -> None:
+def _argument_artifact_completion_values(artifact: Any) -> list[str]:
+    return _dedupe_values([
+        str(getattr(artifact, "name", "") or "").strip(),
+        str(getattr(artifact, "display_name", "") or "").strip(),
+    ])
+
+
+def _add_artifact_completions(
+    children: list[tuple[str, list]],
+    grpcClient: Any,
+    arg: Any,
+    session: Any | None,
+) -> None:
+    for artifact in _load_artifacts_for_arg(grpcClient, arg, session):
+        for value in _argument_artifact_completion_values(artifact):
+            _add_completion_value(children, value)
+
+
+def _add_arg_completions(
+    children: list[tuple[str, list]],
+    command: Any,
+    grpcClient: Any = None,
+    session: Any | None = None,
+) -> None:
     args = list(getattr(command, "args", []))
     first_positional_done = False
     for arg in args:
@@ -164,12 +187,14 @@ def _add_arg_completions(children: list[tuple[str, list]], command: Any) -> None
             if flag_entry is not None:
                 for value in getattr(arg, "values", []):
                     _add_completion_value(flag_entry[1], value)
+                _add_artifact_completions(flag_entry[1], grpcClient, arg, session)
             continue
 
         if first_positional_done:
             continue
         for value in getattr(arg, "values", []):
             _add_completion_value(children, value)
+        _add_artifact_completions(children, grpcClient, arg, session)
         first_positional_done = True
 
 
@@ -259,7 +284,7 @@ def _arg_has_artifact_filter(arg: Any) -> bool:
 def _artifact_query_from_arg(arg: Any, session: Any | None) -> Any:
     artifact_filter = getattr(arg, "artifact_filter", None)
     query = TeamServerApi_pb2.ArtifactQuery()
-    for field_name in ("category", "scope", "target", "platform", "arch", "runtime"):
+    for field_name in ("category", "scope", "target", "platform", "arch", "runtime", "name_contains"):
         value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
         if value:
             setattr(query, field_name, value)
@@ -413,7 +438,7 @@ def command_specs_to_completer_data(
             continue
         children: list[tuple[str, list]] = []
         _add_example_completions(children, command)
-        _add_arg_completions(children, command)
+        _add_arg_completions(children, command, grpcClient, session)
         _add_contextual_completions(children, command, command_specs, grpcClient, session, listener_hashes, tracked_modules)
         _add_completion_path(entries, [name])
         entry = _find_entry(entries, name)

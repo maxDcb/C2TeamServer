@@ -93,10 +93,12 @@ TeamServerCommandArtifactFilter parseArtifactFilter(const json& input)
 {
     TeamServerCommandArtifactFilter filter;
     filter.category = jsonString(input, "category");
+    filter.scope = jsonString(input, "scope");
     filter.target = jsonString(input, "target");
     filter.platform = jsonString(input, "platform");
     filter.arch = jsonString(input, "arch");
     filter.runtime = jsonString(input, "runtime");
+    filter.nameContains = jsonString(input, "name_contains");
     return filter;
 }
 

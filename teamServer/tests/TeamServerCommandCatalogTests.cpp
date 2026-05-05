@@ -86,7 +86,16 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
       "name": "seconds",
       "type": "number",
       "required": true,
-      "description": "Sleep interval."
+      "description": "Sleep interval.",
+      "artifact_filter": {
+        "category": "tool",
+        "scope": "server",
+        "target": "teamserver",
+        "platform": "windows",
+        "arch": "any",
+        "runtime": "any",
+        "name_contains": ".exe"
+      }
     }
   ],
   "examples": ["sleep 0.5"],
@@ -142,6 +151,14 @@ void testCommandCatalogLoadsManifestSpecs()
     assert(sleep->args[0].name == "seconds");
     assert(sleep->args[0].type == "number");
     assert(sleep->args[0].required);
+    assert(sleep->args[0].hasArtifactFilter);
+    assert(sleep->args[0].artifactFilter.category == "tool");
+    assert(sleep->args[0].artifactFilter.scope == "server");
+    assert(sleep->args[0].artifactFilter.target == "teamserver");
+    assert(sleep->args[0].artifactFilter.platform == "windows");
+    assert(sleep->args[0].artifactFilter.arch == "any");
+    assert(sleep->args[0].artifactFilter.runtime == "any");
+    assert(sleep->args[0].artifactFilter.nameContains == ".exe");
     assert(sleep->examples.size() == 1);
 
     const TeamServerCommandSpecRecord* end = findCommand(commands, "end");
@@ -193,6 +210,13 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].args_size() == 1);
     assert(commands[0].args(0).name() == "seconds");
     assert(commands[0].args(0).type() == "number");
+    assert(commands[0].args(0).artifact_filter().category() == "tool");
+    assert(commands[0].args(0).artifact_filter().scope() == "server");
+    assert(commands[0].args(0).artifact_filter().target() == "teamserver");
+    assert(commands[0].args(0).artifact_filter().platform() == "windows");
+    assert(commands[0].args(0).artifact_filter().arch() == "any");
+    assert(commands[0].args(0).artifact_filter().runtime() == "any");
+    assert(commands[0].args(0).artifact_filter().name_contains() == ".exe");
     assert(commands[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }
 } // namespace

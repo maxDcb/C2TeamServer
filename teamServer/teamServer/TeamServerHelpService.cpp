@@ -62,6 +62,8 @@ void appendArtifactFilter(std::ostringstream& output, const TeamServerCommandArt
     std::vector<std::string> parts;
     if (!filter.category.empty())
         parts.push_back("category=" + filter.category);
+    if (!filter.scope.empty())
+        parts.push_back("scope=" + filter.scope);
     if (!filter.target.empty())
         parts.push_back("target=" + filter.target);
     if (!filter.platform.empty())
@@ -70,6 +72,8 @@ void appendArtifactFilter(std::ostringstream& output, const TeamServerCommandArt
         parts.push_back("arch=" + filter.arch);
     if (!filter.runtime.empty())
         parts.push_back("runtime=" + filter.runtime);
+    if (!filter.nameContains.empty())
+        parts.push_back("name_contains=" + filter.nameContains);
 
     if (!parts.empty())
         output << "\n    Artifact filter: " << joinList(parts);

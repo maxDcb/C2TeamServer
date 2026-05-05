@@ -8,10 +8,12 @@
 struct TeamServerCommandArtifactFilter
 {
     std::string category;
+    std::string scope;
     std::string target;
     std::string platform;
     std::string arch;
     std::string runtime;
+    std::string nameContains;
 };
 
 struct TeamServerCommandArgSpec
