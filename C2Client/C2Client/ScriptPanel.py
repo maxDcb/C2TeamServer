@@ -2,7 +2,6 @@ import sys
 import os
 import logging
 import importlib
-import inspect
 from pathlib import Path
 from datetime import datetime
 
@@ -76,7 +75,7 @@ HOOK_ORDER = [
 ]
 
 HOOK_TRIGGER_NOTES = {
-    "ManualStart": "Manual-only hook launched from the Script panel.",
+    "ManualStart": "Manual-only hook launched from the Hooks panel.",
     "OnStart": "Client window connected/reconnected to the TeamServer.",
     "OnStop": "Client window is closing; this depends on Qt widget teardown.",
     "OnListenerStart": "Listener table saw a listener start event.",
@@ -104,14 +103,6 @@ SESSION_HOOKS = {
 CONSOLE_HOOKS = {
     "send": "OnConsoleSend",
     "receive": "OnConsoleReceive",
-}
-
-MANUAL_HOOKS_WITHOUT_CONTEXT = {
-    "ManualStart",
-    "OnStart",
-    "OnStop",
-    "OnListenerStart",
-    "OnListenerStop",
 }
 
 SCRIPT_NAME_ROLE = Qt.ItemDataRole.UserRole
@@ -146,7 +137,7 @@ for entry in scripts_path.iterdir():
 
 
 #
-# Script tab implementation
+# Hooks tab implementation
 #
 class Script(QWidget):
     tabPressed = pyqtSignal()
@@ -171,7 +162,7 @@ class Script(QWidget):
         self.automationTable = QTableWidget()
         self.automationTable.setColumnCount(6)
         self.automationTable.setHorizontalHeaderLabels(
-            ["Active", "Script", "Hooks", "Last run", "Runs", "Errors"]
+            ["Active", "Hook file", "Hooks", "Last run", "Runs", "Errors"]
         )
         self.automationTable.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.automationTable.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -192,7 +183,7 @@ class Script(QWidget):
         self.manualHookSelector.setMinimumWidth(220)
         self.runHookButton = QPushButton("Run Hook")
         self.runHookButton.clicked.connect(self.runSelectedHook)
-        manualLayout.addWidget(QLabel("Manual action:"))
+        manualLayout.addWidget(QLabel("Manual hook:"))
         manualLayout.addWidget(self.manualHookSelector, 1)
         manualLayout.addWidget(self.runHookButton)
         self.layout.addLayout(manualLayout)
@@ -224,19 +215,25 @@ class Script(QWidget):
         if not hookName:
             return
 
-        self.dispatchHook(
+        event = {
+            "beacon_hash": beaconHash,
+            "listener_hash": listenerHash,
+            "hostname": hostname,
+            "username": username,
+            "arch": arch,
+            "privilege": privilege,
+            "os": os,
+            "last_proof_of_life": lastProofOfLife,
+            "killed": killed,
+        }
+        context = self.buildHookContext(
             hookName,
-            HOOK_TRIGGER_NOTES[hookName],
-            beaconHash,
-            listenerHash,
-            hostname,
-            username,
-            arch,
-            privilege,
-            os,
-            lastProofOfLife,
-            killed,
+            action,
+            objectType="session",
+            objectId=beaconHash,
+            event=event,
         )
+        self.dispatchHook(hookName, context)
 
     
     def listenerScriptMethod(self, action, hash, str3, str4):
@@ -244,7 +241,19 @@ class Script(QWidget):
         if not hookName:
             return
 
-        self.dispatchHook(hookName, HOOK_TRIGGER_NOTES[hookName], hash, str3, str4)
+        event = {
+            "listener_hash": hash,
+            "type": str3,
+            "host": str4,
+        }
+        context = self.buildHookContext(
+            hookName,
+            action,
+            objectType="listener",
+            objectId=hash,
+            event=event,
+        )
+        self.dispatchHook(hookName, context)
 
 
     def consoleScriptMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
@@ -252,23 +261,34 @@ class Script(QWidget):
         if not hookName:
             return
 
-        self.dispatchHook(
+        event = {
+            "beacon_hash": beaconHash,
+            "listener_hash": listenerHash,
+            "console_context": context,
+            "command": cmd,
+            "result": result,
+            "command_id": commandId,
+        }
+        hookContext = self.buildHookContext(
             hookName,
-            HOOK_TRIGGER_NOTES[hookName],
-            beaconHash,
-            listenerHash,
-            context,
-            cmd,
-            result,
-            commandId,
+            action,
+            objectType="session",
+            objectId=beaconHash,
+            event=event,
         )
+        self.dispatchHook(hookName, hookContext)
 
     def mainScriptMethod(self, action, str2, str3, str4):
         hookName = MAIN_HOOKS.get(action)
         if not hookName:
             return
 
-        self.dispatchHook(hookName, HOOK_TRIGGER_NOTES[hookName])
+        context = self.buildHookContext(
+            hookName,
+            action,
+            event={"action": action},
+        )
+        self.dispatchHook(hookName, context)
 
     def setClientStateProvider(self, provider):
         self.clientStateProvider = provider or self.emptyClientState
@@ -303,6 +323,49 @@ class Script(QWidget):
                 copied.append(dict(item))
         return copied
 
+    def buildHookContext(self, hookName, trigger, *, objectType="", objectId="", event=None):
+        snapshot = self.clientStateSnapshot()
+        event = dict(event or {})
+        objectType = str(objectType or "")
+        objectId = str(objectId or "")
+        resolvedObject = self.resolveSnapshotObject(snapshot, objectType, objectId)
+
+        context = {
+            "hook": hookName,
+            "trigger": trigger,
+            "trigger_description": HOOK_TRIGGER_NOTES.get(hookName, ""),
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "object_type": objectType,
+            "object_id": objectId,
+            "object": resolvedObject,
+            "sessions": snapshot.get("sessions", []),
+            "listeners": snapshot.get("listeners", []),
+            "event": event,
+        }
+        if "error" in snapshot:
+            context["snapshot_error"] = snapshot["error"]
+        return context
+
+    def resolveSnapshotObject(self, snapshot, objectType, objectId):
+        if not objectType or not objectId:
+            return None
+
+        if objectType == "session":
+            collection = snapshot.get("sessions", [])
+            keys = ("beacon_hash", "id")
+        elif objectType == "listener":
+            collection = snapshot.get("listeners", [])
+            keys = ("listener_hash", "id")
+        else:
+            return None
+
+        objectId = str(objectId)
+        for item in collection:
+            for key in keys:
+                if str(item.get(key, "")) == objectId:
+                    return dict(item)
+        return None
+
     def buildAutomationStates(self):
         self.scriptStates = {}
         for script in LoadedScripts:
@@ -317,6 +380,8 @@ class Script(QWidget):
                 "errors": 0,
                 "last_error": "",
                 "load_error": "",
+                "description": self.scriptDescription(script),
+                "hook_descriptions": self.scriptHookDescriptions(script),
             }
 
         for failure in FailedScripts:
@@ -330,6 +395,8 @@ class Script(QWidget):
                 "errors": 1,
                 "last_error": error,
                 "load_error": error,
+                "description": "",
+                "hook_descriptions": {},
             }
 
     def refreshAutomationTable(self):
@@ -393,8 +460,10 @@ class Script(QWidget):
     def updateAutomationRowTooltip(self, row, scriptName):
         state = self.scriptStates[scriptName]
         hookNotes = []
+        if state.get("description"):
+            hookNotes.append(state["description"])
         for hookName in state["hooks"]:
-            hookNotes.append(f"{hookName}: {HOOK_TRIGGER_NOTES.get(hookName, 'Custom hook.')}")
+            hookNotes.append(f"{hookName}: {self.hookDescription(state, hookName)}")
         tooltip = "\n".join(hookNotes) or state["last_error"] or "No hook detected."
         if state["last_error"]:
             tooltip += "\nLast error: " + state["last_error"]
@@ -431,7 +500,7 @@ class Script(QWidget):
             index = self.manualHookSelector.count() - 1
             self.manualHookSelector.setItemData(
                 index,
-                HOOK_TRIGGER_NOTES.get(hookName, ""),
+                self.hookDescription(state, hookName),
                 Qt.ItemDataRole.ToolTipRole,
             )
         self.runHookButton.setEnabled(True)
@@ -458,6 +527,26 @@ class Script(QWidget):
                 hooks.append(hookName)
         return hooks
 
+    def scriptDescription(self, script):
+        description = getattr(script, "DESCRIPTION", "") or getattr(script, "__doc__", "")
+        return str(description or "").strip()
+
+    def scriptHookDescriptions(self, script):
+        descriptions = getattr(script, "HOOK_DESCRIPTIONS", {}) or {}
+        if not isinstance(descriptions, dict):
+            return {}
+        return {
+            str(hookName): str(description).strip()
+            for hookName, description in descriptions.items()
+            if str(description).strip()
+        }
+
+    def hookDescription(self, state, hookName):
+        return (
+            state.get("hook_descriptions", {}).get(hookName)
+            or HOOK_TRIGGER_NOTES.get(hookName, "Custom hook.")
+        )
+
     def parseFailedScript(self, failure):
         scriptName, separator, error = str(failure).partition(":")
         return scriptName.strip() or "unknown", error.strip() if separator else str(failure)
@@ -468,28 +557,24 @@ class Script(QWidget):
             if state["script"] is None:
                 continue
             loaded.append(f"{self.displayScriptName(scriptName)}: {', '.join(state['hooks']) or 'no hooks'}")
-        self.printInTerminal("Loaded automations:", "\n".join(loaded) or "No script loaded.")
+        self.printInTerminal("Loaded hooks:", "\n".join(loaded) or "No hook file loaded.")
 
         failed = []
         for scriptName, state in sorted(self.scriptStates.items()):
             if state["script"] is None:
                 failed.append(f"{scriptName}: {state['last_error']}")
         if failed:
-            self.printInTerminal("Script load errors:", "\n".join(failed))
+            self.printInTerminal("Hook load errors:", "\n".join(failed))
 
-    def dispatchHook(self, hookName, triggerDescription, *args):
-        self.lastHookContexts[hookName] = {
-            "args": args,
-            "trigger": triggerDescription,
-            "updated_at": datetime.now(),
-        }
+    def dispatchHook(self, hookName, context):
+        self.lastHookContexts[hookName] = context
 
         for state in self.scriptStates.values():
             script = state["script"]
             if script is not None:
-                self.runScriptHook(script, hookName, hookName, *args)
+                self.runScriptHook(script, hookName, hookName, context)
 
-    def runScriptHook(self, script, hookName, displayName, *args):
+    def runScriptHook(self, script, hookName, displayName, context):
         scriptName = getattr(script, "__name__", script.__class__.__name__)
         hook = getattr(script, hookName, None)
         if hook is None:
@@ -506,6 +591,8 @@ class Script(QWidget):
                 "errors": 0,
                 "last_error": "",
                 "load_error": "",
+                "description": self.scriptDescription(script),
+                "hook_descriptions": self.scriptHookDescriptions(script),
             }
             self.scriptStates[scriptName] = state
             self.refreshAutomationTable()
@@ -519,7 +606,7 @@ class Script(QWidget):
         self.updateAutomationRow(scriptName)
 
         try:
-            output = self.invokeScriptHook(hook, *args)
+            output = self.invokeScriptHook(hook, context)
         except Exception as exc:
             state["errors"] += 1
             state["last_error"] = f"{hookName}: {exc}"
@@ -540,25 +627,8 @@ class Script(QWidget):
             self.printInTerminal(displayName, output)
         return True
 
-    def invokeScriptHook(self, hook, *args):
-        fullArgs = (self.grpcClient, *args)
-        try:
-            signature = inspect.signature(hook)
-        except (TypeError, ValueError):
-            return hook(*fullArgs)
-
-        parameters = list(signature.parameters.values())
-        if any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in parameters):
-            return hook(*fullArgs)
-
-        positional = [
-            param for param in parameters
-            if param.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            )
-        ]
-        return hook(*fullArgs[:len(positional)])
+    def invokeScriptHook(self, hook, context):
+        return hook(self.grpcClient, context)
 
     def runSelectedHook(self):
         scriptName = self.selectedScriptName()
@@ -572,19 +642,19 @@ class Script(QWidget):
             self.printInTerminal("Manual run blocked:", f"{self.displayScriptName(scriptName)} is disabled.")
             return
 
-        context = self.lastHookContexts.get(hookName)
         if hookName == "ManualStart":
-            args = (self.clientStateSnapshot(),)
-        elif context is None and hookName not in MANUAL_HOOKS_WITHOUT_CONTEXT:
+            context = self.buildHookContext(hookName, "manual", event={"action": "manual"})
+        else:
+            context = self.lastHookContexts.get(hookName)
+
+        if context is None:
             self.printInTerminal(
                 "Manual run blocked:",
                 f"{hookName} needs a captured trigger context. Trigger it once from the UI first.",
             )
             return
-        else:
-            args = context["args"] if context is not None else ()
         self.printInTerminal("Manual run:", f"{self.displayScriptName(scriptName)}.{hookName}")
-        self.runScriptHook(state["script"], hookName, hookName, *args)
+        self.runScriptHook(state["script"], hookName, hookName, context)
 
 
     def event(self, event):
@@ -614,13 +684,13 @@ class Script(QWidget):
     def _console_role_for_header(self, header):
         normalized = str(header or "").strip().rstrip(":").lower()
         if normalized in {
-            "loaded automations",
-            "automation command",
+            "loaded hooks",
+            "hook command",
             "manual context error",
             "manual run blocked",
         }:
             return "[system]", "system"
-        if normalized in {"script load errors", "script error"}:
+        if normalized in {"hook load errors", "script error"}:
             return "[error]", "error"
         if normalized == "manual run":
             return "[user]", "user"
@@ -637,8 +707,8 @@ class Script(QWidget):
 
         else:
             self.printInTerminal(
-                "Automation command:",
-                "Use the table to enable scripts and run hooks manually.",
+                "Hook command:",
+                "Use the table to enable hook files and run hooks manually.",
             )
             
 

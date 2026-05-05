@@ -238,6 +238,7 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
 
     assert consoles.objectName() == "C2ConsolesTab"
     assert consoles.tabs.objectName() == "C2ConsoleTabs"
+    assert consoles.tabs.tabText(1) == "Hooks"
     assert "#0b1117" in consoles.styleSheet()
     assert "#070b10" in consoles.styleSheet()
     assert consoles.layout.contentsMargins().left() == 0

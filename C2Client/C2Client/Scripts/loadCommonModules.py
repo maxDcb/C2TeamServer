@@ -5,6 +5,12 @@ from ..grpc_status import is_response_ok, response_message
 
 MODULES = ["ls", "cd", "pwd", "tree"]
 
+DESCRIPTION = "Queues common operator modules on every live session from the current client snapshot."
+HOOK_DESCRIPTIONS = {
+    "ManualStart": "Manual hook that iterates every non-killed session and queues loadModule for common modules.",
+}
+
+
 def ManualStart(grpcClient, context):
     output = []
 

@@ -452,18 +452,22 @@ class Listeners(QWidget):
             # add
             # if listener is not yet already on our list
             if not inStore:
-
-                self.listenerScriptSignal.emit("start", "", "", "")
-
                 if listener.type == GithubType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count)
                 elif listener.type == DnsType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count)
                 elif listener.type == SmbType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count)
                 else:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count)
+                self.listListenerObject.append(listenerStore)
                 self.idListener = self.idListener+1
+                self.listenerScriptSignal.emit(
+                    "start",
+                    listenerStore.listenerHash,
+                    listenerStore.type,
+                    listenerStore.host,
+                )
 
         self.printListeners()
 

@@ -469,7 +469,6 @@ class Sessions(QWidget):
             for sessionStore in self.listSessionObject:
                 #maj
                 if session.listener_hash == sessionStore.listenerHash and session.beacon_hash == sessionStore.beaconHash:
-                    self.sessionScriptSignal.emit("update", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
                     inStore=True
                     sessionStore.lastProofOfLife=session.last_proof_of_life
                     sessionStore.listenerHash=session.listener_hash
@@ -493,9 +492,9 @@ class Sessions(QWidget):
                         sessionStore.processId=session.process_id
                     if session.additional_information:
                         sessionStore.additionalInformation=session.additional_information
+                    self.sessionScriptSignal.emit("update", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
             # add
             if not inStore:
-                self.sessionScriptSignal.emit("start", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
                 self.listSessionObject.append(
                     Session(
                         self.idSession,
@@ -506,6 +505,7 @@ class Sessions(QWidget):
                         )
                     )
                 self.idSession = self.idSession+1
+                self.sessionScriptSignal.emit("start", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
 
         self.printSessions()
 

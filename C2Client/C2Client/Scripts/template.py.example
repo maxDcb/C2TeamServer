@@ -1,6 +1,20 @@
 from ..grpcClient import GrpcClient, TeamServerApi_pb2
 
 
+DESCRIPTION = "Example hook file showing the uniform HookName(grpcClient, context) API."
+HOOK_DESCRIPTIONS = {
+    "ManualStart": "Manual hook with access to the full sessions/listeners snapshot.",
+    "OnStart": "Runs when the client connects or reconnects to the TeamServer.",
+    "OnStop": "Runs during client shutdown.",
+    "OnListenerStart": "Runs when a listener appears in the listener snapshot.",
+    "OnListenerStop": "Runs when a listener stop event is observed.",
+    "OnSessionStart": "Runs when a new session appears in the session snapshot.",
+    "OnSessionStop": "Runs when a session stop event is observed.",
+    "OnConsoleSend": "Runs after an operator command is queued from a beacon console.",
+    "OnConsoleReceive": "Runs when beacon command output is received.",
+}
+
+
 def ManualStart(grpcClient: GrpcClient, context: dict) -> str:
     sessions = context.get("sessions", [])
     listeners = context.get("listeners", [])
@@ -10,63 +24,51 @@ def ManualStart(grpcClient: GrpcClient, context: dict) -> str:
     return output
 
 
-def OnStart(grpcClient: GrpcClient) -> str:
+def OnStart(grpcClient: GrpcClient, context: dict) -> str:
     output = "Scrip test.py: OnStart\n"
     return output
 
 
-def OnStop(grpcClient: GrpcClient) -> str:
+def OnStop(grpcClient: GrpcClient, context: dict) -> str:
     output = "Scrip test.py: OnStop\n"
     return output
 
 
-def OnListenerStart(grpcClient: GrpcClient) -> str:
+def OnListenerStart(grpcClient: GrpcClient, context: dict) -> str:
+    listener = context.get("object")
     output = "Scrip test.py: OnListenerStart\n"
+    if listener:
+        output += f"Listener: {listener.get('listener_hash')}\n"
     return output
 
 
-def OnListenerStop(grpcClient: GrpcClient) -> str:
+def OnListenerStop(grpcClient: GrpcClient, context: dict) -> str:
     output = "Scrip test.py: OnListenerStop\n"
     return output
 
 
-def OnSessionStart(
-    grpcClient: GrpcClient,
-    beaconHash,
-    listenerHash,
-    hostname,
-    username,
-    arch,
-    privilege,
-    os,
-    lastProofOfLife,
-    killed,
-) -> str:
+def OnSessionStart(grpcClient: GrpcClient, context: dict) -> str:
+    session = context.get("object")
     output = "Scrip test.py: OnSessionStart\n"
+    if session:
+        output += f"Session: {session.get('beacon_hash')}\n"
     return output
 
 
-def OnSessionStop(
-    grpcClient: GrpcClient,
-    beaconHash,
-    listenerHash,
-    hostname,
-    username,
-    arch,
-    privilege,
-    os,
-    lastProofOfLife,
-    killed,
-) -> str:
+def OnSessionStop(grpcClient: GrpcClient, context: dict) -> str:
     output = "Scrip test.py: OnSessionStop\n"
     return output
 
 
-def OnConsoleSend(grpcClient: GrpcClient) -> str:
+def OnConsoleSend(grpcClient: GrpcClient, context: dict) -> str:
+    event = context.get("event", {})
     output = "Scrip test.py: OnConsoleSend\n"
+    output += f"Command: {event.get('command', '')}\n"
     return output
 
 
-def OnConsoleReceive(grpcClient: GrpcClient) -> str:
+def OnConsoleReceive(grpcClient: GrpcClient, context: dict) -> str:
+    event = context.get("event", {})
     output = "Scrip test.py: OnConsoleReceive\n"
+    output += f"Command ID: {event.get('command_id', '')}\n"
     return output

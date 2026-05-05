@@ -477,7 +477,7 @@ class ConsolesTab(QWidget):
 
         self.script = Script(self, self.grpcClient)
         tab = self.createConsolePage(self.script)
-        self.tabs.addTab(tab, "Script")
+        self.tabs.addTab(tab, "Hooks")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
         self.assistant = Assistant(self, self.grpcClient)

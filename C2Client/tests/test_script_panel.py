@@ -6,36 +6,31 @@ class RaisingScript:
     __name__ = "RaisingScript"
 
     @staticmethod
-    def OnStart(grpc_client):
+    def OnStart(grpc_client, context):
         raise RuntimeError("boom")
 
 
 class ConsoleContextScript:
     calls = []
+    DESCRIPTION = "Console hook test file."
+    HOOK_DESCRIPTIONS = {
+        "OnConsoleSend": "Receives the unified console send context.",
+    }
 
     @staticmethod
-    def OnConsoleSend(grpc_client, beacon_hash, listener_hash, context, command, result, command_id):
-        ConsoleContextScript.calls.append(
-            (grpc_client, beacon_hash, listener_hash, context, command, result, command_id)
-        )
+    def OnConsoleSend(grpc_client, context):
+        ConsoleContextScript.calls.append((grpc_client, context))
         return "console send ok"
-
-
-class LegacyConsoleScript:
-    calls = 0
-
-    @staticmethod
-    def OnConsoleSend(grpc_client):
-        LegacyConsoleScript.calls += 1
-        return "legacy send ok"
 
 
 class OnStartScript:
     calls = 0
+    contexts = []
 
     @staticmethod
-    def OnStart(grpc_client):
+    def OnStart(grpc_client, context):
         OnStartScript.calls += 1
+        OnStartScript.contexts.append(context)
         return "start ok"
 
 
@@ -48,12 +43,12 @@ class ManualStartScript:
         return "manual ok"
 
 
-class LegacyManualStartScript:
+class OldManualStartScript:
     calls = 0
 
     @staticmethod
     def ManualStart(grpc_client):
-        LegacyManualStartScript.calls += 1
+        OldManualStartScript.calls += 1
         return "legacy manual ok"
 
 
@@ -91,6 +86,9 @@ def test_script_panel_lists_hooks_and_import_errors(qtbot, monkeypatch):
     assert script_panel.automationTable.rowCount() == 2
     assert script_panel.scriptStates["ConsoleContextScript"]["hooks"] == ["OnConsoleSend"]
     assert script_panel.scriptStates["C2Client.Scripts.badScript"]["errors"] == 1
+    row = script_panel.tableItemsByScript["ConsoleContextScript"]
+    assert "Console hook test file." in script_panel.automationTable.item(row, 1).toolTip()
+    assert "Receives the unified console send context." in script_panel.automationTable.item(row, 2).toolTip()
 
 
 def test_script_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
@@ -103,24 +101,39 @@ def test_script_console_uses_role_badges_without_default_marker(qtbot, monkeypat
     script_panel.mainScriptMethod("start", "", "", "")
 
     output = script_panel.editorOutput.toPlainText()
-    assert "[system] Loaded automations:" in output
+    assert "[system] Loaded hooks:" in output
     assert "[script] OnStart" in output
     assert "[+]" not in output
     assert output.endswith("\n\n")
 
 
-def test_console_hook_receives_context_and_legacy_signature_still_works(qtbot, monkeypatch):
+def test_console_hook_receives_unified_context(qtbot, monkeypatch):
     ConsoleContextScript.calls = []
-    LegacyConsoleScript.calls = 0
     grpc_client = object()
-    monkeypatch.setattr(
-        "C2Client.ScriptPanel.LoadedScripts",
-        [ConsoleContextScript, LegacyConsoleScript],
-    )
+    monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [ConsoleContextScript])
     monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
 
     script_panel = Script(None, grpc_client)
     qtbot.addWidget(script_panel)
+    script_panel.setClientStateProvider(
+        lambda: {
+            "sessions": [
+                {
+                    "beacon_hash": "beacon",
+                    "listener_hash": "listener",
+                    "hostname": "host",
+                }
+            ],
+            "listeners": [
+                {
+                    "listener_hash": "listener",
+                    "type": "https",
+                    "host": "0.0.0.0",
+                    "port": 8443,
+                }
+            ],
+        }
+    )
 
     script_panel.consoleScriptMethod(
         "send",
@@ -132,11 +145,17 @@ def test_console_hook_receives_context_and_legacy_signature_still_works(qtbot, m
         "cmd-1",
     )
 
-    assert ConsoleContextScript.calls == [
-        (grpc_client, "beacon", "listener", "Host host - Username user", "whoami", "", "cmd-1")
-    ]
-    assert LegacyConsoleScript.calls == 1
-    assert script_panel.lastHookContexts["OnConsoleSend"]["args"][3] == "whoami"
+    assert len(ConsoleContextScript.calls) == 1
+    context = ConsoleContextScript.calls[0][1]
+    assert ConsoleContextScript.calls[0][0] is grpc_client
+    assert context["hook"] == "OnConsoleSend"
+    assert context["trigger"] == "send"
+    assert context["object_type"] == "session"
+    assert context["object_id"] == "beacon"
+    assert context["object"]["hostname"] == "host"
+    assert context["event"]["command"] == "whoami"
+    assert context["event"]["command_id"] == "cmd-1"
+    assert script_panel.lastHookContexts["OnConsoleSend"]["event"]["command"] == "whoami"
 
 
 def test_disabled_script_does_not_run_automatically(qtbot, monkeypatch):
@@ -189,12 +208,13 @@ def test_manual_run_replays_last_hook_context(qtbot, monkeypatch):
     script_panel.runSelectedHook()
 
     assert len(ConsoleContextScript.calls) == 2
-    assert ConsoleContextScript.calls[1][4] == "whoami"
+    assert ConsoleContextScript.calls[1][1]["event"]["command"] == "whoami"
     assert script_panel.scriptStates["ConsoleContextScript"]["activations"] == 2
 
 
 def test_onstart_trigger_subtlety_is_available_in_hook_tooltip(qtbot, monkeypatch):
     OnStartScript.calls = 0
+    OnStartScript.contexts = []
     monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [OnStartScript])
     monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
 
@@ -207,6 +227,8 @@ def test_onstart_trigger_subtlety_is_available_in_hook_tooltip(qtbot, monkeypatc
     script_panel.mainScriptMethod("start", "", "", "")
 
     assert OnStartScript.calls == 1
+    assert OnStartScript.contexts[0]["hook"] == "OnStart"
+    assert OnStartScript.contexts[0]["trigger"] == "start"
     assert "Trigger:" not in script_panel.editorOutput.toPlainText()
 
 
@@ -252,19 +274,20 @@ def test_manual_start_hook_runs_without_captured_context(qtbot, monkeypatch):
     assert "manual ok" in script_panel.editorOutput.toPlainText()
 
 
-def test_legacy_manual_start_hook_still_runs_without_context_arg(qtbot, monkeypatch):
-    LegacyManualStartScript.calls = 0
-    monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [LegacyManualStartScript])
+def test_old_hook_signature_is_not_supported(qtbot, monkeypatch):
+    OldManualStartScript.calls = 0
+    monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [OldManualStartScript])
     monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
 
     script_panel = Script(None, object())
     qtbot.addWidget(script_panel)
     script_panel.setClientStateProvider(lambda: {"sessions": [{"beacon_hash": "beacon"}], "listeners": []})
 
-    row = script_panel.tableItemsByScript["LegacyManualStartScript"]
+    row = script_panel.tableItemsByScript["OldManualStartScript"]
     script_panel.automationTable.setCurrentCell(row, 1)
     script_panel.updateManualHookSelector()
     script_panel.runSelectedHook()
 
-    assert LegacyManualStartScript.calls == 1
-    assert script_panel.scriptStates["LegacyManualStartScript"]["activations"] == 1
+    assert OldManualStartScript.calls == 0
+    assert script_panel.scriptStates["OldManualStartScript"]["activations"] == 1
+    assert script_panel.scriptStates["OldManualStartScript"]["errors"] == 1
