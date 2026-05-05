@@ -6,6 +6,8 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerArtifactCatalog.cpp
     teamServer/TeamServerArtifactService.cpp
     teamServer/TeamServerAuth.cpp
+    teamServer/TeamServerCommandCatalog.cpp
+    teamServer/TeamServerCommandCatalogService.cpp
     teamServer/TeamServerCommandPreparationService.cpp
     teamServer/TeamServerHelpService.cpp
     teamServer/TeamServerListenerArtifactService.cpp
@@ -84,6 +86,8 @@ add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/TeamServerConfig.json")
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     ${CMAKE_SOURCE_DIR}/teamServer/teamServer/auth_credentials.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/auth_credentials.json")
+add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/core/modules/ModuleCmd/CommandSpecs "${C2_RUNTIME_ROOT}/CommandSpecs")
 
 function(teamserver_add_test target_name link_target)
     add_executable(${target_name} ${ARGN})
@@ -117,6 +121,11 @@ if(WITH_TESTS)
     teamserver_add_test(testsTeamServerArtifactCatalog
         server_core
         tests/TeamServerArtifactCatalogTests.cpp
+    )
+
+    teamserver_add_test(testsTeamServerCommandCatalog
+        server_core
+        tests/TeamServerCommandCatalogTests.cpp
     )
 
     teamserver_add_test(testsTeamServerSocksService

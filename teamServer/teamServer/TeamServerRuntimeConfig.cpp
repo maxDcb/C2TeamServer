@@ -20,6 +20,8 @@ TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& 
     runtimeConfig.windowsBeaconsDirectoryPath = config["WindowsBeaconsDirectoryPath"].get<std::string>();
     runtimeConfig.toolsDirectoryPath = config["ToolsDirectoryPath"].get<std::string>();
     runtimeConfig.scriptsDirectoryPath = config["ScriptsDirectoryPath"].get<std::string>();
+    if (auto it = config.find("CommandSpecsDirectoryPath"); it != config.end() && it->is_string())
+        runtimeConfig.commandSpecsDirectoryPath = it->get<std::string>();
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());
     if (auto it = config.find("SupportedWindowsArchs"); it != config.end() && it->is_array())
@@ -105,6 +107,9 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
 
     if (!fs::exists(scriptsDirectoryPath))
         logger->error("Script directory path don't exist: {0}", scriptsDirectoryPath.c_str());
+
+    if (!fs::exists(commandSpecsDirectoryPath))
+        logger->error("Command specs directory path don't exist: {0}", commandSpecsDirectoryPath.c_str());
 }
 
 void TeamServerRuntimeConfig::configureCommonCommands(CommonCommands& commonCommands) const

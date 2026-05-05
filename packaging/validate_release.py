@@ -219,6 +219,7 @@ def validate_base_release(release_root: Path) -> None:
 
     teamserver_root = release_root / "TeamServer"
     modules_root = release_root / "TeamServerModules"
+    command_specs_root = release_root / "CommandSpecs"
     client_root = release_root / "Client"
 
     if not teamserver_root.is_dir():
@@ -234,6 +235,9 @@ def validate_base_release(release_root: Path) -> None:
         raise ValidationError(f"Missing TeamServer logs directory: {teamserver_root / 'logs'}")
 
     _require_directory_exact(modules_root, EXPECTED_TEAMSERVER_MODULES)
+
+    _require_non_empty_file(command_specs_root / "common" / "sleep.json")
+    _require_non_empty_file(command_specs_root / "common" / "end.json")
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")

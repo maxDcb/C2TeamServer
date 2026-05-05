@@ -19,8 +19,10 @@ grpc::Status TeamServerArtifactService::listArtifacts(
     TeamServerArtifactQuery catalogQuery;
     catalogQuery.category = query.category();
     catalogQuery.scope = query.scope();
+    catalogQuery.target = query.target();
     catalogQuery.platform = query.platform();
     catalogQuery.arch = query.arch();
+    catalogQuery.runtime = query.runtime();
     catalogQuery.nameContains = query.name_contains();
 
     const std::vector<TeamServerArtifactRecord> artifacts = m_catalog.listArtifacts(catalogQuery);
@@ -43,9 +45,11 @@ teamserverapi::ArtifactSummary TeamServerArtifactService::toProto(const TeamServ
     summary.set_display_name(artifact.displayName);
     summary.set_category(artifact.category);
     summary.set_scope(artifact.scope);
+    summary.set_target(artifact.target);
     summary.set_platform(artifact.platform);
     summary.set_arch(artifact.arch);
     summary.set_format(artifact.format);
+    summary.set_runtime(artifact.runtime);
     summary.set_source(artifact.source);
     summary.set_size(artifact.size);
     summary.set_sha256(artifact.sha256);

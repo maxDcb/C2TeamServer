@@ -31,6 +31,7 @@
 
 class TeamServerAuthManager;
 class TeamServerArtifactService;
+class TeamServerCommandCatalogService;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
 class TeamServerListenerArtifactService;
@@ -55,6 +56,7 @@ public:
     grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response) override;
 
     grpc::Status ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer) override;
+    grpc::Status ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer) override;
 
     grpc::Status SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response) override;
     grpc::Status StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer) override;
@@ -94,6 +96,7 @@ private:
 
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerArtifactService> m_artifactService;
+    std::unique_ptr<TeamServerCommandCatalogService> m_commandCatalogService;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
     std::unique_ptr<TeamServerListenerArtifactService> m_listenerArtifactService;

@@ -135,7 +135,9 @@ void testCatalogIndexesReleaseRoots()
     const TeamServerArtifactRecord* windowsModule = findArtifact(artifacts, "winmod64.dll", "module", "windows", "x64");
     assert(windowsModule != nullptr);
     assert(windowsModule->scope == "beacon");
+    assert(windowsModule->target == "beacon");
     assert(windowsModule->format == "dll");
+    assert(windowsModule->runtime == "native");
     assert(windowsModule->source == "release");
     assert(windowsModule->size == 18);
     assert(windowsModule->sha256.size() == 64);
@@ -146,11 +148,14 @@ void testCatalogIndexesReleaseRoots()
     assert(linuxBeacon != nullptr);
     assert(linuxBeacon->format == "binary");
     assert(linuxBeacon->scope == "implant");
+    assert(linuxBeacon->target == "listener");
 
     const TeamServerArtifactRecord* script = findArtifact(artifacts, "startup.py", "script", "any", "any");
     assert(script != nullptr);
     assert(script->scope == "teamserver");
+    assert(script->target == "teamserver");
     assert(script->format == "py");
+    assert(script->runtime == "python");
 }
 
 void testCatalogFiltersArtifacts()
@@ -205,6 +210,8 @@ void testArtifactServiceStreamsPublicMetadataOnly()
     assert(summaries[0].name() == "startup.py");
     assert(summaries[0].category() == "script");
     assert(summaries[0].scope() == "teamserver");
+    assert(summaries[0].target() == "teamserver");
+    assert(summaries[0].runtime() == "python");
     assert(summaries[0].sha256().size() == 64);
     assert(summaries[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }

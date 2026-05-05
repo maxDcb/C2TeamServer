@@ -53,8 +53,10 @@ bool matchesQuery(const TeamServerArtifactRecord& artifact, const TeamServerArti
 {
     return matchesExact(query.category, artifact.category)
         && matchesExact(query.scope, artifact.scope)
+        && matchesExact(query.target, artifact.target)
         && matchesExactOrAny(query.platform, artifact.platform)
         && matchesExactOrAny(query.arch, artifact.arch)
+        && matchesExactOrAny(query.runtime, artifact.runtime)
         && containsCaseInsensitive(artifact.name, query.nameContains);
 }
 
@@ -145,8 +147,10 @@ void collectDirectoryArtifacts(
     const fs::path& root,
     const std::string& category,
     const std::string& scope,
+    const std::string& target,
     const std::string& platform,
     const std::string& arch,
+    const std::string& runtime,
     std::vector<TeamServerArtifactRecord>& artifacts)
 {
     std::error_code ec;
@@ -188,9 +192,11 @@ void collectDirectoryArtifacts(
         artifact.displayName = path.filename().string();
         artifact.category = category;
         artifact.scope = scope;
+        artifact.target = target;
         artifact.platform = platform;
         artifact.arch = arch;
         artifact.format = detectFormat(path);
+        artifact.runtime = runtime;
         artifact.source = ReleaseSource;
         artifact.sha256 = contentHash;
         artifact.internalPath = path.string();
@@ -205,9 +211,10 @@ void collectDirectoryArtifacts(
         artifact.artifactId = sha256String(
             artifact.source + "\n"
             + artifact.category + "\n"
-            + artifact.scope + "\n"
+            + artifact.target + "\n"
             + artifact.platform + "\n"
             + artifact.arch + "\n"
+            + artifact.runtime + "\n"
             + artifact.name + "\n"
             + artifact.sha256);
         if (artifact.artifactId.empty())
@@ -221,10 +228,12 @@ void collectWindowsArchArtifacts(
     const std::vector<std::string>& supportedArchs,
     const std::string& category,
     const std::string& scope,
+    const std::string& target,
+    const std::string& runtime,
     std::vector<TeamServerArtifactRecord>& artifacts)
 {
     for (const std::string& arch : supportedArchs)
-        collectDirectoryArtifacts(root / arch, category, scope, "windows", arch, artifacts);
+        collectDirectoryArtifacts(root / arch, category, scope, target, "windows", arch, runtime, artifacts);
 }
 
 bool sortArtifacts(const TeamServerArtifactRecord& left, const TeamServerArtifactRecord& right)
@@ -242,13 +251,13 @@ TeamServerArtifactCatalog::TeamServerArtifactCatalog(TeamServerRuntimeConfig run
 std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(const TeamServerArtifactQuery& query) const
 {
     std::vector<TeamServerArtifactRecord> allArtifacts;
-    collectDirectoryArtifacts(m_runtimeConfig.teamServerModulesDirectoryPath, "module", "teamserver", "server", "any", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.linuxModulesDirectoryPath, "module", "beacon", "linux", "any", allArtifacts);
-    collectWindowsArchArtifacts(m_runtimeConfig.windowsModulesDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "module", "beacon", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.linuxBeaconsDirectoryPath, "beacon", "implant", "linux", "any", allArtifacts);
-    collectWindowsArchArtifacts(m_runtimeConfig.windowsBeaconsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "beacon", "implant", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.toolsDirectoryPath, "tool", "server", "any", "any", allArtifacts);
-    collectDirectoryArtifacts(m_runtimeConfig.scriptsDirectoryPath, "script", "teamserver", "any", "any", allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.teamServerModulesDirectoryPath, "module", "teamserver", "teamserver", "server", "any", "native", allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.linuxModulesDirectoryPath, "module", "beacon", "beacon", "linux", "any", "native", allArtifacts);
+    collectWindowsArchArtifacts(m_runtimeConfig.windowsModulesDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "module", "beacon", "beacon", "native", allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.linuxBeaconsDirectoryPath, "beacon", "implant", "listener", "linux", "any", "native", allArtifacts);
+    collectWindowsArchArtifacts(m_runtimeConfig.windowsBeaconsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "beacon", "implant", "listener", "native", allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.toolsDirectoryPath, "tool", "server", "teamserver", "any", "any", "any", allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.scriptsDirectoryPath, "script", "teamserver", "teamserver", "any", "any", "python", allArtifacts);
 
     std::vector<TeamServerArtifactRecord> filteredArtifacts;
     for (const TeamServerArtifactRecord& artifact : allArtifacts)

@@ -229,6 +229,13 @@ class GrpcClient:
             query = TeamServerApi_pb2.ArtifactQuery()
         return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata))
 
+    def listCommands(self, query: Optional[Any] = None) -> Iterable[Any]:
+        """Return command specs exposed by the TeamServer catalog."""
+
+        if query is None:
+            query = TeamServerApi_pb2.CommandQuery()
+        return self._stream_rpc("ListCommands", lambda: self.stub.ListCommands(query, metadata=self.metadata))
+
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 

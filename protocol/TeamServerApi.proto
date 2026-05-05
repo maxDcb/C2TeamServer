@@ -15,6 +15,7 @@ service TeamServerApi
   rpc StopSession(SessionSelector) returns (OperationAck) {}
 
   rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
+  rpc ListCommands(CommandQuery) returns (stream CommandSpec) {}
 
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
@@ -109,6 +110,8 @@ message ArtifactQuery
   string platform = 3;
   string arch = 4;
   string name_contains = 5;
+  string target = 6;
+  string runtime = 7;
 }
 
 
@@ -127,6 +130,45 @@ message ArtifactSummary
   string sha256 = 11;
   string description = 12;
   repeated string tags = 13;
+  string target = 14;
+  string runtime = 15;
+}
+
+
+message CommandQuery
+{
+  string kind = 1;
+  string target = 2;
+  string platform = 3;
+  string name_contains = 4;
+}
+
+
+message CommandArgSpec
+{
+  string name = 1;
+  string type = 2;
+  bool required = 3;
+  string description = 4;
+  repeated string values = 5;
+  ArtifactQuery artifact_filter = 6;
+  bool variadic = 7;
+}
+
+
+message CommandSpec
+{
+  string name = 1;
+  string display_name = 2;
+  string kind = 3;
+  string description = 4;
+  string target = 5;
+  bool requires_session = 6;
+  repeated string platforms = 7;
+  repeated string archs = 8;
+  repeated CommandArgSpec args = 9;
+  repeated string examples = 10;
+  string source = 11;
 }
 
 

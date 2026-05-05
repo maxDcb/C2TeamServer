@@ -10,6 +10,7 @@
     "SupportedWindowsArchs": ["x86", "x64", "arm64"],
     "ToolsDirectoryPath": "../Tools/",
     "ScriptsDirectoryPath": "../Scripts/",
+    "CommandSpecsDirectoryPath": "../CommandSpecs/",
     "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
     "ExposedIp": "",

@@ -4,6 +4,8 @@
 #include "TeamServerArtifactService.hpp"
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
+#include "TeamServerCommandCatalog.hpp"
+#include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
 #include "TeamServerHelpService.hpp"
 #include "TeamServerListenerArtifactService.hpp"
@@ -52,6 +54,9 @@ TeamServer::TeamServer(const nlohmann::json& config)
     m_artifactService = std::make_unique<TeamServerArtifactService>(
         m_logger,
         TeamServerArtifactCatalog(runtimeConfig));
+    m_commandCatalogService = std::make_unique<TeamServerCommandCatalogService>(
+        m_logger,
+        TeamServerCommandCatalog(runtimeConfig));
     m_helpService = std::make_unique<TeamServerHelpService>(
         m_logger,
         m_listeners,
@@ -175,6 +180,15 @@ grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teams
         return authStatus;
     return m_artifactService->listArtifacts(*query, [&](const teamserverapi::ArtifactSummary& artifact)
         { return writer->Write(artifact); });
+}
+
+grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_commandCatalogService->listCommands(*query, [&](const teamserverapi::CommandSpec& command)
+        { return writer->Write(command); });
 }
 
 grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)

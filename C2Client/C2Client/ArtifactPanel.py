@@ -28,18 +28,21 @@ ArtifactTabTitle = "Artifacts"
 
 ALL_FILTER = "All"
 CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script"]
+TARGET_FILTERS = [ALL_FILTER, "teamserver", "beacon", "listener", "operator", "any"]
 PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server", "any"]
 ARCH_FILTERS = [ALL_FILTER, "x64", "x86", "arm64", "any"]
+RUNTIME_FILTERS = [ALL_FILTER, "native", "python", "dotnet", "powershell", "bof", "shellcode", "text", "archive", "any"]
 
 COL_CATEGORY = 0
-COL_NAME = 1
-COL_PLATFORM = 2
-COL_ARCH = 3
-COL_FORMAT = 4
-COL_SIZE = 5
-COL_SHA256 = 6
-COL_SCOPE = 7
-COL_SOURCE = 8
+COL_TARGET = 1
+COL_NAME = 2
+COL_PLATFORM = 3
+COL_ARCH = 4
+COL_RUNTIME = 5
+COL_FORMAT = 6
+COL_SIZE = 7
+COL_SHA256 = 8
+COL_SOURCE = 9
 
 
 def _text(value: Any) -> str:
@@ -79,7 +82,7 @@ def format_size(size: Any) -> str:
 
 
 class Artifacts(QWidget):
-    COLUMN_WIDTHS = [82, 220, 86, 66, 70, 86, 112, 98, 88]
+    COLUMN_WIDTHS = [82, 96, 220, 86, 66, 92, 70, 86, 112, 88]
     STRETCH_COLUMN = COL_NAME
 
     def __init__(self, parent: QWidget | None, grpcClient: Any) -> None:
@@ -96,8 +99,10 @@ class Artifacts(QWidget):
         toolbar.setSpacing(6)
 
         self.categoryFilter = self.createFilter(CATEGORY_FILTERS, "Filter by artifact category.")
+        self.targetFilter = self.createFilter(TARGET_FILTERS, "Filter by execution or ownership target.")
         self.platformFilter = self.createFilter(PLATFORM_FILTERS, "Filter by target platform.")
         self.archFilter = self.createFilter(ARCH_FILTERS, "Filter by target architecture.")
+        self.runtimeFilter = self.createFilter(RUNTIME_FILTERS, "Filter by runtime or file family.")
         self.searchInput = QLineEdit(self)
         self.searchInput.setPlaceholderText("Name contains")
         self.searchInput.setToolTip("Filter artifacts by name.")
@@ -110,10 +115,14 @@ class Artifacts(QWidget):
 
         toolbar.addWidget(QLabel("Category"))
         toolbar.addWidget(self.categoryFilter)
+        toolbar.addWidget(QLabel("Target"))
+        toolbar.addWidget(self.targetFilter)
         toolbar.addWidget(QLabel("Platform"))
         toolbar.addWidget(self.platformFilter)
         toolbar.addWidget(QLabel("Arch"))
         toolbar.addWidget(self.archFilter)
+        toolbar.addWidget(QLabel("Runtime"))
+        toolbar.addWidget(self.runtimeFilter)
         toolbar.addWidget(self.searchInput, 1)
         toolbar.addWidget(self.refreshButton)
         toolbar.addWidget(self.copyIdButton)
@@ -131,7 +140,7 @@ class Artifacts(QWidget):
         self.artifactTable.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.artifactTable.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.artifactTable.setRowCount(0)
-        self.artifactTable.setColumnCount(9)
+        self.artifactTable.setColumnCount(10)
         self.artifactTable.verticalHeader().setVisible(False)
         self.artifactTable.itemSelectionChanged.connect(self.updateActionButtons)
         self.configureTableColumns()
@@ -181,6 +190,14 @@ class Artifacts(QWidget):
         if arch != ALL_FILTER:
             query.arch = arch
 
+        target = self.targetFilter.currentText()
+        if target != ALL_FILTER:
+            query.target = target
+
+        runtime = self.runtimeFilter.currentText()
+        if runtime != ALL_FILTER:
+            query.runtime = runtime
+
         name_contains = self.searchInput.text().strip()
         if name_contains:
             query.name_contains = name_contains
@@ -210,7 +227,7 @@ class Artifacts(QWidget):
     def printArtifacts(self) -> None:
         self.artifactTable.setRowCount(len(self.artifacts))
         self.artifactTable.setHorizontalHeaderLabels(
-            ["Category", "Name", "Platform", "Arch", "Format", "Size", "SHA256", "Scope", "Source"]
+            ["Category", "Target", "Name", "Platform", "Arch", "Runtime", "Format", "Size", "SHA256", "Source"]
         )
 
         for row, artifact in enumerate(self.artifacts):
@@ -222,13 +239,14 @@ class Artifacts(QWidget):
 
             values = [
                 _text(_field(artifact, "category")),
+                _text(_field(artifact, "target")) or _text(_field(artifact, "scope")),
                 name,
                 _text(_field(artifact, "platform")),
                 _text(_field(artifact, "arch")),
+                _text(_field(artifact, "runtime")),
                 _text(_field(artifact, "format")),
                 format_size(_field(artifact, "size", 0)),
                 _short_hash(full_hash),
-                _text(_field(artifact, "scope")),
                 _text(_field(artifact, "source")),
             ]
 

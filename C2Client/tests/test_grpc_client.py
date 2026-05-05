@@ -73,6 +73,28 @@ def test_grpc_client_lists_artifacts(tmp_path, monkeypatch):
     assert events == [("ListArtifacts", True, "")]
 
 
+def test_grpc_client_lists_commands(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    query = object()
+    command = object()
+    stub.ListCommands.return_value = iter([command])
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    events = []
+    client.set_status_callback(lambda operation, ok, message: events.append((operation, ok, message)))
+
+    assert list(client.listCommands(query)) == [command]
+    stub.ListCommands.assert_called_once_with(query, metadata=client.metadata)
+    assert events == [("ListCommands", True, "")]
+
+
 def test_grpc_client_uses_env_certificate_and_grpc_options(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

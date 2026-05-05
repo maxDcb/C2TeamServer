@@ -15,8 +15,10 @@ class FakeGrpc:
                 display_name="winmod64.dll",
                 category="module",
                 scope="beacon",
+                target="beacon",
                 platform="windows",
                 arch="x64",
+                runtime="native",
                 format="dll",
                 source="release",
                 size=2048,
@@ -29,8 +31,10 @@ class FakeGrpc:
                 display_name="startup.py",
                 category="script",
                 scope="teamserver",
+                target="teamserver",
                 platform="any",
                 arch="any",
+                runtime="python",
                 format="py",
                 source="release",
                 size=12,
@@ -64,21 +68,27 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
 
     assert panel.artifactTable.rowCount() == 2
     assert panel.artifactTable.item(0, 0).text() == "module"
-    assert panel.artifactTable.item(0, 1).text() == "winmod64.dll"
-    assert panel.artifactTable.item(0, 5).text() == "2.0 KB"
-    assert panel.artifactTable.item(0, 6).text() == "aaaaaaaaaaaa"
-    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 1).toolTip()
+    assert panel.artifactTable.item(0, 1).text() == "beacon"
+    assert panel.artifactTable.item(0, 2).text() == "winmod64.dll"
+    assert panel.artifactTable.item(0, 5).text() == "native"
+    assert panel.artifactTable.item(0, 7).text() == "2.0 KB"
+    assert panel.artifactTable.item(0, 8).text() == "aaaaaaaaaaaa"
+    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 2).toolTip()
 
     panel.categoryFilter.setCurrentText("module")
+    panel.targetFilter.setCurrentText("beacon")
     panel.platformFilter.setCurrentText("windows")
     panel.archFilter.setCurrentText("x64")
+    panel.runtimeFilter.setCurrentText("native")
     panel.searchInput.setText("win")
     panel.refreshArtifacts()
 
     query = grpc.queries[-1]
     assert query.category == "module"
+    assert query.target == "beacon"
     assert query.platform == "windows"
     assert query.arch == "x64"
+    assert query.runtime == "native"
     assert query.name_contains == "win"
 
     panel.artifactTable.selectRow(0)
