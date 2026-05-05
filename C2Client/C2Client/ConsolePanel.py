@@ -180,8 +180,13 @@ def _argument_artifact_completion_values(artifact: Any) -> list[str]:
     ])
 
 
-def _artifact_value_continuations(arg: Any) -> list[str]:
+def _artifact_value_continuations(arg: Any, command_name: str = "") -> list[str]:
     name = _arg_name(arg)
+    if command_name == "inject":
+        if name == "--donut-dll":
+            return ["--pid", "--method"]
+        if name in {"--raw", "--donut-exe"}:
+            return ["--pid"]
     if name == "--donut-exe":
         return ["--"]
     if name == "--donut-dll":
@@ -194,8 +199,9 @@ def _add_artifact_completions(
     grpcClient: Any,
     arg: Any,
     session: Any | None,
+    command_name: str = "",
 ) -> None:
-    continuations = _artifact_value_continuations(arg)
+    continuations = _artifact_value_continuations(arg, command_name)
     for artifact in _load_artifacts_for_arg(grpcClient, arg, session):
         for value in _argument_artifact_completion_values(artifact):
             _add_completion_value(children, value)
@@ -211,6 +217,7 @@ def _build_flag_entries(
     session: Any | None = None,
     *,
     include_context_only: bool = False,
+    command_name: str = "",
 ) -> list[tuple[str, list]]:
     entries: list[tuple[str, list]] = []
     for arg in args:
@@ -226,7 +233,7 @@ def _build_flag_entries(
             continue
         for value in getattr(arg, "values", []):
             _add_completion_value(flag_entry[1], value)
-        _add_artifact_completions(flag_entry[1], grpcClient, arg, session)
+        _add_artifact_completions(flag_entry[1], grpcClient, arg, session, command_name)
     return entries
 
 
@@ -254,7 +261,8 @@ def _add_arg_completions(
     session: Any | None = None,
 ) -> None:
     args = list(getattr(command, "args", []))
-    flag_entries = _build_flag_entries(args, grpcClient, session)
+    command_name = str(getattr(command, "name", "") or "")
+    flag_entries = _build_flag_entries(args, grpcClient, session, command_name=command_name)
     _merge_completion_entries(children, flag_entries)
     _add_mode_value_flag_completions(children, args, grpcClient, session)
 
@@ -267,7 +275,7 @@ def _add_arg_completions(
             continue
         for value in getattr(arg, "values", []):
             _add_completion_value(children, value)
-        _add_artifact_completions(children, grpcClient, arg, session)
+        _add_artifact_completions(children, grpcClient, arg, session, command_name)
         first_positional_done = True
 
 

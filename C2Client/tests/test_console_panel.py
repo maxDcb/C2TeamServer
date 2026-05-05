@@ -347,6 +347,8 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
                 ])
             if query.name_contains == ".dll":
                 return iter([SimpleNamespace(name="Tools/Example.dll", display_name="Example.dll")])
+            if query.name_contains == ".bin":
+                return iter([SimpleNamespace(name="payloads/loader.bin", display_name="loader.bin")])
             return iter([])
 
     artifact_filter_exe = SimpleNamespace(
@@ -366,6 +368,15 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         arch="",
         runtime="any",
         name_contains=".dll",
+    )
+    artifact_filter_bin = SimpleNamespace(
+        category="tool",
+        scope="server",
+        target="teamserver",
+        platform="windows",
+        arch="",
+        runtime="any",
+        name_contains=".bin",
     )
     assembly_spec = SimpleNamespace(
         name="assemblyExec",
@@ -413,6 +424,31 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     assert grpc.queries[0].platform == "windows"
     assert grpc.queries[0].runtime == "any"
     assert grpc.queries[0].name_contains == ".exe"
+
+    inject_spec = SimpleNamespace(
+        name="inject",
+        kind="module",
+        examples=[
+            "inject --raw loader.bin --pid 4321",
+            "inject --donut-exe Seatbelt.exe --pid 4321 -- arg",
+            "inject --donut-dll Tool.dll --pid -1 --method EntryPoint -- arg",
+        ],
+        args=[
+            SimpleNamespace(name="--pid", type="flag", values=[]),
+            SimpleNamespace(name="--raw", type="flag", values=[], artifact_filter=artifact_filter_bin),
+            SimpleNamespace(name="--donut-exe", type="flag", values=[], artifact_filter=artifact_filter_exe),
+            SimpleNamespace(name="--donut-dll", type="flag", values=[], artifact_filter=artifact_filter_dll),
+            SimpleNamespace(name="--method", type="flag", values=[]),
+        ],
+    )
+
+    server_data = command_specs_to_completer_data([inject_spec], grpcClient=grpc)
+    inject_children = _completion_children(server_data, "inject")
+    raw_children = _completion_children(inject_children, "--raw")
+    assert ("--pid", []) in _completion_children(raw_children, "payloads/loader.bin")
+    inject_dll_children = _completion_children(inject_children, "--donut-dll")
+    assert ("--pid", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
+    assert ("--method", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
 
 
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():

@@ -9,6 +9,7 @@
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerCommandPreparationService.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
+#include "TeamServerInjectCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 
 namespace fs = std::filesystem;
@@ -97,6 +98,7 @@ public:
         c2Message.set_instruction(getName());
         c2Message.set_cmd(task.displayCommand);
         c2Message.set_args(task.executionMode);
+        c2Message.set_pid(task.pid);
         c2Message.set_inputfile(task.inputFile);
         c2Message.set_data(task.payload);
         return 0;
@@ -318,6 +320,87 @@ void testPrepareAssemblyExecDonutReportsMissingSource()
     assert(service.prepareMessage("assemblyExec --mode thread --donut-exe missing.exe", message, true, "x64") == -1);
     assert(message.returnvalue().find("Couldn't open Donut source file.") != std::string::npos);
 }
+
+void testPrepareInjectUsesShellcodeServiceAndGeneratedArtifactStore()
+{
+    ScopedPath tempRoot(makeTempDirectory("inject-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "payload.bin", "INJECT-SHELLCODE");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeShellcodeModule>("inject"));
+
+    auto shellcodeService = std::make_shared<TeamServerShellcodeService>(makeLogger());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerInjectCommandPreparer>(
+        makeLogger(),
+        runtimeConfig,
+        shellcodeService,
+        artifactStore,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    assert(service.prepareMessage("inject --raw payload.bin --pid 4321", message, true, "amd64") == 0);
+    assert(message.instruction() == "inject");
+    assert(message.pid() == 4321);
+    assert(message.data() == "INJECT-SHELLCODE");
+    assert(message.cmd() == "--raw payload.bin --pid 4321");
+    assert(message.inputfile().find("GeneratedArtifacts") != std::string::npos);
+    assert(fs::exists(message.inputfile()));
+    assert(fs::exists(message.inputfile() + ".artifact.json"));
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "payload";
+    query.scope = "generated";
+    query.runtime = "shellcode";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].source == "raw");
+    assert(artifacts[0].platform == "windows");
+    assert(artifacts[0].arch == "x64");
+    assert(artifacts[0].description == "Generated shellcode for inject.");
+}
+
+void testPrepareInjectDonutReportsMissingSource()
+{
+    ScopedPath tempRoot(makeTempDirectory("inject-donut-missing"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeShellcodeModule>("inject"));
+
+    auto shellcodeService = std::make_shared<TeamServerShellcodeService>(makeLogger());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerInjectCommandPreparer>(
+        makeLogger(),
+        runtimeConfig,
+        shellcodeService,
+        artifactStore,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    assert(service.prepareMessage("inject --donut-exe missing.exe --pid 4321 -- arg1", message, true, "x64") == -1);
+    assert(message.returnvalue().find("Couldn't open Donut source file.") != std::string::npos);
+}
 } // namespace
 
 int main()
@@ -328,5 +411,7 @@ int main()
     testPrepareLoadModuleUsesWindowsSessionArchitecture();
     testPrepareAssemblyExecUsesShellcodeServiceAndGeneratedArtifactStore();
     testPrepareAssemblyExecDonutReportsMissingSource();
+    testPrepareInjectUsesShellcodeServiceAndGeneratedArtifactStore();
+    testPrepareInjectDonutReportsMissingSource();
     return 0;
 }

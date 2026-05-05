@@ -12,6 +12,7 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerCommandPreparationService.cpp
     teamServer/TeamServerGeneratedArtifactStore.cpp
     teamServer/TeamServerHelpService.cpp
+    teamServer/TeamServerInjectCommandPreparer.cpp
     teamServer/TeamServerListenerArtifactService.cpp
     teamServer/TeamServerModuleLoader.cpp
     teamServer/TeamServerShellcodeService.cpp

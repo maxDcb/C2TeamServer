@@ -1,7 +1,7 @@
 {
   "name": "inject",
-  "description": "Inject raw shellcode or Donut-generated payload into a process.",
-  "command_template": "inject {payload_type} {input_file:q} {pid} {method:q?} {arguments:raw?}",
+  "description": "Inject raw shellcode or TeamServer-generated shellcode into a process.",
+  "command_template": "inject {payload_type} {input_file:q} --pid {pid} [--method {method:q}] {arguments:raw?}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -15,11 +15,11 @@
       },
       "payload_type": {
         "type": "string",
-        "description": "Payload source type accepted by init(): -r raw shellcode, -e .NET executable, or -d .NET DLL.",
+        "description": "Payload source flag: --raw for shellcode, --donut-exe for an executable, or --donut-dll for a DLL.",
         "enum": [
-          "-r",
-          "-e",
-          "-d"
+          "--raw",
+          "--donut-exe",
+          "--donut-dll"
         ]
       },
       "input_file": {
@@ -28,12 +28,11 @@
       },
       "pid": {
         "type": "integer",
-        "description": "Target process id.",
-        "minimum": 0
+        "description": "Target process id. Use a negative value to spawn the configured process before injection."
       },
       "method": {
         "type": "string",
-        "description": "DLL method name. Required only when payload_type is -d.",
+        "description": "DLL method name. Required only when payload_type is --donut-dll.",
         "default": ""
       },
       "arguments": {

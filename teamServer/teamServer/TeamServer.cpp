@@ -10,6 +10,7 @@
 #include "TeamServerCommandPreparationService.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerHelpService.hpp"
+#include "TeamServerInjectCommandPreparer.hpp"
 #include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerListenerSessionService.hpp"
 #include "TeamServerModuleLoader.hpp"
@@ -92,6 +93,12 @@ TeamServer::TeamServer(const nlohmann::json& config)
     m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
     std::vector<std::unique_ptr<TeamServerCommandPreparer>> commandPreparers;
     commandPreparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerInjectCommandPreparer>(
         m_logger,
         runtimeConfig,
         m_shellcodeService,

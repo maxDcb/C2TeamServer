@@ -72,7 +72,7 @@ def test_build_command_line_rejects_missing_required_argument():
         ("enumerateShares", {"host": "fileserver"}, "enumerateShares fileserver"),
         ("evasion", {"action": "ReadMemory", "address": "0x1234", "value": "16"}, "evasion ReadMemory 0x1234 16"),
         ("getEnv", {}, "getEnv"),
-        ("inject", {"payload_type": "-d", "input_file": "payload.dll", "pid": 4242, "method": "Run", "arguments": "a b"}, "inject -d payload.dll 4242 Run a b"),
+        ("inject", {"payload_type": "--donut-dll", "input_file": "payload.dll", "pid": 4242, "method": "Run", "arguments": "a b"}, "inject --donut-dll payload.dll --pid 4242 --method Run a b"),
         ("ipConfig", {}, "ipConfig"),
         ("kerberosUseTicket", {"ticket_file": "/tmp/ticket.kirbi"}, "kerberosUseTicket /tmp/ticket.kirbi"),
         ("keyLogger", {"action": "start"}, "keyLogger start"),
