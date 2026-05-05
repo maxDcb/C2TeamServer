@@ -397,9 +397,6 @@ class Sessions(QWidget):
         self.listSession.verticalHeader().setVisible(False)
 
 
-    def switch_to_interactive(self):
-        return
-
     def __del__(self):
         self.getSessionsWorker.quit()
         self.thread.quit()

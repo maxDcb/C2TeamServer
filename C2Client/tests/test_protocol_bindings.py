@@ -1,6 +1,5 @@
 import importlib
 import sys
-from pathlib import Path
 
 
 def test_protocol_bindings_loads_importable_package_without_build_tree(monkeypatch, tmp_path):

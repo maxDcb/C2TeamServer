@@ -134,7 +134,6 @@ class App(QMainWindow):
         except ValueError as e:
             raise e
 
-        self.createPayloadWindow: Optional[QWidget] = None
         self.operatorUsername = username or getattr(self.grpcClient, "username", "") or "unknown"
         self._lastRpcError = ""
         
@@ -271,17 +270,6 @@ class App(QMainWindow):
         """Ensure scripts are stopped when the window is destroyed."""
         if hasattr(self, 'consoleWidget'):
             self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
-
-
-    def payloadForm(self) -> None:
-        """Display the payload creation window."""
-        if self.createPayloadWindow is None:
-            try:
-                from .ScriptPanel import CreatePayload  # type: ignore
-            except Exception:
-                CreatePayload = QWidget  # fallback to simple widget
-            self.createPayloadWindow = CreatePayload()
-        self.createPayloadWindow.show()
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

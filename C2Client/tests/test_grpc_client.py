@@ -1,6 +1,4 @@
 import grpc
-import os
-from types import SimpleNamespace
 from unittest import mock
 
 import pytest

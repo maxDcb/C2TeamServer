@@ -99,12 +99,6 @@ for moduleName in os.listdir(dropperModulesDir):
                     exc_info=logger.isEnabledFor(logging.DEBUG),
                 )
 
-#
-# ShellCode modules
-#
-
-import donut
-
 configuredShellCodeModulesDir = env_path("C2_SHELLCODE_MODULES_DIR")
 configuredShellCodeModulesPath = env_path("C2_SHELLCODE_MODULES_CONF")
 try:

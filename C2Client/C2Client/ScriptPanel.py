@@ -5,13 +5,11 @@ import importlib
 from pathlib import Path
 from datetime import datetime
 
-from threading import Thread, Lock, Semaphore
+from threading import Semaphore
 
-from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
-    QCompleter,
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -200,14 +198,6 @@ class Script(QWidget):
         self.buildAutomationStates()
         self.refreshAutomationTable()
         self.printLoadedAutomationSummary()
-
-
-    def nextCompletion(self):
-        index = self._compl.currentIndex()
-        self._compl.popup().setCurrentIndex(index)
-        start = self._compl.currentRow()
-        if not self._compl.setCurrentRow(start + 1):
-            self._compl.setCurrentRow(0)
 
 
     def sessionScriptMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
@@ -722,27 +712,9 @@ class Script(QWidget):
 
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
-    cmdHistory = []
-    idx = 0
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
-
-        # self.codeCompleter = CodeCompleter(completerData, self)
-        # # needed to clear the completer after activation
-        # self.codeCompleter.activated.connect(self.onActivated)
-        # self.setCompleter(self.codeCompleter)
-        # self.tabPressed.connect(self.nextCompletion)
-
-    def nextCompletion(self):
-        index = self.codeCompleter.currentIndex()
-        self.codeCompleter.popup().setCurrentIndex(index)
-        start = self.codeCompleter.currentRow()
-        if not self.codeCompleter.setCurrentRow(start + 1):
-            self.codeCompleter.setCurrentRow(0)
 
     def event(self, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
@@ -750,53 +722,5 @@ class CommandEditor(QLineEdit):
             return True
         return super().event(event)
 
-    def historyUp(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
-            self.idx=max(self.idx-1,0)
-            self.setText(cmd.strip())
-
-    def historyDown(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            self.idx=min(self.idx+1,len(self.cmdHistory)-1)
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
-            self.setText(cmd.strip())
-
-    def setCmdHistory(self):
-        cmdHistoryFile = open('.termHistory')
-        self.cmdHistory = cmdHistoryFile.readlines()
-        self.idx=len(self.cmdHistory)-1
-        cmdHistoryFile.close()
-
     def clearLine(self):
         self.clear()
-
-    def onActivated(self):
-        QTimer.singleShot(0, self.clear)
-
-
-class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
-
-    def __init__(self, data, parent=None):
-        super().__init__(parent)
-        self.createModel(data)
-
-    def splitPath(self, path):
-        return path.split(' ')
-
-    def pathFromIndex(self, ix):
-        return ix.data(CodeCompleter.ConcatenationRole)
-
-    def createModel(self, data):
-        def addItems(parent, elements, t=""):
-            for text, children in elements:
-                item = QStandardItem(text)
-                data = t + " " + text if t else text
-                item.setData(data, CodeCompleter.ConcatenationRole)
-                parent.appendRow(item)
-                if children:
-                    addItems(item, children, data)
-        model = QStandardItemModel(self)
-        addItems(model, data)
-        self.setModel(model)

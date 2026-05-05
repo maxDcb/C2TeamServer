@@ -1,4 +1,3 @@
-import sys
 import os
 import time
 import re, html
@@ -6,9 +5,8 @@ import uuid
 import json
 import logging
 from datetime import datetime
-from threading import Thread, Lock
 
-from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
@@ -21,11 +19,9 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QLabel,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
 )
 
-from .grpcClient import GrpcClient, TeamServerApi_pb2
+from .grpcClient import TeamServerApi_pb2
 from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
@@ -494,16 +490,6 @@ class ConsolesTab(QWidget):
         layout.addWidget(child)
         return tab
         
-    @pyqtSlot()
-    def on_click(self):
-        for currentQTableWidgetItem in self.tableWidget.selectedItems():
-            logger.debug(
-                "Selected console table cell row=%s column=%s text=%s",
-                currentQTableWidgetItem.row(),
-                currentQTableWidgetItem.column(),
-                currentQTableWidgetItem.text(),
-            )
-
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False
         for idx in range(0,self.tabs.count()):

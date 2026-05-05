@@ -1,7 +1,6 @@
 from pathlib import Path
 import logging
 import requests
-import json
 import zipfile
 import os
 
