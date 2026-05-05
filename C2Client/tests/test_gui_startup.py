@@ -19,8 +19,8 @@ class DummyWidget(QWidget):
     listenerScriptSignal = DummySignal()
     interactWithSession = DummySignal()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent=None, *_args, **_kwargs):
+        super().__init__(parent)
 
     def scriptSnapshot(self):
         return [{"source": self.__class__.__name__}]
@@ -38,8 +38,8 @@ class DummyScript:
 
 
 class DummyConsole(QWidget):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, parent=None, *_args, **_kwargs):
+        super().__init__(parent)
         self.script = DummyScript()
         self.assistant = SimpleNamespace(sessionAssistantMethod=lambda *a, **k: None)
 
@@ -72,6 +72,27 @@ def test_gui_startup(qtbot, monkeypatch):
     }
     assert "Connected | 127.0.0.1:50051" in app.connectionStatusLabel.text()
     assert app.rpcStatusLabel.text() == "Last RPC: none"
+
+
+def test_gui_shell_uses_dark_single_column_layout(qtbot, monkeypatch):
+    monkeypatch.setattr(GUI, 'GrpcClient', lambda *args, **kwargs: object())
+    monkeypatch.setattr(GUI, 'Sessions', DummyWidget)
+    monkeypatch.setattr(GUI, 'Listeners', DummyWidget)
+    monkeypatch.setattr(GUI, 'Graph', DummyWidget)
+    monkeypatch.setattr(GUI, 'ConsolesTab', DummyConsole)
+
+    app = GUI.App('127.0.0.1', 50051, False)
+    qtbot.addWidget(app)
+
+    assert app.objectName() == "C2MainWindow"
+    assert app.centralWidget().objectName() == "C2CentralWidget"
+    assert app.topWidget.objectName() == "C2TopTabs"
+    assert app.m_main.objectName() == "C2MainTab"
+    assert "#070b10" in app.styleSheet()
+    assert "#263241" in app.styleSheet()
+    assert app.mainLayout.itemAtPosition(0, 0).widget() is app.topWidget
+    assert app.mainLayout.itemAtPosition(1, 0).widget() is app.consoleWidget
+    assert app.mainLayout.itemAtPosition(1, 1) is None
 
 
 def test_gui_status_bar_updates_rpc_status(qtbot, monkeypatch):

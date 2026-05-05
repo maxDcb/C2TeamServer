@@ -430,43 +430,69 @@ class ConsolesTab(QWidget):
     
     def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
-        widget = QWidget(self)
-        self.layout = QHBoxLayout(widget)
+        self.setObjectName("C2ConsolesTab")
+        self.setStyleSheet(
+            f"""
+            QWidget#C2ConsolesTab,
+            QWidget#C2ConsolePage {{
+                background-color: {CONSOLE_COLORS["background"]};
+            }}
+            QTabWidget#C2ConsoleTabs {{
+                background-color: #070b10;
+                border: 0;
+            }}
+            QTabWidget#C2ConsoleTabs::pane {{
+                background-color: {CONSOLE_COLORS["background"]};
+                border: 1px solid {CONSOLE_COLORS["border"]};
+                top: -1px;
+            }}
+            QTabWidget#C2ConsoleTabs QStackedWidget {{
+                background-color: {CONSOLE_COLORS["background"]};
+                border: 0;
+            }}
+            QTabWidget#C2ConsoleTabs QTabBar {{
+                background-color: #070b10;
+            }}
+            """
+        )
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
         
         # Initialize tab screen
-        self.tabs = QTabWidget()
+        self.tabs = QTabWidget(self)
+        self.tabs.setObjectName("C2ConsoleTabs")
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self.closeTab) 
                 
         # Add tabs to widget
         self.layout.addWidget(self.tabs)
-        self.setLayout(self.layout)
 
         self.grpcClient = grpcClient
 
-        tab = QWidget()
-        self.tabs.addTab(tab, TerminalTabTitle)
-        tab.layout = QVBoxLayout(self.tabs)
         self.terminal = Terminal(self, self.grpcClient)
-        tab.layout.addWidget(self.terminal)
-        tab.setLayout(tab.layout)
+        tab = self.createConsolePage(self.terminal)
+        self.tabs.addTab(tab, TerminalTabTitle)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
-        tab = QWidget()
-        self.tabs.addTab(tab, "Script")
-        tab.layout = QVBoxLayout(self.tabs)
         self.script = Script(self, self.grpcClient)
-        tab.layout.addWidget(self.script)
-        tab.setLayout(tab.layout)
+        tab = self.createConsolePage(self.script)
+        self.tabs.addTab(tab, "Script")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
-        tab = QWidget()
-        self.tabs.addTab(tab, "Data AI")
-        tab.layout = QVBoxLayout(self.tabs)
         self.assistant = Assistant(self, self.grpcClient)
-        tab.layout.addWidget(self.assistant)
-        tab.setLayout(tab.layout)
+        tab = self.createConsolePage(self.assistant)
+        self.tabs.addTab(tab, "Data AI")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
+
+    def createConsolePage(self, child):
+        tab = QWidget()
+        tab.setObjectName("C2ConsolePage")
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(child)
+        return tab
         
     @pyqtSlot()
     def on_click(self):
@@ -487,14 +513,11 @@ class ConsolesTab(QWidget):
                 tabAlreadyOpen=True
 
         if tabAlreadyOpen==False:
-            tab = QWidget()
-            self.tabs.addTab(tab, beaconHash[0:8])
-            tab.layout = QVBoxLayout(self.tabs)
             console = Console(self, self.grpcClient, beaconHash, listenerHash, hostname, username)
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self.assistant.consoleAssistantMethod)
-            tab.layout.addWidget(console)
-            tab.setLayout(tab.layout)
+            tab = self.createConsolePage(console)
+            self.tabs.addTab(tab, beaconHash[0:8])
             self.tabs.setCurrentIndex(self.tabs.count()-1)
 
     def closeTab(self, currentIndex):

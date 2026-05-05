@@ -8,7 +8,7 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.ConsolePanel import Console
+from C2Client.ConsolePanel import Console, ConsolesTab
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -29,6 +29,11 @@ class StubGrpc:
 
     def streamSessionCommandResults(self, session):
         return self.responses
+
+
+class DummyPanel(QWidget):
+    def __init__(self, parent=None, *_args, **_kwargs):
+        super().__init__(parent)
 
 
 def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
@@ -220,3 +225,27 @@ def test_console_replays_structured_log_on_reopen(tmp_path, qtbot, monkeypatch):
     assert "user" in output
     assert reopened.commandStatusById[command_id]["status"] == "done"
     assert command_id in reopened.renderedResponseIds
+
+
+def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
+    monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
+
+    parent = QWidget()
+    consoles = ConsolesTab(parent, StubGrpc())
+    qtbot.addWidget(consoles)
+
+    assert consoles.objectName() == "C2ConsolesTab"
+    assert consoles.tabs.objectName() == "C2ConsoleTabs"
+    assert "#0b1117" in consoles.styleSheet()
+    assert "#070b10" in consoles.styleSheet()
+    assert consoles.layout.contentsMargins().left() == 0
+    assert consoles.layout.spacing() == 0
+
+    for index in range(consoles.tabs.count()):
+        page = consoles.tabs.widget(index)
+        assert page.objectName() == "C2ConsolePage"
+        assert page.layout().contentsMargins().left() == 0
+        assert page.layout().contentsMargins().top() == 0
+        assert page.layout().spacing() == 0

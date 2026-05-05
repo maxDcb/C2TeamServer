@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
-    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -312,8 +311,6 @@ class Graph(QWidget):
         self.vbox.setSpacing(4)
         self.toolbar = QHBoxLayout()
         self.toolbar.setSpacing(4)
-        self.titleLabel = QLabel("Graph")
-        self.toolbar.addWidget(self.titleLabel)
         self.toolbar.addStretch(1)
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh graph now.", width=70)
         self.refreshButton.clicked.connect(self.updateGraph)

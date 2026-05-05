@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
-    QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -28,6 +27,7 @@ from .SessionPanel import Sessions
 from .ConsolePanel import ConsolesTab
 from .GraphPanel import Graph
 from .env import env_bool, env_int, env_value, load_c2_env
+from .panel_style import apply_main_window_style
 from .ui_status import (
     DEFAULT_LAST_ERROR_TEXT,
     DEFAULT_LAST_RPC_TEXT,
@@ -143,8 +143,10 @@ class App(QMainWindow):
         self.top = 0
         self.width = 1000
         self.height = 1000
+        self.setObjectName("C2MainWindow")
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
+        apply_main_window_style(self)
 
         self.rpcStatusEvents = RpcStatusEvents(self)
         self.rpcStatusEvents.rpcStatus.connect(self.updateRpcStatus)
@@ -153,15 +155,16 @@ class App(QMainWindow):
         self.setupStatusBar()
         
         central_widget = QWidget()
+        central_widget.setObjectName("C2CentralWidget")
         self.setCentralWidget(central_widget)
 
-        config_button = QPushButton("Payload")
-        config_button.clicked.connect(self.payloadForm)
-
         self.mainLayout = QGridLayout(central_widget)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.mainLayout.setRowStretch(1, 3)
-        self.mainLayout.setRowStretch(2, 7)
+        self.mainLayout.setContentsMargins(6, 6, 6, 6)
+        self.mainLayout.setHorizontalSpacing(6)
+        self.mainLayout.setVerticalSpacing(6)
+        self.mainLayout.setColumnStretch(0, 1)
+        self.mainLayout.setRowStretch(0, 3)
+        self.mainLayout.setRowStretch(1, 7)
 
         self.topLayout()
         self.botLayout()
@@ -233,11 +236,14 @@ class App(QMainWindow):
         """Initialise the upper part of the main window."""
 
         self.topWidget = QTabWidget()
+        self.topWidget.setObjectName("C2TopTabs")
 
         self.m_main = QWidget()
+        self.m_main.setObjectName("C2MainTab")
 
         self.m_main.layout = QHBoxLayout(self.m_main)
-        self.m_main.layout.setContentsMargins(0, 0, 0, 0)
+        self.m_main.layout.setContentsMargins(4, 4, 4, 4)
+        self.m_main.layout.setSpacing(6)
 
         self.sessionsWidget = Sessions(self, self.grpcClient)
         self.listenersWidget = Listeners(self, self.grpcClient)
@@ -251,14 +257,14 @@ class App(QMainWindow):
         self.graphWidget = Graph(self, self.grpcClient)
         self.topWidget.addTab(self.graphWidget, "Graph")
 
-        self.mainLayout.addWidget(self.topWidget, 1, 1, 1, 1)
+        self.mainLayout.addWidget(self.topWidget, 0, 0, 1, 1)
 
 
     def botLayout(self) -> None:
         """Initialise the bottom console area."""
 
         self.consoleWidget = ConsolesTab(self, self.grpcClient)
-        self.mainLayout.addWidget(self.consoleWidget, 2, 0, 1, 2)
+        self.mainLayout.addWidget(self.consoleWidget, 1, 0, 1, 1)
 
 
     def __del__(self) -> None:
