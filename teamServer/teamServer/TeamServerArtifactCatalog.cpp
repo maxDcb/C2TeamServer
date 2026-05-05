@@ -154,6 +154,27 @@ bool hasHiddenComponent(const fs::path& relativePath)
     return false;
 }
 
+bool isPathWithinRoot(const fs::path& path, const fs::path& root)
+{
+    std::error_code ec;
+    const fs::path canonicalRoot = fs::weakly_canonical(root, ec);
+    if (ec)
+        return false;
+
+    const fs::path canonicalPath = fs::weakly_canonical(path, ec);
+    if (ec)
+        return false;
+
+    auto rootIt = canonicalRoot.begin();
+    auto pathIt = canonicalPath.begin();
+    for (; rootIt != canonicalRoot.end(); ++rootIt, ++pathIt)
+    {
+        if (pathIt == canonicalPath.end() || *pathIt != *rootIt)
+            return false;
+    }
+    return true;
+}
+
 std::string detectFormat(const fs::path& path)
 {
     std::string extension = path.extension().string();
@@ -282,6 +303,8 @@ void collectGeneratedArtifacts(
             continue;
 
         const fs::path payloadPath = sidecarPath.parent_path() / jsonString(metadata, "file");
+        if (!isPathWithinRoot(payloadPath, root))
+            continue;
         if (!fs::exists(payloadPath, ec) || !fs::is_regular_file(payloadPath, ec))
             continue;
         const std::string contentHash = sha256File(payloadPath);
@@ -376,4 +399,68 @@ std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(c
 
     std::sort(filteredArtifacts.begin(), filteredArtifacts.end(), sortArtifacts);
     return filteredArtifacts;
+}
+
+bool TeamServerArtifactCatalog::deleteGeneratedArtifact(const std::string& artifactId, std::string& message) const
+{
+    if (artifactId.empty())
+    {
+        message = "Missing artifact id.";
+        return false;
+    }
+
+    std::vector<TeamServerArtifactRecord> generatedArtifacts;
+    collectGeneratedArtifacts(m_runtimeConfig.generatedArtifactsDirectoryPath, generatedArtifacts);
+
+    const auto it = std::find_if(
+        generatedArtifacts.begin(),
+        generatedArtifacts.end(),
+        [&](const TeamServerArtifactRecord& artifact)
+        {
+            return artifact.artifactId == artifactId;
+        });
+    if (it == generatedArtifacts.end())
+    {
+        message = "Generated artifact not found.";
+        return false;
+    }
+
+    if (it->scope != "generated")
+    {
+        message = "Only generated artifacts can be deleted.";
+        return false;
+    }
+
+    const fs::path root = m_runtimeConfig.generatedArtifactsDirectoryPath;
+    const fs::path payloadPath = it->internalPath;
+    const fs::path sidecarPath = it->internalPath + ".artifact.json";
+    if (!isPathWithinRoot(payloadPath, root) || !isPathWithinRoot(sidecarPath, root))
+    {
+        message = "Generated artifact path is outside the generated artifact root.";
+        return false;
+    }
+
+    std::error_code ec;
+    const bool removedPayload = fs::remove(payloadPath, ec);
+    if (ec)
+    {
+        message = "Generated artifact payload could not be deleted: " + ec.message();
+        return false;
+    }
+
+    const bool removedSidecar = fs::remove(sidecarPath, ec);
+    if (ec)
+    {
+        message = "Generated artifact metadata could not be deleted: " + ec.message();
+        return false;
+    }
+
+    if (!removedPayload && !removedSidecar)
+    {
+        message = "Generated artifact files were already missing.";
+        return false;
+    }
+
+    message = "Generated artifact deleted.";
+    return true;
 }

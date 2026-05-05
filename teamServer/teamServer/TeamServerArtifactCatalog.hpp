@@ -43,6 +43,7 @@ public:
     explicit TeamServerArtifactCatalog(TeamServerRuntimeConfig runtimeConfig);
 
     std::vector<TeamServerArtifactRecord> listArtifacts(const TeamServerArtifactQuery& query = {}) const;
+    bool deleteGeneratedArtifact(const std::string& artifactId, std::string& message) const;
 
 private:
     TeamServerRuntimeConfig m_runtimeConfig;

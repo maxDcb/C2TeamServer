@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
 
 from C2Client.ArtifactPanel import Artifacts, format_size
+from C2Client.grpcClient import TeamServerApi_pb2
 
 
 class FakeGrpc:
@@ -41,11 +42,59 @@ class FakeGrpc:
                 sha256="b" * 64,
                 description="Startup hook",
             ),
+            SimpleNamespace(
+                artifact_id="artifact-generated-1",
+                name="9d4c1e5f0a3b-Rubeus.exe.bin",
+                display_name="Rubeus.exe.bin",
+                category="payload",
+                scope="generated",
+                target="beacon",
+                platform="windows",
+                arch="x64",
+                runtime="shellcode",
+                format="bin",
+                source="donut",
+                size=4096,
+                sha256="c" * 64,
+                description="Generated shellcode for assemblyExec.",
+            ),
         ]
+        self.deleted = []
 
     def listArtifacts(self, query):
         self.queries.append(query)
-        return iter(self.artifacts)
+
+        def matches(artifact, field):
+            expected = getattr(query, field, "")
+            if not expected:
+                return True
+            actual = getattr(artifact, field, "")
+            return actual == expected or actual == "any"
+
+        def name_matches(artifact):
+            expected = getattr(query, "name_contains", "")
+            if not expected:
+                return True
+            return expected.lower() in getattr(artifact, "name", "").lower()
+
+        return iter([
+            artifact for artifact in self.artifacts
+            if matches(artifact, "category")
+            and matches(artifact, "scope")
+            and matches(artifact, "target")
+            and matches(artifact, "platform")
+            and matches(artifact, "arch")
+            and matches(artifact, "runtime")
+            and name_matches(artifact)
+        ])
+
+    def deleteGeneratedArtifact(self, artifact_id):
+        self.deleted.append(artifact_id)
+        self.artifacts = [
+            artifact for artifact in self.artifacts
+            if artifact.artifact_id != artifact_id
+        ]
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, message="Generated artifact deleted.")
 
 
 class FailingGrpc:
@@ -66,16 +115,18 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
     panel = Artifacts(parent, grpc)
     qtbot.addWidget(panel)
 
-    assert panel.artifactTable.rowCount() == 2
+    assert panel.artifactTable.rowCount() == 3
     assert panel.artifactTable.item(0, 0).text() == "module"
     assert panel.artifactTable.item(0, 1).text() == "beacon"
-    assert panel.artifactTable.item(0, 2).text() == "winmod64.dll"
-    assert panel.artifactTable.item(0, 5).text() == "native"
-    assert panel.artifactTable.item(0, 7).text() == "2.0 KB"
-    assert panel.artifactTable.item(0, 8).text() == "aaaaaaaaaaaa"
-    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 2).toolTip()
+    assert panel.artifactTable.item(0, 2).text() == "beacon"
+    assert panel.artifactTable.item(0, 3).text() == "winmod64.dll"
+    assert panel.artifactTable.item(0, 6).text() == "native"
+    assert panel.artifactTable.item(0, 8).text() == "2.0 KB"
+    assert panel.artifactTable.item(0, 9).text() == "aaaaaaaaaaaa"
+    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 3).toolTip()
 
     panel.categoryFilter.setCurrentText("module")
+    panel.scopeFilter.setCurrentText("beacon")
     panel.targetFilter.setCurrentText("beacon")
     panel.platformFilter.setCurrentText("windows")
     panel.archFilter.setCurrentText("x64")
@@ -85,6 +136,7 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
 
     query = grpc.queries[-1]
     assert query.category == "module"
+    assert query.scope == "beacon"
     assert query.target == "beacon"
     assert query.platform == "windows"
     assert query.arch == "x64"
@@ -96,6 +148,38 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
 
     assert QApplication.clipboard().text() == "artifact-module-1"
     assert panel.statusLabel.text() == "Artifacts: artifact ID copied."
+    assert not panel.deleteButton.isEnabled()
+
+
+def test_artifacts_panel_filters_generated_shellcodes_and_deletes(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    panel.generatedButton.click()
+
+    query = grpc.queries[-1]
+    assert query.category == "payload"
+    assert query.scope == "generated"
+    assert query.runtime == "shellcode"
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 1).text() == "generated"
+    assert panel.artifactTable.item(0, 10).text() == "donut"
+    assert "SHA256: " + ("c" * 64) in panel.artifactTable.item(0, 3).toolTip()
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-generated-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Generated artifact deleted."
 
 
 def test_artifacts_panel_reports_refresh_errors(qtbot):

@@ -21,6 +21,9 @@ public:
     grpc::Status listArtifacts(
         const teamserverapi::ArtifactQuery& query,
         const ArtifactWriter& writer) const;
+    grpc::Status deleteGeneratedArtifact(
+        const teamserverapi::ArtifactSelector& selector,
+        teamserverapi::OperationAck* response) const;
 
 private:
     static teamserverapi::ArtifactSummary toProto(const TeamServerArtifactRecord& artifact);

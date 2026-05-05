@@ -196,6 +196,14 @@ grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teams
         { return writer->Write(artifact); });
 }
 
+grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->deleteGeneratedArtifact(*selector, response);
+}
+
 grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)
 {
     auto authStatus = ensureAuthenticated(context);

@@ -9,6 +9,7 @@
 
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerArtifactService.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
 #include "spdlog/logger.h"
 
 namespace fs = std::filesystem;
@@ -63,6 +64,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.windowsBeaconsDirectoryPath = (root / "WindowsBeacons").string();
     runtimeConfig.toolsDirectoryPath = (root / "Tools").string();
     runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string();
+    runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string();
 
     fs::create_directories(runtimeConfig.teamServerModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxModulesDirectoryPath);
@@ -71,6 +73,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
     fs::create_directories(runtimeConfig.scriptsDirectoryPath);
+    fs::create_directories(runtimeConfig.generatedArtifactsDirectoryPath);
     for (const std::string& arch : runtimeConfig.supportedWindowsArchs)
     {
         fs::create_directories(fs::path(runtimeConfig.windowsModulesDirectoryPath) / arch);
@@ -189,6 +192,53 @@ void testCatalogFiltersArtifacts()
     assert(artifacts[0].name == "linuxmod.so");
 }
 
+void testCatalogIndexesAndDeletesGeneratedArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("generated"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    TeamServerGeneratedArtifactStore store(runtimeConfig);
+    TeamServerGeneratedArtifactRequest request;
+    request.nameHint = "Rubeus.exe.bin";
+    request.bytes = "generated-shellcode";
+    request.category = "payload";
+    request.scope = "generated";
+    request.target = "beacon";
+    request.platform = "windows";
+    request.arch = "x64";
+    request.format = "bin";
+    request.runtime = "shellcode";
+    request.source = "donut";
+    request.description = "Generated shellcode for assemblyExec.";
+    const TeamServerGeneratedArtifactRecord record = store.store(request);
+    assert(!record.artifactId.empty());
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "payload";
+    query.scope = "generated";
+    query.runtime = "shellcode";
+    std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].artifactId == record.artifactId);
+    assert(artifacts[0].displayName == "Rubeus.exe.bin");
+    assert(artifacts[0].source == "donut");
+    assert(artifacts[0].size == static_cast<std::int64_t>(request.bytes.size()));
+    assert(artifacts[0].sha256 == record.sha256);
+
+    std::string message;
+    assert(catalog.deleteGeneratedArtifact(record.artifactId, message));
+    assert(message == "Generated artifact deleted.");
+    assert(!fs::exists(record.path));
+    assert(!fs::exists(record.path + ".artifact.json"));
+
+    artifacts = catalog.listArtifacts(query);
+    assert(artifacts.empty());
+    assert(!catalog.deleteGeneratedArtifact(record.artifactId, message));
+    assert(message == "Generated artifact not found.");
+}
+
 void testArtifactServiceStreamsPublicMetadataOnly()
 {
     ScopedPath tempRoot(makeTempDirectory("service"));
@@ -215,12 +265,42 @@ void testArtifactServiceStreamsPublicMetadataOnly()
     assert(summaries[0].sha256().size() == 64);
     assert(summaries[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }
+
+void testArtifactServiceDeletesGeneratedArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("service-delete"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    TeamServerGeneratedArtifactStore store(runtimeConfig);
+    TeamServerGeneratedArtifactRequest request;
+    request.nameHint = "Seatbelt.exe.bin";
+    request.bytes = "service-generated-shellcode";
+    request.source = "donut";
+    const TeamServerGeneratedArtifactRecord record = store.store(request);
+    assert(!record.artifactId.empty());
+
+    TeamServerArtifactService service(makeLogger(), TeamServerArtifactCatalog(runtimeConfig));
+    teamserverapi::ArtifactSelector selector;
+    selector.set_artifact_id(record.artifactId);
+    teamserverapi::OperationAck response;
+    assert(service.deleteGeneratedArtifact(selector, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.message() == "Generated artifact deleted.");
+    assert(!fs::exists(record.path));
+
+    teamserverapi::OperationAck missingResponse;
+    assert(service.deleteGeneratedArtifact(selector, &missingResponse).ok());
+    assert(missingResponse.status() == teamserverapi::KO);
+    assert(missingResponse.message() == "Generated artifact not found.");
+}
 } // namespace
 
 int main()
 {
     testCatalogIndexesReleaseRoots();
     testCatalogFiltersArtifacts();
+    testCatalogIndexesAndDeletesGeneratedArtifacts();
     testArtifactServiceStreamsPublicMetadataOnly();
+    testArtifactServiceDeletesGeneratedArtifacts();
     return 0;
 }

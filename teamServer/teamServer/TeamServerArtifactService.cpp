@@ -37,6 +37,23 @@ grpc::Status TeamServerArtifactService::listArtifacts(
     return grpc::Status::OK;
 }
 
+grpc::Status TeamServerArtifactService::deleteGeneratedArtifact(
+    const teamserverapi::ArtifactSelector& selector,
+    teamserverapi::OperationAck* response) const
+{
+    std::string message;
+    const bool deleted = m_catalog.deleteGeneratedArtifact(selector.artifact_id(), message);
+
+    response->set_status(deleted ? teamserverapi::OK : teamserverapi::KO);
+    response->set_message(message);
+    if (deleted)
+        m_logger->info("Deleted generated artifact {0}", selector.artifact_id());
+    else
+        m_logger->warn("Delete generated artifact failed for {0}: {1}", selector.artifact_id(), message);
+
+    return grpc::Status::OK;
+}
+
 teamserverapi::ArtifactSummary TeamServerArtifactService::toProto(const TeamServerArtifactRecord& artifact)
 {
     teamserverapi::ArtifactSummary summary;

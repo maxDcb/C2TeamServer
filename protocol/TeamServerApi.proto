@@ -15,6 +15,7 @@ service TeamServerApi
   rpc StopSession(SessionSelector) returns (OperationAck) {}
 
   rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
+  rpc DeleteGeneratedArtifact(ArtifactSelector) returns (OperationAck) {}
   rpc ListCommands(CommandQuery) returns (stream CommandSpec) {}
   rpc ListModules(SessionSelector) returns (stream LoadedModule) {}
 
@@ -133,6 +134,12 @@ message ArtifactSummary
   repeated string tags = 13;
   string target = 14;
   string runtime = 15;
+}
+
+
+message ArtifactSelector
+{
+  string artifact_id = 1;
 }
 
 

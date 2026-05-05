@@ -229,6 +229,15 @@ class GrpcClient:
             query = TeamServerApi_pb2.ArtifactQuery()
         return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata))
 
+    def deleteGeneratedArtifact(self, artifact_id: str) -> Any:
+        """Delete a generated artifact by id."""
+
+        selector = TeamServerApi_pb2.ArtifactSelector(artifact_id=artifact_id)
+        return self._unary_rpc(
+            "DeleteGeneratedArtifact",
+            lambda: self.stub.DeleteGeneratedArtifact(selector, metadata=self.metadata),
+        )
+
     def listCommands(self, query: Optional[Any] = None) -> Iterable[Any]:
         """Return command specs exposed by the TeamServer catalog."""
 
