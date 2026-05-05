@@ -11,8 +11,10 @@
 #include <system_error>
 #include <tuple>
 #include <utility>
+#include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
+using json = nlohmann::json;
 
 namespace
 {
@@ -119,6 +121,28 @@ std::string sha256File(const fs::path& path)
     return bytesToHex(digest.data(), digestLength);
 }
 
+std::string jsonString(const json& input, const char* key, const std::string& fallback = "")
+{
+    auto it = input.find(key);
+    if (it == input.end() || !it->is_string())
+        return fallback;
+    return it->get<std::string>();
+}
+
+std::vector<std::string> jsonStringList(const json& input, const char* key)
+{
+    std::vector<std::string> values;
+    auto it = input.find(key);
+    if (it == input.end() || !it->is_array())
+        return values;
+    for (const auto& value : *it)
+    {
+        if (value.is_string())
+            values.push_back(value.get<std::string>());
+    }
+    return values;
+}
+
 bool hasHiddenComponent(const fs::path& relativePath)
 {
     for (const auto& component : relativePath)
@@ -223,6 +247,89 @@ void collectDirectoryArtifacts(
     }
 }
 
+void collectGeneratedArtifacts(
+    const fs::path& root,
+    std::vector<TeamServerArtifactRecord>& artifacts)
+{
+    std::error_code ec;
+    if (root.empty() || !fs::exists(root, ec) || !fs::is_directory(root, ec))
+        return;
+
+    fs::recursive_directory_iterator iterator(root, fs::directory_options::skip_permission_denied, ec);
+    const fs::recursive_directory_iterator end;
+    if (ec)
+        return;
+
+    for (; iterator != end; iterator.increment(ec))
+    {
+        if (ec)
+        {
+            ec.clear();
+            continue;
+        }
+
+        const fs::path sidecarPath = iterator->path();
+        if (!fs::is_regular_file(sidecarPath, ec) || sidecarPath.extension() != ".json")
+            continue;
+        if (sidecarPath.filename().string().find(".artifact.json") == std::string::npos)
+            continue;
+
+        std::ifstream input(sidecarPath);
+        if (!input.good())
+            continue;
+        json metadata = json::parse(input, nullptr, false);
+        if (metadata.is_discarded() || !metadata.is_object())
+            continue;
+
+        const fs::path payloadPath = sidecarPath.parent_path() / jsonString(metadata, "file");
+        if (!fs::exists(payloadPath, ec) || !fs::is_regular_file(payloadPath, ec))
+            continue;
+        const std::string contentHash = sha256File(payloadPath);
+        if (contentHash.empty())
+            continue;
+
+        TeamServerArtifactRecord artifact;
+        artifact.name = jsonString(metadata, "name", payloadPath.filename().string());
+        artifact.displayName = jsonString(metadata, "display_name", payloadPath.filename().string());
+        artifact.category = jsonString(metadata, "category", "payload");
+        artifact.scope = jsonString(metadata, "scope", "generated");
+        artifact.target = jsonString(metadata, "target", "beacon");
+        artifact.platform = jsonString(metadata, "platform", "any");
+        artifact.arch = jsonString(metadata, "arch", "any");
+        artifact.format = jsonString(metadata, "format", detectFormat(payloadPath));
+        artifact.runtime = jsonString(metadata, "runtime", "shellcode");
+        artifact.source = jsonString(metadata, "source", "generated");
+        artifact.description = jsonString(metadata, "description");
+        artifact.tags = jsonStringList(metadata, "tags");
+        artifact.sha256 = jsonString(metadata, "sha256", contentHash);
+        if (artifact.sha256 != contentHash)
+            continue;
+        artifact.internalPath = payloadPath.string();
+        artifact.size = static_cast<std::int64_t>(fs::file_size(payloadPath, ec));
+        if (ec)
+        {
+            ec.clear();
+            artifact.size = 0;
+        }
+
+        artifact.artifactId = jsonString(metadata, "artifact_id");
+        if (artifact.artifactId.empty())
+        {
+            artifact.artifactId = sha256String(
+                artifact.source + "\n"
+                + artifact.category + "\n"
+                + artifact.target + "\n"
+                + artifact.platform + "\n"
+                + artifact.arch + "\n"
+                + artifact.runtime + "\n"
+                + artifact.name + "\n"
+                + artifact.sha256);
+        }
+        if (!artifact.artifactId.empty() && !artifact.sha256.empty())
+            artifacts.push_back(std::move(artifact));
+    }
+}
+
 void collectWindowsArchArtifacts(
     const fs::path& root,
     const std::vector<std::string>& supportedArchs,
@@ -258,6 +365,7 @@ std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(c
     collectWindowsArchArtifacts(m_runtimeConfig.windowsBeaconsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, "beacon", "implant", "listener", "native", allArtifacts);
     collectDirectoryArtifacts(m_runtimeConfig.toolsDirectoryPath, "tool", "server", "teamserver", "any", "any", "any", allArtifacts);
     collectDirectoryArtifacts(m_runtimeConfig.scriptsDirectoryPath, "script", "teamserver", "teamserver", "any", "any", "python", allArtifacts);
+    collectGeneratedArtifacts(m_runtimeConfig.generatedArtifactsDirectoryPath, allArtifacts);
 
     std::vector<TeamServerArtifactRecord> filteredArtifacts;
     for (const TeamServerArtifactRecord& artifact : allArtifacts)

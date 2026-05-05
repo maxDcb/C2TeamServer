@@ -22,6 +22,8 @@ TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& 
     runtimeConfig.scriptsDirectoryPath = config["ScriptsDirectoryPath"].get<std::string>();
     if (auto it = config.find("CommandSpecsDirectoryPath"); it != config.end() && it->is_string())
         runtimeConfig.commandSpecsDirectoryPath = it->get<std::string>();
+    if (auto it = config.find("GeneratedArtifactsDirectoryPath"); it != config.end() && it->is_string())
+        runtimeConfig.generatedArtifactsDirectoryPath = it->get<std::string>();
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());
     if (auto it = config.find("SupportedWindowsArchs"); it != config.end() && it->is_array())
@@ -110,6 +112,14 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
 
     if (!fs::exists(commandSpecsDirectoryPath))
         logger->error("Command specs directory path don't exist: {0}", commandSpecsDirectoryPath.c_str());
+
+    if (!fs::exists(generatedArtifactsDirectoryPath))
+    {
+        std::error_code ec;
+        fs::create_directories(generatedArtifactsDirectoryPath, ec);
+        if (ec)
+            logger->error("Generated artifacts directory path don't exist and could not be created: {0}", generatedArtifactsDirectoryPath.c_str());
+    }
 }
 
 void TeamServerRuntimeConfig::configureCommonCommands(CommonCommands& commonCommands) const

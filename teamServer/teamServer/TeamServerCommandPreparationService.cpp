@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <utility>
 
 #include "TeamServerRuntimeConfig.hpp"
 
@@ -10,13 +11,15 @@ namespace fs = std::filesystem;
 
 TeamServerCommandPreparationService::TeamServerCommandPreparationService(
     std::shared_ptr<spdlog::logger> logger,
-    std::string teamServerModulesDirectoryPath,
+    TeamServerRuntimeConfig runtimeConfig,
     CommonCommands& commonCommands,
-    std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd)
+    std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers)
     : m_logger(std::move(logger)),
-      m_teamServerModulesDirectoryPath(std::move(teamServerModulesDirectoryPath)),
+      m_runtimeConfig(std::move(runtimeConfig)),
       m_commonCommands(commonCommands),
-      m_moduleCmd(moduleCmd)
+      m_moduleCmd(moduleCmd),
+      m_preparers(std::move(preparers))
 {
 }
 
@@ -80,6 +83,23 @@ int TeamServerCommandPreparationService::prepareMessage(
         normalizedWindowsArch = "x64";
     bool isModuleFound = false;
 
+    TeamServerCommandPreparerContext preparerContext;
+    preparerContext.input = input;
+    preparerContext.tokens = splitedCmd;
+    preparerContext.isWindows = isWindows;
+    preparerContext.windowsArch = normalizedWindowsArch;
+    for (const auto& preparer : m_preparers)
+    {
+        if (!preparer || !preparer->canPrepare(instruction))
+            continue;
+        TeamServerCommandPreparerResult prepared = preparer->prepare(preparerContext, c2Message);
+        if (prepared.handled)
+        {
+            m_logger->trace("prepMsg end");
+            return prepared.status;
+        }
+    }
+
     for (int i = 0; i < m_commonCommands.getNumberOfCommand(); i++)
     {
         if (instruction != m_commonCommands.getCommand(i))
@@ -100,10 +120,10 @@ int TeamServerCommandPreparationService::prepareMessage(
             if (!((param.size() >= 3 && param.substr(param.size() - 3) == ".so")
                     || (param.size() >= 4 && param.substr(param.size() - 3) == ".dll")))
             {
-                m_logger->debug("Translate instruction to module name to load in {0}", m_teamServerModulesDirectoryPath.c_str());
+                m_logger->debug("Translate instruction to module name to load in {0}", m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
                 try
                 {
-                    for (const auto& entry : fs::recursive_directory_iterator(m_teamServerModulesDirectoryPath))
+                    for (const auto& entry : fs::recursive_directory_iterator(m_runtimeConfig.teamServerModulesDirectoryPath))
                     {
                         if (!fs::is_regular_file(entry.path()) || entry.path().extension() != ".so")
                             continue;

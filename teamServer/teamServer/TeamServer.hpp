@@ -32,12 +32,14 @@
 class TeamServerAuthManager;
 class TeamServerArtifactService;
 class TeamServerCommandCatalogService;
+class TeamServerGeneratedArtifactStore;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
 class TeamServerListenerArtifactService;
 class TeamServerModuleLoader;
 class TeamServerSocksService;
 class TeamServerCommandPreparationService;
+class TeamServerShellcodeService;
 class TeamServerTermLocalService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
@@ -98,11 +100,13 @@ private:
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerArtifactService> m_artifactService;
     std::unique_ptr<TeamServerCommandCatalogService> m_commandCatalogService;
+    std::shared_ptr<TeamServerGeneratedArtifactStore> m_generatedArtifactStore;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
     std::unique_ptr<TeamServerListenerArtifactService> m_listenerArtifactService;
     std::unique_ptr<TeamServerModuleLoader> m_moduleLoader;
     std::unique_ptr<TeamServerSocksService> m_socksService;
     std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
+    std::shared_ptr<TeamServerShellcodeService> m_shellcodeService;
     std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
 };

@@ -2,15 +2,18 @@
 
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerArtifactService.hpp"
+#include "TeamServerAssemblyExecCommandPreparer.hpp"
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
 #include "TeamServerCommandCatalog.hpp"
 #include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerHelpService.hpp"
 #include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerListenerSessionService.hpp"
 #include "TeamServerModuleLoader.hpp"
+#include "TeamServerShellcodeService.hpp"
 #include "TeamServerSocksService.hpp"
 #include "TeamServerTermLocalService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
@@ -51,6 +54,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
+    m_generatedArtifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    m_shellcodeService = std::make_shared<TeamServerShellcodeService>(m_logger);
     m_artifactService = std::make_unique<TeamServerArtifactService>(
         m_logger,
         TeamServerArtifactCatalog(runtimeConfig));
@@ -85,11 +90,19 @@ TeamServer::TeamServer(const nlohmann::json& config)
         });
     m_moduleLoader = std::make_unique<TeamServerModuleLoader>(m_logger, runtimeConfig);
     m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> commandPreparers;
+    commandPreparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
     m_commandPreparationService = std::make_unique<TeamServerCommandPreparationService>(
         m_logger,
-        runtimeConfig.teamServerModulesDirectoryPath,
+        runtimeConfig,
         m_commonCommands,
-        m_moduleCmd);
+        m_moduleCmd,
+        std::move(commandPreparers));
     m_termLocalService = std::make_unique<TeamServerTermLocalService>(
         m_logger,
         m_config,

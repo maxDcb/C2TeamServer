@@ -23,6 +23,7 @@ struct TeamServerRuntimeConfig
     std::string toolsDirectoryPath;
     std::string scriptsDirectoryPath;
     std::string commandSpecsDirectoryPath = "../CommandSpecs/";
+    std::string generatedArtifactsDirectoryPath = "../GeneratedArtifacts/";
     std::string defaultWindowsArch = "x64";
     std::vector<std::string> supportedWindowsArchs = {"x86", "x64", "arm64"};
 

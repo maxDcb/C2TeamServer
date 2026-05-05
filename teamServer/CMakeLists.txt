@@ -3,15 +3,18 @@ include_directories(../core/modules/ModuleCmd)
 
 set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServer.cpp
+    teamServer/TeamServerAssemblyExecCommandPreparer.cpp
     teamServer/TeamServerArtifactCatalog.cpp
     teamServer/TeamServerArtifactService.cpp
     teamServer/TeamServerAuth.cpp
     teamServer/TeamServerCommandCatalog.cpp
     teamServer/TeamServerCommandCatalogService.cpp
     teamServer/TeamServerCommandPreparationService.cpp
+    teamServer/TeamServerGeneratedArtifactStore.cpp
     teamServer/TeamServerHelpService.cpp
     teamServer/TeamServerListenerArtifactService.cpp
     teamServer/TeamServerModuleLoader.cpp
+    teamServer/TeamServerShellcodeService.cpp
     teamServer/TeamServerSocksService.cpp
     teamServer/TeamServerTermLocalService.cpp
     teamServer/TeamServerRuntimeConfig.cpp
@@ -46,6 +49,8 @@ set(TEAMSERVER_CORE_LINK_LIBS
     grpc::grpc
     spdlog::spdlog
     SocksServer
+    Donut
+    ${aplib64}
     dl
     rt
 )

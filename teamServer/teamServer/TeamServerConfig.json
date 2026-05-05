@@ -11,6 +11,7 @@
     "ToolsDirectoryPath": "../Tools/",
     "ScriptsDirectoryPath": "../Scripts/",
     "CommandSpecsDirectoryPath": "../CommandSpecs/",
+    "GeneratedArtifactsDirectoryPath": "../GeneratedArtifacts/",
     "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
     "ExposedIp": "",

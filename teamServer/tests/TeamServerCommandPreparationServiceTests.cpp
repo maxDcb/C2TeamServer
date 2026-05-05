@@ -5,7 +5,11 @@
 #include <string>
 #include <unistd.h>
 
+#include "TeamServerAssemblyExecCommandPreparer.hpp"
+#include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
+#include "TeamServerShellcodeService.hpp"
 
 namespace fs = std::filesystem;
 
@@ -69,6 +73,41 @@ private:
     std::string m_capturedWindowsArch;
 };
 
+class FakeShellcodeModule final : public ModuleCmd
+{
+public:
+    explicit FakeShellcodeModule(std::string name)
+        : ModuleCmd(std::move(name))
+    {
+    }
+
+    std::string getInfo() override
+    {
+        return "fake shellcode";
+    }
+
+    int init(std::vector<std::string>&, C2Message& c2Message) override
+    {
+        c2Message.set_returnvalue("plain init should not be used");
+        return -1;
+    }
+
+    int initPreparedShellcode(const ModulePreparedShellcodeTask& task, C2Message& c2Message) override
+    {
+        c2Message.set_instruction(getName());
+        c2Message.set_cmd(task.displayCommand);
+        c2Message.set_args(task.executionMode);
+        c2Message.set_inputfile(task.inputFile);
+        c2Message.set_data(task.payload);
+        return 0;
+    }
+
+    int process(C2Message&, C2Message&) override
+    {
+        return 0;
+    }
+};
+
 fs::path makeTempDirectory(const std::string& name)
 {
     fs::path root = fs::temp_directory_path() / ("c2teamserver-prep-" + name + "-" + std::to_string(::getpid()));
@@ -90,6 +129,20 @@ void writeFile(const fs::path& path, const std::string& content)
     output << content;
 }
 
+TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
+{
+    TeamServerRuntimeConfig runtimeConfig;
+    runtimeConfig.teamServerModulesDirectoryPath = (root / "TeamServerModules").string();
+    runtimeConfig.linuxModulesDirectoryPath = (root / "LinuxModules").string() + "/";
+    runtimeConfig.windowsModulesDirectoryPath = (root / "WindowsModules").string() + "/";
+    runtimeConfig.linuxBeaconsDirectoryPath = (root / "LinuxBeacons").string() + "/";
+    runtimeConfig.windowsBeaconsDirectoryPath = (root / "WindowsBeacons").string() + "/";
+    runtimeConfig.toolsDirectoryPath = (root / "Tools").string() + "/";
+    runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string() + "/";
+    runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string() + "/";
+    return runtimeConfig;
+}
+
 void testPrepareCommonCommand()
 {
     ScopedPath tempRoot(makeTempDirectory("common"));
@@ -97,7 +150,7 @@ void testPrepareCommonCommand()
     std::vector<std::unique_ptr<ModuleCmd>> modules;
     TeamServerCommandPreparationService service(
         makeLogger(),
-        tempRoot.path().string(),
+        makeRuntimeConfig(tempRoot.path()),
         commonCommands,
         modules);
 
@@ -115,7 +168,7 @@ void testPrepareModuleCommandCaseInsensitive()
 
     TeamServerCommandPreparationService service(
         makeLogger(),
-        tempRoot.path().string(),
+        makeRuntimeConfig(tempRoot.path()),
         commonCommands,
         modules);
 
@@ -133,7 +186,7 @@ void testPrepareMissingCommand()
 
     TeamServerCommandPreparationService service(
         makeLogger(),
-        tempRoot.path().string(),
+        makeRuntimeConfig(tempRoot.path()),
         commonCommands,
         modules);
 
@@ -164,7 +217,7 @@ void testPrepareLoadModuleUsesWindowsSessionArchitecture()
     std::vector<std::unique_ptr<ModuleCmd>> modules;
     TeamServerCommandPreparationService service(
         makeLogger(),
-        (tempRoot.path() / "TeamServerModules").string(),
+        makeRuntimeConfig(tempRoot.path()),
         commonCommands,
         modules);
 
@@ -185,6 +238,86 @@ void testPrepareLoadModuleUsesWindowsSessionArchitecture()
     assert(armMessage.data() == "ARM64DLL");
     assert(commonCommands.getLastResolvedModulePath() == (windowsModulesRoot / "arm64" / "Inject.dll").string());
 }
+
+void testPrepareAssemblyExecUsesShellcodeServiceAndGeneratedArtifactStore()
+{
+    ScopedPath tempRoot(makeTempDirectory("assemblyexec-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "payload.bin", "RAW-SHELLCODE");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeShellcodeModule>("assemblyExec"));
+
+    auto shellcodeService = std::make_shared<TeamServerShellcodeService>(makeLogger());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
+        makeLogger(),
+        runtimeConfig,
+        shellcodeService,
+        artifactStore,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    assert(service.prepareMessage("assemblyExec --mode thread --raw payload.bin", message, true, "amd64") == 0);
+    assert(message.instruction() == "assemblyExec");
+    assert(message.args() == "thread");
+    assert(message.data() == "RAW-SHELLCODE");
+    assert(message.cmd() == "--mode thread --raw payload.bin");
+    assert(message.inputfile().find("GeneratedArtifacts") != std::string::npos);
+    assert(fs::exists(message.inputfile()));
+    assert(fs::exists(message.inputfile() + ".artifact.json"));
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "payload";
+    query.scope = "generated";
+    query.runtime = "shellcode";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].source == "raw");
+    assert(artifacts[0].platform == "windows");
+    assert(artifacts[0].arch == "x64");
+}
+
+void testPrepareAssemblyExecDonutReportsMissingSource()
+{
+    ScopedPath tempRoot(makeTempDirectory("assemblyexec-donut-missing"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeShellcodeModule>("assemblyExec"));
+
+    auto shellcodeService = std::make_shared<TeamServerShellcodeService>(makeLogger());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
+        makeLogger(),
+        runtimeConfig,
+        shellcodeService,
+        artifactStore,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    assert(service.prepareMessage("assemblyExec --mode thread --donut-exe missing.exe", message, true, "x64") == -1);
+    assert(message.returnvalue().find("Couldn't open Donut source file.") != std::string::npos);
+}
 } // namespace
 
 int main()
@@ -193,5 +326,7 @@ int main()
     testPrepareModuleCommandCaseInsensitive();
     testPrepareMissingCommand();
     testPrepareLoadModuleUsesWindowsSessionArchitecture();
+    testPrepareAssemblyExecUsesShellcodeServiceAndGeneratedArtifactStore();
+    testPrepareAssemblyExecDonutReportsMissingSource();
     return 0;
 }

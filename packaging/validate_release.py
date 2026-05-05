@@ -258,6 +258,7 @@ def validate_base_release(release_root: Path) -> None:
     _require_non_empty_file(command_specs_root / "modules" / "ipConfig.json")
     _require_non_empty_file(command_specs_root / "modules" / "netstat.json")
     _require_non_empty_file(command_specs_root / "modules" / "shell.json")
+    _require_non_empty_file(command_specs_root / "modules" / "assemblyExec.json")
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")
