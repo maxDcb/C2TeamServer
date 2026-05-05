@@ -222,6 +222,13 @@ class GrpcClient:
         empty = TeamServerApi_pb2.Empty()
         return self._stream_rpc("ListSessions", lambda: self.stub.ListSessions(empty, metadata=self.metadata))
 
+    def listArtifacts(self, query: Optional[Any] = None) -> Iterable[Any]:
+        """Return artifacts indexed by the TeamServer catalog."""
+
+        if query is None:
+            query = TeamServerApi_pb2.ArtifactQuery()
+        return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata))
+
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 

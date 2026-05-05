@@ -14,6 +14,8 @@ service TeamServerApi
   rpc ListSessions(Empty) returns (stream Session) {}
   rpc StopSession(SessionSelector) returns (OperationAck) {}
 
+  rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
+
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
   rpc StreamSessionCommandResults(SessionSelector) returns (stream CommandResult) {}
@@ -97,6 +99,34 @@ message Session
   string internal_ips = 10;
   string process_id = 11;
   string additional_information = 12;
+}
+
+
+message ArtifactQuery
+{
+  string category = 1;
+  string scope = 2;
+  string platform = 3;
+  string arch = 4;
+  string name_contains = 5;
+}
+
+
+message ArtifactSummary
+{
+  string artifact_id = 1;
+  string name = 2;
+  string display_name = 3;
+  string category = 4;
+  string scope = 5;
+  string platform = 6;
+  string arch = 7;
+  string format = 8;
+  string source = 9;
+  int64 size = 10;
+  string sha256 = 11;
+  string description = 12;
+  repeated string tags = 13;
 }
 
 

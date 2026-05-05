@@ -1,5 +1,7 @@
 #include "TeamServer.hpp"
 
+#include "TeamServerArtifactCatalog.hpp"
+#include "TeamServerArtifactService.hpp"
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
 #include "TeamServerCommandPreparationService.hpp"
@@ -47,6 +49,9 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
+    m_artifactService = std::make_unique<TeamServerArtifactService>(
+        m_logger,
+        TeamServerArtifactCatalog(runtimeConfig));
     m_helpService = std::make_unique<TeamServerHelpService>(
         m_logger,
         m_listeners,
@@ -161,6 +166,15 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->stopSession(*sessionToStop, response);
+}
+
+grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->listArtifacts(*query, [&](const teamserverapi::ArtifactSummary& artifact)
+        { return writer->Write(artifact); });
 }
 
 grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)

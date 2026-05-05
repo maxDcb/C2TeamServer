@@ -10,6 +10,7 @@ from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
+    QTabBar,
     QTabWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -25,6 +26,7 @@ from .grpcClient import TeamServerApi_pb2
 from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
+from .ArtifactPanel import Artifacts, ArtifactTabTitle
 from .TerminalModules.Credentials import credentials
 from .console_style import (
     CONSOLE_COLORS,
@@ -65,6 +67,7 @@ if not os.path.exists(logsDir):
 # Constant
 #
 TerminalTabTitle = "Terminal"
+SYSTEM_TAB_COUNT = 4
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
@@ -476,10 +479,16 @@ class ConsolesTab(QWidget):
         self.tabs.addTab(tab, "Hooks")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
+        self.artifacts = Artifacts(self, self.grpcClient)
+        tab = self.createConsolePage(self.artifacts)
+        self.tabs.addTab(tab, ArtifactTabTitle)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
+
         self.assistant = Assistant(self, self.grpcClient)
         tab = self.createConsolePage(self.assistant)
         self.tabs.addTab(tab, "Data AI")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
+        self.protectSystemTabs()
 
     def createConsolePage(self, child):
         tab = QWidget()
@@ -489,6 +498,12 @@ class ConsolesTab(QWidget):
         layout.setSpacing(0)
         layout.addWidget(child)
         return tab
+
+    def protectSystemTabs(self):
+        tabBar = self.tabs.tabBar()
+        for index in range(min(SYSTEM_TAB_COUNT, self.tabs.count())):
+            tabBar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, None)
+            tabBar.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
         
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False
@@ -508,7 +523,7 @@ class ConsolesTab(QWidget):
 
     def closeTab(self, currentIndex):
         currentQWidget = self.tabs.widget(currentIndex)
-        if currentIndex<3:
+        if currentIndex < SYSTEM_TAB_COUNT:
             return
         currentQWidget.deleteLater()
         self.tabs.removeTab(currentIndex)

@@ -229,6 +229,7 @@ def test_console_replays_structured_log_on_reopen(tmp_path, qtbot, monkeypatch):
 def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Artifacts', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
 
     parent = QWidget()
@@ -238,10 +239,16 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     assert consoles.objectName() == "C2ConsolesTab"
     assert consoles.tabs.objectName() == "C2ConsoleTabs"
     assert consoles.tabs.tabText(1) == "Hooks"
+    assert consoles.tabs.tabText(2) == "Artifacts"
+    assert consoles.tabs.tabText(3) == "Data AI"
     assert "#0b1117" in consoles.styleSheet()
     assert "#070b10" in consoles.styleSheet()
     assert consoles.layout.contentsMargins().left() == 0
     assert consoles.layout.spacing() == 0
+
+    protected_count = consoles.tabs.count()
+    consoles.closeTab(2)
+    assert consoles.tabs.count() == protected_count
 
     for index in range(consoles.tabs.count()):
         page = consoles.tabs.widget(index)

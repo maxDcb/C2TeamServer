@@ -3,6 +3,8 @@ include_directories(../core/modules/ModuleCmd)
 
 set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServer.cpp
+    teamServer/TeamServerArtifactCatalog.cpp
+    teamServer/TeamServerArtifactService.cpp
     teamServer/TeamServerAuth.cpp
     teamServer/TeamServerCommandPreparationService.cpp
     teamServer/TeamServerHelpService.cpp
@@ -110,6 +112,11 @@ if(WITH_TESTS)
     teamserver_add_test(testsTeamServerListenerArtifactService
         server_core
         tests/TeamServerListenerArtifactServiceTests.cpp
+    )
+
+    teamserver_add_test(testsTeamServerArtifactCatalog
+        server_core
+        tests/TeamServerArtifactCatalogTests.cpp
     )
 
     teamserver_add_test(testsTeamServerSocksService
