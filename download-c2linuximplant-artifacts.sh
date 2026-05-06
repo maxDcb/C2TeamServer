@@ -3,6 +3,7 @@ set -euo pipefail
 
 TAG="${1:-0.14.0}"
 OUT_ROOT="${2:-./Release}"
+ARCH="${3:-x64}"
 REPO_URL="https://github.com/maxDcb/C2LinuxImplant/releases/download/${TAG}"
 ASSET="Release.tar.gz"
 
@@ -15,9 +16,9 @@ trap cleanup EXIT
 
 mkdir -p "${OUT_ROOT}"
 
-echo "[*] Preparing ${OUT_ROOT}/LinuxBeacons and ${OUT_ROOT}/LinuxModules"
+echo "[*] Preparing ${OUT_ROOT}/LinuxBeacons/${ARCH} and ${OUT_ROOT}/LinuxModules/${ARCH}"
 rm -rf "${OUT_ROOT}/LinuxBeacons" "${OUT_ROOT}/LinuxModules"
-mkdir -p "${OUT_ROOT}/LinuxBeacons" "${OUT_ROOT}/LinuxModules"
+mkdir -p "${OUT_ROOT}/LinuxBeacons/${ARCH}" "${OUT_ROOT}/LinuxModules/${ARCH}"
 
 TAR_PATH="${TMP_DIR}/${ASSET}"
 EXTRACT_DIR="${TMP_DIR}/extract-linux"
@@ -44,10 +45,9 @@ if [[ ! -d "${RELEASE_ROOT}/LinuxModules" ]]; then
   exit 1
 fi
 
-cp -a "${RELEASE_ROOT}/LinuxBeacons/." "${OUT_ROOT}/LinuxBeacons/"
-cp -a "${RELEASE_ROOT}/LinuxModules/." "${OUT_ROOT}/LinuxModules/"
+cp -a "${RELEASE_ROOT}/LinuxBeacons/." "${OUT_ROOT}/LinuxBeacons/${ARCH}/"
+cp -a "${RELEASE_ROOT}/LinuxModules/." "${OUT_ROOT}/LinuxModules/${ARCH}/"
 
 echo
 echo "[+] Done. Layout:"
-find "${OUT_ROOT}/LinuxBeacons" "${OUT_ROOT}/LinuxModules" -maxdepth 1 -type f | sort
-
+find "${OUT_ROOT}/LinuxBeacons" "${OUT_ROOT}/LinuxModules" -maxdepth 2 -type f | sort

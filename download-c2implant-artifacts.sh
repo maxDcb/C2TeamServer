@@ -58,5 +58,4 @@ done
 
 echo
 echo "[+] Done. Layout:"
-find "${OUT_ROOT}/WindowsBeacons" "${OUT_ROOT}/WindowsModules" -maxdepth 2 -type d | sort
-
+find "${OUT_ROOT}/WindowsBeacons" "${OUT_ROOT}/WindowsModules" -maxdepth 2 -type f | sort
