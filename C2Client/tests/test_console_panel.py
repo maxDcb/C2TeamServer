@@ -333,6 +333,112 @@ def test_command_specs_seed_console_completer_from_manifest_examples():
     assert ("0.5", []) in sleep_entry
 
 
+def test_upload_command_uses_upload_artifact_completions():
+    class FakeGrpc:
+        def __init__(self):
+            self.queries = []
+
+        def listArtifacts(self, query):
+            self.queries.append(query)
+            return iter([
+                SimpleNamespace(name="operator/tool.exe", display_name="tool.exe"),
+                SimpleNamespace(name="notes.txt", display_name="notes.txt"),
+            ])
+
+    upload_spec = SimpleNamespace(
+        name="upload",
+        kind="module",
+        examples=["upload tool.exe C:\\Temp\\tool.exe"],
+        args=[
+            SimpleNamespace(
+                name="upload_artifact",
+                type="artifact",
+                values=[],
+                artifact_filter=SimpleNamespace(
+                    category="upload",
+                    scope="operator",
+                    target="beacon",
+                    platform="session.platform",
+                    arch="session.arch",
+                    runtime="file",
+                    name_contains="",
+                ),
+            ),
+            SimpleNamespace(name="remote_path", type="path", values=[]),
+        ],
+    )
+    session = SimpleNamespace(os="Windows 11", arch="x64")
+
+    server_data = command_specs_to_completer_data([upload_spec], grpcClient=FakeGrpc(), session=session)
+    upload_children = _completion_children(server_data, "upload")
+
+    assert ("operator/tool.exe", []) in upload_children
+    assert ("tool.exe", []) in upload_children
+    assert ("notes.txt", []) in upload_children
+
+
+def test_script_and_powershell_commands_use_script_artifact_completions():
+    class FakeGrpc:
+        def __init__(self):
+            self.queries = []
+
+        def listArtifacts(self, query):
+            self.queries.append(query)
+            if query.platform == "linux":
+                return iter([SimpleNamespace(name="cleanup.sh", display_name="cleanup.sh")])
+            return iter([SimpleNamespace(name="PowerView.ps1", display_name="PowerView.ps1")])
+
+    script_filter = SimpleNamespace(
+        category="script",
+        scope="server",
+        target="beacon",
+        platform="session.platform",
+        arch="",
+        runtime="script",
+        name_contains="",
+    )
+    powershell_filter = SimpleNamespace(
+        category="script",
+        scope="server",
+        target="beacon",
+        platform="windows",
+        arch="",
+        runtime="script",
+        name_contains=".ps1",
+    )
+    script_spec = SimpleNamespace(
+        name="script",
+        kind="module",
+        examples=["script cleanup.sh"],
+        args=[
+            SimpleNamespace(name="script_artifact", type="artifact", values=[], artifact_filter=script_filter),
+        ],
+    )
+    powershell_spec = SimpleNamespace(
+        name="powershell",
+        kind="module",
+        examples=["powershell -s PowerView.ps1"],
+        args=[
+            SimpleNamespace(name="-i", type="flag", values=[], artifact_filter=powershell_filter),
+            SimpleNamespace(name="-s", type="flag", values=[], artifact_filter=powershell_filter),
+        ],
+    )
+
+    grpc = FakeGrpc()
+    session = SimpleNamespace(os="Linux", arch="x64")
+    server_data = command_specs_to_completer_data([script_spec, powershell_spec], grpcClient=grpc, session=session)
+
+    script_children = _completion_children(server_data, "script")
+    assert ("cleanup.sh", []) in script_children
+
+    powershell_children = _completion_children(server_data, "powershell")
+    assert _completion_children(powershell_children, "-i")
+    assert ("PowerView.ps1", []) in _completion_children(powershell_children, "-s")
+    assert grpc.queries[0].category == "script"
+    assert grpc.queries[0].platform == "linux"
+    assert grpc.queries[1].platform == "windows"
+
+
 def test_command_specs_add_flag_completions_without_positional_mode_mix():
     class FakeGrpc:
         def __init__(self):

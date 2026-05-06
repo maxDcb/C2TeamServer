@@ -7,14 +7,19 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerArtifactCatalog.cpp
     teamServer/TeamServerArtifactService.cpp
     teamServer/TeamServerAuth.cpp
+    teamServer/TeamServerChiselCommandPreparer.cpp
     teamServer/TeamServerCommandCatalog.cpp
     teamServer/TeamServerCommandCatalogService.cpp
     teamServer/TeamServerCommandPreparationService.cpp
+    teamServer/TeamServerFileArtifactService.cpp
+    teamServer/TeamServerFileTransferCommandPreparer.cpp
     teamServer/TeamServerGeneratedArtifactStore.cpp
     teamServer/TeamServerHelpService.cpp
     teamServer/TeamServerInjectCommandPreparer.cpp
     teamServer/TeamServerListenerArtifactService.cpp
     teamServer/TeamServerModuleLoader.cpp
+    teamServer/TeamServerMiniDumpCommandPreparer.cpp
+    teamServer/TeamServerScriptCommandPreparer.cpp
     teamServer/TeamServerShellcodeService.cpp
     teamServer/TeamServerSocksService.cpp
     teamServer/TeamServerTermLocalService.cpp

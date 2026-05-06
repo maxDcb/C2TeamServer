@@ -145,6 +145,7 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
     std::vector<teamserverapi::CommandResult>& cmdResponses,
     std::unordered_map<std::string, std::vector<int>>& sentResponses,
     std::vector<BeaconCommandContext>& sentCommands,
+    std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
     PrepMsgCallback prepMsg)
     : m_logger(std::move(logger)),
       m_config(config),
@@ -154,6 +155,7 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
       m_cmdResponses(cmdResponses),
       m_sentResponses(sentResponses),
       m_sentCommands(sentCommands),
+      m_fileArtifactService(std::move(fileArtifactService)),
       m_prepMsg(std::move(prepMsg))
 {
 }
@@ -927,6 +929,10 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     }
                 }
 
+                std::string fileArtifactMessage;
+                if (m_fileArtifactService)
+                    m_fileArtifactService->handleCommandResult(c2Message, fileArtifactMessage);
+
                 std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
                 for (int ii = 0; ii < m_commonCommands.getNumberOfCommand(); ii++)
                 {
@@ -950,14 +956,18 @@ int TeamServerListenerSessionService::handleCmdResponse()
                         return context.commandId == commandId;
                     });
                 bool trackedCommand = false;
+                bool keepCommandContext = false;
                 if (sentCommand != m_sentCommands.end())
                 {
                     trackedCommand = true;
                     listenerHash = sentCommand->listenerHash;
                     commandLine = sentCommand->commandLine;
-                    if (responseInstruction.empty())
+                    if (!sentCommand->instruction.empty())
                         responseInstruction = sentCommand->instruction;
-                    m_sentCommands.erase(sentCommand);
+                    keepCommandContext = m_fileArtifactService
+                        && m_fileArtifactService->shouldKeepCommandContext(c2Message);
+                    if (!keepCommandContext)
+                        m_sentCommands.erase(sentCommand);
                 }
 
                 if (trackedCommand)
@@ -978,7 +988,7 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 }
                 else if (!c2Message.returnvalue().empty())
                 {
-                    commandResponseTmp.set_output(c2Message.returnvalue());
+                    commandResponseTmp.set_output(fileArtifactMessage.empty() ? c2Message.returnvalue() : fileArtifactMessage);
                     m_cmdResponses.push_back(commandResponseTmp);
                 }
                 else if (trackedCommand)

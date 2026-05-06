@@ -1,15 +1,22 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unistd.h>
 
 #include "TeamServerAssemblyExecCommandPreparer.hpp"
 #include "TeamServerArtifactCatalog.hpp"
+#include "TeamServerChiselCommandPreparer.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerFileArtifactService.hpp"
+#include "TeamServerFileTransferCommandPreparer.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerInjectCommandPreparer.hpp"
+#include "TeamServerMiniDumpCommandPreparer.hpp"
+#include "TeamServerScriptCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 
 namespace fs = std::filesystem;
@@ -124,11 +131,41 @@ std::shared_ptr<spdlog::logger> makeLogger()
     return logger;
 }
 
+class FakeShellcodeService final : public TeamServerShellcodeService
+{
+public:
+    FakeShellcodeService()
+        : TeamServerShellcodeService(makeLogger())
+    {
+        nextResult.ok = true;
+        nextResult.bytes = "FAKE-SHELLCODE";
+        nextResult.generator = "donut";
+        nextResult.sourceType = "dotnet_exe";
+        nextResult.sha256 = std::string(64, 'f');
+    }
+
+    TeamServerShellcodeResult generate(const TeamServerShellcodeRequest& request) const override
+    {
+        lastRequest = request;
+        return nextResult;
+    }
+
+    mutable TeamServerShellcodeRequest lastRequest;
+    TeamServerShellcodeResult nextResult;
+};
+
 void writeFile(const fs::path& path, const std::string& content)
 {
-    fs::create_directories(path.parent_path());
+    if (!path.parent_path().empty())
+        fs::create_directories(path.parent_path());
     std::ofstream output(path, std::ios::binary);
     output << content;
+}
+
+void require(bool condition, const char* message)
+{
+    if (!condition)
+        throw std::runtime_error(message);
 }
 
 TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
@@ -141,6 +178,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.windowsBeaconsDirectoryPath = (root / "WindowsBeacons").string() + "/";
     runtimeConfig.toolsDirectoryPath = (root / "Tools").string() + "/";
     runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string() + "/";
+    runtimeConfig.uploadedArtifactsDirectoryPath = (root / "UploadedArtifacts").string() + "/";
     runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string() + "/";
     return runtimeConfig;
 }
@@ -433,6 +471,274 @@ void testPrepareInjectDonutReportsMissingSource()
     assert(service.prepareMessage("inject --donut-exe missing.exe --pid 4321 -- arg1", message, true, "x64") == -1);
     assert(message.returnvalue().find("Couldn't open Donut source file.") != std::string::npos);
 }
+
+void testPrepareUploadUsesUploadedArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("upload-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator.bin", "UPLOAD-BYTES");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("upload"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        makeLogger(),
+        runtimeConfig,
+        artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerFileTransferCommandPreparer>(
+        makeLogger(),
+        fileArtifactService,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("upload operator.bin C:\\Temp\\operator.bin", message, true, "amd64") == 0, "upload prepare failed");
+    require(message.instruction() == "upload", "upload instruction mismatch");
+    require(message.inputfile() == "operator.bin", "upload input artifact mismatch");
+    require(message.outputfile() == "C:\\Temp\\operator.bin", "upload remote path mismatch");
+    require(message.data() == "UPLOAD-BYTES", "upload bytes mismatch");
+
+    C2Message missingMessage;
+    require(service.prepareMessage("upload missing.bin C:\\Temp\\missing.bin", missingMessage, true, "amd64") == -1, "missing upload artifact should fail");
+    require(missingMessage.returnvalue().find("Upload artifact not found") != std::string::npos, "missing upload error mismatch");
+}
+
+void testPrepareDownloadCreatesGeneratedArtifactSlot()
+{
+    ScopedPath tempRoot(makeTempDirectory("download-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("download"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        makeLogger(),
+        runtimeConfig,
+        artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerFileTransferCommandPreparer>(
+        makeLogger(),
+        fileArtifactService,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("download /tmp/loot.txt loot.txt", message, false, "amd64") == 0, "download prepare failed");
+    require(message.instruction() == "download", "download instruction mismatch");
+    require(message.inputfile() == "/tmp/loot.txt", "download input path mismatch");
+    require(message.outputfile().find("GeneratedArtifacts/download/beacon") != std::string::npos, "download output path mismatch");
+    require(fs::exists(message.outputfile() + ".artifact.pending.json"), "download pending metadata missing");
+
+    writeFile(message.outputfile(), "LOOT");
+    C2Message result;
+    result.set_outputfile(message.outputfile());
+    result.set_returnvalue("Success");
+    std::string artifactMessage;
+    require(fileArtifactService->handleCommandResult(result, artifactMessage), "download result was not handled");
+    require(artifactMessage.find("Downloaded artifact stored:") != std::string::npos, "download artifact message mismatch");
+    require(!fs::exists(message.outputfile() + ".artifact.pending.json"), "download pending metadata was not removed");
+    require(fs::exists(message.outputfile() + ".artifact.json"), "download artifact metadata missing");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "download";
+    query.scope = "generated";
+    query.target = "teamserver";
+    query.runtime = "file";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    require(artifacts.size() == 1, "download artifact catalog count mismatch");
+    require(artifacts[0].source == "beacon", "download artifact source mismatch");
+    require(artifacts[0].platform == "linux", "download artifact platform mismatch");
+    require(artifacts[0].arch == "x64", "download artifact arch mismatch");
+    require(artifacts[0].displayName == "loot.txt", "download artifact display name mismatch");
+}
+
+void testPrepareChiselUsesFixedToolAndShellcodeService()
+{
+    ScopedPath tempRoot(makeTempDirectory("chisel-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    const fs::path chiselPath = fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "chisel.exe";
+    writeFile(chiselPath, "CHISEL-EXE");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeShellcodeModule>("chisel"));
+
+    auto shellcodeService = std::make_shared<FakeShellcodeService>();
+    shellcodeService->nextResult.bytes = "CHISEL-SHELLCODE";
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerChiselCommandPreparer>(
+        makeLogger(),
+        runtimeConfig,
+        shellcodeService,
+        artifactStore,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("chisel client 127.0.0.1:9001 R:socks", message, true, "amd64") == 0, "chisel prepare failed");
+    require(message.instruction() == "chisel", "chisel instruction mismatch");
+    require(message.cmd() == "client 127.0.0.1:9001 R:socks", "chisel display command mismatch");
+    require(message.data() == "CHISEL-SHELLCODE", "chisel shellcode payload mismatch");
+    require(message.inputfile().find("GeneratedArtifacts") != std::string::npos, "chisel generated artifact path mismatch");
+    require(shellcodeService->lastRequest.generator == "donut", "chisel generator mismatch");
+    require(shellcodeService->lastRequest.sourcePath == chiselPath.string(), "chisel fixed source path mismatch");
+    require(shellcodeService->lastRequest.arguments == "client 127.0.0.1:9001 R:socks", "chisel arguments mismatch");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "payload";
+    query.scope = "generated";
+    query.runtime = "shellcode";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    require(artifacts.size() == 1, "chisel generated shellcode catalog count mismatch");
+    require(artifacts[0].source == "donut", "chisel generated source mismatch");
+    require(artifacts[0].arch == "x64", "chisel generated arch mismatch");
+}
+
+void testPrepareScriptAndPowershellUseScriptArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("script-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Linux" / "collect.sh", "id\n");
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "collect.ps1", "Get-Process\n");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("script"));
+    modules.push_back(std::make_unique<FakeModule>("powershell"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        makeLogger(),
+        runtimeConfig,
+        artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerScriptCommandPreparer>(
+        makeLogger(),
+        fileArtifactService,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message scriptMessage;
+    require(service.prepareMessage("script collect.sh", scriptMessage, false, "amd64") == 0, "script prepare failed");
+    require(scriptMessage.instruction() == "script", "script instruction mismatch");
+    require(scriptMessage.inputfile() == "collect.sh", "script input artifact mismatch");
+    require(scriptMessage.data() == "id\n", "script bytes mismatch");
+
+    C2Message powershellMessage;
+    require(service.prepareMessage("powershell -s collect.ps1", powershellMessage, true, "x64") == 0, "powershell script prepare failed");
+    require(powershellMessage.instruction() == "powershell", "powershell instruction mismatch");
+    require(powershellMessage.inputfile() == "collect.ps1", "powershell input artifact mismatch");
+    require(powershellMessage.cmd() == "-s collect.ps1 ", "powershell cmd mismatch");
+    require(powershellMessage.data().find("Invoke-Command -ScriptBlock") != std::string::npos, "powershell wrapper missing");
+    require(powershellMessage.data().find("Get-Process") != std::string::npos, "powershell script content missing");
+
+    C2Message inlineMessage;
+    require(service.prepareMessage("powershell whoami", inlineMessage, true, "x86") == 42, "inline powershell should fall through to module init");
+    require(inlineMessage.instruction() == "FAKE", "inline powershell fallback mismatch");
+}
+
+void testPrepareMiniDumpCreatesGeneratedArtifactSlotAndRegistersChunks()
+{
+    ScopedPath tempRoot(makeTempDirectory("minidump-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("miniDump"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        makeLogger(),
+        runtimeConfig,
+        artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerMiniDumpCommandPreparer>(
+        makeLogger(),
+        fileArtifactService,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("miniDump dump lsass.xored", message, true, "amd64") == 0, "miniDump prepare failed");
+    require(message.instruction() == "miniDump", "miniDump instruction mismatch");
+    require(message.cmd() == "0", "miniDump command mismatch");
+    require(message.outputfile().find("GeneratedArtifacts/minidump/beacon") != std::string::npos, "miniDump output path mismatch");
+    require(fs::exists(message.outputfile() + ".artifact.pending.json"), "miniDump pending metadata missing");
+
+    C2Message firstChunk;
+    firstChunk.set_outputfile(message.outputfile());
+    firstChunk.set_args("0");
+    firstChunk.set_data("AA");
+    firstChunk.set_returnvalue("2/4");
+    std::string artifactMessage;
+    require(fileArtifactService->handleCommandResult(firstChunk, artifactMessage), "miniDump first chunk was not handled");
+    require(fileArtifactService->shouldKeepCommandContext(firstChunk), "miniDump first chunk should keep command context");
+    require(!fs::exists(message.outputfile() + ".artifact.json"), "miniDump should not register before success");
+
+    C2Message finalChunk;
+    finalChunk.set_outputfile(message.outputfile());
+    finalChunk.set_args("1");
+    finalChunk.set_data("BB");
+    finalChunk.set_returnvalue("Success");
+    require(fileArtifactService->handleCommandResult(finalChunk, artifactMessage), "miniDump final chunk was not handled");
+    require(artifactMessage.find("Generated artifact stored:") != std::string::npos, "miniDump artifact message mismatch");
+    require(fs::exists(message.outputfile() + ".artifact.json"), "miniDump artifact metadata missing");
+
+    std::ifstream payload(message.outputfile(), std::ios::binary);
+    std::string payloadBytes(std::istreambuf_iterator<char>(payload), {});
+    require(payloadBytes == "AABB", "miniDump assembled bytes mismatch");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "minidump";
+    query.scope = "generated";
+    query.target = "teamserver";
+    query.runtime = "file";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    require(artifacts.size() == 1, "miniDump artifact catalog count mismatch");
+    require(artifacts[0].source == "beacon", "miniDump artifact source mismatch");
+    require(artifacts[0].platform == "windows", "miniDump artifact platform mismatch");
+    require(artifacts[0].arch == "x64", "miniDump artifact arch mismatch");
+    require(artifacts[0].format == "xored", "miniDump artifact format mismatch");
+}
 } // namespace
 
 int main()
@@ -446,5 +752,10 @@ int main()
     testPrepareAssemblyExecDonutReportsMissingSource();
     testPrepareInjectUsesShellcodeServiceAndGeneratedArtifactStore();
     testPrepareInjectDonutReportsMissingSource();
+    testPrepareUploadUsesUploadedArtifact();
+    testPrepareDownloadCreatesGeneratedArtifactSlot();
+    testPrepareChiselUsesFixedToolAndShellcodeService();
+    testPrepareScriptAndPowershellUseScriptArtifacts();
+    testPrepareMiniDumpCreatesGeneratedArtifactSlotAndRegistersChunks();
     return 0;
 }

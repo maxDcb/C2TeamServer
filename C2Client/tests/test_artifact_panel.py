@@ -115,6 +115,7 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
     panel = Artifacts(parent, grpc)
     qtbot.addWidget(panel)
 
+    assert panel.categoryFilter.findText("minidump") != -1
     assert panel.artifactTable.rowCount() == 3
     assert panel.artifactTable.item(0, 0).text() == "module"
     assert panel.artifactTable.item(0, 1).text() == "beacon"

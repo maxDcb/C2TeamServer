@@ -5,15 +5,20 @@
 #include "TeamServerAssemblyExecCommandPreparer.hpp"
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
+#include "TeamServerChiselCommandPreparer.hpp"
 #include "TeamServerCommandCatalog.hpp"
 #include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerFileArtifactService.hpp"
+#include "TeamServerFileTransferCommandPreparer.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerHelpService.hpp"
 #include "TeamServerInjectCommandPreparer.hpp"
 #include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerListenerSessionService.hpp"
+#include "TeamServerMiniDumpCommandPreparer.hpp"
 #include "TeamServerModuleLoader.hpp"
+#include "TeamServerScriptCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 #include "TeamServerSocksService.hpp"
 #include "TeamServerTermLocalService.hpp"
@@ -56,6 +61,10 @@ TeamServer::TeamServer(const nlohmann::json& config)
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
     m_generatedArtifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    m_fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        m_logger,
+        runtimeConfig,
+        m_generatedArtifactStore);
     m_shellcodeService = std::make_shared<TeamServerShellcodeService>(m_logger);
     m_artifactService = std::make_unique<TeamServerArtifactService>(
         m_logger,
@@ -78,6 +87,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_cmdResponses,
         m_sentResponses,
         m_sentCommands,
+        m_fileArtifactService,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
@@ -103,6 +113,24 @@ TeamServer::TeamServer(const nlohmann::json& config)
         runtimeConfig,
         m_shellcodeService,
         m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerChiselCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerFileTransferCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerScriptCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerMiniDumpCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
         m_moduleCmd));
     m_commandPreparationService = std::make_unique<TeamServerCommandPreparationService>(
         m_logger,

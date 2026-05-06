@@ -38,6 +38,9 @@ public:
     explicit TeamServerGeneratedArtifactStore(TeamServerRuntimeConfig runtimeConfig);
 
     TeamServerGeneratedArtifactRecord store(const TeamServerGeneratedArtifactRequest& request) const;
+    TeamServerGeneratedArtifactRecord registerExistingFile(
+        const TeamServerGeneratedArtifactRequest& request,
+        const std::string& filePath) const;
 
 private:
     TeamServerRuntimeConfig m_runtimeConfig;

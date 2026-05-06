@@ -28,12 +28,12 @@ from .ui_status import StatusKind, apply_status, compact_message
 ArtifactTabTitle = "Artifacts"
 
 ALL_FILTER = "All"
-CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload"]
+CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "upload", "download", "minidump"]
 SCOPE_FILTERS = [ALL_FILTER, "generated", "beacon", "implant", "teamserver", "server", "operator", "any"]
 TARGET_FILTERS = [ALL_FILTER, "teamserver", "beacon", "listener", "operator", "any"]
 PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server", "any"]
 ARCH_FILTERS = [ALL_FILTER, "x64", "x86", "arm64", "any"]
-RUNTIME_FILTERS = [ALL_FILTER, "native", "python", "dotnet", "powershell", "bof", "shellcode", "text", "archive", "any"]
+RUNTIME_FILTERS = [ALL_FILTER, "native", "file", "python", "dotnet", "powershell", "bof", "shellcode", "text", "archive", "any"]
 
 COL_CATEGORY = 0
 COL_SCOPE = 1

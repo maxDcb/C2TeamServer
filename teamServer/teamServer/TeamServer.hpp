@@ -32,6 +32,7 @@
 class TeamServerAuthManager;
 class TeamServerArtifactService;
 class TeamServerCommandCatalogService;
+class TeamServerFileArtifactService;
 class TeamServerGeneratedArtifactStore;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
@@ -101,6 +102,7 @@ private:
     std::unique_ptr<TeamServerAuthManager> m_authManager;
     std::unique_ptr<TeamServerArtifactService> m_artifactService;
     std::unique_ptr<TeamServerCommandCatalogService> m_commandCatalogService;
+    std::shared_ptr<TeamServerFileArtifactService> m_fileArtifactService;
     std::shared_ptr<TeamServerGeneratedArtifactStore> m_generatedArtifactStore;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;

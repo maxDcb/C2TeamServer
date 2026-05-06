@@ -30,8 +30,9 @@ class TeamServerShellcodeService
 {
 public:
     explicit TeamServerShellcodeService(std::shared_ptr<spdlog::logger> logger);
+    virtual ~TeamServerShellcodeService() = default;
 
-    TeamServerShellcodeResult generate(const TeamServerShellcodeRequest& request) const;
+    virtual TeamServerShellcodeResult generate(const TeamServerShellcodeRequest& request) const;
 
 private:
     TeamServerShellcodeResult generateRaw(const TeamServerShellcodeRequest& request) const;

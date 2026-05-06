@@ -13,6 +13,7 @@
 
 #include "TeamServerApi.pb.h"
 #include "TeamServerCommandTracking.hpp"
+#include "TeamServerFileArtifactService.hpp"
 #include "listener/Listener.hpp"
 #include "modules/ModuleCmd/CommonCommand.hpp"
 #include "modules/ModuleCmd/ModuleCmd.hpp"
@@ -37,6 +38,7 @@ public:
         std::vector<teamserverapi::CommandResult>& cmdResponses,
         std::unordered_map<std::string, std::vector<int>>& sentResponses,
         std::vector<BeaconCommandContext>& sentCommands,
+        std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
         PrepMsgCallback prepMsg);
 
     grpc::Status streamListeners(const ListenerEmitter& emit);
@@ -64,6 +66,7 @@ private:
     std::vector<teamserverapi::CommandResult>& m_cmdResponses;
     std::unordered_map<std::string, std::vector<int>>& m_sentResponses;
     std::vector<BeaconCommandContext>& m_sentCommands;
+    std::shared_ptr<TeamServerFileArtifactService> m_fileArtifactService;
     PrepMsgCallback m_prepMsg;
 
     struct BeaconModuleRecord

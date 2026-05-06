@@ -82,6 +82,7 @@ void testCollectListenersAndSessions()
         cmdResponses,
         sentResponses,
         sentCommands,
+        nullptr,
         [](const std::string&, C2Message& c2Message, bool, const std::string&)
         {
             c2Message.set_instruction("noop");
@@ -136,6 +137,7 @@ void testQueueStopAndResponseDeduplication()
         cmdResponses,
         sentResponses,
         sentCommands,
+        nullptr,
         [&preparedArch](const std::string& input, C2Message& c2Message, bool, const std::string& windowsArch)
         {
             preparedArch = windowsArch;
@@ -250,6 +252,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
         cmdResponses,
         sentResponses,
         sentCommands,
+        nullptr,
         [](const std::string& input, C2Message& c2Message, bool, const std::string&)
         {
             if (input.rfind("loadModule", 0) == 0)
