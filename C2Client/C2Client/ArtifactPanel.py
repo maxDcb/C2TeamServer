@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import Qt
@@ -7,6 +8,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QAbstractItemView,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -28,12 +30,14 @@ from .ui_status import StatusKind, apply_status, compact_message
 ArtifactTabTitle = "Artifacts"
 
 ALL_FILTER = "All"
-CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "upload", "download", "minidump", "screenshot"]
+CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "hosted", "upload", "download", "minidump", "screenshot"]
 SCOPE_FILTERS = [ALL_FILTER, "generated", "beacon", "implant", "teamserver", "server", "operator", "any"]
 TARGET_FILTERS = [ALL_FILTER, "teamserver", "beacon", "listener", "operator", "any"]
 PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server", "any"]
 ARCH_FILTERS = [ALL_FILTER, "x64", "x86", "arm64", "any"]
 RUNTIME_FILTERS = [ALL_FILTER, "native", "file", "python", "dotnet", "powershell", "bof", "shellcode", "text", "archive", "any"]
+UPLOAD_PLATFORMS = {"windows", "linux", "any"}
+UPLOAD_ARCHS = {"x64", "x86", "arm64", "any"}
 
 COL_CATEGORY = 0
 COL_SCOPE = 1
@@ -84,6 +88,13 @@ def format_size(size: Any) -> str:
     return f"{size_float:.1f} {units[unit_index]}"
 
 
+def _upload_filter_value(value: str, allowed: set[str]) -> str:
+    lowered = _text(value).lower()
+    if lowered == ALL_FILTER.lower() or lowered not in allowed:
+        return "any"
+    return lowered
+
+
 class Artifacts(QWidget):
     COLUMN_WIDTHS = [82, 92, 92, 220, 86, 66, 92, 70, 86, 112, 88]
     STRETCH_COLUMN = COL_NAME
@@ -112,10 +123,12 @@ class Artifacts(QWidget):
         self.searchInput.setToolTip("Filter artifacts by name.")
         self.searchInput.returnPressed.connect(self.refreshArtifacts)
 
-        self.generatedButton = self.createToolbarButton("Generated", "Show generated shellcode artifacts.", width=84)
-        self.generatedButton.clicked.connect(self.showGeneratedShellcodes)
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh artifact catalog.", width=72)
         self.refreshButton.clicked.connect(self.refreshArtifacts)
+        self.uploadButton = self.createToolbarButton("Upload", "Upload a local file to UploadedArtifacts. Current Platform/Arch filters are used when set.", width=72)
+        self.uploadButton.clicked.connect(self.uploadArtifactFromClient)
+        self.downloadButton = self.createToolbarButton("Download", "Download selected artifact to a local file.", width=84)
+        self.downloadButton.clicked.connect(self.downloadSelectedArtifactToClient)
         self.copyIdButton = self.createToolbarButton("Copy ID", "Copy selected artifact id.", width=72)
         self.copyIdButton.clicked.connect(self.copySelectedArtifactId)
         self.deleteButton = self.createToolbarButton("Delete", "Delete selected generated artifact.", width=72)
@@ -134,8 +147,9 @@ class Artifacts(QWidget):
         toolbar.addWidget(QLabel("Runtime"))
         toolbar.addWidget(self.runtimeFilter)
         toolbar.addWidget(self.searchInput, 1)
-        toolbar.addWidget(self.generatedButton)
         toolbar.addWidget(self.refreshButton)
+        toolbar.addWidget(self.uploadButton)
+        toolbar.addWidget(self.downloadButton)
         toolbar.addWidget(self.copyIdButton)
         toolbar.addWidget(self.deleteButton)
         self.layout.addLayout(toolbar)
@@ -159,6 +173,7 @@ class Artifacts(QWidget):
         self.layout.addWidget(self.artifactTable, 1)
 
         self.updateActionButtons()
+        self.connectFilterSignals()
         self.refreshArtifacts()
 
     def createFilter(self, values: list[str], tooltip: str) -> QComboBox:
@@ -186,6 +201,17 @@ class Artifacts(QWidget):
             else:
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
                 self.artifactTable.setColumnWidth(index, width)
+
+    def connectFilterSignals(self) -> None:
+        for combo in (
+            self.categoryFilter,
+            self.scopeFilter,
+            self.targetFilter,
+            self.platformFilter,
+            self.archFilter,
+            self.runtimeFilter,
+        ):
+            combo.currentTextChanged.connect(lambda _value: self.refreshArtifacts())
 
     def buildQuery(self) -> Any:
         query = TeamServerApi_pb2.ArtifactQuery()
@@ -219,16 +245,6 @@ class Artifacts(QWidget):
             query.name_contains = name_contains
 
         return query
-
-    def showGeneratedShellcodes(self) -> None:
-        self.categoryFilter.setCurrentText("payload")
-        self.scopeFilter.setCurrentText("generated")
-        self.targetFilter.setCurrentText(ALL_FILTER)
-        self.platformFilter.setCurrentText(ALL_FILTER)
-        self.archFilter.setCurrentText(ALL_FILTER)
-        self.runtimeFilter.setCurrentText("shellcode")
-        self.searchInput.clear()
-        self.refreshArtifacts()
 
     def refreshArtifacts(self) -> None:
         try:
@@ -320,7 +336,18 @@ class Artifacts(QWidget):
         return _text(_field(artifact, "artifact_id"))
 
     def isGeneratedArtifact(self, artifact: Any | None) -> bool:
-        return artifact is not None and _text(_field(artifact, "scope")).lower() == "generated"
+        if artifact is None:
+            return False
+        return (
+            _text(_field(artifact, "scope")).lower() == "generated"
+            and _text(_field(artifact, "category")).lower() != "hosted"
+        )
+
+    def selectedUploadTarget(self) -> tuple[str, str]:
+        return (
+            _upload_filter_value(self.platformFilter.currentText(), UPLOAD_PLATFORMS),
+            _upload_filter_value(self.archFilter.currentText(), UPLOAD_ARCHS),
+        )
 
     def copySelectedArtifactId(self) -> None:
         artifact_id = self.selectedArtifactId()
@@ -330,6 +357,75 @@ class Artifacts(QWidget):
 
         QApplication.clipboard().setText(artifact_id)
         apply_status(self.statusLabel, "Artifacts: artifact ID copied.", StatusKind.SUCCESS)
+
+    def downloadSelectedArtifactToClient(self) -> None:
+        artifact = self.selectedArtifact()
+        artifact_id = self.selectedArtifactId()
+        if artifact is None or not artifact_id:
+            apply_status(self.statusLabel, "Artifacts: select an artifact first.", StatusKind.ERROR)
+            return
+
+        default_name = _text(_field(artifact, "display_name")) or Path(_text(_field(artifact, "name"))).name or artifact_id
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Download artifact",
+            default_name,
+            "All files (*)",
+        )
+        if not destination:
+            return
+
+        try:
+            response = self.grpcClient.downloadArtifact(artifact_id)
+        except Exception as exc:
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
+            return
+
+        if getattr(response, "status", TeamServerApi_pb2.KO) != TeamServerApi_pb2.OK:
+            message = _text(getattr(response, "message", "")) or "download failed"
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(message, limit=120)}", StatusKind.ERROR)
+            return
+
+        try:
+            Path(destination).write_bytes(bytes(getattr(response, "data", b"")))
+        except OSError as exc:
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
+            return
+
+        apply_status(self.statusLabel, f"Artifacts: downloaded {Path(destination).name}.", StatusKind.SUCCESS)
+
+    def uploadArtifactFromClient(self) -> None:
+        source, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Upload artifact",
+            "",
+            "All files (*)",
+        )
+        if not source:
+            return
+
+        source_path = Path(source)
+        try:
+            payload = source_path.read_bytes()
+        except OSError as exc:
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
+            return
+
+        platform, arch = self.selectedUploadTarget()
+        try:
+            response = self.grpcClient.uploadArtifact(source_path.name, payload, platform, arch)
+        except Exception as exc:
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
+            return
+
+        if getattr(response, "status", TeamServerApi_pb2.KO) != TeamServerApi_pb2.OK:
+            message = _text(getattr(response, "message", "")) or "upload failed"
+            apply_status(self.statusLabel, f"Artifacts: {compact_message(message, limit=120)}", StatusKind.ERROR)
+            return
+
+        self.refreshArtifacts()
+        message = _text(getattr(response, "message", "")) or "uploaded artifact stored"
+        apply_status(self.statusLabel, f"Artifacts: {message}", StatusKind.SUCCESS)
 
     def deleteSelectedGeneratedArtifact(self) -> None:
         artifact = self.selectedArtifact()
@@ -374,4 +470,5 @@ class Artifacts(QWidget):
     def updateActionButtons(self) -> None:
         selected_artifact = self.selectedArtifact()
         self.copyIdButton.setEnabled(bool(selected_artifact))
+        self.downloadButton.setEnabled(bool(selected_artifact))
         self.deleteButton.setEnabled(self.isGeneratedArtifact(selected_artifact))

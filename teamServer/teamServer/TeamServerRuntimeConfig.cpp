@@ -105,8 +105,8 @@ TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& 
         jsonString(config, "UploadedArtifactsDirectoryPath", childPath(runtimeConfig.dataRoot, "UploadedArtifacts")));
     runtimeConfig.generatedArtifactsDirectoryPath = ensureTrailingSeparator(
         jsonString(config, "GeneratedArtifactsDirectoryPath", childPath(runtimeConfig.dataRoot, "GeneratedArtifacts")));
-    runtimeConfig.wwwDirectoryPath = ensureTrailingSeparator(
-        jsonString(config, "WwwDirectoryPath", childPath(runtimeConfig.dataRoot, "www")));
+    runtimeConfig.hostedArtifactsDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "HostedArtifactsDirectoryPath", childPath(runtimeConfig.generatedArtifactsDirectoryPath, "hosted")));
 
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());
@@ -224,7 +224,7 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
     ensurePlatformArchDirectories(uploadedArtifactsDirectoryPath, "Linux", supportedLinuxArchs, logger);
 
     ensureDirectory(generatedArtifactsDirectoryPath, "Generated artifacts", logger);
-    ensureDirectory(wwwDirectoryPath, "www", logger);
+    ensureDirectory(hostedArtifactsDirectoryPath, "Hosted artifacts", logger);
 
     if (!fs::exists(commandSpecsDirectoryPath))
         logger->error("Command specs directory path don't exist: {0}", commandSpecsDirectoryPath.c_str());

@@ -43,6 +43,30 @@ inline bool port_in_use(unsigned short port)
     return 0;
 }
 
+namespace
+{
+std::string trimTrailingPathSeparators(std::string path)
+{
+    while (!path.empty() && (path.back() == '/' || path.back() == '\\'))
+        path.pop_back();
+    return path;
+}
+
+void configureHostedDownloadFolders(nlohmann::json& config, const TeamServerRuntimeConfig& runtimeConfig)
+{
+    const std::string hostedPath = trimTrailingPathSeparators(runtimeConfig.hostedArtifactsDirectoryPath);
+    if (hostedPath.empty())
+        return;
+
+    for (const char* section : {"ListenerHttpConfig", "ListenerHttpsConfig"})
+    {
+        if (!config[section].is_object())
+            config[section] = nlohmann::json::object();
+        config[section]["downloadFolder"] = hostedPath;
+    }
+}
+} // namespace
+
 std::string getIPAddress(const std::string& interface);
 
 grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
@@ -58,6 +82,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
     TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(config);
     runtimeConfig.validateDirectories(m_logger);
     runtimeConfig.configureCommonCommands(m_commonCommands);
+    configureHostedDownloadFolders(m_config, runtimeConfig);
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
@@ -236,6 +261,22 @@ grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teams
         { return writer->Write(artifact); });
 }
 
+grpc::Status TeamServer::DownloadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::ArtifactContent* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->downloadArtifact(*selector, response);
+}
+
+grpc::Status TeamServer::UploadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactUploadRequest* request, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->uploadArtifact(*request, response);
+}
+
 grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response)
 {
     auto authStatus = ensureAuthenticated(context);
@@ -404,7 +445,6 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
         m_logger->debug("socks {0}", cmd);
         return m_socksService->handleCommand(splitedCmd, response);
     }
-    // TODO add a clean www directory !!!
     else
     {
         responseTmp.set_result("Error: not implemented.");

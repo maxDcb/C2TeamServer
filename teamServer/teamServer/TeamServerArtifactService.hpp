@@ -21,6 +21,12 @@ public:
     grpc::Status listArtifacts(
         const teamserverapi::ArtifactQuery& query,
         const ArtifactWriter& writer) const;
+    grpc::Status downloadArtifact(
+        const teamserverapi::ArtifactSelector& selector,
+        teamserverapi::ArtifactContent* response) const;
+    grpc::Status uploadArtifact(
+        const teamserverapi::ArtifactUploadRequest& request,
+        teamserverapi::OperationAck* response) const;
     grpc::Status deleteGeneratedArtifact(
         const teamserverapi::ArtifactSelector& selector,
         teamserverapi::OperationAck* response) const;

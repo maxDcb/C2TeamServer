@@ -7,7 +7,7 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.grpcClient import GrpcClient, TeamServerApi_pb2_grpc
+from C2Client.grpcClient import GrpcClient, TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
 class DummyFuture:
@@ -71,6 +71,57 @@ def test_grpc_client_lists_artifacts(tmp_path, monkeypatch):
     assert list(client.listArtifacts(query)) == [artifact]
     stub.ListArtifacts.assert_called_once_with(query, metadata=client.metadata)
     assert events == [("ListArtifacts", True, "")]
+
+
+def test_grpc_client_downloads_artifact(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    response = object()
+    stub.DownloadArtifact.return_value = response
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    events = []
+    client.set_status_callback(lambda operation, ok, message: events.append((operation, ok, message)))
+
+    assert client.downloadArtifact("artifact-1") is response
+    request = stub.DownloadArtifact.call_args.args[0]
+    assert isinstance(request, TeamServerApi_pb2.ArtifactSelector)
+    assert request.artifact_id == "artifact-1"
+    assert stub.DownloadArtifact.call_args.kwargs["metadata"] == client.metadata
+    assert events == [("DownloadArtifact", True, "")]
+
+
+def test_grpc_client_uploads_artifact(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    response = object()
+    stub.UploadArtifact.return_value = response
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    events = []
+    client.set_status_callback(lambda operation, ok, message: events.append((operation, ok, message)))
+
+    assert client.uploadArtifact("payload.bin", b"payload", "windows", "x64") is response
+    request = stub.UploadArtifact.call_args.args[0]
+    assert isinstance(request, TeamServerApi_pb2.ArtifactUploadRequest)
+    assert request.name == "payload.bin"
+    assert request.data == b"payload"
+    assert request.platform == "windows"
+    assert request.arch == "x64"
+    assert stub.UploadArtifact.call_args.kwargs["metadata"] == client.metadata
+    assert events == [("UploadArtifact", True, "")]
 
 
 def test_grpc_client_lists_commands(tmp_path, monkeypatch):

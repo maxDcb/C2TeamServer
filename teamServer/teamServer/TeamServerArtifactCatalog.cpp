@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <openssl/evp.h>
 #include <sstream>
 #include <system_error>
@@ -188,6 +189,50 @@ std::string detectFormat(const fs::path& path)
     return extension;
 }
 
+std::string sanitizeArtifactName(std::string value)
+{
+    value = fs::path(value).filename().string();
+    for (char& ch : value)
+    {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (!std::isalnum(c) && ch != '.' && ch != '-' && ch != '_')
+            ch = '_';
+    }
+    value.erase(std::remove(value.begin(), value.end(), '/'), value.end());
+    value.erase(std::remove(value.begin(), value.end(), '\\'), value.end());
+    return value.empty() ? "artifact.bin" : value;
+}
+
+std::string normalizeUploadPlatform(std::string platform)
+{
+    platform = toLower(platform);
+    if (platform == "windows" || platform == "win")
+        return "windows";
+    if (platform == "linux")
+        return "linux";
+    return "any";
+}
+
+std::string normalizeUploadArch(
+    const std::string& platform,
+    const std::string& arch,
+    const TeamServerRuntimeConfig& runtimeConfig)
+{
+    std::string normalized;
+    if (platform == "windows")
+        normalized = TeamServerRuntimeConfig::normalizeWindowsArch(arch);
+    else if (platform == "linux")
+        normalized = TeamServerRuntimeConfig::normalizeLinuxArch(arch);
+
+    if (!normalized.empty())
+        return normalized;
+    if (platform == "windows")
+        return runtimeConfig.defaultWindowsArch.empty() ? "x64" : runtimeConfig.defaultWindowsArch;
+    if (platform == "linux")
+        return runtimeConfig.defaultLinuxArch.empty() ? "x64" : runtimeConfig.defaultLinuxArch;
+    return "any";
+}
+
 void collectDirectoryArtifacts(
     const fs::path& root,
     const std::string& category,
@@ -196,7 +241,8 @@ void collectDirectoryArtifacts(
     const std::string& platform,
     const std::string& arch,
     const std::string& runtime,
-    std::vector<TeamServerArtifactRecord>& artifacts)
+    std::vector<TeamServerArtifactRecord>& artifacts,
+    const std::string& source = ReleaseSource)
 {
     std::error_code ec;
     if (root.empty() || !fs::exists(root, ec) || !fs::is_directory(root, ec))
@@ -227,6 +273,11 @@ void collectDirectoryArtifacts(
         }
         if (hasHiddenComponent(relativePath))
             continue;
+        if (path.filename().string().find(".artifact.") != std::string::npos)
+            continue;
+        if (fs::exists(fs::path(path.string() + ".artifact.json"), ec))
+            continue;
+        ec.clear();
 
         const std::string contentHash = sha256File(path);
         if (contentHash.empty())
@@ -242,7 +293,7 @@ void collectDirectoryArtifacts(
         artifact.arch = arch;
         artifact.format = detectFormat(path);
         artifact.runtime = runtime;
-        artifact.source = ReleaseSource;
+        artifact.source = source;
         artifact.sha256 = contentHash;
         artifact.internalPath = path.string();
 
@@ -421,6 +472,7 @@ std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(c
     collectToolsArtifacts(m_runtimeConfig.toolsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, m_runtimeConfig.supportedLinuxArchs, allArtifacts);
     collectScriptArtifacts(m_runtimeConfig.scriptsDirectoryPath, allArtifacts);
     collectUploadedArtifacts(m_runtimeConfig.uploadedArtifactsDirectoryPath, m_runtimeConfig.supportedWindowsArchs, m_runtimeConfig.supportedLinuxArchs, allArtifacts);
+    collectDirectoryArtifacts(m_runtimeConfig.hostedArtifactsDirectoryPath, "hosted", "generated", "listener", "any", "any", "file", allArtifacts, "operator");
     collectGeneratedArtifacts(m_runtimeConfig.generatedArtifactsDirectoryPath, allArtifacts);
 
     std::vector<TeamServerArtifactRecord> filteredArtifacts;
@@ -432,6 +484,109 @@ std::vector<TeamServerArtifactRecord> TeamServerArtifactCatalog::listArtifacts(c
 
     std::sort(filteredArtifacts.begin(), filteredArtifacts.end(), sortArtifacts);
     return filteredArtifacts;
+}
+
+bool TeamServerArtifactCatalog::readArtifactPayload(
+    const std::string& artifactId,
+    TeamServerArtifactRecord& artifact,
+    std::string& bytes,
+    std::string& message) const
+{
+    if (artifactId.empty())
+    {
+        message = "Missing artifact id.";
+        return false;
+    }
+
+    const std::vector<TeamServerArtifactRecord> artifacts = listArtifacts();
+    const auto it = std::find_if(
+        artifacts.begin(),
+        artifacts.end(),
+        [&](const TeamServerArtifactRecord& candidate)
+        {
+            return candidate.artifactId == artifactId;
+        });
+    if (it == artifacts.end())
+    {
+        message = "Artifact not found.";
+        return false;
+    }
+
+    std::ifstream input(it->internalPath, std::ios::binary);
+    if (!input.good())
+    {
+        message = "Artifact payload could not be read.";
+        return false;
+    }
+
+    bytes.assign(std::istreambuf_iterator<char>(input), {});
+    if (!input.good() && !input.eof())
+    {
+        message = "Artifact payload read failed.";
+        return false;
+    }
+
+    artifact = *it;
+    message = "Artifact downloaded.";
+    return true;
+}
+
+bool TeamServerArtifactCatalog::storeUploadedArtifact(
+    const std::string& name,
+    const std::string& bytes,
+    const std::string& platform,
+    const std::string& arch,
+    TeamServerArtifactRecord& artifact,
+    std::string& message) const
+{
+    const std::string fileName = sanitizeArtifactName(name);
+    const std::string normalizedPlatform = normalizeUploadPlatform(platform);
+    const std::string normalizedArch = normalizeUploadArch(normalizedPlatform, arch, m_runtimeConfig);
+
+    fs::path destinationRoot = m_runtimeConfig.uploadedArtifactsDirectoryPath;
+    if (normalizedPlatform == "windows")
+        destinationRoot /= fs::path("Windows") / normalizedArch;
+    else if (normalizedPlatform == "linux")
+        destinationRoot /= fs::path("Linux") / normalizedArch;
+    else
+        destinationRoot /= fs::path("Any") / "any";
+
+    std::error_code ec;
+    fs::create_directories(destinationRoot, ec);
+    if (ec)
+    {
+        message = "Upload artifact directory could not be created: " + ec.message();
+        return false;
+    }
+
+    const fs::path destinationPath = destinationRoot / fileName;
+    std::ofstream output(destinationPath, std::ios::binary | std::ios::trunc);
+    if (!output.good())
+    {
+        message = "Upload artifact could not be opened: " + destinationPath.filename().string();
+        return false;
+    }
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    output.close();
+    if (!output.good())
+    {
+        message = "Upload artifact could not be written: " + destinationPath.filename().string();
+        return false;
+    }
+
+    const std::string destinationString = destinationPath.string();
+    for (const TeamServerArtifactRecord& candidate : listArtifacts())
+    {
+        if (candidate.internalPath == destinationString)
+        {
+            artifact = candidate;
+            message = "Uploaded artifact stored: " + candidate.name;
+            return true;
+        }
+    }
+
+    message = "Upload artifact stored, but catalog indexing failed.";
+    return false;
 }
 
 bool TeamServerArtifactCatalog::deleteGeneratedArtifact(const std::string& artifactId, std::string& message) const

@@ -66,6 +66,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string();
     runtimeConfig.uploadedArtifactsDirectoryPath = (root / "UploadedArtifacts").string();
     runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string();
+    runtimeConfig.hostedArtifactsDirectoryPath = (root / "GeneratedArtifacts" / "hosted").string();
 
     fs::create_directories(runtimeConfig.teamServerModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxModulesDirectoryPath);
@@ -76,6 +77,7 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.scriptsDirectoryPath);
     fs::create_directories(runtimeConfig.uploadedArtifactsDirectoryPath);
     fs::create_directories(runtimeConfig.generatedArtifactsDirectoryPath);
+    fs::create_directories(runtimeConfig.hostedArtifactsDirectoryPath);
     for (const std::string& arch : runtimeConfig.supportedLinuxArchs)
     {
         fs::create_directories(fs::path(runtimeConfig.linuxModulesDirectoryPath) / arch);
@@ -116,6 +118,7 @@ void seedArtifacts(const TeamServerRuntimeConfig& runtimeConfig)
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "startup.ps1", "script");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / ".ignored.ps1", "hidden-script");
     writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator-note.txt", "upload");
+    writeFile(fs::path(runtimeConfig.hostedArtifactsDirectoryPath) / "payload.bin", "hosted-file");
 }
 
 const TeamServerArtifactRecord* findArtifact(
@@ -147,7 +150,7 @@ void testCatalogIndexesReleaseRoots()
     TeamServerArtifactCatalog catalog(runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts();
 
-    assert(artifacts.size() == 9);
+    assert(artifacts.size() == 10);
     assert(findArtifact(artifacts, ".ignored.ps1", "script", "windows", "any") == nullptr);
 
     const TeamServerArtifactRecord* windowsModule = findArtifact(artifacts, "winmod64.dll", "module", "windows", "x64");
@@ -180,6 +183,14 @@ void testCatalogIndexesReleaseRoots()
     assert(upload->scope == "operator");
     assert(upload->target == "beacon");
     assert(upload->runtime == "file");
+
+    const TeamServerArtifactRecord* hosted = findArtifact(artifacts, "payload.bin", "hosted", "any", "any");
+    assert(hosted != nullptr);
+    assert(hosted->scope == "generated");
+    assert(hosted->target == "listener");
+    assert(hosted->runtime == "file");
+    assert(hosted->source == "operator");
+    assert(hosted->size == 11);
 }
 
 void testCatalogFiltersArtifacts()
@@ -214,6 +225,13 @@ void testCatalogFiltersArtifacts()
     artifacts = catalog.listArtifacts(linuxModules);
     assert(artifacts.size() == 1);
     assert(artifacts[0].name == "linuxmod.so");
+
+    TeamServerArtifactQuery hostedFiles;
+    hostedFiles.category = "hosted";
+    hostedFiles.target = "listener";
+    artifacts = catalog.listArtifacts(hostedFiles);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].name == "payload.bin");
 }
 
 void testCatalogIndexesAndDeletesGeneratedArtifacts()
@@ -290,6 +308,70 @@ void testArtifactServiceStreamsPublicMetadataOnly()
     assert(summaries[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }
 
+void testArtifactServiceDownloadsArtifactPayload()
+{
+    ScopedPath tempRoot(makeTempDirectory("service-download"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    seedArtifacts(runtimeConfig);
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "upload";
+    query.nameContains = "operator-note";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+
+    TeamServerArtifactService service(makeLogger(), TeamServerArtifactCatalog(runtimeConfig));
+    teamserverapi::ArtifactSelector selector;
+    selector.set_artifact_id(artifacts[0].artifactId);
+    teamserverapi::ArtifactContent response;
+    assert(service.downloadArtifact(selector, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.name() == "operator-note.txt");
+    assert(response.display_name() == "operator-note.txt");
+    assert(response.data() == "upload");
+    assert(response.DebugString().find(tempRoot.path().string()) == std::string::npos);
+
+    teamserverapi::ArtifactSelector missingSelector;
+    missingSelector.set_artifact_id("missing");
+    teamserverapi::ArtifactContent missingResponse;
+    assert(service.downloadArtifact(missingSelector, &missingResponse).ok());
+    assert(missingResponse.status() == teamserverapi::KO);
+    assert(missingResponse.message() == "Artifact not found.");
+}
+
+void testArtifactServiceUploadsOperatorArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("service-upload"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    TeamServerArtifactService service(makeLogger(), TeamServerArtifactCatalog(runtimeConfig));
+    teamserverapi::ArtifactUploadRequest request;
+    request.set_name("../payload v1.exe");
+    request.set_platform("windows");
+    request.set_arch("amd64");
+    request.set_data("uploaded-bytes");
+
+    teamserverapi::OperationAck response;
+    assert(service.uploadArtifact(request, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.message() == "Uploaded artifact stored: payload_v1.exe");
+    assert((fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Windows" / "x64" / "payload_v1.exe").is_regular_file());
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "upload";
+    query.platform = "windows";
+    query.arch = "x64";
+    query.nameContains = "payload";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].name == "payload_v1.exe");
+    assert(artifacts[0].scope == "operator");
+    assert(artifacts[0].target == "beacon");
+    assert(artifacts[0].runtime == "file");
+}
+
 void testArtifactServiceDeletesGeneratedArtifacts()
 {
     ScopedPath tempRoot(makeTempDirectory("service-delete"));
@@ -325,6 +407,8 @@ int main()
     testCatalogFiltersArtifacts();
     testCatalogIndexesAndDeletesGeneratedArtifacts();
     testArtifactServiceStreamsPublicMetadataOnly();
+    testArtifactServiceDownloadsArtifactPayload();
+    testArtifactServiceUploadsOperatorArtifact();
     testArtifactServiceDeletesGeneratedArtifacts();
     return 0;
 }

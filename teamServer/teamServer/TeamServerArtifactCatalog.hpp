@@ -43,6 +43,8 @@ public:
     explicit TeamServerArtifactCatalog(TeamServerRuntimeConfig runtimeConfig);
 
     std::vector<TeamServerArtifactRecord> listArtifacts(const TeamServerArtifactQuery& query = {}) const;
+    bool readArtifactPayload(const std::string& artifactId, TeamServerArtifactRecord& artifact, std::string& bytes, std::string& message) const;
+    bool storeUploadedArtifact(const std::string& name, const std::string& bytes, const std::string& platform, const std::string& arch, TeamServerArtifactRecord& artifact, std::string& message) const;
     bool deleteGeneratedArtifact(const std::string& artifactId, std::string& message) const;
 
 private:

@@ -9,7 +9,7 @@
     "SupportedLinuxArchs": ["x64"],
     "UploadedArtifactsDirectoryPath": "../data/UploadedArtifacts/",
     "GeneratedArtifactsDirectoryPath": "../data/GeneratedArtifacts/",
-    "WwwDirectoryPath": "../data/www/",
+    "HostedArtifactsDirectoryPath": "../data/GeneratedArtifacts/hosted/",
     "//Host contacted by the beacon": "3 following value are related to the host, probably a proxy, that will be contacted by the beacon, if DomainName is filled it will be selected first, then the ExposedIp and then the IpInterface",
     "DomainName": "",
     "ExposedIp": "",
@@ -33,7 +33,7 @@
             "/test/ws"
         ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
-        "downloadFolder": "../data/www",
+        "downloadFolder": "../data/GeneratedArtifacts/hosted",
         "server": {
             "headers": {
                 "Access-Control-Allow-Origin": "true",
@@ -59,7 +59,7 @@
             "/test/ws"
         ],
         "uriFileDownload": "/images/commun/1.084.4584/serv/",
-        "downloadFolder": "../data/www",
+        "downloadFolder": "../data/GeneratedArtifacts/hosted",
         "server": {
             "headers": {
                 "Access-Control-Allow-Origin": "true",

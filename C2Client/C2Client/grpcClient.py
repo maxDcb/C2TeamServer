@@ -229,6 +229,29 @@ class GrpcClient:
             query = TeamServerApi_pb2.ArtifactQuery()
         return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata))
 
+    def downloadArtifact(self, artifact_id: str) -> Any:
+        """Return artifact payload bytes by id."""
+
+        selector = TeamServerApi_pb2.ArtifactSelector(artifact_id=artifact_id)
+        return self._unary_rpc(
+            "DownloadArtifact",
+            lambda: self.stub.DownloadArtifact(selector, metadata=self.metadata),
+        )
+
+    def uploadArtifact(self, name: str, data: bytes, platform: str = "any", arch: str = "any") -> Any:
+        """Upload an operator artifact to the TeamServer artifact store."""
+
+        request = TeamServerApi_pb2.ArtifactUploadRequest(
+            name=name,
+            platform=platform,
+            arch=arch,
+            data=data,
+        )
+        return self._unary_rpc(
+            "UploadArtifact",
+            lambda: self.stub.UploadArtifact(request, metadata=self.metadata),
+        )
+
     def deleteGeneratedArtifact(self, artifact_id: str) -> Any:
         """Delete a generated artifact by id."""
 

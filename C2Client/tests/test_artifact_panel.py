@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication, QMessageBox, QWidget
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
 
 from C2Client.ArtifactPanel import Artifacts, format_size
 from C2Client.grpcClient import TeamServerApi_pb2
@@ -60,6 +60,8 @@ class FakeGrpc:
             ),
         ]
         self.deleted = []
+        self.downloaded = []
+        self.uploaded = []
 
     def listArtifacts(self, query):
         self.queries.append(query)
@@ -96,6 +98,39 @@ class FakeGrpc:
         ]
         return SimpleNamespace(status=TeamServerApi_pb2.OK, message="Generated artifact deleted.")
 
+    def downloadArtifact(self, artifact_id):
+        self.downloaded.append(artifact_id)
+        return SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            message="Artifact downloaded.",
+            artifact_id=artifact_id,
+            name="downloaded.bin",
+            display_name="downloaded.bin",
+            data=b"artifact-bytes",
+        )
+
+    def uploadArtifact(self, name, data, platform="any", arch="any"):
+        self.uploaded.append((name, data, platform, arch))
+        self.artifacts.append(
+            SimpleNamespace(
+                artifact_id="artifact-uploaded-1",
+                name=name,
+                display_name=name,
+                category="upload",
+                scope="operator",
+                target="beacon",
+                platform=platform,
+                arch=arch,
+                runtime="file",
+                format="bin",
+                source="release",
+                size=len(data),
+                sha256="d" * 64,
+                description="Uploaded from client.",
+            )
+        )
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, message=f"Uploaded artifact stored: {name}")
+
 
 class FailingGrpc:
     def listArtifacts(self, query):
@@ -117,6 +152,8 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
 
     assert panel.categoryFilter.findText("minidump") != -1
     assert panel.categoryFilter.findText("screenshot") != -1
+    assert panel.categoryFilter.findText("hosted") != -1
+    assert not panel.isGeneratedArtifact(SimpleNamespace(category="hosted", scope="generated"))
     assert panel.artifactTable.rowCount() == 3
     assert panel.artifactTable.item(0, 0).text() == "module"
     assert panel.artifactTable.item(0, 1).text() == "beacon"
@@ -153,13 +190,16 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
     assert not panel.deleteButton.isEnabled()
 
 
-def test_artifacts_panel_filters_generated_shellcodes_and_deletes(qtbot, monkeypatch):
+def test_artifacts_panel_filters_on_selection_and_deletes_generated(qtbot, monkeypatch):
     grpc = FakeGrpc()
     parent = QWidget()
     panel = Artifacts(parent, grpc)
     qtbot.addWidget(panel)
 
-    panel.generatedButton.click()
+    assert not hasattr(panel, "generatedButton")
+    panel.categoryFilter.setCurrentText("payload")
+    panel.scopeFilter.setCurrentText("generated")
+    panel.runtimeFilter.setCurrentText("shellcode")
 
     query = grpc.queries[-1]
     assert query.category == "payload"
@@ -182,6 +222,41 @@ def test_artifacts_panel_filters_generated_shellcodes_and_deletes(qtbot, monkeyp
     assert grpc.deleted == ["artifact-generated-1"]
     assert panel.artifactTable.rowCount() == 0
     assert panel.statusLabel.text() == "Artifacts: Generated artifact deleted."
+
+
+def test_artifacts_panel_downloads_and_uploads_files(qtbot, monkeypatch, tmp_path):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    destination = tmp_path / "artifact.bin"
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(destination), ""),
+    )
+    panel.artifactTable.selectRow(0)
+    panel.downloadButton.click()
+
+    assert grpc.downloaded == ["artifact-module-1"]
+    assert destination.read_bytes() == b"artifact-bytes"
+    assert panel.statusLabel.text() == "Artifacts: downloaded artifact.bin."
+
+    source = tmp_path / "local payload.bin"
+    source.write_bytes(b"local-bytes")
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(source), ""),
+    )
+    panel.platformFilter.setCurrentText("windows")
+    panel.archFilter.setCurrentText("x64")
+    panel.uploadButton.click()
+
+    assert grpc.uploaded == [("local payload.bin", b"local-bytes", "windows", "x64")]
+    assert panel.statusLabel.text() == "Artifacts: Uploaded artifact stored: local payload.bin"
+    assert any(getattr(artifact, "artifact_id", "") == "artifact-uploaded-1" for artifact in panel.artifacts)
 
 
 def test_artifacts_panel_reports_refresh_errors(qtbot):
