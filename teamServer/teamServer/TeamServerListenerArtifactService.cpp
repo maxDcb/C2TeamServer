@@ -29,6 +29,22 @@ std::string readBinaryFile(const std::string& path)
     return std::string((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 }
 
+std::string configString(const nlohmann::json& config, const char* key)
+{
+    const auto it = config.find(key);
+    if (it == config.end() || !it->is_string())
+        return "";
+    return it->get<std::string>();
+}
+
+bool isWildcardAddress(const std::string& address)
+{
+    return address.empty()
+        || address == "0.0.0.0"
+        || address == "::"
+        || address == "[::]";
+}
+
 void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
 {
     response->set_status(teamserverapi::OK);
@@ -86,26 +102,37 @@ grpc::Status TeamServerListenerArtifactService::handleCommand(
     return grpc::Status::OK;
 }
 
-std::string TeamServerListenerArtifactService::resolvePublicAddress() const
+std::string TeamServerListenerArtifactService::resolvePublicAddress(const std::shared_ptr<Listener>& listener) const
 {
-    const auto domainIt = m_config.find("DomainName");
-    if (domainIt != m_config.end())
-        return domainIt->get<std::string>();
+    const std::string domainName = configString(m_config, "DomainName");
+    if (!domainName.empty())
+        return domainName;
 
-    const auto exposedIt = m_config.find("ExposedIp");
-    if (exposedIt != m_config.end())
-        return exposedIt->get<std::string>();
+    const std::string exposedIp = configString(m_config, "ExposedIp");
+    if (!exposedIp.empty())
+        return exposedIp;
 
-    const auto interfaceIt = m_config.find("IpInterface");
-    if (interfaceIt != m_config.end() && !interfaceIt->get<std::string>().empty() && m_ipResolver)
-        return m_ipResolver(interfaceIt->get<std::string>());
+    const std::string ipInterface = configString(m_config, "IpInterface");
+    if (!ipInterface.empty() && m_ipResolver)
+    {
+        const std::string interfaceAddress = m_ipResolver(ipInterface);
+        if (!interfaceAddress.empty())
+            return interfaceAddress;
+    }
+
+    const std::string listenerAddress = listener ? listener->getParam1() : "";
+    if (!isWildcardAddress(listenerAddress))
+        return listenerAddress;
+
+    if (isWildcardAddress(listenerAddress))
+        return "127.0.0.1";
 
     return "";
 }
 
 std::string TeamServerListenerArtifactService::resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const
 {
-    const std::string finalAddress = resolvePublicAddress();
+    const std::string finalAddress = resolvePublicAddress(listener);
     if (finalAddress.empty())
         return "";
 

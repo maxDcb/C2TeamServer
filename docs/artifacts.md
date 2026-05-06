@@ -150,6 +150,16 @@ Host <artifact_id|artifact_name> <listener_hash> [hosted_filename]
 The TeamServer resolves the artifact, copies its payload into the listener
 hosted directory, and returns the download URL to the client.
 
+The URL host is resolved in this order:
+
+```text
+DomainName
+ExposedIp
+IpInterface resolved address
+listener bind address
+127.0.0.1 for wildcard binds such as 0.0.0.0
+```
+
 ## Stabilization Checklist
 
 - Run real listener tests with hosted files under `GeneratedArtifacts/hosted`.

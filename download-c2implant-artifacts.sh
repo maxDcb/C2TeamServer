@@ -1,6 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+usage() {
+  cat <<'USAGE'
+Usage: ./download-c2implant-artifacts.sh [tag] [out_root]
+
+Download Windows C2Implant release artifacts and stage them into:
+  <out_root>/WindowsBeacons/x86|x64|arm64/
+  <out_root>/WindowsModules/x86|x64|arm64/
+
+Arguments:
+  tag       GitHub release tag to download. Default: 0.15.0
+  out_root  Release staging root. Default: ./Release
+
+Examples:
+  ./download-c2implant-artifacts.sh
+  ./download-c2implant-artifacts.sh 0.15.0 ./Release
+USAGE
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+if (( $# > 2 )); then
+  echo "Error: too many arguments." >&2
+  usage >&2
+  exit 2
+fi
+
 TAG="${1:-0.15.0}"
 OUT_ROOT="${2:-./Release}"
 REPO_URL="https://github.com/maxDcb/C2Implant/releases/download/${TAG}"

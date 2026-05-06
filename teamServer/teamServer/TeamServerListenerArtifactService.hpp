@@ -33,7 +33,7 @@ public:
         teamserverapi::TerminalCommandResponse* response) const;
 
 private:
-    std::string resolvePublicAddress() const;
+    std::string resolvePublicAddress(const std::shared_ptr<Listener>& listener) const;
     std::string resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const;
     std::string resolveBeaconBinaryPath(
         const std::string& type,
