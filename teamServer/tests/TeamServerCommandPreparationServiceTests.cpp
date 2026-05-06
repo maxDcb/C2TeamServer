@@ -942,7 +942,7 @@ void testPreparePwShUsesFixedRunnerAndScriptArtifacts()
 {
     ScopedPath tempRoot(makeTempDirectory("pwsh-preparer"));
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
-    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "rdm.dll", "RUNNER");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / "rdm.dll", "RUNNER");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "PowerView.ps1", "function Invoke-PowerView {}\n");
 
     CommonCommands commonCommands;

@@ -12,6 +12,7 @@ from C2Client.ConsolePanel import (
     CommandEditor,
     Console,
     ConsolesTab,
+    DOTNET_LOAD_NAME_PLACEHOLDER,
     _load_artifacts_for_arg,
     build_completer_data,
     command_specs_to_completer_data,
@@ -513,7 +514,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
 
         def listArtifacts(self, query):
             self.queries.append(query)
-            if query.name_contains == ".exe":
+            if query.category == "beacon" and query.name_contains == ".exe":
+                return iter([SimpleNamespace(name="BeaconHttp.exe", display_name="BeaconHttp.exe")])
+            if query.category == "tool" and query.name_contains == ".exe":
                 return iter([
                     SimpleNamespace(name="windows/Seatbelt.exe", display_name="Seatbelt.exe"),
                     SimpleNamespace(name="SharpHound.exe", display_name="SharpHound.exe"),
@@ -550,6 +553,15 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         arch="",
         runtime="any",
         name_contains=".bin",
+    )
+    artifact_filter_beacon_exe = SimpleNamespace(
+        category="beacon",
+        scope="implant",
+        target="listener",
+        platform="windows",
+        arch="session.arch",
+        runtime="native",
+        name_contains=".exe",
     )
     assembly_spec = SimpleNamespace(
         name="assemblyExec",
@@ -609,7 +621,10 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         args=[
             SimpleNamespace(name="--pid", type="flag", values=[]),
             SimpleNamespace(name="--raw", type="flag", values=[], artifact_filter=artifact_filter_bin),
-            SimpleNamespace(name="--donut-exe", type="flag", values=[], artifact_filter=artifact_filter_exe),
+            SimpleNamespace(name="--donut-exe", type="flag", values=[], artifact_filters=[
+                artifact_filter_exe,
+                artifact_filter_beacon_exe,
+            ]),
             SimpleNamespace(name="--donut-dll", type="flag", values=[], artifact_filter=artifact_filter_dll),
             SimpleNamespace(name="--method", type="flag", values=[]),
         ],
@@ -620,7 +635,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     raw_children = _completion_children(inject_children, "--raw")
     assert _completion_children(raw_children, "payloads/loader.bin")
     assert _completion_children(_completion_children(raw_children, "payloads/loader.bin"), "--pid")
-    assert ("--", []) in _completion_children(_completion_children(inject_children, "--donut-exe"), "SharpHound.exe")
+    inject_exe_children = _completion_children(inject_children, "--donut-exe")
+    assert ("--", []) in _completion_children(inject_exe_children, "SharpHound.exe")
+    assert ("--", []) in _completion_children(inject_exe_children, "BeaconHttp.exe")
     inject_dll_children = _completion_children(inject_children, "--donut-dll")
     assert _completion_children(_completion_children(inject_dll_children, "Tools/Example.dll"), "--pid")
     assert ("--method", []) in _completion_children(inject_dll_children, "Tools/Example.dll")
@@ -644,6 +661,44 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         "--donut-exe",
         "",
     ]
+
+    dotnet_artifact_arg = SimpleNamespace(
+        name="assembly_artifact",
+        type="artifact",
+        values=[],
+        artifact_filters=[artifact_filter_exe, artifact_filter_dll],
+    )
+    dotnet_spec = SimpleNamespace(
+        name="dotnetExec",
+        kind="module",
+        examples=[
+            "dotnetExec load seatbelt Seatbelt.exe",
+            "dotnetExec load tool Tool.dll Namespace.Type",
+        ],
+        args=[
+            SimpleNamespace(name="action", type="enum", values=["load", "runExe", "runDll"]),
+            SimpleNamespace(name="module_name", type="text", values=[]),
+            dotnet_artifact_arg,
+            SimpleNamespace(name="type_or_method", type="text", values=[]),
+        ],
+    )
+
+    grpc.queries.clear()
+    server_data = command_specs_to_completer_data([dotnet_spec], grpcClient=grpc)
+    dotnet_children = _completion_children(server_data, "dotnetExec")
+    dotnet_load_children = _completion_children(dotnet_children, "load")
+    dotnet_name_children = _completion_children(dotnet_load_children, DOTNET_LOAD_NAME_PLACEHOLDER)
+    assert ("SharpHound.exe", []) in dotnet_name_children
+    assert _completion_children(dotnet_name_children, "Tools/Example.dll")
+    assert ("<type_for_dll>", []) in _completion_children(dotnet_name_children, "Tools/Example.dll")
+    assert CodeCompleter(server_data).splitPath("dotnetExec load seatbelt Tools/Example.dll ") == [
+        "dotnetExec",
+        "load",
+        DOTNET_LOAD_NAME_PLACEHOLDER,
+        "Tools/Example.dll",
+        "",
+    ]
+    assert [query.name_contains for query in grpc.queries] == [".exe", ".dll"]
     assert completer.splitPath("inject --donut-exe SharpHound.exe --pid 4321 ") == [
         "inject",
         "--donut-exe",

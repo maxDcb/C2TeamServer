@@ -147,7 +147,7 @@ TeamServerCommandPreparerResult TeamServerScriptCommandPreparer::preparePowershe
     {
         payload = "Invoke-Command -ScriptBlock  {\n";
         payload += artifact.bytes;
-        payload += "};";
+        payload += "\n};";
     }
 
     c2Message.set_instruction("powershell");

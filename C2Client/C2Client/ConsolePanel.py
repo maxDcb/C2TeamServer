@@ -83,6 +83,7 @@ MODULE_COMMAND_ALIASES = {
     "printworkingdirectory": "pwd",
 }
 PID_COMPLETION_PLACEHOLDER = "<pid>"
+DOTNET_LOAD_NAME_PLACEHOLDER = "<name>"
 
 
 def _completion_suffix(command_name: Any, example: Any):
@@ -206,6 +207,13 @@ def _artifact_value_continuations(arg: Any, command_name: str = "") -> list[str]
     return []
 
 
+def _artifact_specific_continuations(arg: Any, command_name: str, artifact_value: str) -> list[str]:
+    if command_name == "dotnetExec" and _arg_name(arg) == "assembly_artifact":
+        if artifact_value.lower().endswith(".dll"):
+            return ["<type_for_dll>"]
+    return []
+
+
 def _add_inject_pid_continuations(children: list[tuple[str, list]], arg: Any) -> None:
     pid_entry = _find_entry(children, "--pid")
     if pid_entry is None:
@@ -237,7 +245,11 @@ def _add_artifact_completions(
             _add_completion_value(children, value)
             artifact_entry = _find_entry(children, value)
             if artifact_entry is not None:
-                for continuation in continuations:
+                artifact_continuations = [
+                    *continuations,
+                    *_artifact_specific_continuations(arg, command_name, value),
+                ]
+                for continuation in artifact_continuations:
                     _add_completion_value(artifact_entry[1], continuation)
                 if command_name == "inject":
                     _add_inject_pid_continuations(artifact_entry[1], arg)
@@ -573,6 +585,19 @@ def _add_contextual_completions(
         children.clear()
         for module_name in loaded_module_names:
             _add_completion_value(children, module_name)
+
+    if name == "dotnetExec":
+        load_entry = _find_entry(children, "load")
+        if load_entry is None:
+            _add_completion_path(children, ["load"])
+            load_entry = _find_entry(children, "load")
+        if load_entry is not None:
+            _add_completion_path(load_entry[1], [DOTNET_LOAD_NAME_PLACEHOLDER])
+            name_entry = _find_entry(load_entry[1], DOTNET_LOAD_NAME_PLACEHOLDER)
+            if name_entry is not None:
+                for arg in getattr(command, "args", []):
+                    if _arg_name(arg) == "assembly_artifact":
+                        _add_artifact_completions(name_entry[1], grpcClient, arg, session, name)
 
 
 def command_specs_to_completer_data(
@@ -1404,6 +1429,9 @@ class CodeCompleter(QCompleter):
                     self.placeholderValues[PID_COMPLETION_PLACEHOLDER] = parts[index + 1]
                     parts[index + 1] = PID_COMPLETION_PLACEHOLDER
                     break
+        if len(parts) >= 3 and parts[0] == "dotnetExec" and parts[1] == "load" and parts[2]:
+            self.placeholderValues[DOTNET_LOAD_NAME_PLACEHOLDER] = parts[2]
+            parts[2] = DOTNET_LOAD_NAME_PLACEHOLDER
         return parts
 
     def pathFromIndex(self, ix):

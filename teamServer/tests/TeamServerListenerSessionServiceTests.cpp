@@ -1,16 +1,48 @@
 #include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include <grpcpp/support/string_ref.h>
 
+#include "TeamServerFileArtifactService.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerListenerSessionService.hpp"
+
+namespace fs = std::filesystem;
 
 namespace
 {
+class ScopedPath
+{
+public:
+    explicit ScopedPath(fs::path path)
+        : m_path(std::move(path))
+    {
+    }
+
+    ~ScopedPath()
+    {
+        std::error_code ec;
+        fs::remove_all(m_path, ec);
+    }
+
+    const fs::path& path() const
+    {
+        return m_path;
+    }
+
+private:
+    fs::path m_path;
+};
+
 class TestListener final : public Listener
 {
 public:
@@ -49,6 +81,28 @@ std::multimap<grpc::string_ref, grpc::string_ref> makeMetadata(std::string& clie
         grpc::string_ref(clientIdKey.data(), clientIdKey.size()),
         grpc::string_ref(clientIdValue.data(), clientIdValue.size()));
     return metadata;
+}
+
+fs::path makeTempDirectory(const std::string& name)
+{
+    fs::path root = fs::temp_directory_path() / ("c2teamserver-listener-session-" + name + "-" + std::to_string(::getpid()));
+    fs::create_directories(root);
+    return root;
+}
+
+TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
+{
+    TeamServerRuntimeConfig runtimeConfig;
+    runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string() + "/";
+    runtimeConfig.defaultWindowsArch = "x64";
+    runtimeConfig.defaultLinuxArch = "x64";
+    return runtimeConfig;
+}
+
+std::string readFile(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), {});
 }
 
 void testCollectListenersAndSessions()
@@ -366,6 +420,112 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
                .ok());
     assert(modules.empty());
 }
+
+void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Windows");
+    listeners.push_back(primaryListener);
+
+    ScopedPath tempRoot(makeTempDirectory("pending-artifact"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        logger,
+        runtimeConfig,
+        artifactStore);
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    std::string preparedOutputFile;
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        fileArtifactService,
+        [&](const std::string& input, C2Message& c2Message, bool, const std::string&)
+        {
+            TeamServerGeneratedFileArtifactSpec spec;
+            spec.remotePath = input;
+            spec.nameHint = "desktop.bmp";
+            spec.category = "screenshot";
+            spec.source = "beacon";
+            spec.target = "teamserver";
+            spec.runtime = "file";
+            spec.format = "bmp";
+            spec.isWindows = true;
+            spec.arch = "x64";
+            spec.writeResultData = true;
+            const TeamServerPreparedDownloadArtifact artifact = fileArtifactService->prepareGeneratedFileArtifact(spec);
+            assert(artifact.ok);
+
+            preparedOutputFile = artifact.path;
+            c2Message.set_instruction("screenShot");
+            c2Message.set_outputfile(artifact.path);
+            c2Message.set_cmd(input);
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_listener_hash("listener-primary");
+    command.set_command("screenShot desktop.bmp");
+    command.set_command_id("shot-0001");
+
+    teamserverapi::CommandAck response;
+    assert(service.sendSessionCommand(command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(!preparedOutputFile.empty());
+
+    C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
+    assert(queuedTask.instruction() == "screenShot");
+    assert(queuedTask.uuid() == "shot-0001");
+
+    C2Message firstChunk;
+    firstChunk.set_instruction("screenShot");
+    firstChunk.set_uuid("shot-0001");
+    firstChunk.set_outputfile(preparedOutputFile);
+    firstChunk.set_args("0");
+    firstChunk.set_data("AA");
+    firstChunk.set_returnvalue("2/4");
+    assert(primaryListener->addTaskResult(firstChunk, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+    assert(cmdResponses.empty());
+    assert(sentCommands.size() == 1);
+    assert(readFile(preparedOutputFile) == "AA");
+
+    C2Message finalChunk;
+    finalChunk.set_instruction("screenShot");
+    finalChunk.set_uuid("shot-0001");
+    finalChunk.set_outputfile(preparedOutputFile);
+    finalChunk.set_args("1");
+    finalChunk.set_data("BB");
+    finalChunk.set_returnvalue("Success");
+    assert(primaryListener->addTaskResult(finalChunk, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    assert(sentCommands.empty());
+    assert(cmdResponses.size() == 1);
+    assert(cmdResponses[0].command_id() == "shot-0001");
+    assert(cmdResponses[0].command() == "screenShot desktop.bmp");
+    assert(cmdResponses[0].output().find("Generated artifact stored:") != std::string::npos);
+    assert(readFile(preparedOutputFile) == "AABB");
+    assert(fs::exists(preparedOutputFile + ".artifact.json"));
+    assert(!fs::exists(preparedOutputFile + ".artifact.pending.json"));
+}
 } // namespace
 
 int main()
@@ -373,5 +533,6 @@ int main()
     testCollectListenersAndSessions();
     testQueueStopAndResponseDeduplication();
     testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
+    testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     return 0;
 }

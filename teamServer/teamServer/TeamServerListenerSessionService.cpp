@@ -973,6 +973,12 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 if (trackedCommand)
                     applyModuleResult(beaconHash, listenerHash, commandId, responseInstruction, errorMsg.empty());
 
+                if (keepCommandContext)
+                {
+                    c2Message = m_listeners[i]->getTaskResult(beaconHash);
+                    continue;
+                }
+
                 teamserverapi::CommandResult commandResponseTmp;
                 commandResponseTmp.set_status(errorMsg.empty() ? teamserverapi::OK : teamserverapi::KO);
                 commandResponseTmp.mutable_session()->set_beacon_hash(beaconHash);

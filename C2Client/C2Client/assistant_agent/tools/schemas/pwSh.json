@@ -1,6 +1,6 @@
 {
   "name": "pwSh",
-  "description": "Initialize or use the in-memory PowerShell runner. Init loads the fixed rdm.dll tool artifact.",
+  "description": "Initialize or use the in-memory PowerShell runner. Init loads the fixed Tools/Any/any/rdm.dll tool artifact.",
   "command_template": "pwSh {action} {command_or_script:raw?} {arguments:raw?}",
   "parameters": {
     "type": "object",
