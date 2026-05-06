@@ -394,20 +394,36 @@ def _resolve_filter_value(value: Any, session: Any | None) -> str:
     return text
 
 
-def _arg_has_artifact_filter(arg: Any) -> bool:
+def _artifact_filters_for_arg(arg: Any) -> list[Any]:
+    artifact_filters = getattr(arg, "artifact_filters", None)
+    if artifact_filters is not None:
+        try:
+            filters = [artifact_filter for artifact_filter in artifact_filters if artifact_filter is not None]
+        except TypeError:
+            filters = []
+        if filters:
+            return filters
+
     if not hasattr(arg, "artifact_filter"):
-        return False
-    artifact_filter = getattr(arg, "artifact_filter")
+        return []
+
+    artifact_filter = getattr(arg, "artifact_filter", None)
+    if artifact_filter is None:
+        return []
     if hasattr(arg, "HasField"):
         try:
-            return bool(arg.HasField("artifact_filter"))
+            if not arg.HasField("artifact_filter"):
+                return []
         except ValueError:
             pass
-    return artifact_filter is not None
+    return [artifact_filter]
 
 
-def _artifact_query_from_arg(arg: Any, session: Any | None) -> Any:
-    artifact_filter = getattr(arg, "artifact_filter", None)
+def _arg_has_artifact_filter(arg: Any) -> bool:
+    return bool(_artifact_filters_for_arg(arg))
+
+
+def _artifact_query_from_filter(artifact_filter: Any, session: Any | None) -> Any:
     query = TeamServerApi_pb2.ArtifactQuery()
     for field_name in ("category", "scope", "target", "platform", "arch", "runtime", "name_contains"):
         value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
@@ -466,11 +482,25 @@ def _load_modules_for_session(grpcClient: Any, beaconHash: str, listenerHash: st
 def _load_artifacts_for_arg(grpcClient: Any, arg: Any, session: Any | None) -> list[Any]:
     if grpcClient is None or not hasattr(grpcClient, "listArtifacts") or not _arg_has_artifact_filter(arg):
         return []
-    try:
-        return list(grpcClient.listArtifacts(_artifact_query_from_arg(arg, session)))
-    except Exception as exc:
-        logger.debug("Command autocomplete could not load artifact context: %s", exc)
-        return []
+
+    artifacts: list[Any] = []
+    seen: set[tuple[str, str, str]] = set()
+    for artifact_filter in _artifact_filters_for_arg(arg):
+        try:
+            query = _artifact_query_from_filter(artifact_filter, session)
+            for artifact in grpcClient.listArtifacts(query):
+                key = (
+                    str(getattr(artifact, "artifact_id", "") or ""),
+                    str(getattr(artifact, "name", "") or ""),
+                    str(getattr(artifact, "display_name", "") or ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                artifacts.append(artifact)
+        except Exception as exc:
+            logger.debug("Command autocomplete could not load artifact context: %s", exc)
+    return artifacts
 
 
 def _module_command_names(command_specs: list[Any]) -> list[str]:

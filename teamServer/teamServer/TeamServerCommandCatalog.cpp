@@ -102,6 +102,13 @@ TeamServerCommandArtifactFilter parseArtifactFilter(const json& input)
     return filter;
 }
 
+void addArtifactFilter(TeamServerCommandArgSpec& arg, TeamServerCommandArtifactFilter filter)
+{
+    arg.artifactFilters.push_back(std::move(filter));
+    arg.artifactFilter = arg.artifactFilters.front();
+    arg.hasArtifactFilter = true;
+}
+
 TeamServerCommandArgSpec parseArgSpec(const json& input)
 {
     TeamServerCommandArgSpec arg;
@@ -115,8 +122,17 @@ TeamServerCommandArgSpec parseArgSpec(const json& input)
     auto artifactFilterIt = input.find("artifact_filter");
     if (artifactFilterIt != input.end() && artifactFilterIt->is_object())
     {
-        arg.artifactFilter = parseArtifactFilter(*artifactFilterIt);
-        arg.hasArtifactFilter = true;
+        addArtifactFilter(arg, parseArtifactFilter(*artifactFilterIt));
+    }
+
+    auto artifactFiltersIt = input.find("artifact_filters");
+    if (artifactFiltersIt != input.end() && artifactFiltersIt->is_array())
+    {
+        for (const auto& artifactFilter : *artifactFiltersIt)
+        {
+            if (artifactFilter.is_object())
+                addArtifactFilter(arg, parseArtifactFilter(artifactFilter));
+        }
     }
     return arg;
 }

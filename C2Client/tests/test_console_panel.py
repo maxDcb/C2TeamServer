@@ -7,7 +7,15 @@ import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
-from C2Client.ConsolePanel import CodeCompleter, CommandEditor, Console, ConsolesTab, build_completer_data, command_specs_to_completer_data
+from C2Client.ConsolePanel import (
+    CodeCompleter,
+    CommandEditor,
+    Console,
+    ConsolesTab,
+    _load_artifacts_for_arg,
+    build_completer_data,
+    command_specs_to_completer_data,
+)
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
@@ -375,6 +383,56 @@ def test_upload_command_uses_upload_artifact_completions():
     assert ("operator/tool.exe", []) in upload_children
     assert ("tool.exe", []) in upload_children
     assert ("notes.txt", []) in upload_children
+
+
+def test_command_arg_can_use_multiple_artifact_filters():
+    class FakeGrpc:
+        def __init__(self):
+            self.queries = []
+
+        def listArtifacts(self, query):
+            self.queries.append(query)
+            if query.category == "tool":
+                return iter([
+                    SimpleNamespace(artifact_id="tool-1", name="Windows/x64/svc.exe", display_name="svc.exe"),
+                ])
+            if query.category == "upload":
+                return iter([
+                    SimpleNamespace(artifact_id="upload-1", name="uploadedSvc.exe", display_name="uploadedSvc.exe"),
+                ])
+            return iter([])
+
+    tool_filter = SimpleNamespace(
+        category="tool",
+        scope="server",
+        target="teamserver",
+        platform="windows",
+        arch="session.arch",
+        runtime="any",
+        name_contains=".exe",
+    )
+    upload_filter = SimpleNamespace(
+        category="upload",
+        scope="operator",
+        target="beacon",
+        platform="session.platform",
+        arch="session.arch",
+        runtime="file",
+        name_contains=".exe",
+    )
+    service_arg = SimpleNamespace(name="service_artifact", type="artifact", values=[], artifact_filters=[tool_filter, upload_filter])
+    session = SimpleNamespace(os="Windows 11", arch="x64")
+    grpc = FakeGrpc()
+
+    artifacts = _load_artifacts_for_arg(grpc, service_arg, session)
+
+    assert [artifact.name for artifact in artifacts] == ["Windows/x64/svc.exe", "uploadedSvc.exe"]
+    assert [query.category for query in grpc.queries] == ["tool", "upload"]
+    assert grpc.queries[0].target == "teamserver"
+    assert grpc.queries[0].arch == "x64"
+    assert grpc.queries[1].target == "beacon"
+    assert grpc.queries[1].platform == "windows"
+    assert grpc.queries[1].runtime == "file"
 
 
 def test_script_and_powershell_commands_use_script_artifact_completions():

@@ -161,6 +161,7 @@ message CommandArgSpec
   repeated string values = 5;
   ArtifactQuery artifact_filter = 6;
   bool variadic = 7;
+  repeated ArtifactQuery artifact_filters = 8;
 }
 
 

@@ -73,6 +73,18 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
             filter->set_runtime(arg.artifactFilter.runtime);
             filter->set_name_contains(arg.artifactFilter.nameContains);
         }
+
+        for (const TeamServerCommandArtifactFilter& artifactFilter : arg.artifactFilters)
+        {
+            teamserverapi::ArtifactQuery* filter = argSpec->add_artifact_filters();
+            filter->set_category(artifactFilter.category);
+            filter->set_target(artifactFilter.target);
+            filter->set_scope(artifactFilter.scope);
+            filter->set_platform(artifactFilter.platform);
+            filter->set_arch(artifactFilter.arch);
+            filter->set_runtime(artifactFilter.runtime);
+            filter->set_name_contains(artifactFilter.nameContains);
+        }
     }
 
     return spec;

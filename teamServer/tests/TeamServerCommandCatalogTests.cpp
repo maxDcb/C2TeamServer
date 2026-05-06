@@ -115,6 +115,47 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "examples": ["end"],
   "source": "manifest"
 })JSON");
+    writeFile(
+        fs::path(runtimeConfig.commandSpecsDirectoryPath) / "modules" / "psExec.json",
+        R"JSON({
+  "name": "psExec",
+  "kind": "module",
+  "description": "Copy and run a service executable.",
+  "target": "beacon",
+  "requires_session": true,
+  "platforms": ["windows"],
+  "archs": ["x86", "x64"],
+  "args": [
+    {
+      "name": "service_artifact",
+      "type": "artifact",
+      "required": true,
+      "description": "Service executable artifact.",
+      "artifact_filters": [
+        {
+          "category": "tool",
+          "scope": "server",
+          "target": "teamserver",
+          "platform": "windows",
+          "arch": "session.arch",
+          "runtime": "any",
+          "name_contains": ".exe"
+        },
+        {
+          "category": "upload",
+          "scope": "operator",
+          "target": "beacon",
+          "platform": "session.platform",
+          "arch": "session.arch",
+          "runtime": "file",
+          "name_contains": ".exe"
+        }
+      ]
+    }
+  ],
+  "examples": ["psExec -n fileserver service.exe"],
+  "source": "manifest"
+})JSON");
     writeFile(fs::path(runtimeConfig.commandSpecsDirectoryPath) / "common" / "broken.json", "{");
 }
 
@@ -139,7 +180,7 @@ void testCommandCatalogLoadsManifestSpecs()
     TeamServerCommandCatalog catalog(runtimeConfig);
     const std::vector<TeamServerCommandSpecRecord> commands = catalog.listCommands();
 
-    assert(commands.size() == 2);
+    assert(commands.size() == 3);
 
     const TeamServerCommandSpecRecord* sleep = findCommand(commands, "sleep");
     assert(sleep != nullptr);
@@ -159,11 +200,22 @@ void testCommandCatalogLoadsManifestSpecs()
     assert(sleep->args[0].artifactFilter.arch == "any");
     assert(sleep->args[0].artifactFilter.runtime == "any");
     assert(sleep->args[0].artifactFilter.nameContains == ".exe");
+    assert(sleep->args[0].artifactFilters.size() == 1);
     assert(sleep->examples.size() == 1);
 
     const TeamServerCommandSpecRecord* end = findCommand(commands, "end");
     assert(end != nullptr);
     assert(end->args.empty());
+
+    const TeamServerCommandSpecRecord* psExec = findCommand(commands, "psExec");
+    assert(psExec != nullptr);
+    assert(psExec->args.size() == 1);
+    assert(psExec->args[0].hasArtifactFilter);
+    assert(psExec->args[0].artifactFilters.size() == 2);
+    assert(psExec->args[0].artifactFilters[0].category == "tool");
+    assert(psExec->args[0].artifactFilters[0].arch == "session.arch");
+    assert(psExec->args[0].artifactFilters[1].category == "upload");
+    assert(psExec->args[0].artifactFilters[1].scope == "operator");
 }
 
 void testCommandCatalogFiltersSpecs()
@@ -217,7 +269,28 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].args(0).artifact_filter().arch() == "any");
     assert(commands[0].args(0).artifact_filter().runtime() == "any");
     assert(commands[0].args(0).artifact_filter().name_contains() == ".exe");
+    assert(commands[0].args(0).artifact_filters_size() == 1);
+    assert(commands[0].args(0).artifact_filters(0).category() == "tool");
     assert(commands[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
+
+    teamserverapi::CommandQuery psExecQuery;
+    psExecQuery.set_name_contains("psexec");
+    commands.clear();
+    assert(service.listCommands(psExecQuery, [&](const teamserverapi::CommandSpec& command)
+    {
+        commands.push_back(command);
+        return true;
+    }).ok());
+
+    assert(commands.size() == 1);
+    assert(commands[0].name() == "psExec");
+    assert(commands[0].args_size() == 1);
+    assert(commands[0].args(0).artifact_filter().category() == "tool");
+    assert(commands[0].args(0).artifact_filters_size() == 2);
+    assert(commands[0].args(0).artifact_filters(0).category() == "tool");
+    assert(commands[0].args(0).artifact_filters(1).category() == "upload");
+    assert(commands[0].args(0).artifact_filters(1).scope() == "operator");
+    assert(commands[0].args(0).artifact_filters(1).runtime() == "file");
 }
 } // namespace
 

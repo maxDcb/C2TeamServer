@@ -24,6 +24,7 @@ struct TeamServerCommandArgSpec
     std::string description;
     std::vector<std::string> values;
     TeamServerCommandArtifactFilter artifactFilter;
+    std::vector<TeamServerCommandArtifactFilter> artifactFilters;
     bool hasArtifactFilter = false;
     bool variadic = false;
 };
