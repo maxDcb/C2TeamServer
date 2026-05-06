@@ -58,6 +58,22 @@ class FakeGrpc:
                 sha256="c" * 64,
                 description="Generated shellcode for assemblyExec.",
             ),
+            SimpleNamespace(
+                artifact_id="artifact-hosted-1",
+                name="dropper.exe",
+                display_name="dropper.exe",
+                category="hosted",
+                scope="generated",
+                target="listener",
+                platform="any",
+                arch="any",
+                runtime="file",
+                format="exe",
+                source="operator",
+                size=1024,
+                sha256="e" * 64,
+                description="Hosted dropper.",
+            ),
         ]
         self.deleted = []
         self.downloaded = []
@@ -90,13 +106,20 @@ class FakeGrpc:
             and name_matches(artifact)
         ])
 
-    def deleteGeneratedArtifact(self, artifact_id):
+    def deleteArtifact(self, artifact_id):
         self.deleted.append(artifact_id)
+        message = "Generated artifact deleted."
+        for artifact in self.artifacts:
+            if artifact.artifact_id == artifact_id and artifact.category == "hosted":
+                message = "Hosted artifact deleted."
         self.artifacts = [
             artifact for artifact in self.artifacts
             if artifact.artifact_id != artifact_id
         ]
-        return SimpleNamespace(status=TeamServerApi_pb2.OK, message="Generated artifact deleted.")
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, message=message)
+
+    def deleteGeneratedArtifact(self, artifact_id):
+        return self.deleteArtifact(artifact_id)
 
     def downloadArtifact(self, artifact_id):
         self.downloaded.append(artifact_id)
@@ -153,8 +176,8 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
     assert panel.categoryFilter.findText("minidump") != -1
     assert panel.categoryFilter.findText("screenshot") != -1
     assert panel.categoryFilter.findText("hosted") != -1
-    assert not panel.isGeneratedArtifact(SimpleNamespace(category="hosted", scope="generated"))
-    assert panel.artifactTable.rowCount() == 3
+    assert panel.isDeletableArtifact(SimpleNamespace(category="hosted", scope="generated"))
+    assert panel.artifactTable.rowCount() == 4
     assert panel.artifactTable.item(0, 0).text() == "module"
     assert panel.artifactTable.item(0, 1).text() == "beacon"
     assert panel.artifactTable.item(0, 2).text() == "beacon"
@@ -222,6 +245,30 @@ def test_artifacts_panel_filters_on_selection_and_deletes_generated(qtbot, monke
     assert grpc.deleted == ["artifact-generated-1"]
     assert panel.artifactTable.rowCount() == 0
     assert panel.statusLabel.text() == "Artifacts: Generated artifact deleted."
+
+
+def test_artifacts_panel_deletes_hosted_artifacts(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    panel.categoryFilter.setCurrentText("hosted")
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 0).text() == "hosted"
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-hosted-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Hosted artifact deleted."
 
 
 def test_artifacts_panel_downloads_and_uploads_files(qtbot, monkeypatch, tmp_path):

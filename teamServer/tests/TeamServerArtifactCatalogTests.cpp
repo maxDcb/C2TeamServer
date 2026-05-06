@@ -278,7 +278,30 @@ void testCatalogIndexesAndDeletesGeneratedArtifacts()
     artifacts = catalog.listArtifacts(query);
     assert(artifacts.empty());
     assert(!catalog.deleteGeneratedArtifact(record.artifactId, message));
-    assert(message == "Generated artifact not found.");
+    assert(message == "Artifact not found.");
+}
+
+void testCatalogDeletesHostedArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("hosted-delete"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.hostedArtifactsDirectoryPath) / "payload.bin", "hosted-file");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "hosted";
+    query.scope = "generated";
+    std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+
+    const std::string artifactId = artifacts[0].artifactId;
+    std::string message;
+    assert(catalog.deleteGeneratedArtifact(artifactId, message));
+    assert(message == "Hosted artifact deleted.");
+    assert(!fs::exists(fs::path(runtimeConfig.hostedArtifactsDirectoryPath) / "payload.bin"));
+
+    artifacts = catalog.listArtifacts(query);
+    assert(artifacts.empty());
 }
 
 void testArtifactServiceStreamsPublicMetadataOnly()
@@ -397,7 +420,7 @@ void testArtifactServiceDeletesGeneratedArtifacts()
     teamserverapi::OperationAck missingResponse;
     assert(service.deleteGeneratedArtifact(selector, &missingResponse).ok());
     assert(missingResponse.status() == teamserverapi::KO);
-    assert(missingResponse.message() == "Generated artifact not found.");
+    assert(missingResponse.message() == "Artifact not found.");
 }
 } // namespace
 
@@ -406,6 +429,7 @@ int main()
     testCatalogIndexesReleaseRoots();
     testCatalogFiltersArtifacts();
     testCatalogIndexesAndDeletesGeneratedArtifacts();
+    testCatalogDeletesHostedArtifacts();
     testArtifactServiceStreamsPublicMetadataOnly();
     testArtifactServiceDownloadsArtifactPayload();
     testArtifactServiceUploadsOperatorArtifact();

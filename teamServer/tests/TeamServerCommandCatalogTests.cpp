@@ -234,7 +234,7 @@ void testCommandCatalogFiltersSpecs()
     assert(commands.size() == 1);
     assert(commands[0].name == "sleep");
 
-    query.platform = "macos";
+    query.platform = "unsupported";
     assert(catalog.listCommands(query).empty());
 }
 

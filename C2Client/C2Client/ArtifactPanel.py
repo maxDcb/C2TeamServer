@@ -131,8 +131,8 @@ class Artifacts(QWidget):
         self.downloadButton.clicked.connect(self.downloadSelectedArtifactToClient)
         self.copyIdButton = self.createToolbarButton("Copy ID", "Copy selected artifact id.", width=72)
         self.copyIdButton.clicked.connect(self.copySelectedArtifactId)
-        self.deleteButton = self.createToolbarButton("Delete", "Delete selected generated artifact.", width=72)
-        self.deleteButton.clicked.connect(self.deleteSelectedGeneratedArtifact)
+        self.deleteButton = self.createToolbarButton("Delete", "Delete selected generated or hosted artifact.", width=72)
+        self.deleteButton.clicked.connect(self.deleteSelectedArtifact)
 
         toolbar.addWidget(QLabel("Category"))
         toolbar.addWidget(self.categoryFilter)
@@ -335,13 +335,10 @@ class Artifacts(QWidget):
 
         return _text(_field(artifact, "artifact_id"))
 
-    def isGeneratedArtifact(self, artifact: Any | None) -> bool:
+    def isDeletableArtifact(self, artifact: Any | None) -> bool:
         if artifact is None:
             return False
-        return (
-            _text(_field(artifact, "scope")).lower() == "generated"
-            and _text(_field(artifact, "category")).lower() != "hosted"
-        )
+        return _text(_field(artifact, "scope")).lower() == "generated"
 
     def selectedUploadTarget(self) -> tuple[str, str]:
         return (
@@ -427,21 +424,21 @@ class Artifacts(QWidget):
         message = _text(getattr(response, "message", "")) or "uploaded artifact stored"
         apply_status(self.statusLabel, f"Artifacts: {message}", StatusKind.SUCCESS)
 
-    def deleteSelectedGeneratedArtifact(self) -> None:
+    def deleteSelectedArtifact(self) -> None:
         artifact = self.selectedArtifact()
         artifact_id = self.selectedArtifactId()
         if not artifact_id:
             apply_status(self.statusLabel, "Artifacts: select an artifact first.", StatusKind.ERROR)
             return
-        if not self.isGeneratedArtifact(artifact):
-            apply_status(self.statusLabel, "Artifacts: only generated artifacts can be deleted.", StatusKind.ERROR)
+        if not self.isDeletableArtifact(artifact):
+            apply_status(self.statusLabel, "Artifacts: only generated or hosted artifacts can be deleted.", StatusKind.ERROR)
             return
 
         name = _text(_field(artifact, "display_name")) or _text(_field(artifact, "name")) or artifact_id
         answer = QMessageBox.question(
             self,
-            "Delete generated artifact",
-            f"Delete generated artifact {name}?",
+            "Delete artifact",
+            f"Delete artifact {name}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -449,7 +446,7 @@ class Artifacts(QWidget):
             return
 
         try:
-            response = self.grpcClient.deleteGeneratedArtifact(artifact_id)
+            response = self.grpcClient.deleteArtifact(artifact_id)
         except Exception as exc:
             apply_status(
                 self.statusLabel,
@@ -464,11 +461,11 @@ class Artifacts(QWidget):
             return
 
         self.refreshArtifacts()
-        message = _text(getattr(response, "message", "")) or "generated artifact deleted"
+        message = _text(getattr(response, "message", "")) or "artifact deleted"
         apply_status(self.statusLabel, f"Artifacts: {message}", StatusKind.SUCCESS)
 
     def updateActionButtons(self) -> None:
         selected_artifact = self.selectedArtifact()
         self.copyIdButton.setEnabled(bool(selected_artifact))
         self.downloadButton.setEnabled(bool(selected_artifact))
-        self.deleteButton.setEnabled(self.isGeneratedArtifact(selected_artifact))
+        self.deleteButton.setEnabled(self.isDeletableArtifact(selected_artifact))

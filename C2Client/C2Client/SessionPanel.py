@@ -172,8 +172,6 @@ def normalize_os_label(osDescription):
         return "Windows"
     if "linux" in lowered:
         return "Linux"
-    if "darwin" in lowered or "macos" in lowered or "mac os" in lowered:
-        return "macOS"
     return text.split()[0]
 
 

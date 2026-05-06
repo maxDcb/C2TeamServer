@@ -98,9 +98,9 @@ grpc::Status TeamServerArtifactService::deleteGeneratedArtifact(
     response->set_status(deleted ? teamserverapi::OK : teamserverapi::KO);
     response->set_message(message);
     if (deleted)
-        m_logger->info("Deleted generated artifact {0}", selector.artifact_id());
+        m_logger->info("Deleted artifact {0}", selector.artifact_id());
     else
-        m_logger->warn("Delete generated artifact failed for {0}: {1}", selector.artifact_id(), message);
+        m_logger->warn("Delete artifact failed for {0}: {1}", selector.artifact_id(), message);
 
     return grpc::Status::OK;
 }

@@ -67,14 +67,19 @@ def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
     console = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
-    console.commandEditor.setText('help')
+    console.commandEditor.setText('help assemblyExec')
     console.runCommand()
 
     history_file = tmp_path / '.cmdHistory'
-    assert history_file.read_text() == 'help\n'
+    assert history_file.read_text() == 'help assemblyExec\n'
 
     log_file = tmp_path / 'host_user_beacon.log'
-    assert 'send: "help"' in log_file.read_text()
+    assert 'send: "help assemblyExec"' in log_file.read_text()
+    output = console.editorOutput.toPlainText()
+    assert "[queued]" in output
+    assert "[done]" in output
+    assert "[>>]" not in output
+    assert "[<<]" not in output
 
 
 def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, monkeypatch):
@@ -104,7 +109,7 @@ def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, mo
     assert 'rejected: "whoami"' in (tmp_path / 'host_user_beacon.log').read_text()
 
 
-def test_list_module_command_uses_list_modules_without_queueing(tmp_path, qtbot, monkeypatch):
+def test_list_module_command_uses_local_status_without_session_queueing(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
     monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
@@ -127,6 +132,10 @@ def test_list_module_command_uses_list_modules_without_queueing(tmp_path, qtbot,
     assert grpc.list_modules_requests[0].beacon_hash == "beacon"
     assert grpc.list_modules_requests[0].listener_hash == "listener"
     output = console.editorOutput.toPlainText()
+    assert "[queued]" in output
+    assert "[done]" in output
+    assert "[>>]" not in output
+    assert "[<<]" not in output
     assert "pwd" in output
     assert "loaded" in output
     assert "shell" in output

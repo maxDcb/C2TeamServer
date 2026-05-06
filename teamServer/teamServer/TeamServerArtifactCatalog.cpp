@@ -609,8 +609,47 @@ bool TeamServerArtifactCatalog::deleteGeneratedArtifact(const std::string& artif
         });
     if (it == generatedArtifacts.end())
     {
-        message = "Generated artifact not found.";
-        return false;
+        TeamServerArtifactQuery hostedQuery;
+        hostedQuery.category = "hosted";
+        hostedQuery.scope = "generated";
+        const std::vector<TeamServerArtifactRecord> hostedArtifacts = listArtifacts(hostedQuery);
+        const auto hostedIt = std::find_if(
+            hostedArtifacts.begin(),
+            hostedArtifacts.end(),
+            [&](const TeamServerArtifactRecord& artifact)
+            {
+                return artifact.artifactId == artifactId;
+            });
+
+        if (hostedIt == hostedArtifacts.end())
+        {
+            message = "Artifact not found.";
+            return false;
+        }
+
+        const fs::path hostedRoot = m_runtimeConfig.hostedArtifactsDirectoryPath;
+        const fs::path payloadPath = hostedIt->internalPath;
+        if (!isPathWithinRoot(payloadPath, hostedRoot))
+        {
+            message = "Hosted artifact path is outside the hosted artifact root.";
+            return false;
+        }
+
+        std::error_code hostedEc;
+        const bool removedHostedPayload = fs::remove(payloadPath, hostedEc);
+        if (hostedEc)
+        {
+            message = "Hosted artifact could not be deleted: " + hostedEc.message();
+            return false;
+        }
+        if (!removedHostedPayload)
+        {
+            message = "Hosted artifact file was already missing.";
+            return false;
+        }
+
+        message = "Hosted artifact deleted.";
+        return true;
     }
 
     if (it->scope != "generated")

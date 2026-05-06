@@ -124,6 +124,30 @@ def test_grpc_client_uploads_artifact(tmp_path, monkeypatch):
     assert events == [("UploadArtifact", True, "")]
 
 
+def test_grpc_client_deletes_artifact(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    response = object()
+    stub.DeleteGeneratedArtifact.return_value = response
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    events = []
+    client.set_status_callback(lambda operation, ok, message: events.append((operation, ok, message)))
+
+    assert client.deleteArtifact("artifact-1") is response
+    request = stub.DeleteGeneratedArtifact.call_args.args[0]
+    assert isinstance(request, TeamServerApi_pb2.ArtifactSelector)
+    assert request.artifact_id == "artifact-1"
+    assert stub.DeleteGeneratedArtifact.call_args.kwargs["metadata"] == client.metadata
+    assert events == [("DeleteGeneratedArtifact", True, "")]
+
+
 def test_grpc_client_lists_commands(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

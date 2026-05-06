@@ -118,8 +118,9 @@ runtime: file
 source: operator
 ```
 
-They are downloadable from the Artifacts UI and served by listeners, but they are
-not deleted through the generated-artifact delete path.
+They are downloadable from the Artifacts UI, served by listeners, and deletable
+from the Artifacts UI. Deletion is restricted to files that resolve under
+`GeneratedArtifacts/hosted`.
 
 ## Command Specs
 
@@ -138,7 +139,7 @@ The Artifacts tab is the operational view for the catalog:
 - upload stores files under `UploadedArtifacts`
 - download writes the selected artifact to the client machine
 - generated sidecar-backed artifacts can be deleted
-- hosted files are visible through the `hosted` category
+- hosted files are visible through the `hosted` category and can be deleted
 
 The Terminal `Host` command works from catalog artifacts, not local client
 files:

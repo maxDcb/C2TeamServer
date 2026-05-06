@@ -31,7 +31,7 @@ CommandTabTitle = "Commands"
 ALL_FILTER = "All"
 KIND_FILTERS = [ALL_FILTER, "common", "module"]
 TARGET_FILTERS = [ALL_FILTER, "beacon", "teamserver", "operator", "any"]
-PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "macos", "any"]
+PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "any"]
 
 COL_NAME = 0
 COL_KIND = 1

@@ -380,8 +380,6 @@ def _session_platform(session: Any | None) -> str:
         return "windows"
     if "linux" in os_text:
         return "linux"
-    if "mac" in os_text or "darwin" in os_text or "os x" in os_text:
-        return "macos"
     return ""
 
 
@@ -1110,6 +1108,29 @@ class Console(QWidget):
             self.editorOutput.insertHtml("<br/>")
             self.editorOutput.insertPlainText("\n")
 
+    def printLocalCommandQueued(self, command_id, command_line):
+        self.setCommandStatus(command_id, "queued", command_line)
+        self.printCommandStatusInTerminal(command_id, "queued", command_line)
+        self.appendConsoleEvent(
+            "queued",
+            command_id=command_id,
+            command=command_line,
+            source="local",
+        )
+
+    def printLocalCommandFinished(self, command_id, command_line, output, status="done"):
+        self.setCommandStatus(command_id, status, command_line, output if status == "error" else "")
+        self.printCommandStatusInTerminal(command_id, status, command_line)
+        if output:
+            self.printInTerminal("", "", output)
+        self.appendConsoleEvent(
+            status,
+            command_id=command_id,
+            command=command_line,
+            output=output,
+            source="local",
+        )
+
     def resendLastCommand(self):
         if self.lastCommandLine == "":
             self.setConsoleNotice("No command to resend.", True)
@@ -1142,25 +1163,36 @@ class Console(QWidget):
         self.commandEditor.setCmdHistory()
         instructions = commandLine.split()
         if instructions[0]==HelpInstruction:
-            command = TeamServerApi_pb2.CommandHelpRequest(
-                session=TeamServerApi_pb2.SessionSelector(
-                    beacon_hash=self.beaconHash,
-                    listener_hash=self.listenerHash,
-                ),
-                command=commandLine,
-            )
-            response = self.grpcClient.getCommandHelp(command)
-            command_text = getattr(response, "command", commandLine) or commandLine
-            self.printInTerminal(command_text, "", "")
-            if is_response_ok(response):
-                self.printInTerminal("", command_text, response.help)
-            else:
-                self.printInTerminal("", command_text, response_message(response, "No help available."))
+            command_id = uuid.uuid4().hex
+            self.printLocalCommandQueued(command_id, commandLine)
+            try:
+                command = TeamServerApi_pb2.CommandHelpRequest(
+                    session=TeamServerApi_pb2.SessionSelector(
+                        beacon_hash=self.beaconHash,
+                        listener_hash=self.listenerHash,
+                    ),
+                    command=commandLine,
+                )
+                response = self.grpcClient.getCommandHelp(command)
+                command_text = getattr(response, "command", commandLine) or commandLine
+                if is_response_ok(response):
+                    output = getattr(response, "help", "") or response_message(response, "No help available.")
+                    self.printLocalCommandFinished(command_id, command_text, output)
+                else:
+                    self.printLocalCommandFinished(
+                        command_id,
+                        command_text,
+                        response_message(response, "No help available."),
+                        "error",
+                    )
+            except Exception as exc:
+                self.printLocalCommandFinished(command_id, commandLine, f"Error: {exc}", "error")
             self.setCursorEditorAtEnd()
             return
 
         if instructions[0] == ListModuleInstruction:
-            self.printInTerminal(commandLine, "", "")
+            command_id = uuid.uuid4().hex
+            self.printLocalCommandQueued(command_id, commandLine)
             try:
                 modules = list(self.grpcClient.listModules(
                     TeamServerApi_pb2.SessionSelector(
@@ -1168,9 +1200,9 @@ class Console(QWidget):
                         listener_hash=self.listenerHash,
                     )
                 ))
-                self.printInTerminal("", commandLine, _format_loaded_modules_for_console(modules))
+                self.printLocalCommandFinished(command_id, commandLine, _format_loaded_modules_for_console(modules))
             except Exception as exc:
-                self.printInTerminal("", commandLine, f"Error: {exc}")
+                self.printLocalCommandFinished(command_id, commandLine, f"Error: {exc}", "error")
                 self.setConsoleNotice("listModule failed.", True)
             self.setCursorEditorAtEnd()
             return

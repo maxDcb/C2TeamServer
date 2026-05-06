@@ -13,6 +13,25 @@ class FakeGrpc:
     def __init__(self):
         self.commands = []
 
+    def listArtifacts(self, query=None):
+        return iter([
+            SimpleNamespace(
+                artifact_id="artifact-1234567890",
+                name="hosted/dropper.exe",
+                display_name="dropper.exe",
+            ),
+        ])
+
+    def listListeners(self):
+        return iter([
+            SimpleNamespace(listener_hash="listener-primary"),
+        ])
+
+    def listSessions(self):
+        return iter([
+            SimpleNamespace(beacon_hash="beacon-active"),
+        ])
+
     def executeTerminalCommand(self, command):
         self.commands.append(command.command)
         if command.command.startswith(terminal_panel.GrpcInfoListenerInstruction):
@@ -47,6 +66,10 @@ class FakeDropperModule:
 
 
 FakeDropperModule.__name__ = "FakeDropper"
+
+
+def _completion_children(entries, text):
+    return next(children for entry_text, children in entries if entry_text == text)
 
 
 def test_extract_dropper_target_arch_accepts_aliases_and_removes_flag():
@@ -144,6 +167,19 @@ def test_terminal_shows_welcome_message(qtbot):
     assert "Type Help to list available commands" in output
 
 
+def test_terminal_uses_dark_panel_toolbar(qtbot):
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    assert "#0b1117" in terminal.styleSheet()
+    assert terminal.layout.spacing() == 6
+    assert terminal.searchInput.placeholderText() == "Search output"
+    assert terminal.commandEditor.placeholderText() == "Terminal command"
+    assert terminal.clearOutputButton.text() == "Clear"
+    assert terminal.exportLogButton.text() == "Export"
+
+
 def test_terminal_user_commands_use_user_badge(qtbot, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     parent = QWidget()
@@ -172,3 +208,47 @@ def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):
     error = terminal_panel.createDonutShellcode("./Beacon-arm64.exe", "127.0.0.1 443 https", "arm64")
 
     assert error == "Donut shellcode generation crashed with signal 11."
+
+
+def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_modules(monkeypatch):
+    monkeypatch.setattr(terminal_panel, "DropperModules", [FakeDropperModule])
+    monkeypatch.setattr(terminal_panel, "ShellCodeModules", [])
+
+    completions = terminal_panel.build_terminal_completer_data(FakeGrpc())
+
+    help_children = _completion_children(completions, terminal_panel.HelpInstruction)
+    assert (terminal_panel.HostInstruction, []) in help_children
+    assert (terminal_panel.SocksInstruction, []) in help_children
+
+    host_children = _completion_children(completions, terminal_panel.HostInstruction)
+    artifact_children = _completion_children(host_children, "dropper.exe")
+    listener_children = _completion_children(artifact_children, "listener-primary")
+    assert ("<hosted_filename>", []) in listener_children
+
+    dropper_children = _completion_children(completions, terminal_panel.DropperInstruction)
+    module_children = _completion_children(dropper_children, "FakeDropper")
+    download_listener_children = _completion_children(module_children, "listener-primary")
+    beacon_listener_children = _completion_children(download_listener_children, "listener-primary")
+    arch_children = _completion_children(beacon_listener_children, "--arch")
+    assert ("arm64", []) in arch_children
+
+    config_children = _completion_children(dropper_children, terminal_panel.DropperConfigSubInstruction)
+    generator_children = _completion_children(config_children, terminal_panel.DropperConfigShellcodeGeneratorDisplay)
+    assert (terminal_panel.ShellcodeGeneratorDonut, []) in generator_children
+
+    socks_children = _completion_children(completions, terminal_panel.SocksInstruction)
+    socks_bind_children = _completion_children(socks_children, "bind")
+    assert ("beacon-active", []) in socks_bind_children
+
+
+def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    editor = terminal_panel.CommandEditor(grpcClient=FakeGrpc())
+    qtbot.addWidget(editor)
+
+    assert editor.codeCompleter.setCurrentRow(0) is True
+    editor.nextCompletion()
+    assert editor.codeCompleter.currentRow() == 1
+
+    editor.nextCompletion()
+    assert editor.codeCompleter.currentRow() == 2

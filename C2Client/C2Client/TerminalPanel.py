@@ -4,18 +4,25 @@ import json
 import logging
 import re
 import subprocess
+from datetime import datetime
+from typing import Any
 from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut
+from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut, QTextCursor, QTextDocument
 from PyQt6.QtWidgets import (
     QCompleter,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
+    QPushButton,
     QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from .grpcClient import TeamServerApi_pb2
 from .console_style import (
+    CONSOLE_COLORS,
     apply_console_output_style,
     append_console_block,
     append_console_spacing,
@@ -23,6 +30,7 @@ from .console_style import (
 )
 from .env import env_path
 from .grpc_status import is_response_ok, terminal_response_text
+from .panel_style import apply_dark_panel_style
 from .TerminalModules.Batcave import batcave
 from .TerminalModules.Credentials import credentials
 
@@ -409,31 +417,180 @@ def extractDropperTargetArch(arguments, defaultArch=DefaultWindowsArch):
 
     return targetArch, remainingArgs
 
-completerData = [
-    (HelpInstruction,[]),
-    (HostInstruction,[]),
-    (DropperInstruction,[
-            (DropperConfigSubInstruction, [
-                (DropperConfigShellcodeGeneratorDisplay, []),
-                (DropperConfigBeaconArchDisplay, [
-                    ("x86", []),
-                    ("x64", []),
-                    ("arm64", [])
-                ])
-            ])
-        ]),
-    (BatcaveInstruction, [
-            ("Install", []),
-            ("BundleInstall", []),
-            ("Search", [])
-             ]),
-    (CredentialStoreInstruction, [
-            (GetSubInstruction, []),
-            (SetSubInstruction, []),
-            (SearchSubInstruction, [])
-             ]),
-    (ReloadModulesInstruction,[]),
-]
+def _add_completion_path(entries: list[tuple[str, list]], parts: list[str]) -> None:
+    if not parts:
+        return
+    head = str(parts[0]).strip()
+    if not head:
+        return
+    for index, (text, children) in enumerate(entries):
+        if text == head:
+            if len(parts) > 1:
+                _add_completion_path(children, parts[1:])
+            entries[index] = (text, children)
+            return
+    children: list[tuple[str, list]] = []
+    entries.append((head, children))
+    if len(parts) > 1:
+        _add_completion_path(children, parts[1:])
+
+
+def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple[str, list]]) -> None:
+    for text, children in source:
+        _add_completion_path(destination, [text])
+        destination_entry = next(entry for entry in destination if entry[0] == text)
+        if children:
+            _merge_completion_entries(destination_entry[1], children)
+
+
+def _field(value: Any, name: str, default: Any = "") -> Any:
+    return getattr(value, name, default)
+
+
+def _safe_completion_token(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return ""
+    return text
+
+
+def _artifact_completion_values(artifact: Any) -> list[str]:
+    values = []
+    artifact_id = _safe_completion_token(_field(artifact, "artifact_id"))
+    if artifact_id:
+        values.append(artifact_id)
+        if len(artifact_id) > 12:
+            values.append(artifact_id[:12])
+    for field_name in ("name", "display_name"):
+        token = _safe_completion_token(_field(artifact, field_name))
+        if token:
+            values.append(token)
+    return list(dict.fromkeys(values))
+
+
+def _listener_completion_values(listener: Any) -> list[str]:
+    listener_hash = _safe_completion_token(_field(listener, "listener_hash"))
+    if not listener_hash:
+        return []
+    values = [listener_hash]
+    if len(listener_hash) > 8:
+        values.append(listener_hash[:8])
+    return list(dict.fromkeys(values))
+
+
+def _session_completion_values(session: Any) -> list[str]:
+    beacon_hash = _safe_completion_token(_field(session, "beacon_hash"))
+    if not beacon_hash:
+        return []
+    values = [beacon_hash]
+    if len(beacon_hash) > 8:
+        values.append(beacon_hash[:8])
+    return list(dict.fromkeys(values))
+
+
+def _module_completion_name(module: Any) -> str:
+    return _safe_completion_token(getattr(module, "__name__", ""))
+
+
+def _artifact_entries(artifacts: list[Any], children: list[tuple[str, list]]) -> list[tuple[str, list]]:
+    entries: list[tuple[str, list]] = []
+    for artifact in artifacts:
+        for value in _artifact_completion_values(artifact):
+            _add_completion_path(entries, [value])
+            artifact_entry = next(entry for entry in entries if entry[0] == value)
+            _merge_completion_entries(artifact_entry[1], children)
+    if not entries:
+        entries.append(("<artifact_id|name>", children.copy()))
+    return entries
+
+
+def _listener_entries(listeners: list[Any], children: list[tuple[str, list]] | None = None) -> list[tuple[str, list]]:
+    entries: list[tuple[str, list]] = []
+    for listener in listeners:
+        for value in _listener_completion_values(listener):
+            _add_completion_path(entries, [value])
+            if children:
+                listener_entry = next(entry for entry in entries if entry[0] == value)
+                _merge_completion_entries(listener_entry[1], children)
+    if not entries:
+        entries.append(("<listener_hash>", children.copy() if children else []))
+    return entries
+
+
+def _session_entries(sessions: list[Any]) -> list[tuple[str, list]]:
+    entries: list[tuple[str, list]] = []
+    for session in sessions:
+        for value in _session_completion_values(session):
+            _add_completion_path(entries, [value])
+    if not entries:
+        entries.append(("<beacon_hash>", []))
+    return entries
+
+
+def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, list]]:
+    listeners: list[Any] = []
+    artifacts: list[Any] = []
+    sessions: list[Any] = []
+    if grpcClient is not None:
+        try:
+            listeners = list(grpcClient.listListeners())
+        except Exception as exc:
+            logger.debug("Terminal autocomplete could not load listeners: %s", exc)
+        try:
+            artifacts = list(grpcClient.listArtifacts())
+        except Exception as exc:
+            logger.debug("Terminal autocomplete could not load artifacts: %s", exc)
+        try:
+            sessions = list(grpcClient.listSessions())
+        except Exception as exc:
+            logger.debug("Terminal autocomplete could not load sessions: %s", exc)
+
+    terminal_commands = [
+        HostInstruction,
+        DropperInstruction,
+        BatcaveInstruction,
+        CredentialStoreInstruction,
+        SocksInstruction,
+        ReloadModulesInstruction,
+    ]
+    listener_with_optional_filename = _listener_entries(listeners, [("<hosted_filename>", [])])
+    listener_then_listener = _listener_entries(listeners, _listener_entries(listeners, [("--arch", [(arch, []) for arch in SupportedWindowsArchs])]))
+    dropper_module_entries: list[tuple[str, list]] = []
+    for module in DropperModules:
+        module_name = _module_completion_name(module)
+        if module_name:
+            _add_completion_path(dropper_module_entries, [module_name])
+            module_entry = next(entry for entry in dropper_module_entries if entry[0] == module_name)
+            _merge_completion_entries(module_entry[1], listener_then_listener)
+
+    shellcode_generator_entries = [(ShellcodeGeneratorDonut, [])]
+    for module in ShellCodeModules:
+        module_name = _module_completion_name(module)
+        if module_name and module_name != ShellcodeGeneratorDonut:
+            shellcode_generator_entries.append((module_name, []))
+
+    dropper_children = [
+        (
+            DropperConfigSubInstruction,
+            [
+                (DropperConfigShellcodeGeneratorDisplay, shellcode_generator_entries),
+                (DropperConfigBeaconArchDisplay, [(arch, []) for arch in SupportedWindowsArchs]),
+            ],
+        ),
+        *dropper_module_entries,
+    ]
+    if not dropper_module_entries:
+        dropper_children.append(("<dropper_module>", listener_then_listener))
+
+    return [
+        (HelpInstruction, [(command, []) for command in terminal_commands]),
+        (HostInstruction, _artifact_entries(artifacts, listener_with_optional_filename)),
+        (DropperInstruction, dropper_children),
+        (BatcaveInstruction, [("Install", []), ("BundleInstall", []), ("Search", [])]),
+        (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, [])]),
+        (SocksInstruction, [("start", []), ("stop", []), ("unbind", []), ("bind", _session_entries(sessions))]),
+        (ReloadModulesInstruction, []),
+    ]
 
 InfoProcessing = "Processing..." 
 ErrorCmdUnknow = "Error: Command Unknown"
@@ -450,13 +607,13 @@ TerminalWelcomeMessage = (
 #
 class Terminal(QWidget):
     tabPressed = pyqtSignal()
-    logFileName=""
-    dropperWorker=None
 
     def __init__(self, parent, grpcClient):
-        super(QWidget, self).__init__(parent)
+        super().__init__(parent)
+        apply_dark_panel_style(self)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(6)
 
         self.grpcClient = grpcClient
         self.dropperConfig = {
@@ -464,25 +621,53 @@ class Terminal(QWidget):
             DropperConfigBeaconArchKey: DefaultWindowsArch,
         }
 
-        self.logFileName=LogFileName
+        self.logFileName = LogFileName
+        self.dropperWorker = None
+        self.thread = None
+
+        self.searchInput = QLineEdit()
+        self.searchInput.setPlaceholderText("Search output")
+        self.searchInput.setFixedHeight(26)
+        self.searchInput.returnPressed.connect(self.findNextSearchMatch)
+        self.findPreviousButton = QPushButton("Prev")
+        self.findPreviousButton.setFixedHeight(26)
+        self.findPreviousButton.clicked.connect(lambda _checked=False: self.findNextSearchMatch(backward=True))
+        self.findNextButton = QPushButton("Next")
+        self.findNextButton.setFixedHeight(26)
+        self.findNextButton.clicked.connect(lambda _checked=False: self.findNextSearchMatch())
+        self.clearOutputButton = QPushButton("Clear")
+        self.clearOutputButton.setFixedHeight(26)
+        self.clearOutputButton.clicked.connect(self.clearTerminalOutput)
+        self.exportLogButton = QPushButton("Export")
+        self.exportLogButton.setFixedHeight(26)
+        self.exportLogButton.clicked.connect(self.exportTerminalOutput)
+        self.terminalNoticeLabel = QLabel("")
+        self.terminalNoticeLabel.setMinimumWidth(180)
+        self.terminalNoticeLabel.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        toolbarLayout = QHBoxLayout()
+        toolbarLayout.setSpacing(6)
+        toolbarLayout.addWidget(self.searchInput, 3)
+        toolbarLayout.addWidget(self.findPreviousButton)
+        toolbarLayout.addWidget(self.findNextButton)
+        toolbarLayout.addWidget(self.clearOutputButton)
+        toolbarLayout.addWidget(self.exportLogButton)
+        toolbarLayout.addWidget(self.terminalNoticeLabel, 2)
+        self.layout.addLayout(toolbarLayout)
 
         self.editorOutput = QTextBrowser()
         apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
+        self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.editorOutput.setLineWrapColumnOrWidth(0)
         self.layout.addWidget(self.editorOutput, 8)
 
-        self.commandEditor = CommandEditor()
-        self.layout.addWidget(self.commandEditor, 2)
+        self.commandEditor = CommandEditor(grpcClient=self.grpcClient)
+        self.commandEditor.setPlaceholderText("Terminal command")
+        self.commandEditor.setMinimumHeight(28)
+        self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
         self.printInTerminal("Terminal", TerminalWelcomeMessage, role="system")
-
-
-    def nextCompletion(self):
-        index = self._compl.currentIndex()
-        self._compl.popup().setCurrentIndex(index)
-        start = self._compl.currentRow()
-        if not self._compl.setCurrentRow(start + 1):
-            self._compl.setCurrentRow(0)
 
 
     def event(self, event):
@@ -505,6 +690,57 @@ class Terminal(QWidget):
         if has_entry:
             append_console_spacing(self.editorOutput)
         self.setCursorEditorAtEnd()
+
+
+    def setTerminalNotice(self, message, is_error=False):
+        self.terminalNoticeLabel.setText(message)
+        color = CONSOLE_COLORS["error"] if is_error else CONSOLE_COLORS["muted"]
+        self.terminalNoticeLabel.setStyleSheet(f"color: {color};")
+
+
+    def findNextSearchMatch(self, backward=False):
+        search_text = self.searchInput.text().strip()
+        if search_text == "":
+            self.setTerminalNotice("Search term required.", True)
+            return False
+
+        original_cursor = self.editorOutput.textCursor()
+        flags = QTextDocument.FindFlag.FindBackward if backward else QTextDocument.FindFlag(0)
+        if self.editorOutput.find(search_text, flags):
+            self.setTerminalNotice("Match found.")
+            return True
+
+        cursor = self.editorOutput.textCursor()
+        if backward:
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+        else:
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.editorOutput.setTextCursor(cursor)
+
+        if self.editorOutput.find(search_text, flags):
+            self.setTerminalNotice("Search wrapped.")
+            return True
+
+        self.editorOutput.setTextCursor(original_cursor)
+        self.setTerminalNotice("No match.", True)
+        return False
+
+
+    def clearTerminalOutput(self):
+        self.editorOutput.clear()
+        self.setTerminalNotice("Output cleared.")
+
+
+    def exportTerminalOutput(self):
+        os.makedirs(logsDir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        base_name = os.path.splitext(self.logFileName)[0]
+        output_path = os.path.join(logsDir, f"{base_name}_terminal_{timestamp}.log")
+        with open(output_path, "w", encoding="utf-8") as exportFile:
+            exportFile.write(self.editorOutput.toPlainText().rstrip())
+            exportFile.write("\n")
+        self.setTerminalNotice("Exported " + os.path.basename(output_path))
+        return output_path
         
 
     def runCommand(self):
@@ -1183,11 +1419,14 @@ class DropperWorker(QObject):
 
 class CommandEditor(QLineEdit):
     tabPressed = pyqtSignal()
-    cmdHistory = []
-    idx = 0
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, grpcClient=None):
         super().__init__(parent)
+
+        self.grpcClient = grpcClient
+        self.cmdHistory = []
+        self.idx = 0
+        self.completionData = []
 
         if(os.path.isfile(HistoryFileName)):
             cmdHistoryFile = open(HistoryFileName)
@@ -1198,13 +1437,21 @@ class CommandEditor(QLineEdit):
         QShortcut(Qt.Key.Key_Up, self, self.historyUp)
         QShortcut(Qt.Key.Key_Down, self, self.historyDown)
 
-        self.codeCompleter = CodeCompleter(completerData, self)
+        self.completionData = build_terminal_completer_data(self.grpcClient)
+        self.codeCompleter = CodeCompleter(self.completionData, self)
         # needed to clear the completer after activation
         self.codeCompleter.activated.connect(self.onActivated)
         self.setCompleter(self.codeCompleter)
         self.tabPressed.connect(self.nextCompletion)
 
+    def refreshCompleter(self, force=False):
+        completionData = build_terminal_completer_data(self.grpcClient)
+        if force or completionData != self.completionData:
+            self.completionData = completionData
+            self.codeCompleter.updateData(completionData)
+
     def nextCompletion(self):
+        self.refreshCompleter()
         index = self.codeCompleter.currentIndex()
         self.codeCompleter.popup().setCurrentIndex(index)
         start = self.codeCompleter.currentRow()
@@ -1247,6 +1494,10 @@ class CodeCompleter(QCompleter):
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
+        self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.createModel(data)
+
+    def updateData(self, data):
         self.createModel(data)
 
     def splitPath(self, path):

@@ -152,8 +152,6 @@ std::string TeamServerHelpService::sessionPlatform(const std::string& beaconHash
             return "windows";
         if (os.find("linux") != std::string::npos)
             return "linux";
-        if (os.find("mac") != std::string::npos || os.find("darwin") != std::string::npos)
-            return "macos";
         return "";
     }
 
