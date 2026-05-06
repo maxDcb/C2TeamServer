@@ -1,8 +1,12 @@
 #include "TeamServerTermLocalService.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <system_error>
 
+#include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerModuleLoader.hpp"
 #include "listener/ListenerHttp.hpp"
 using json = nlohmann::json;
@@ -10,6 +14,7 @@ namespace fs = std::filesystem;
 
 namespace
 {
+const std::string HostArtifactInstruction = "hostArtifact";
 const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
 const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
@@ -28,6 +33,38 @@ void setTerminalError(teamserverapi::TerminalCommandResponse* response, const st
     response->set_status(teamserverapi::KO);
     response->set_result(result);
     response->set_message(result);
+}
+
+std::string basename(std::string value)
+{
+    const auto slash = value.find_last_of("/\\");
+    if (slash != std::string::npos)
+        value = value.substr(slash + 1);
+    return value;
+}
+
+std::string sanitizeHostedFilename(std::string value)
+{
+    value = basename(std::move(value));
+    for (char& ch : value)
+    {
+        const unsigned char c = static_cast<unsigned char>(ch);
+        if (!std::isalnum(c) && ch != '.' && ch != '-' && ch != '_')
+            ch = '_';
+    }
+    return value.empty() ? "artifact.bin" : value;
+}
+
+bool samePath(const fs::path& left, const fs::path& right)
+{
+    std::error_code ec;
+    const fs::path canonicalLeft = fs::weakly_canonical(left, ec);
+    if (ec)
+        return false;
+    const fs::path canonicalRight = fs::weakly_canonical(right, ec);
+    if (ec)
+        return false;
+    return canonicalLeft == canonicalRight;
 }
 } // namespace
 
@@ -51,7 +88,8 @@ TeamServerTermLocalService::TeamServerTermLocalService(
 
 bool TeamServerTermLocalService::canHandle(const std::string& instruction) const
 {
-    return instruction == PutIntoUploadDirInstruction
+    return instruction == HostArtifactInstruction
+        || instruction == PutIntoUploadDirInstruction
         || instruction == BatcaveInstruction
         || instruction == AddCredentialInstruction
         || instruction == GetCredentialInstruction
@@ -70,6 +108,8 @@ grpc::Status TeamServerTermLocalService::handleCommand(
     response->set_data("");
     response->clear_message();
 
+    if (instruction == HostArtifactInstruction)
+        return handleHostArtifact(splitedCmd, response);
     if (instruction == PutIntoUploadDirInstruction)
         return handlePutIntoUploadDir(splitedCmd, command, response);
     if (instruction == BatcaveInstruction)
@@ -132,6 +172,118 @@ std::string TeamServerTermLocalService::resolveDownloadFolderForListener(const s
     }
 
     return downloadFolder;
+}
+
+grpc::Status TeamServerTermLocalService::handleHostArtifact(
+    const std::vector<std::string>& splitedCmd,
+    teamserverapi::TerminalCommandResponse* response)
+{
+    m_logger->debug("hostArtifact");
+
+    if (splitedCmd.size() != 3 && splitedCmd.size() != 4)
+    {
+        setTerminalError(response, "Error: hostArtifact takes a listener hash, an artifact reference, and an optional filename.");
+        return grpc::Status::OK;
+    }
+
+    const std::string& listenerHash = splitedCmd[1];
+    const std::string& artifactReference = splitedCmd[2];
+    const std::string downloadFolder = resolveDownloadFolderForListener(listenerHash);
+    if (downloadFolder.empty())
+    {
+        setTerminalError(response, "Error: Listener don't have a download folder.");
+        m_logger->warn("Listener {0} has no download folder configured; unable to host artifact {1}", listenerHash, artifactReference);
+        return grpc::Status::OK;
+    }
+
+    TeamServerArtifactCatalog catalog(m_runtimeConfig);
+    std::vector<TeamServerArtifactRecord> matches;
+    for (const TeamServerArtifactRecord& candidate : catalog.listArtifacts())
+    {
+        if (candidate.artifactId == artifactReference
+            || candidate.name == artifactReference
+            || candidate.displayName == artifactReference)
+        {
+            matches.push_back(candidate);
+        }
+    }
+
+    if (matches.empty() && artifactReference.size() >= 8)
+    {
+        for (const TeamServerArtifactRecord& candidate : catalog.listArtifacts())
+        {
+            if (candidate.artifactId.rfind(artifactReference, 0) == 0)
+                matches.push_back(candidate);
+        }
+    }
+
+    if (matches.empty())
+    {
+        setTerminalError(response, "Error: artifact not found.");
+        return grpc::Status::OK;
+    }
+    if (matches.size() > 1)
+    {
+        setTerminalError(response, "Error: artifact reference is ambiguous.");
+        return grpc::Status::OK;
+    }
+
+    TeamServerArtifactRecord artifact;
+    std::string bytes;
+    std::string message;
+    if (!catalog.readArtifactPayload(matches.front().artifactId, artifact, bytes, message))
+    {
+        setTerminalError(response, "Error: " + message);
+        return grpc::Status::OK;
+    }
+
+    std::string filename;
+    if (splitedCmd.size() == 4)
+    {
+        filename = splitedCmd[3];
+        if (!isValidFilename(filename))
+        {
+            setTerminalError(response, "Error: filename not allowed.");
+            return grpc::Status::OK;
+        }
+    }
+    else
+    {
+        filename = sanitizeHostedFilename(!artifact.displayName.empty() ? artifact.displayName : artifact.name);
+    }
+
+    const fs::path destinationPath = fs::path(downloadFolder) / filename;
+    std::error_code ec;
+    fs::create_directories(destinationPath.parent_path(), ec);
+    if (ec)
+    {
+        setTerminalError(response, "Error: Cannot create hosted artifact directory.");
+        m_logger->warn("Failed to create hosted artifact directory for {0}: {1}", filename, ec.message());
+        return grpc::Status::OK;
+    }
+
+    if (!samePath(artifact.internalPath, destinationPath))
+    {
+        std::ofstream outputFile(destinationPath, std::ios::out | std::ios::binary | std::ios::trunc);
+        if (!outputFile.good())
+        {
+            setTerminalError(response, "Error: Cannot write file.");
+            m_logger->warn("Failed to host artifact {0} at {1}", artifact.artifactId, destinationPath.string());
+            return grpc::Status::OK;
+        }
+        outputFile.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        outputFile.close();
+        if (!outputFile.good())
+        {
+            setTerminalError(response, "Error: Cannot write file.");
+            m_logger->warn("Failed to finish hosting artifact {0} at {1}", artifact.artifactId, destinationPath.string());
+            return grpc::Status::OK;
+        }
+    }
+
+    setTerminalOk(response, filename);
+    m_logger->info("Hosted artifact {0} as {1} for listener {2}", artifact.artifactId, destinationPath.string(), listenerHash);
+    return grpc::Status::OK;
 }
 
 grpc::Status TeamServerTermLocalService::handlePutIntoUploadDir(

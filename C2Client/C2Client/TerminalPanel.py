@@ -196,6 +196,7 @@ HttpType = "http"
 HttpsType = "https"
 
 GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
+GrpcHostArtifactInstruction = "hostArtifact"
 GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
@@ -264,9 +265,10 @@ DropperModuleGeneratePayloadFunction = "generatePayloadsExploration"
 
 HostInstruction = "Host"
 HostHelp="""Host:
-Host upload a file on the teamserver to be downloaded by a web request from a web listener (http/https):
+Host a TeamServer artifact so it can be downloaded by a web request from an HTTP/HTTPS listener:
 exemple:
-- Host file hostListenerHash"""
+- Host artifactId hostListenerHash
+- Host artifactId hostListenerHash hostedName.exe"""
 
 CredentialStoreInstruction = "CredentialStore"
 CredentialStoreHelp = """CredentialStore:
@@ -772,8 +774,9 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, HostHelp)
             return;
 
-        filePath = instructions[1]
+        artifactReference = instructions[1]
         hostListenerHash = instructions[2]
+        hostedFilename = instructions[3] if len(instructions) >= 4 else ""
 
         commandTeamServer = GrpcInfoListenerInstruction+" "+hostListenerHash
         termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
@@ -799,26 +802,24 @@ class Terminal(QWidget):
         if downloadPath[0]=="/":
             downloadPath = downloadPath[1:]
 
-        # Upload the file and get the path
-        try:
-            filename = os.path.basename(filePath)
-            with open(filePath, mode='rb') as fileDesc:
-                payload = fileDesc.read()
-        except IOError:
-            self.printInTerminal(commandLine, ErrorFileNotFound)
-            return  
-
-        commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+hostListenerHash+" "+filename
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
+        commandTeamServer = GrpcHostArtifactInstruction+" "+hostListenerHash+" "+artifactReference
+        if hostedFilename:
+            commandTeamServer += " " + hostedFilename
+        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
         resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
         result = terminal_response_text(resultTermCommand)
         if isTerminalResponseError(resultTermCommand):
             self.printInTerminal(commandLine, result)
             return  
-                
-        result =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + filename
-        self.printInTerminal(commandLine, result)
+
+        hostedFilename = result.strip()
+        if not hostedFilename:
+            self.printInTerminal(commandLine, "Error: hosted artifact filename missing.")
+            return
+
+        hostedUrl =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + hostedFilename
+        self.printInTerminal(commandLine, hostedUrl)
 
 
     def _handle_dropper_config(self, commandLine, instructions):

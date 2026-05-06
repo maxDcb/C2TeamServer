@@ -140,6 +140,16 @@ The Artifacts tab is the operational view for the catalog:
 - generated sidecar-backed artifacts can be deleted
 - hosted files are visible through the `hosted` category
 
+The Terminal `Host` command works from catalog artifacts, not local client
+files:
+
+```text
+Host <artifact_id|artifact_name> <listener_hash> [hosted_filename]
+```
+
+The TeamServer resolves the artifact, copies its payload into the listener
+hosted directory, and returns the download URL to the client.
+
 ## Stabilization Checklist
 
 - Run real listener tests with hosted files under `GeneratedArtifacts/hosted`.

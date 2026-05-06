@@ -5,6 +5,7 @@
 #include <string>
 #include <unistd.h>
 
+#include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerTermLocalService.hpp"
 
 namespace fs = std::filesystem;
@@ -92,6 +93,9 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.windowsBeaconsDirectoryPath = (root / "windows-beacons").string();
     runtimeConfig.toolsDirectoryPath = (root / "tools").string();
     runtimeConfig.scriptsDirectoryPath = (root / "scripts").string();
+    runtimeConfig.uploadedArtifactsDirectoryPath = (root / "UploadedArtifacts").string();
+    runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string();
+    runtimeConfig.hostedArtifactsDirectoryPath = (root / "GeneratedArtifacts" / "hosted").string();
 
     fs::create_directories(runtimeConfig.teamServerModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxModulesDirectoryPath);
@@ -100,8 +104,18 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
     fs::create_directories(runtimeConfig.scriptsDirectoryPath);
+    fs::create_directories(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any");
+    fs::create_directories(runtimeConfig.generatedArtifactsDirectoryPath);
+    fs::create_directories(runtimeConfig.hostedArtifactsDirectoryPath);
 
     return runtimeConfig;
+}
+
+void writeFile(const fs::path& path, const std::string& content)
+{
+    fs::create_directories(path.parent_path());
+    std::ofstream output(path, std::ios::binary);
+    output << content;
 }
 
 std::string readFile(const fs::path& path)
@@ -156,6 +170,56 @@ void testUploadCommands()
     assert(response.result() == "ok");
     assert(response.message().empty());
     assert(readFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / "tool.bin") == "TOOL");
+}
+
+void testHostArtifactCommand()
+{
+    ScopedPath tempRoot(makeTempDirectory("host-artifact"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    fs::path downloadDir = tempRoot.path() / "downloads";
+    fs::create_directories(downloadDir);
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator_payload.bin", "PAYLOAD");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "upload";
+    query.nameContains = "operator_payload";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+
+    nlohmann::json config = {
+        {"ListenerHttpsConfig", {{"downloadFolder", downloadDir.string()}}}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    listeners.push_back(std::make_shared<TestListener>("listener-primary"));
+    nlohmann::json credentials = nlohmann::json::array();
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+
+    TeamServerTermLocalService service(
+        makeLogger(),
+        config,
+        runtimeConfig,
+        listeners,
+        credentials,
+        modules);
+
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("hostArtifact listener-pri " + artifacts[0].artifactId);
+    teamserverapi::TerminalCommandResponse response;
+    assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", artifacts[0].artifactId}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "operator_payload.bin");
+    assert(response.message().empty());
+    assert(readFile(downloadDir / "operator_payload.bin") == "PAYLOAD");
+
+    command.set_command("hostArtifact listener-pri " + artifacts[0].artifactId + " hosted.bin");
+    assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", artifacts[0].artifactId, "hosted.bin"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "hosted.bin");
+    assert(readFile(downloadDir / "hosted.bin") == "PAYLOAD");
+
+    assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", "missing"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: artifact not found.");
 }
 
 void testCredentialCommands()
@@ -236,6 +300,7 @@ void testReloadModulesUsesInjectedLoader()
 int main()
 {
     testUploadCommands();
+    testHostArtifactCommand();
     testCredentialCommands();
     testReloadModulesUsesInjectedLoader();
     return 0;

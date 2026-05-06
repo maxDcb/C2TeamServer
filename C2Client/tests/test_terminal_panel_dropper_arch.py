@@ -19,6 +19,8 @@ class FakeGrpc:
             return SimpleNamespace(result="http\n127.0.0.1\n8080\n/uploads/\n", data=b"")
         if command.command.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
             return SimpleNamespace(result="ok", data=b"beacon")
+        if command.command.startswith(terminal_panel.GrpcHostArtifactInstruction):
+            return SimpleNamespace(result="hosted.bin", data=b"")
         if command.command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
             return SimpleNamespace(result="ok", data=b"")
         return SimpleNamespace(result="Error: unexpected command", data=b"")
@@ -110,6 +112,21 @@ def test_terminal_command_error_message_uses_status_message(qtbot):
 
     assert "Reload failed." in terminal.editorOutput.toPlainText()
     assert "raw failure" not in terminal.editorOutput.toPlainText()
+
+
+def test_terminal_host_uses_artifact_reference(qtbot):
+    parent = QWidget()
+    grpc = FakeGrpc()
+    terminal = terminal_panel.Terminal(parent, grpc)
+    qtbot.addWidget(terminal)
+
+    terminal.runHost("Host artifact-123 listener-pri", ["Host", "artifact-123", "listener-pri"])
+
+    assert "infoListener listener-pri" in grpc.commands
+    assert "hostArtifact listener-pri artifact-123" in grpc.commands
+    output = terminal.editorOutput.toPlainText()
+    assert "http://127.0.0.1:8080/uploads/hosted.bin" in output
+    assert not any(command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction) for command in grpc.commands)
 
 
 def test_terminal_shows_welcome_message(qtbot):
