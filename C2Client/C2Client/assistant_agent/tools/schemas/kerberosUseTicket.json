@@ -1,7 +1,7 @@
 {
   "name": "kerberosUseTicket",
-  "description": "Import a Kerberos ticket file into the current LUID.",
-  "command_template": "kerberosUseTicket {ticket_file:q}",
+  "description": "Import a Kerberos ticket artifact from UploadedArtifacts into the current LUID.",
+  "command_template": "kerberosUseTicket {ticket_artifact:q}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -13,15 +13,15 @@
         "type": "string",
         "description": "Full listener hash for the target beacon session."
       },
-      "ticket_file": {
+      "ticket_artifact": {
         "type": "string",
-        "description": "Local .kirbi ticket file path read by the TeamServer side before sending."
+        "description": ".kirbi artifact name or id from UploadedArtifacts."
       }
     },
     "required": [
       "beacon_hash",
       "listener_hash",
-      "ticket_file"
+      "ticket_artifact"
     ],
     "additionalProperties": false
   }

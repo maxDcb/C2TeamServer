@@ -1,7 +1,7 @@
 {
   "name": "pwSh",
-  "description": "Initialize or use the in-memory PowerShell runner.",
-  "command_template": "pwSh {action} {input_file:q?} {type_for_dll:q?} {command:raw?} {script_path:q?}",
+  "description": "Initialize or use the in-memory PowerShell runner. Init loads the fixed rdm.dll tool artifact.",
+  "command_template": "pwSh {action} {command_or_script:raw?} {arguments:raw?}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -23,24 +23,14 @@
           "script"
         ]
       },
-      "input_file": {
+      "command_or_script": {
         "type": "string",
-        "description": "Custom runner DLL for init. Omit to use PowerShellRunner.dll.",
+        "description": "PowerShell command text for run, or script artifact name/id for import or script.",
         "default": ""
       },
-      "type_for_dll": {
+      "arguments": {
         "type": "string",
-        "description": "Fully-qualified runner type for custom init DLL.",
-        "default": ""
-      },
-      "command": {
-        "type": "string",
-        "description": "PowerShell command text for run.",
-        "default": ""
-      },
-      "script_path": {
-        "type": "string",
-        "description": "PowerShell script path for import or script. The module searches the release Tools directory.",
+        "description": "Optional PowerShell command tail.",
         "default": ""
       }
     },

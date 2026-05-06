@@ -19,6 +19,7 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerListenerArtifactService.cpp
     teamServer/TeamServerModuleLoader.cpp
     teamServer/TeamServerMiniDumpCommandPreparer.cpp
+    teamServer/TeamServerModuleArtifactCommandPreparer.cpp
     teamServer/TeamServerScriptCommandPreparer.cpp
     teamServer/TeamServerShellcodeService.cpp
     teamServer/TeamServerSocksService.cpp

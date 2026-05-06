@@ -1,6 +1,6 @@
 {
   "name": "coffLoader",
-  "description": "Load a COFF object file and execute an exported function.",
+  "description": "Load a TeamServer-managed COFF object artifact and execute an exported function.",
   "command_template": "coffLoader {coff_file:q} {function_name:q} {packed_arguments:raw?}",
   "parameters": {
     "type": "object",
@@ -15,7 +15,7 @@
       },
       "coff_file": {
         "type": "string",
-        "description": "Local COFF object file path."
+        "description": "COFF/BOF tool artifact name or id from Tools."
       },
       "function_name": {
         "type": "string",

@@ -1,7 +1,7 @@
 {
   "name": "psExec",
-  "description": "Copy and run a service executable on a remote host via PsExec.",
-  "command_template": "psExec {auth_mode} {username:q?} {password:q?} {target:q} {service_file:q}",
+  "description": "Copy and run a TeamServer-managed service executable on a remote host via PsExec.",
+  "command_template": "psExec {auth_mode} {username:q?} {password:q?} {target:q} {service_artifact:q}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -36,9 +36,9 @@
         "type": "string",
         "description": "Target host name or IP."
       },
-      "service_file": {
+      "service_artifact": {
         "type": "string",
-        "description": "Local service executable file path to copy and run."
+        "description": "Service executable artifact name or id. The TeamServer resolves Tools first, then UploadedArtifacts."
       }
     },
     "required": [
@@ -46,7 +46,7 @@
       "listener_hash",
       "auth_mode",
       "target",
-      "service_file"
+      "service_artifact"
     ],
     "additionalProperties": false
   }

@@ -28,7 +28,7 @@ from .ui_status import StatusKind, apply_status, compact_message
 ArtifactTabTitle = "Artifacts"
 
 ALL_FILTER = "All"
-CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "upload", "download", "minidump"]
+CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "upload", "download", "minidump", "screenshot"]
 SCOPE_FILTERS = [ALL_FILTER, "generated", "beacon", "implant", "teamserver", "server", "operator", "any"]
 TARGET_FILTERS = [ALL_FILTER, "teamserver", "beacon", "listener", "operator", "any"]
 PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server", "any"]

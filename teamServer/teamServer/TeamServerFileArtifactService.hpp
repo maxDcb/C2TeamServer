@@ -59,6 +59,10 @@ public:
         const std::string& selector,
         bool isWindows,
         const std::string& arch) const;
+    TeamServerPreparedInputArtifact resolveToolArtifact(
+        const std::string& selector,
+        bool isWindows,
+        const std::string& arch) const;
 
     TeamServerPreparedDownloadArtifact prepareDownloadArtifact(
         const std::string& remotePath,

@@ -18,6 +18,7 @@
 #include "TeamServerListenerSessionService.hpp"
 #include "TeamServerMiniDumpCommandPreparer.hpp"
 #include "TeamServerModuleLoader.hpp"
+#include "TeamServerModuleArtifactCommandPreparer.hpp"
 #include "TeamServerScriptCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 #include "TeamServerSocksService.hpp"
@@ -129,6 +130,10 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_fileArtifactService,
         m_moduleCmd));
     commandPreparers.push_back(std::make_unique<TeamServerMiniDumpCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(
         m_logger,
         m_fileArtifactService,
         m_moduleCmd));

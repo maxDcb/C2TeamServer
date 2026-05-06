@@ -264,6 +264,58 @@ TeamServerPreparedInputArtifact TeamServerFileArtifactService::resolveScriptArti
     return result;
 }
 
+TeamServerPreparedInputArtifact TeamServerFileArtifactService::resolveToolArtifact(
+    const std::string& selector,
+    bool isWindows,
+    const std::string& arch) const
+{
+    TeamServerPreparedInputArtifact result;
+    if (selector.empty())
+    {
+        result.message = "Missing tool artifact.";
+        return result;
+    }
+
+    TeamServerArtifactQuery query;
+    query.category = "tool";
+    query.scope = "server";
+    query.target = "teamserver";
+    query.platform = platformName(isWindows);
+    query.arch = normalizeArch(isWindows, arch, m_runtimeConfig);
+    query.runtime = "any";
+
+    TeamServerArtifactCatalog catalog(m_runtimeConfig);
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    const auto artifact = std::find_if(
+        artifacts.begin(),
+        artifacts.end(),
+        [&](const TeamServerArtifactRecord& candidate)
+        {
+            return matchesSelector(candidate, selector);
+        });
+
+    if (artifact == artifacts.end())
+    {
+        result.message = "Tool artifact not found: " + selector
+            + ". Put tools under Tools/"
+            + platformName(isWindows) + "/" + query.arch
+            + " or Tools/Any/any.";
+        return result;
+    }
+
+    std::string bytes;
+    if (!readFile(artifact->internalPath, bytes))
+    {
+        result.message = "Tool artifact could not be read: " + artifact->name;
+        return result;
+    }
+
+    result.ok = true;
+    result.artifact = *artifact;
+    result.bytes = std::move(bytes);
+    return result;
+}
+
 TeamServerPreparedDownloadArtifact TeamServerFileArtifactService::prepareDownloadArtifact(
     const std::string& remotePath,
     const std::string& nameHint,

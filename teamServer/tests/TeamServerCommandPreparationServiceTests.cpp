@@ -16,6 +16,7 @@
 #include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerInjectCommandPreparer.hpp"
 #include "TeamServerMiniDumpCommandPreparer.hpp"
+#include "TeamServerModuleArtifactCommandPreparer.hpp"
 #include "TeamServerScriptCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 
@@ -166,6 +167,26 @@ void require(bool condition, const char* message)
 {
     if (!condition)
         throw std::runtime_error(message);
+}
+
+std::vector<std::string> splitNullFields(const std::string& value)
+{
+    std::vector<std::string> fields;
+    std::string current;
+    for (char ch : value)
+    {
+        if (ch == '\0')
+        {
+            fields.push_back(current);
+            current.clear();
+        }
+        else
+        {
+            current += ch;
+        }
+    }
+    fields.push_back(current);
+    return fields;
 }
 
 TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
@@ -739,6 +760,226 @@ void testPrepareMiniDumpCreatesGeneratedArtifactSlotAndRegistersChunks()
     require(artifacts[0].arch == "x64", "miniDump artifact arch mismatch");
     require(artifacts[0].format == "xored", "miniDump artifact format mismatch");
 }
+
+void testPrepareScreenShotCreatesGeneratedArtifactSlot()
+{
+    ScopedPath tempRoot(makeTempDirectory("screenshot-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("screenShot"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        makeLogger(),
+        runtimeConfig,
+        artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(
+        makeLogger(),
+        fileArtifactService,
+        modules));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("screenShot desktop.bmp", message, true, "amd64") == 0, "screenShot prepare failed");
+    require(message.instruction() == "screenShot", "screenShot instruction mismatch");
+    require(message.outputfile().find("GeneratedArtifacts/screenshot/beacon") != std::string::npos, "screenShot output path mismatch");
+    require(fs::exists(message.outputfile() + ".artifact.pending.json"), "screenShot pending metadata missing");
+
+    C2Message result;
+    result.set_outputfile(message.outputfile());
+    result.set_args("0");
+    result.set_data("BMfake");
+    result.set_returnvalue("Success");
+    std::string artifactMessage;
+    require(fileArtifactService->handleCommandResult(result, artifactMessage), "screenShot result was not handled");
+    require(artifactMessage.find("Generated artifact stored:") != std::string::npos, "screenShot artifact message mismatch");
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "screenshot";
+    query.scope = "generated";
+    query.target = "teamserver";
+    query.runtime = "file";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    require(artifacts.size() == 1, "screenShot artifact catalog count mismatch");
+    require(artifacts[0].format == "bmp", "screenShot artifact format mismatch");
+}
+
+void testPrepareKerberosUseTicketUsesUploadedArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("kerberos-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "ticket.kirbi", "TICKET");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("kerberosUseTicket"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
+
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("kerberosUseTicket ticket.kirbi", message, true, "x64") == 0, "kerberosUseTicket prepare failed");
+    require(message.instruction() == "kerberosUseTicket", "kerberosUseTicket instruction mismatch");
+    require(message.inputfile() == "ticket.kirbi", "kerberosUseTicket input artifact mismatch");
+    require(message.data() == "TICKET", "kerberosUseTicket data mismatch");
+}
+
+void testPreparePsExecUsesToolThenUploadedArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("psexec-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "svc.exe", "TOOL-SVC");
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "uploadSvc.exe", "UPLOAD-SVC");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("psExec"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
+
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+
+    C2Message credentialMessage;
+    require(service.prepareMessage("psExec -u DOMAIN\\alice secret server01 svc.exe", credentialMessage, true, "amd64") == 0, "psExec tool prepare failed");
+    require(credentialMessage.instruction() == "psExec", "psExec instruction mismatch");
+    require(credentialMessage.inputfile() == "svc.exe", "psExec tool artifact mismatch");
+    require(credentialMessage.data() == "TOOL-SVC", "psExec tool bytes mismatch");
+    const std::vector<std::string> credentialFields = splitNullFields(credentialMessage.cmd());
+    require(credentialFields.size() == 4, "psExec credential fields count mismatch");
+    require(credentialFields[0] == "DOMAIN", "psExec domain mismatch");
+    require(credentialFields[1] == "alice", "psExec username mismatch");
+    require(credentialFields[2] == "secret", "psExec password mismatch");
+    require(credentialFields[3] == "server01", "psExec target mismatch");
+
+    C2Message uploadMessage;
+    require(service.prepareMessage("psExec -n server01 uploadSvc.exe", uploadMessage, true, "amd64") == 0, "psExec upload fallback prepare failed");
+    require(uploadMessage.inputfile() == "uploadSvc.exe", "psExec upload artifact mismatch");
+    require(uploadMessage.data() == "UPLOAD-SVC", "psExec upload bytes mismatch");
+    require(uploadMessage.cmd() == "server01", "psExec token target mismatch");
+}
+
+void testPrepareCoffLoaderUsesToolArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("coffloader-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "whoami.x64.o", "COFF");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("coffLoader"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
+
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+
+    C2Message message;
+    require(service.prepareMessage("coffLoader whoami.x64.o go Zs c:\\ 0", message, true, "x64") == 0, "coffLoader prepare failed");
+    require(message.instruction() == "coffLoader", "coffLoader instruction mismatch");
+    require(message.inputfile() == "whoami.x64.o", "coffLoader tool artifact mismatch");
+    require(message.cmd() == "go", "coffLoader function mismatch");
+    require(message.args() == "Zs c:\\ 0", "coffLoader arguments mismatch");
+    require(message.data() == "COFF", "coffLoader bytes mismatch");
+}
+
+void testPrepareDotnetExecLoadUsesToolArtifact()
+{
+    ScopedPath tempRoot(makeTempDirectory("dotnetexec-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "Tool.exe", "EXE");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "Library.dll", "DLL");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("dotnetExec"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
+
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+
+    C2Message exeMessage;
+    require(service.prepareMessage("dotnetExec load tool Tool.exe", exeMessage, true, "amd64") == 0, "dotnetExec exe load prepare failed");
+    require(exeMessage.instruction() == "dotnetExec", "dotnetExec instruction mismatch");
+    require(exeMessage.cmd() == "00001", "dotnetExec load command mismatch");
+    require(exeMessage.args() == "tool", "dotnetExec short name mismatch");
+    require(exeMessage.returnvalue().empty(), "dotnetExec exe type mismatch");
+    require(exeMessage.inputfile() == "Tool.exe", "dotnetExec exe artifact mismatch");
+    require(exeMessage.data() == "EXE", "dotnetExec exe bytes mismatch");
+
+    C2Message dllMessage;
+    require(service.prepareMessage("dotnetExec load library Library.dll Namespace.Type", dllMessage, true, "amd64") == 0, "dotnetExec dll load prepare failed");
+    require(dllMessage.returnvalue() == "Namespace.Type", "dotnetExec dll type mismatch");
+    require(dllMessage.data() == "DLL", "dotnetExec dll bytes mismatch");
+
+    C2Message runMessage;
+    require(service.prepareMessage("dotnetExec runExe tool arg1", runMessage, true, "amd64") == 42, "dotnetExec run should fall through to module init");
+    require(runMessage.instruction() == "FAKE", "dotnetExec run fallback mismatch");
+}
+
+void testPreparePwShUsesFixedRunnerAndScriptArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("pwsh-preparer"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "rdm.dll", "RUNNER");
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "PowerView.ps1", "function Invoke-PowerView {}\n");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeModule>("pwSh"));
+
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
+    preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
+
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+
+    C2Message initMessage;
+    require(service.prepareMessage("pwSh init", initMessage, true, "amd64") == 0, "pwSh init prepare failed");
+    require(initMessage.instruction() == "pwSh", "pwSh init instruction mismatch");
+    require(initMessage.cmd() == "00001", "pwSh init command mismatch");
+    require(initMessage.args() == "rdm.rdm", "pwSh fixed type mismatch");
+    require(initMessage.inputfile() == "rdm.dll", "pwSh fixed runner mismatch");
+    require(initMessage.data() == "RUNNER", "pwSh runner bytes mismatch");
+
+    C2Message runMessage;
+    require(service.prepareMessage("pwSh run Get-Process", runMessage, true, "amd64") == 0, "pwSh run prepare failed");
+    require(runMessage.cmd() == "00003", "pwSh run command mismatch");
+    require(runMessage.args() == "Get-Process ", "pwSh run args mismatch");
+
+    C2Message importMessage;
+    require(service.prepareMessage("pwSh import PowerView.ps1", importMessage, true, "amd64") == 0, "pwSh import prepare failed");
+    require(importMessage.cmd() == "00004", "pwSh import command mismatch");
+    require(importMessage.inputfile() == "PowerView.ps1", "pwSh import script mismatch");
+    require(importMessage.args().find("New-Module -ScriptBlock") != std::string::npos, "pwSh import wrapper mismatch");
+
+    C2Message scriptMessage;
+    require(service.prepareMessage("pwSh script PowerView.ps1", scriptMessage, true, "amd64") == 0, "pwSh script prepare failed");
+    require(scriptMessage.cmd() == "00005", "pwSh script command mismatch");
+    require(scriptMessage.args().find("Invoke-Command -ScriptBlock") != std::string::npos, "pwSh script wrapper mismatch");
+}
 } // namespace
 
 int main()
@@ -757,5 +998,11 @@ int main()
     testPrepareChiselUsesFixedToolAndShellcodeService();
     testPrepareScriptAndPowershellUseScriptArtifacts();
     testPrepareMiniDumpCreatesGeneratedArtifactSlotAndRegistersChunks();
+    testPrepareScreenShotCreatesGeneratedArtifactSlot();
+    testPrepareKerberosUseTicketUsesUploadedArtifact();
+    testPreparePsExecUsesToolThenUploadedArtifact();
+    testPrepareCoffLoaderUsesToolArtifact();
+    testPrepareDotnetExecLoadUsesToolArtifact();
+    testPreparePwShUsesFixedRunnerAndScriptArtifacts();
     return 0;
 }

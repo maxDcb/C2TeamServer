@@ -1,7 +1,7 @@
 {
   "name": "dotnetExec",
-  "description": "Load or run .NET assemblies using DotnetExec::init() actions.",
-  "command_template": "dotnetExec {action} {module_name:q} {input_file:q?} {type_for_dll:q?} {method_name:q?} {arguments:raw?}",
+  "description": "Load or run .NET assemblies. Load inputs are resolved from TeamServer Tools.",
+  "command_template": "dotnetExec {action} {module_name:q} {assembly_artifact:q?} {type_or_method:q?} {arguments:raw?}",
   "parameters": {
     "type": "object",
     "properties": {
@@ -26,19 +26,14 @@
         "type": "string",
         "description": "Short module name used for loaded assemblies, or the loaded module to run."
       },
-      "input_file": {
+      "assembly_artifact": {
         "type": "string",
-        "description": "Assembly path for load. Required for action load.",
+        "description": "Assembly tool artifact name or id for load. Required for action load.",
         "default": ""
       },
-      "type_for_dll": {
+      "type_or_method": {
         "type": "string",
-        "description": "Fully-qualified type name for DLL load. Leave empty for EXE load.",
-        "default": ""
-      },
-      "method_name": {
-        "type": "string",
-        "description": "Method name for runDll. Required for action runDll.",
+        "description": "Fully-qualified type name for DLL load, or method name for runDll.",
         "default": ""
       },
       "arguments": {
