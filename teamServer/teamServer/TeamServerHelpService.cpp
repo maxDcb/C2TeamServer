@@ -72,6 +72,8 @@ void appendArtifactFilter(std::ostringstream& output, const TeamServerCommandArt
         parts.push_back("arch=" + filter.arch);
     if (!filter.runtime.empty())
         parts.push_back("runtime=" + filter.runtime);
+    if (!filter.format.empty())
+        parts.push_back("format=" + filter.format);
     if (!filter.nameContains.empty())
         parts.push_back("name_contains=" + filter.nameContains);
 

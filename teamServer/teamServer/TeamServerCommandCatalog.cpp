@@ -99,6 +99,7 @@ TeamServerCommandArtifactFilter parseArtifactFilter(const json& input)
     filter.arch = jsonString(input, "arch");
     filter.runtime = jsonString(input, "runtime");
     filter.nameContains = jsonString(input, "name_contains");
+    filter.format = jsonString(input, "format");
     return filter;
 }
 

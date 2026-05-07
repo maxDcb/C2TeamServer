@@ -514,16 +514,20 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
 
         def listArtifacts(self, query):
             self.queries.append(query)
+            if query.category == "tool" and query.platform == "windows":
+                assert query.arch == "x64"
+                assert query.format in {"exe", "dll", "bin"}
             if query.category == "beacon" and query.name_contains == ".exe":
+                assert query.format == "exe"
                 return iter([SimpleNamespace(name="BeaconHttp.exe", display_name="BeaconHttp.exe")])
-            if query.category == "tool" and query.name_contains == ".exe":
+            if query.category == "tool" and query.name_contains == ".exe" and query.format == "exe":
                 return iter([
                     SimpleNamespace(name="windows/Seatbelt.exe", display_name="Seatbelt.exe"),
                     SimpleNamespace(name="SharpHound.exe", display_name="SharpHound.exe"),
                 ])
-            if query.name_contains == ".dll":
+            if query.name_contains == ".dll" and query.format == "dll":
                 return iter([SimpleNamespace(name="Tools/Example.dll", display_name="Example.dll")])
-            if query.name_contains == ".bin":
+            if query.name_contains == ".bin" and query.format == "bin":
                 return iter([SimpleNamespace(name="payloads/loader.bin", display_name="loader.bin")])
             return iter([])
 
@@ -532,8 +536,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         scope="server",
         target="teamserver",
         platform="windows",
-        arch="",
+        arch="session.arch",
         runtime="any",
+        format="exe",
         name_contains=".exe",
     )
     artifact_filter_dll = SimpleNamespace(
@@ -541,8 +546,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         scope="server",
         target="teamserver",
         platform="windows",
-        arch="",
+        arch="session.arch",
         runtime="any",
+        format="dll",
         name_contains=".dll",
     )
     artifact_filter_bin = SimpleNamespace(
@@ -550,8 +556,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         scope="server",
         target="teamserver",
         platform="windows",
-        arch="",
+        arch="session.arch",
         runtime="any",
+        format="bin",
         name_contains=".bin",
     )
     artifact_filter_beacon_exe = SimpleNamespace(
@@ -561,6 +568,7 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         platform="windows",
         arch="session.arch",
         runtime="native",
+        format="exe",
         name_contains=".exe",
     )
     assembly_spec = SimpleNamespace(
@@ -581,7 +589,8 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     )
 
     grpc = FakeGrpc()
-    server_data = command_specs_to_completer_data([assembly_spec], grpcClient=grpc)
+    session = SimpleNamespace(os="Windows 11", arch="x64")
+    server_data = command_specs_to_completer_data([assembly_spec], grpcClient=grpc, session=session)
     assembly_children = _completion_children(server_data, "assemblyExec")
 
     assert ("thread", []) not in assembly_children
@@ -630,7 +639,7 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         ],
     )
 
-    server_data = command_specs_to_completer_data([inject_spec], grpcClient=grpc)
+    server_data = command_specs_to_completer_data([inject_spec], grpcClient=grpc, session=session)
     inject_children = _completion_children(server_data, "inject")
     raw_children = _completion_children(inject_children, "--raw")
     assert _completion_children(raw_children, "payloads/loader.bin")
@@ -684,7 +693,7 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     )
 
     grpc.queries.clear()
-    server_data = command_specs_to_completer_data([dotnet_spec], grpcClient=grpc)
+    server_data = command_specs_to_completer_data([dotnet_spec], grpcClient=grpc, session=session)
     dotnet_children = _completion_children(server_data, "dotnetExec")
     dotnet_load_children = _completion_children(dotnet_children, "load")
     dotnet_name_children = _completion_children(dotnet_load_children, DOTNET_LOAD_NAME_PLACEHOLDER)

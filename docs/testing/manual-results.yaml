@@ -168,3 +168,99 @@ results:
     tester: "max"
     evidence: "cat toto.testupload returned toto."
     notes: "Windows beacon over TCP."
+
+  - id: MODULE-DOWNLOAD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule download succeeded. download test1234.txt stored 1778165820263799973-a83c-test1234.txt. download C:\\Windows\\System32\\OneDriveSetup.exe stored 1778165909382546237-5f96-OneDriveSetup.exe. Download from Artifacts worked and SHA-256 hash check was OK."
+    notes: "Validated small and large file download from Windows beacon."
+
+  - id: C2CLIENT-ARTIFACTS-DOWNLOAD-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Downloaded generated artifacts from the Artifacts tab after small and large beacon download; SHA-256 check was OK."
+    notes: "Generated artifact client-side download works."
+
+  - id: ARTIFACT-GENERATED-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Generated download artifacts were created for test1234.txt and OneDriveSetup.exe, then downloaded from Artifacts and hash-verified. screenShot desktop.bmp also generated 1778172748738517131-d5d3-desktop.bmp in the artifact store. assemblyExec generated 3e337fc3d150-assemblyExec-Rubeus.exe.bin and the raw generated shellcode artifact executed successfully."
+    notes: "GeneratedArtifacts/download/beacon, GeneratedArtifacts/screenshot/beacon, and GeneratedArtifacts shellcode paths validated. The screenshot artifact was around 42 MB, which is functionally OK but should be optimized."
+
+  - id: TEAMSERVER-FILE-TRANSFER-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Large download completed and artifact hash was OK, but intermediate chunks were emitted to the console as done unknown 7572294763565533 with progress values like 84934656/89771848."
+    notes: "File transfer data is correct, but command context/UI response suppression for intermediate chunks is not correct enough."
+
+  - id: BEACON-CORE-CHUNKED-RESULTS-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Large download chunking completed successfully, but intermediate chunk progress appeared as multiple done unknown messages before the final Downloaded artifact stored line."
+    notes: "Chunk transport works, but the user-facing result stream should not expose unhelpful intermediate unknown command messages."
+
+  - id: C2CLIENT-CONSOLE-FORMATTING-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Large download showed repeated intermediate console lines such as [done] unknown 7572294763565533 84934656/89771848."
+    notes: "Console should either suppress intermediate generated-artifact chunks or render them as explicit progress tied to the original command."
+
+  - id: MODULE-SCREENSHOT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule screenShot succeeded. Duplicate loadModule screenShot was rejected as already loaded. screenShot desktop.bmp completed while sleep 0.01 still worked during the wait, then returned: Generated artifact stored: 1778172748738517131-d5d3-desktop.bmp."
+    notes: "Functional path is OK after rebuilding beacon-compatible Windows modules. Generated BMP size was around 42 MB; add follow-up to reduce screenshot artifact size."
+
+  - id: MODULE-POWERSHELL-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule powershell succeeded. powershell -s testScript.ps1 returned desktop-92jlelp\\max. powershell -i testScript.ps1 imported the script as a dynamic module. powershell dir returned module import output plus directory details for BeaconGithubDll.dll."
+    notes: "Validated script-backed -s, import -i, and inline command execution on a Windows beacon after replacing the beacon-compatible Windows modules."
+
+  - id: ARTIFACT-SCRIPTS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "powershell -s testScript.ps1 and powershell -i testScript.ps1 both resolved and executed/imported the script-backed payload successfully."
+    notes: "Windows script artifact resolution is validated for the powershell module path."
+
+  - id: MODULE-ASSEMBLYEXEC-CONTRACT-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "assemblyExec --donut-exe Rubeus.exe -- triage executed correctly in process modes and returned the expected output. The -- continuation was autocompleted correctly. assemblyExec --raw 3e337fc3d150-assemblyExec-Rubeus.exe.bin also executed correctly and returned Rubeus output. assemblyExec --donut-dll rdm.dll --method go -- test returned the expected Donut error for a .NET DLL missing class/method metadata. assemblyExec --mode thread --donut-exe Rubeus.exe -- triage completed without returning output, unlike the process modes."
+    notes: "Process and raw generated-shellcode paths are valid, but thread mode output capture needs retest after the StdCapture/Win32 stdout redirection fix."
+
+  - id: C2CLIENT-CONSOLE-AUTOCOMPLETE-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "assemblyExec --donut-exe proposed x86 tools while interacting with an x64 Windows beacon."
+    notes: "The CommandSpec tool filters for assemblyExec and sibling tool-backed modules must bind artifact arch to session.arch so autocomplete does not mix x86/x64 payloads."
+
+  - id: RELEASE-WINDOWS-ARTIFACTS-001
+    status: blocked
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Initial rebuilt WindowsModules/x64 DLLs returned Prepared shellcode tasks are not supported by this module, indicating a server/test ABI build. After replacing the modules, strings on build/artifacts/Release/WindowsModules/x64/*.dll no longer finds that server/test-only message, and screenShot executes successfully."
+    notes: "The ABI issue is resolved for the current x64 module set, but the full Windows release artifact layout still needs a clean release validation across expected arches before marking this pass."

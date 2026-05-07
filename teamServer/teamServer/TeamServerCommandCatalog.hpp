@@ -14,6 +14,7 @@ struct TeamServerCommandArtifactFilter
     std::string arch;
     std::string runtime;
     std::string nameContains;
+    std::string format;
 };
 
 struct TeamServerCommandArgSpec

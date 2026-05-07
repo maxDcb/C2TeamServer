@@ -24,6 +24,7 @@ grpc::Status TeamServerArtifactService::listArtifacts(
     catalogQuery.arch = query.arch();
     catalogQuery.runtime = query.runtime();
     catalogQuery.nameContains = query.name_contains();
+    catalogQuery.format = query.format();
 
     const std::vector<TeamServerArtifactRecord> artifacts = m_catalog.listArtifacts(catalogQuery);
     m_logger->debug("ListArtifacts returned {0} artifact(s)", artifacts.size());

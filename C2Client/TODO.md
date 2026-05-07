@@ -21,18 +21,19 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 13 | [x] | Ameliorer le formulaire listener | M | Moyen | Fait. Validation port/IP/domain/token avant RPC, defaults par type, aide inline, erreurs inline et bouton Add bloque tant que les champs sont invalides. |
 | 14 | [ ] | Ajouter un panneau details session | M | Fort | Vue laterale avec metadata, listeners associes, notes locales, dernieres commandes, boutons d'action contextuels. |
 | 15 | [x] | Ameliorer le graph | M | Moyen | Fait. Layout auto qui separe listeners/beacons/pivots, positions manuelles preservees, boutons Auto/Fit/+/- zoom, labels/tooltips, fond sombre et connecteurs recalcules. |
-| 16 | [ ] | Generer des formulaires de commandes depuis les schemas assistant | L | Fort | Utiliser `assistant_agent/tools/schemas/*.json` pour proposer des commandes guidees sans tout taper a la main. |
-| 17 | [ ] | Ajouter `GetServerInfo` / `GetCapabilities` au proto | L | Fort | Version serveur, modules charges, features, chemins runtime, limites max message, auth mode. Premier vrai changement client-server. |
-| 18 | [x] | Ajouter `ListCommands` / `ListModules` structure | L | Tres fort | Fait. `ListCommands` expose le catalogue serveur, tab UI `Commands`, autocomplete console sans fallback hardcode, specs simples pour modules, `GetCommandHelp` genere l'aide depuis les specs, `ListModules` stream les modules suivis par beacon, `listModule` affiche name/status dans la console, `loadModule` cache les modules actifs et `unloadModule` propose les modules charges. Persistence/historique modules reportes aux items audit/historique. |
-| 19 | [ ] | Persister `keyLogger` en artefact live | L | Fort | Ecrire chaque `followUp` dans un fichier `GeneratedArtifacts/keylogger/beacon`, nomme avec hostname + timestamp, visible dans `Artifacts` sans action `dump`; mettre a jour le sidecar/hash a chaque append et garder `stop` limite a l'arret du module. |
-| 20 | [ ] | Ajouter `ValidateCommand` / `DryRunCommand` | L | Tres fort | Verifier une commande sans l'envoyer au beacon; retourner erreur, hint, instruction preparee, fichiers requis. |
-| 21 | [ ] | Ajouter un modele d'erreurs type dans le proto | L | Fort | `code`, `message`, `hint`, `details`; eviter de parser du texte libre cote client. |
-| 22 | [ ] | Ajouter un credential store serveur pour les modules | XL | Tres fort | Store central cote TeamServer avec RPC list/search/add/update/delete, audit et masquage des secrets; ajouter un `credential_filter` aux CommandSpecs pour autocompleter les modules qui prennent des credentials (`psExec`, `wmiExec`, `winRm`, `dcomExec`, `spawnAs`, `makeToken`, etc.) sans exposer les mots de passe. |
-| 23 | [ ] | Ajouter historique/audit operateur cote serveur | XL | Tres fort | Qui a envoye quoi, quand, sur quelle session, command_id, resultat, statut. Base pour recherche, replay, reporting. |
-| 24 | [ ] | Ajouter `GetCommandStatus` / `ListCommandHistory` / `CancelCommand` | XL | Tres fort | Suivi propre des commandes queued/running/done/error/cancelled; utile pour console, assistant et workflows longs. |
-| 25 | [ ] | Ajouter tags/notes/assignation sessions cote serveur | XL | Fort | Tags persistants, notes operationnelles, owner operateur, priorite, commentaires. |
-| 26 | [ ] | Ajouter `StreamEvents` global | XL | Tres fort | Flux unique pour sessions, listeners, commandes, logs et erreurs; remplacer le polling toutes les 2 secondes. |
-| 27 | [ ] | Ajouter upload/download chunked avec progression | XL | Fort | Progression, checksum, reprise partielle, erreurs propres, limites configurables. |
+| 16 | [ ] | Reduire la taille des artefacts `screenShot` | M | Moyen | Test reel: `desktop.bmp` genere environ 42 MB. Etudier PNG/JPEG cote module ou conversion TeamServer, option format/qualite, conservation du hash/sidecar et affichage clair dans `Artifacts`. |
+| 17 | [ ] | Generer des formulaires de commandes depuis les schemas assistant | L | Fort | Utiliser `assistant_agent/tools/schemas/*.json` pour proposer des commandes guidees sans tout taper a la main. |
+| 18 | [ ] | Ajouter `GetServerInfo` / `GetCapabilities` au proto | L | Fort | Version serveur, modules charges, features, chemins runtime, limites max message, auth mode. Premier vrai changement client-server. |
+| 19 | [x] | Ajouter `ListCommands` / `ListModules` structure | L | Tres fort | Fait. `ListCommands` expose le catalogue serveur, tab UI `Commands`, autocomplete console sans fallback hardcode, specs simples pour modules, `GetCommandHelp` genere l'aide depuis les specs, `ListModules` stream les modules suivis par beacon, `listModule` affiche name/status dans la console, `loadModule` cache les modules actifs et `unloadModule` propose les modules charges. Persistence/historique modules reportes aux items audit/historique. |
+| 20 | [ ] | Persister `keyLogger` en artefact live | L | Fort | Ecrire chaque `followUp` dans un fichier `GeneratedArtifacts/keylogger/beacon`, nomme avec hostname + timestamp, visible dans `Artifacts` sans action `dump`; mettre a jour le sidecar/hash a chaque append et garder `stop` limite a l'arret du module. |
+| 21 | [ ] | Ajouter `ValidateCommand` / `DryRunCommand` | L | Tres fort | Verifier une commande sans l'envoyer au beacon; retourner erreur, hint, instruction preparee, fichiers requis. |
+| 22 | [ ] | Ajouter un modele d'erreurs type dans le proto | L | Fort | `code`, `message`, `hint`, `details`; eviter de parser du texte libre cote client. |
+| 23 | [ ] | Ajouter un credential store serveur pour les modules | XL | Tres fort | Store central cote TeamServer avec RPC list/search/add/update/delete, audit et masquage des secrets; ajouter un `credential_filter` aux CommandSpecs pour autocompleter les modules qui prennent des credentials (`psExec`, `wmiExec`, `winRm`, `dcomExec`, `spawnAs`, `makeToken`, etc.) sans exposer les mots de passe. |
+| 24 | [ ] | Ajouter historique/audit operateur cote serveur | XL | Tres fort | Qui a envoye quoi, quand, sur quelle session, command_id, resultat, statut. Base pour recherche, replay, reporting. |
+| 25 | [ ] | Ajouter `GetCommandStatus` / `ListCommandHistory` / `CancelCommand` | XL | Tres fort | Suivi propre des commandes queued/running/done/error/cancelled; utile pour console, assistant et workflows longs. |
+| 26 | [ ] | Ajouter tags/notes/assignation sessions cote serveur | XL | Fort | Tags persistants, notes operationnelles, owner operateur, priorite, commentaires. |
+| 27 | [ ] | Ajouter `StreamEvents` global | XL | Tres fort | Flux unique pour sessions, listeners, commandes, logs et erreurs; remplacer le polling toutes les 2 secondes. |
+| 28 | [ ] | Ajouter upload/download chunked avec progression | XL | Fort | Progression, checksum, reprise partielle, erreurs propres, limites configurables. |
 
 ## Details `.env`
 
@@ -89,5 +90,5 @@ C2_SHELLCODE_MODULES_DIR=
 
 1. Phase 1: items 1 a 8. Aucun changement proto, beaucoup d'UX gagnee vite.
 2. Phase 2: items 9 a 16. Client plus productif, tables/console/graph vraiment exploitables.
-3. Phase 3: items 17 a 21. Contrat client-server propre pour capabilities, commandes, erreurs et artefacts generes par flux.
-4. Phase 4: items 22 a 27. Fonctionnalites operationnelles avancees, credential store serveur, audit et reduction du polling.
+3. Phase 3: items 18 a 22. Contrat client-server propre pour capabilities, commandes, erreurs et artefacts generes par flux.
+4. Phase 4: items 23 a 28. Fonctionnalites operationnelles avancees, credential store serveur, audit et reduction du polling.

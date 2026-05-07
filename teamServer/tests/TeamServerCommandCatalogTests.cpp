@@ -94,6 +94,7 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
         "platform": "windows",
         "arch": "any",
         "runtime": "any",
+        "format": "exe",
         "name_contains": ".exe"
       }
     }
@@ -268,6 +269,7 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].args(0).artifact_filter().platform() == "windows");
     assert(commands[0].args(0).artifact_filter().arch() == "any");
     assert(commands[0].args(0).artifact_filter().runtime() == "any");
+    assert(commands[0].args(0).artifact_filter().format() == "exe");
     assert(commands[0].args(0).artifact_filter().name_contains() == ".exe");
     assert(commands[0].args(0).artifact_filters_size() == 1);
     assert(commands[0].args(0).artifact_filters(0).category() == "tool");

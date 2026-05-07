@@ -72,6 +72,7 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
             filter->set_arch(arg.artifactFilter.arch);
             filter->set_runtime(arg.artifactFilter.runtime);
             filter->set_name_contains(arg.artifactFilter.nameContains);
+            filter->set_format(arg.artifactFilter.format);
         }
 
         for (const TeamServerCommandArtifactFilter& artifactFilter : arg.artifactFilters)
@@ -84,6 +85,7 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
             filter->set_arch(artifactFilter.arch);
             filter->set_runtime(artifactFilter.runtime);
             filter->set_name_contains(artifactFilter.nameContains);
+            filter->set_format(artifactFilter.format);
         }
     }
 

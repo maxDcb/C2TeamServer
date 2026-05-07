@@ -60,6 +60,7 @@ bool matchesQuery(const TeamServerArtifactRecord& artifact, const TeamServerArti
         && matchesExactOrAny(query.platform, artifact.platform)
         && matchesExactOrAny(query.arch, artifact.arch)
         && matchesExactOrAny(query.runtime, artifact.runtime)
+        && matchesExact(query.format, artifact.format)
         && containsCaseInsensitive(artifact.name, query.nameContains);
 }
 

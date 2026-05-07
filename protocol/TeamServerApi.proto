@@ -116,6 +116,7 @@ message ArtifactQuery
   string name_contains = 5;
   string target = 6;
   string runtime = 7;
+  string format = 8;
 }
 
 

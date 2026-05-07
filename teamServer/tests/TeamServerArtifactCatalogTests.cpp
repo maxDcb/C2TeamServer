@@ -218,6 +218,20 @@ void testCatalogFiltersArtifacts()
     assert(artifacts.size() == 1);
     assert(artifacts[0].name == "batcave.zip");
 
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "Rubeus.exe", "dotnet-tool");
+    writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "assemblyExec-Rubeus.exe.bin", "generated-shellcode");
+
+    TeamServerArtifactQuery exeToolQuery;
+    exeToolQuery.category = "tool";
+    exeToolQuery.platform = "windows";
+    exeToolQuery.arch = "x64";
+    exeToolQuery.format = "exe";
+    exeToolQuery.nameContains = ".exe";
+    artifacts = catalog.listArtifacts(exeToolQuery);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].name == "Rubeus.exe");
+    assert(artifacts[0].format == "exe");
+
     TeamServerArtifactQuery linuxModules;
     linuxModules.category = "module";
     linuxModules.platform = "linux";

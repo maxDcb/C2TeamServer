@@ -435,7 +435,7 @@ def _arg_has_artifact_filter(arg: Any) -> bool:
 
 def _artifact_query_from_filter(artifact_filter: Any, session: Any | None) -> Any:
     query = TeamServerApi_pb2.ArtifactQuery()
-    for field_name in ("category", "scope", "target", "platform", "arch", "runtime", "name_contains"):
+    for field_name in ("category", "scope", "target", "platform", "arch", "runtime", "name_contains", "format"):
         value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
         if value:
             setattr(query, field_name, value)
