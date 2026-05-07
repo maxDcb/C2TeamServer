@@ -229,13 +229,13 @@ entries:
   - id: C2CLIENT-ARTIFACTS-DELETE-001
     area: C2Client
     feature: Artifact delete
-    scenario: "Delete generated and hosted artifacts using artifact IDs, not legacy terminal paths."
+    scenario: "Delete uploaded, generated, and hosted artifacts using artifact IDs, not legacy terminal paths."
     priority: high
     validation: auto+manual
     axes: {os: client, arch: n/a, listener: n/a, artifact_category: generated}
     evidence:
       auto: ["C2Client/tests/test_artifact_panel.py"]
-      manual: ["Delete a generated screenshot and a hosted artifact from Artifacts tab."]
+      manual: ["Delete an uploaded artifact, a generated screenshot, and a hosted artifact from Artifacts tab."]
 
   - id: C2CLIENT-HOOKS-PANEL-001
     area: C2Client

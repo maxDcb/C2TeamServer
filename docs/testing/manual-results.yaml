@@ -16,4 +16,155 @@ allowed_statuses: [pass, fail, blocked, untested]
 #     evidence: "Windows x64 HTTPS beacon connected, ran pwd/ls/download/screenShot, hosted artifact fetched."
 #     notes: "Lab VM: WIN11-x64."
 
-results: []
+results:
+  - id: LISTENER-HTTPS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: ".\\BeaconHttp.exe 172.28.141.244 8443 https -> connection OK."
+    notes: "Windows beacon over HTTPS listener 8443."
+
+  - id: BEACON-CORE-REGISTER-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: ".\\BeaconHttp.exe 172.28.141.244 8443 https connected and appeared in the client. .\\BeaconTcp.exe 172.28.141.244 4444 also connected successfully."
+    notes: "Windows beacon registration validated through HTTPS and TCP connections."
+
+  - id: C2CLIENT-ARTIFACTS-LIST-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded TXT artifact was visible in Artifacts tab and its ID could be copied from the panel."
+    notes: "Validated through Artifacts panel workflow."
+
+  - id: C2CLIENT-ARTIFACTS-UPLOAD-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded a TXT file from the Artifacts tab."
+    notes: "Operator-uploaded artifact creation works from the client UI."
+
+  - id: ARTIFACT-UPLOADED-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded TXT artifact was addressable by ID copied from the Artifacts panel. Upload command also resolved text.txt by name and 2941ace693c5f011f3c84b7e49ddb27a9bf0316f228df504289d849f38dc2549 by ID."
+    notes: "Uploaded artifact lookup worked for host and beacon upload workflows."
+
+  - id: C2CLIENT-TERMINAL-HOST-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Hosted the uploaded TXT artifact from Terminal using the copied artifact ID, then downloaded the hosted file from the browser."
+    notes: "Terminal host command works with artifact ID."
+
+  - id: TEAMSERVER-HOSTED-ARTIFACTS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Hosted artifact was served by TeamServer and could be downloaded from a browser."
+    notes: "GeneratedArtifacts/hosted path validated through browser download."
+
+  - id: C2CLIENT-ARTIFACTS-DELETE-001
+    status: fail
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Could not delete the uploaded artifact from the Artifacts tab."
+    notes: "Uploaded artifact delete is not working or not exposed correctly in the UI/API."
+
+  - id: COMMON-LOADMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Loaded run.dll successfully over HTTPS. Loaded upload, cd, ls, and cat successfully over TCP. Duplicate loadModule upload was rejected with: Module already tracked on this beacon: upload (loaded)."
+    notes: "Windows beacon module loading and duplicate-load rejection validated."
+
+  - id: COMMON-LISTMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "listModule returned loaded modules cat, ls, cd, upload. After unloadModule cat, listModule returned ls, cd, upload."
+    notes: "Windows beacon over TCP."
+
+  - id: COMMON-UNLOADMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "unloadModule cat completed with Success. A following cat toto.testupload returned Module not loaded."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-RUN-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Executed dir through loaded run.dll successfully."
+    notes: "Windows beacon over HTTPS."
+
+  - id: BEACON-CORE-TASK-QUEUE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Queued and completed loadModule run.dll, then executed dir successfully. TCP path also queued/completed loadModule upload/cd/ls/cat, cd, ls, upload, and cat commands."
+    notes: "Validates live beacon task queue and command result flow over HTTPS and TCP paths."
+
+  - id: BEACON-CORE-MODULE-LIFECYCLE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Loaded upload, cd, ls, and cat modules. listModule showed all loaded. Duplicate loadModule upload was rejected. unloadModule cat succeeded. cat then returned Module not loaded. listModule no longer showed cat."
+    notes: "Windows beacon module load/list/duplicate/unload lifecycle validated over TCP."
+
+  - id: LISTENER-TCP-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Created TCP listener on 4444. .\\BeaconTcp.exe 172.28.141.244 4444 -> connection OK. loadModule/cd/ls/upload/cat commands completed over TCP."
+    notes: "Windows beacon over TCP listener 4444."
+
+  - id: MODULE-CD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "cd C:\\users\\max\\desktop completed and returned C:\\users\\max\\desktop."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-LS-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "ls listed C:\\users\\max\\desktop and later showed toto.testupload after upload."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-UPLOAD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "upload without args returned Usage: upload <upload_artifact> <remote_path>. upload text.txt toto.testupload succeeded and ls showed toto.testupload. upload 2941ace693c5f011f3c84b7e49ddb27a9bf0316f228df504289d849f38dc2549 testWithId also succeeded."
+    notes: "Validated usage error, upload by artifact name, and upload by artifact ID over TCP."
+
+  - id: MODULE-CAT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "cat toto.testupload returned toto."
+    notes: "Windows beacon over TCP."
