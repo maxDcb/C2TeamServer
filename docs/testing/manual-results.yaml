@@ -242,12 +242,12 @@ results:
     notes: "Windows script artifact resolution is validated for the powershell module path."
 
   - id: MODULE-ASSEMBLYEXEC-CONTRACT-001
-    status: fail
+    status: pass
     date: "2026-05-07"
     build: "local-dev"
     tester: "max"
-    evidence: "assemblyExec --donut-exe Rubeus.exe -- triage executed correctly in process modes and returned the expected output. The -- continuation was autocompleted correctly. assemblyExec --raw 3e337fc3d150-assemblyExec-Rubeus.exe.bin also executed correctly and returned Rubeus output. assemblyExec --donut-dll rdm.dll --method go -- test returned the expected Donut error for a .NET DLL missing class/method metadata. assemblyExec --mode thread --donut-exe Rubeus.exe -- triage completed without returning output, unlike the process modes."
-    notes: "Process and raw generated-shellcode paths are valid, but thread mode output capture needs retest after the StdCapture/Win32 stdout redirection fix."
+    evidence: "assemblyExec --donut-exe Rubeus.exe -- triage executed correctly in process, processWithSpoofedParent, and thread modes after the StdCapture/Win32 stdout redirection fix. The -- continuation was autocompleted correctly. assemblyExec --raw 3e337fc3d150-assemblyExec-Rubeus.exe.bin also executed correctly and returned Rubeus output. assemblyExec --donut-dll rdm.dll --method go -- test returned the expected Donut error for a .NET DLL missing class/method metadata."
+    notes: "Functional execution, argument preservation, generated shellcode creation, raw generated shellcode reuse, and all three execution modes are validated. Raw by artifact ID is not expected to work yet for this command path."
 
   - id: C2CLIENT-CONSOLE-AUTOCOMPLETE-001
     status: fail
