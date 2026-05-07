@@ -1,0 +1,19 @@
+schema_version: 1
+updated_at: "2026-05-07"
+description: >
+  Manual validation results for scenarios defined in test-catalog.yaml. Keep
+  this file result-only: every result id must already exist in the catalog.
+
+allowed_statuses: [pass, fail, blocked, untested]
+
+# Example:
+# results:
+#   - id: VALIDATION-GOLDEN-PATH-WINDOWS-001
+#     status: pass
+#     date: "2026-05-07"
+#     build: "local-release"
+#     tester: "max"
+#     evidence: "Windows x64 HTTPS beacon connected, ran pwd/ls/download/screenShot, hosted artifact fetched."
+#     notes: "Lab VM: WIN11-x64."
+
+results: []
