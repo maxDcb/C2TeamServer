@@ -178,13 +178,28 @@ def validate_listener_fields(listenerType, param1, param2):
 #
 class Listener():
 
-    def __init__(self, id, hash, type, host, port, nbSession):
+    def __init__(self, id, hash, type, host, port, nbSession, beaconHash=""):
         self.id = id
         self.listenerHash = hash
         self.type = type
         self.host = host
         self.port = port
         self.nbSession = nbSession
+        self.beaconHash = beaconHash
+
+    def hostDisplay(self):
+        if self.beaconHash:
+            return self.beaconHash[:8]
+        return self.host
+
+    def hostTooltip(self):
+        if not self.beaconHash:
+            return self.host
+
+        endpoint = self.host
+        if self.port:
+            endpoint = f"{endpoint}:{self.port}"
+        return f"Beacon ID: {self.beaconHash}\nEndpoint: {endpoint}"
 
 
 class Listeners(QWidget):
@@ -321,6 +336,7 @@ class Listeners(QWidget):
                 {
                     "id": listenerStore.id,
                     "listener_hash": _text(listenerStore.listenerHash),
+                    "beacon_hash": _text(listenerStore.beaconHash),
                     "type": _text(listenerStore.type),
                     "host": _text(listenerStore.host),
                     "port": listenerStore.port,
@@ -448,18 +464,33 @@ class Listeners(QWidget):
                 # maj
                 if listener.listener_hash == listenerStore.listenerHash:
                     inStore=True
-                    listenerStore.nbSession=listener.session_count
+                    listenerStore.type = listener.type
+                    listenerStore.nbSession = listener.session_count
+                    listenerStore.beaconHash = _text(getattr(listener, "beacon_hash", ""))
+                    if listener.type == GithubType:
+                        listenerStore.host = listener.project
+                        listenerStore.port = listener.token[0:10]
+                    elif listener.type == DnsType:
+                        listenerStore.host = listener.domain
+                        listenerStore.port = listener.port
+                    elif listener.type == SmbType:
+                        listenerStore.host = listener.ip
+                        listenerStore.port = listener.domain
+                    else:
+                        listenerStore.host = listener.ip
+                        listenerStore.port = listener.port
             # add
             # if listener is not yet already on our list
             if not inStore:
+                beaconHash = _text(getattr(listener, "beacon_hash", ""))
                 if listener.type == GithubType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count, beaconHash)
                 elif listener.type == DnsType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count, beaconHash)
                 elif listener.type == SmbType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count, beaconHash)
                 else:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count, beaconHash)
                 self.listListenerObject.append(listenerStore)
                 self.idListener = self.idListener+1
                 self.listenerScriptSignal.emit(
@@ -474,10 +505,10 @@ class Listeners(QWidget):
 
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host", "Port"])
+        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host/Beacon", "Port"])
         for index, tooltip in {
             0: "Listener hash",
-            2: "Bind IP, domain, project, or pivot host",
+            2: "Primary bind host, or beacon ID for child listeners.",
         }.items():
             headerItem = self.listListener.horizontalHeaderItem(index)
             if headerItem is not None:
@@ -490,8 +521,8 @@ class Listeners(QWidget):
             type = QTableWidgetItem(listenerStore.type)
             self.listListener.setItem(ix, 1, type)
 
-            host = QTableWidgetItem(listenerStore.host)
-            host.setToolTip(listenerStore.host)
+            host = QTableWidgetItem(listenerStore.hostDisplay())
+            host.setToolTip(listenerStore.hostTooltip())
             self.listListener.setItem(ix, 2, host)
 
             port = QTableWidgetItem(str(listenerStore.port))

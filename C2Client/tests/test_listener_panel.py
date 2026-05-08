@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from PyQt6.QtWidgets import QApplication, QHeaderView, QLineEdit, QWidget
 
 from C2Client.ListenerPanel import (
@@ -186,6 +188,7 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
     assert listeners.addListenerButton.text() == "Add"
     assert listeners.copyListenerIdButton.text() == "Copy"
     assert listeners.listListener.horizontalHeaderItem(0).text() == "ID"
+    assert listeners.listListener.horizontalHeaderItem(2).text() == "Host/Beacon"
     assert listeners.listListener.horizontalHeader().sectionResizeMode(2) == QHeaderView.ResizeMode.Stretch
 
     listeners.listListener.selectRow(0)
@@ -215,6 +218,7 @@ def test_listener_script_snapshot_exposes_listener_context(qtbot, monkeypatch):
         {
             "id": 0,
             "listener_hash": "listener-full-hash",
+            "beacon_hash": "",
             "type": "https",
             "host": "0.0.0.0",
             "port": 8443,
@@ -240,3 +244,31 @@ def test_listener_table_keeps_user_column_width_after_refresh(qtbot, monkeypatch
     assert listeners.listListener.columnWidth(0) == 123
     assert listeners.listListener.item(0, 2).text() == "192.168.56.120"
     assert listeners.listListener.item(0, 2).toolTip() == "192.168.56.120"
+
+
+def test_child_listener_displays_beacon_id_in_host_column(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    class ChildListenerGrpc(StubGrpc):
+        def listListeners(self):
+            return [
+                SimpleNamespace(
+                    listener_hash="child-listener-full-hash",
+                    beacon_hash="beacon-full-hash",
+                    type="tcp",
+                    ip="0.0.0.0",
+                    port=4444,
+                    session_count=0,
+                )
+            ]
+
+    parent = QWidget()
+    listeners = Listeners(parent, ChildListenerGrpc())
+    qtbot.addWidget(listeners)
+
+    listeners.listListeners()
+
+    assert listeners.listListener.item(0, 2).text() == "beacon-f"
+    assert "Beacon ID: beacon-full-hash" in listeners.listListener.item(0, 2).toolTip()
+    assert "Endpoint: 0.0.0.0:4444" in listeners.listListener.item(0, 2).toolTip()
+    assert listeners.scriptSnapshot()[0]["beacon_hash"] == "beacon-full-hash"

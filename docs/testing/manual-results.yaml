@@ -110,8 +110,8 @@ results:
     date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Validated listModule, loadModule ls, loadModule cd, duplicate loadModule ls rejection, cd ., ls, sleep 0.01, and listModule on an active beacon. listenerPoll heartbeat no longer creates noisy task-result logs after starting a beacon-side TCP listener."
-    notes: "Covers command queueing, duplicate module tracking, result routing, sleep command result, module list state, and child listener heartbeat handling."
+    evidence: "Validated listModule, loadModule ls, loadModule cd, duplicate loadModule ls rejection, cd ., ls, sleep 0.01, and listModule on an active beacon. listenerPoll heartbeat no longer creates noisy task-result logs after starting a beacon-side TCP listener. After TeamServer restart, the existing beacon-side TCP child listener reappears in the listener table and no repeated registered child listener info logs are emitted."
+    notes: "Covers command queueing, duplicate module tracking, result routing, sleep command result, module list state, child listener heartbeat handling, and child listener rehydration after TeamServer restart."
 
   - id: TEAMSERVER-CONFIG-DIRECTORIES-001
     status: pass
