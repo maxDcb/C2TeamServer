@@ -201,6 +201,14 @@ results:
     evidence: "HTTP listener on port 8000 accepted a Windows beacon. listModule returned no loaded modules, loadModule whoami and whoami completed successfully, loadModule ls and ls completed successfully, and sleep 0.01 returned 10ms."
     notes: "Also retested that creating an HTTP listener on an already-used port is now rejected instead of creating a ghost listener."
 
+  - id: LISTENER-GITHUB-001
+    status: blocked
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Transport intentionally set aside during stabilization."
+    notes: "GitHub listener is an experimental/test transport that is not maintained or actively validated for the current release scope."
+
   - id: LISTENER-SMB-001
     status: pass
     date: "2026-05-08"
