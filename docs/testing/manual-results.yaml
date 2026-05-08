@@ -337,6 +337,14 @@ results:
     evidence: "A beacon left inactive for more than 5 minutes moved to stale state in the client."
     notes: "Manual validation confirms the stale transition path. Reconnect transition can be covered separately if needed."
 
+  - id: VALIDATION-GOLDEN-PATH-LINUX-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Linux HTTPS beacon completed listModule, loadModule ls/cd/cat/upload/download/script, cd, ls, upload of an UploadedArtifacts file to /tmp/c2-upload-test.txt, cat of the uploaded file, download back into GeneratedArtifacts, listModule state validation, and script testScript.sh from UploadedArtifacts after the runtime-by-extension fix."
+    notes: "Validated Linux x64 happy path including UploadedArtifacts-backed script execution."
+
   - id: VALIDATION-ERROR-HANDLING-001
     status: untested
     date: "2026-05-08"

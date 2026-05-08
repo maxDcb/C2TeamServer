@@ -378,7 +378,7 @@ def test_upload_command_uses_upload_artifact_completions():
                     target="beacon",
                     platform="session.platform",
                     arch="session.arch",
-                    runtime="file",
+                    runtime="",
                     name_contains="",
                 ),
             ),
@@ -387,12 +387,14 @@ def test_upload_command_uses_upload_artifact_completions():
     )
     session = SimpleNamespace(os="Windows 11", arch="x64")
 
-    server_data = command_specs_to_completer_data([upload_spec], grpcClient=FakeGrpc(), session=session)
+    grpc = FakeGrpc()
+    server_data = command_specs_to_completer_data([upload_spec], grpcClient=grpc, session=session)
     upload_children = _completion_children(server_data, "upload")
 
     assert ("operator/tool.exe", []) in upload_children
     assert ("tool.exe", []) in upload_children
     assert ("notes.txt", []) in upload_children
+    assert grpc.queries[0].runtime == ""
 
 
 def test_command_arg_can_use_multiple_artifact_filters():

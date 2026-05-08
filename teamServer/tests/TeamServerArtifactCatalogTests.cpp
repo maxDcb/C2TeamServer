@@ -119,6 +119,7 @@ void seedArtifacts(const TeamServerRuntimeConfig& runtimeConfig)
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Linux" / "startup.py", "script");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / ".ignored.ps1", "hidden-script");
     writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator-note.txt", "upload");
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Linux" / "x64" / "testScript.sh", "script upload");
     writeFile(fs::path(runtimeConfig.hostedArtifactsDirectoryPath) / "payload.bin", "hosted-file");
 }
 
@@ -151,7 +152,7 @@ void testCatalogIndexesReleaseRoots()
     TeamServerArtifactCatalog catalog(runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts();
 
-    assert(artifacts.size() == 11);
+    assert(artifacts.size() == 12);
     assert(findArtifact(artifacts, ".ignored.ps1", "script", "windows", "any") == nullptr);
 
     const TeamServerArtifactRecord* windowsModule = findArtifact(artifacts, "winmod64.dll", "module", "windows", "x64");
@@ -189,6 +190,11 @@ void testCatalogIndexesReleaseRoots()
     assert(upload->scope == "operator");
     assert(upload->target == "beacon");
     assert(upload->runtime == "file");
+
+    const TeamServerArtifactRecord* uploadScript = findArtifact(artifacts, "testScript.sh", "upload", "linux", "x64");
+    assert(uploadScript != nullptr);
+    assert(uploadScript->format == "sh");
+    assert(uploadScript->runtime == "shell");
 
     const TeamServerArtifactRecord* hosted = findArtifact(artifacts, "payload.bin", "hosted", "any", "any");
     assert(hosted != nullptr);
@@ -259,6 +265,13 @@ void testCatalogFiltersArtifacts()
     artifacts = catalog.listArtifacts(pythonScripts);
     assert(artifacts.size() == 1);
     assert(artifacts[0].name == "startup.py");
+
+    TeamServerArtifactQuery uploadedShellScripts;
+    uploadedShellScripts.category = "upload";
+    uploadedShellScripts.runtime = "shell";
+    artifacts = catalog.listArtifacts(uploadedShellScripts);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].name == "testScript.sh");
 }
 
 void testCatalogIndexesAndDeletesGeneratedArtifacts()

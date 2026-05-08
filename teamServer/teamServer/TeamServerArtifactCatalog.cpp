@@ -204,10 +204,20 @@ std::string detectScriptRuntime(const fs::path& path)
     return "script";
 }
 
+std::string detectUploadRuntime(const fs::path& path)
+{
+    const std::string scriptRuntime = detectScriptRuntime(path);
+    if (scriptRuntime != "script")
+        return scriptRuntime;
+    return "file";
+}
+
 std::string resolveRuntime(const std::string& category, const std::string& runtime, const fs::path& path)
 {
     if (category == "script" && runtime == "script")
         return detectScriptRuntime(path);
+    if (category == "upload" && runtime == "file")
+        return detectUploadRuntime(path);
     return runtime;
 }
 

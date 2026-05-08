@@ -109,6 +109,22 @@ bool matchesSelector(const TeamServerArtifactRecord& artifact, const std::string
         || toLower(basename(artifact.displayName)) == loweredSelector;
 }
 
+const TeamServerArtifactRecord* findMatchingArtifact(
+    const std::vector<TeamServerArtifactRecord>& artifacts,
+    const std::string& selector)
+{
+    const auto artifact = std::find_if(
+        artifacts.begin(),
+        artifacts.end(),
+        [&](const TeamServerArtifactRecord& candidate)
+        {
+            return matchesSelector(candidate, selector);
+        });
+    if (artifact == artifacts.end())
+        return nullptr;
+    return &(*artifact);
+}
+
 fs::path pendingPathFor(const std::string& artifactPath)
 {
     return fs::path(artifactPath + PendingDownloadSuffix);
@@ -178,19 +194,12 @@ TeamServerPreparedInputArtifact TeamServerFileArtifactService::resolveUploadArti
     query.target = "beacon";
     query.platform = platformName(isWindows);
     query.arch = normalizeArch(isWindows, arch, m_runtimeConfig);
-    query.runtime = "file";
 
     TeamServerArtifactCatalog catalog(m_runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
-    const auto artifact = std::find_if(
-        artifacts.begin(),
-        artifacts.end(),
-        [&](const TeamServerArtifactRecord& candidate)
-        {
-            return matchesSelector(candidate, selector);
-        });
+    const TeamServerArtifactRecord* artifact = findMatchingArtifact(artifacts, selector);
 
-    if (artifact == artifacts.end())
+    if (artifact == nullptr)
     {
         result.message = "Upload artifact not found: " + selector
             + ". Put files under UploadedArtifacts/"
@@ -233,20 +242,29 @@ TeamServerPreparedInputArtifact TeamServerFileArtifactService::resolveScriptArti
 
     TeamServerArtifactCatalog catalog(m_runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
-    const auto artifact = std::find_if(
-        artifacts.begin(),
-        artifacts.end(),
-        [&](const TeamServerArtifactRecord& candidate)
-        {
-            return matchesSelector(candidate, selector);
-        });
+    const TeamServerArtifactRecord* artifact = findMatchingArtifact(artifacts, selector);
 
-    if (artifact == artifacts.end())
+    std::vector<TeamServerArtifactRecord> uploadArtifacts;
+    if (artifact == nullptr)
+    {
+        TeamServerArtifactQuery uploadQuery;
+        uploadQuery.category = "upload";
+        uploadQuery.scope = "operator";
+        uploadQuery.target = "beacon";
+        uploadQuery.platform = query.platform;
+        uploadQuery.arch = query.arch;
+        uploadArtifacts = catalog.listArtifacts(uploadQuery);
+        artifact = findMatchingArtifact(uploadArtifacts, selector);
+    }
+
+    if (artifact == nullptr)
     {
         result.message = "Script artifact not found: " + selector
             + ". Put scripts under Scripts/"
             + platformName(isWindows)
-            + " or Scripts/Any.";
+            + " or Scripts/Any, or upload script files under UploadedArtifacts/"
+            + platformName(isWindows) + "/" + query.arch
+            + " or UploadedArtifacts/Any/any.";
         return result;
     }
 

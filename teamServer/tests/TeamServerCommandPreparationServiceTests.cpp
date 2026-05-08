@@ -516,6 +516,7 @@ void testPrepareUploadUsesUploadedArtifact()
     ScopedPath tempRoot(makeTempDirectory("upload-preparer"));
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
     writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator.bin", "UPLOAD-BYTES");
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "uploadedScript.sh", "SCRIPT-BYTES");
 
     CommonCommands commonCommands;
     std::vector<std::unique_ptr<ModuleCmd>> modules;
@@ -545,6 +546,11 @@ void testPrepareUploadUsesUploadedArtifact()
     require(message.inputfile() == "operator.bin", "upload input artifact mismatch");
     require(message.outputfile() == "C:\\Temp\\operator.bin", "upload remote path mismatch");
     require(message.data() == "UPLOAD-BYTES", "upload bytes mismatch");
+
+    C2Message scriptUploadMessage;
+    require(service.prepareMessage("upload uploadedScript.sh /tmp/uploadedScript.sh", scriptUploadMessage, false, "amd64") == 0, "script-like upload artifact prepare failed");
+    require(scriptUploadMessage.inputfile() == "uploadedScript.sh", "script-like upload input artifact mismatch");
+    require(scriptUploadMessage.data() == "SCRIPT-BYTES", "script-like upload bytes mismatch");
 
     C2Message missingMessage;
     require(service.prepareMessage("upload missing.bin C:\\Temp\\missing.bin", missingMessage, true, "amd64") == -1, "missing upload artifact should fail");
@@ -665,6 +671,7 @@ void testPrepareScriptAndPowershellUseScriptArtifacts()
     TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Linux" / "collect.sh", "id\n");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "collect.ps1", "Get-Process\n");
+    writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Linux" / "x64" / "uploadedCollect.sh", "hostname\n");
 
     CommonCommands commonCommands;
     std::vector<std::unique_ptr<ModuleCmd>> modules;
@@ -694,6 +701,12 @@ void testPrepareScriptAndPowershellUseScriptArtifacts()
     require(scriptMessage.instruction() == "script", "script instruction mismatch");
     require(scriptMessage.inputfile() == "collect.sh", "script input artifact mismatch");
     require(scriptMessage.data() == "id\n", "script bytes mismatch");
+
+    C2Message uploadedScriptMessage;
+    require(service.prepareMessage("script uploadedCollect.sh", uploadedScriptMessage, false, "amd64") == 0, "uploaded script prepare failed");
+    require(uploadedScriptMessage.instruction() == "script", "uploaded script instruction mismatch");
+    require(uploadedScriptMessage.inputfile() == "uploadedCollect.sh", "uploaded script input artifact mismatch");
+    require(uploadedScriptMessage.data() == "hostname\n", "uploaded script bytes mismatch");
 
     C2Message powershellMessage;
     require(service.prepareMessage("powershell -s collect.ps1", powershellMessage, true, "x64") == 0, "powershell script prepare failed");
