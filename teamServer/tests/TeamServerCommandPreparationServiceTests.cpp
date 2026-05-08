@@ -224,6 +224,16 @@ void testPrepareCommonCommand()
     assert(listenerMessage.instruction() == ListenerCmd);
     assert(listenerMessage.cmd() == "STA tcp 0.0.0.0 4444");
 
+    C2Message smbListenerMessage;
+    assert(service.prepareMessage("listener start smb titi", smbListenerMessage, true) == 0);
+    assert(smbListenerMessage.instruction() == ListenerCmd);
+    assert(smbListenerMessage.cmd() == "STA smb beacon titi");
+
+    C2Message oldSmbListenerMessage;
+    assert(service.prepareMessage("listener start smb host titi", oldSmbListenerMessage, true) == -1);
+    assert(oldSmbListenerMessage.instruction().empty());
+    assert(oldSmbListenerMessage.returnvalue() == "Usage: listener start smb <pipe_name>");
+
     C2Message invalidPortMessage;
     assert(service.prepareMessage("listener start tcp 0.0.0.0 notaport", invalidPortMessage, true) == -1);
     assert(invalidPortMessage.instruction().empty());
