@@ -220,40 +220,83 @@ ErrorInstruction = "Error"
 def isTerminalResponseError(response):
     return not is_response_ok(response) or ErrorInstruction in terminal_response_text(response)
 
-HelpInstruction = "Help"
+HelpInstruction = "help"
 
-SocksInstruction = "Socks"
-SocksHelp = """Socks:
-Socks start
-Socks bind beaconHash
-Socks unbind
-Socks stop"""
+SocksInstruction = "socks"
+SocksHelp = """socks
+Manage the local SOCKS bridge bindings.
 
-BatcaveInstruction = "Batcave"
-BatcaveHelp = """Batcave:
-Install the given module locally or on the team server:
-exemple:
-- Batcave Install rubeus
-- Batcave BundleInstall recon
-- Batcave Search rec"""
+Usage: socks <start|stop|unbind|bind> [beacon_hash]
 
-DropperInstruction = "Dropper"
-DropperConfigSubInstruction = "Config"
-DropperConfigShellcodeGeneratorDisplay = "ShellcodeGenerator"
+Kind: terminal
+Target: teamserver
+Requires session: no
+
+Arguments:
+  <action> (text, required) - One of start, stop, unbind, or bind.
+  [beacon_hash] (session, optional) - Beacon hash required by bind.
+
+Examples:
+  socks start
+  socks bind beaconHash
+  socks unbind
+  socks stop"""
+
+BatcaveInstruction = "batcave"
+BatcaveHelp = """batcave
+Install or search Batcave tools from the local terminal.
+
+Usage: batcave <install|bundleInstall|search> <query>
+
+Kind: terminal
+Target: client/teamserver
+Requires session: no
+
+Arguments:
+  <action> (text, required) - One of install, bundleInstall, or search.
+  <query> (text, required) - Tool or bundle name.
+
+Examples:
+  batcave install rubeus
+  batcave bundleInstall recon
+  batcave search rec"""
+
+DropperInstruction = "dropper"
+DropperConfigSubInstruction = "config"
+DropperConfigShellcodeGeneratorDisplay = "shellcodeGenerator"
 DropperConfigShellcodeGeneratorKey = DropperConfigShellcodeGeneratorDisplay.lower()
-DropperConfigBeaconArchDisplay = "BeaconArch"
+DropperConfigBeaconArchDisplay = "beaconArch"
 DropperConfigBeaconArchKey = DropperConfigBeaconArchDisplay.lower()
-ShellcodeGeneratorDonut = "Donut"
+ShellcodeGeneratorDonut = "donut"
 DefaultWindowsArch = "x64"
 SupportedWindowsArchs = ("x86", "x64", "arm64")
-DropperAvailableHeader = "- Available dropper:\n"
+DropperAvailableHeader = "\nAvailable droppers:\n"
 DropperArchitectureHelp = (
     "\nArchitecture:\n"
-    "  Dropper Config BeaconArch x86|x64|arm64\n"
-    "  Dropper <module> <listenerDownload> <listenerBeacon> --arch x86|x64|arm64\n"
+    "  dropper config beaconArch x86|x64|arm64\n"
+    "  dropper <module> <listener_download> <listener_beacon> --arch x86|x64|arm64\n"
 )
+DropperHelp = """dropper
+Generate and host a beacon dropper.
+
+Usage: dropper <module|config> [arguments]
+
+Kind: terminal
+Target: client/teamserver
+Requires session: no
+
+Arguments:
+  <module> (text, optional) - Dropper module name.
+  config (text, optional) - Show or update dropper generation defaults.
+  [listener_download] (listener, optional) - Listener used to host generated files.
+  [listener_beacon] (listener, optional) - Listener embedded in the generated beacon.
+
+Examples:
+  dropper config
+  dropper config beaconArch x64
+  dropper <module> listenerDownload listenerBeacon --arch x64"""
 DropperThreadRunningMessage = "Dropper thread already running"
-DropperConfigHeader = "- Dropper Config:"
+DropperConfigHeader = "\nDropper config:"
 DropperConfigShellcodeGeneratorLine = f"  {DropperConfigShellcodeGeneratorDisplay}: {{}}"
 DropperConfigShellcodeGeneratorAvailableLine = "    Available: {}"
 DropperConfigBeaconArchLine = f"  {DropperConfigBeaconArchDisplay}: {{}}"
@@ -271,40 +314,73 @@ ModuleShellcodeFileName = "finalShellcode.bin"
 DropperModuleGetHelpFunction = "getHelpExploration"
 DropperModuleGeneratePayloadFunction = "generatePayloadsExploration"
 
-HostInstruction = "Host"
-HostHelp="""Host:
-Host a TeamServer artifact so it can be downloaded by a web request from an HTTP/HTTPS listener:
-exemple:
-- Host artifactId hostListenerHash
-- Host artifactId hostListenerHash hostedName.exe"""
+HostInstruction = "host"
+HostHelp="""host
+Host a TeamServer artifact so it can be downloaded through an HTTP/HTTPS listener.
 
-CredentialStoreInstruction = "CredentialStore"
-CredentialStoreHelp = """CredentialStore:
-Handle the credential store:
-exemple:
-- CredentialStore get
-- CredentialStore set domain username credential
-- CredentialStore search something"""
+Usage: host <artifact_id|name> <listener_hash> [hosted_filename]
+
+Kind: terminal
+Target: teamserver
+Requires session: no
+
+Arguments:
+  <artifact_id|name> (artifact, required) - Artifact name, short hash, or full hash.
+  <listener_hash> (listener, required) - HTTP/HTTPS listener used to serve the file.
+  [hosted_filename] (text, optional) - Published filename. Defaults to the artifact display name.
+
+Examples:
+  host text.txt listenerHash
+  host artifactShortHash listenerHash hostedName.exe"""
+
+CredentialStoreInstruction = "credentialStore"
+CredentialStoreHelp = """credentialStore
+Read and update the TeamServer credential store.
+
+Usage: credentialStore <get|set|search> [arguments]
+
+Kind: terminal
+Target: teamserver
+Requires session: no
+
+Arguments:
+  <action> (text, required) - One of get, set, or search.
+  [arguments] (text, optional) - Action-specific values.
+
+Examples:
+  credentialStore get
+  credentialStore set domain username credential
+  credentialStore search username"""
 
 GetSubInstruction = "get"
 SetSubInstruction = "set"
 SearchSubInstruction = "search"
 
-ReloadModulesInstruction = "ReloadModules";
-ReloadModulesHelp = """ReloadModules:
-Command the TeamServer to reload the modules libraries located in TeamServerModulesDirectoryPath.
-Can be used to add a new functionality without restarting the TeamServer.
-"""
+ReloadModulesInstruction = "reloadModules";
+ReloadModulesHelp = """reloadModules
+Reload TeamServer module libraries without restarting the TeamServer.
+
+Usage: reloadModules
+
+Kind: terminal
+Target: teamserver
+Requires session: no
+
+Examples:
+  reloadModules"""
 
 
 def getHelpMsg():
-    helpText  = HostInstruction+"\n"
-    helpText += DropperInstruction+"\n"
-    helpText += BatcaveInstruction+"\n"
-    helpText += CredentialStoreInstruction+"\n"
-    helpText += SocksInstruction+"\n"
-    helpText += ReloadModulesInstruction
-    return helpText
+    return """Available terminal commands:
+Use help <command> for command-specific details.
+
+- Local:
+  host - Host a TeamServer artifact through an HTTP/HTTPS listener.
+  dropper - Generate and host a beacon dropper.
+  batcave - Install or search Batcave tools.
+  credentialStore - Read and update TeamServer credentials.
+  socks - Manage local SOCKS bridge bindings.
+  reloadModules - Reload TeamServer module libraries."""
 
 
 def normalizeWindowsArch(arch):
@@ -642,7 +718,7 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
         (HelpInstruction, [(command, []) for command in terminal_commands]),
         (HostInstruction, _host_artifact_entries(artifacts, listener_with_optional_filename)),
         (DropperInstruction, dropper_children),
-        (BatcaveInstruction, [("Install", []), ("BundleInstall", []), ("Search", [])]),
+        (BatcaveInstruction, [("install", []), ("bundleInstall", []), ("search", [])]),
         (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, [])]),
         (SocksInstruction, [("start", []), ("stop", []), ("unbind", []), ("bind", _session_entries(sessions))]),
         (ReloadModulesInstruction, []),
@@ -653,8 +729,8 @@ ErrorCmdUnknow = "Error: Command Unknown"
 ErrorFileNotFound = "Error: File doesn't exist."
 ErrorListener = "Error: Download listener must be of type http or https."
 TerminalWelcomeMessage = (
-    "Local TeamServer terminal. Type Help to list available commands, "
-    "or Help <command> for command-specific details."
+    "Local TeamServer terminal. Type help to list available commands, "
+    "or help <command> for command-specific details."
 )
 
 
@@ -825,7 +901,7 @@ class Terminal(QWidget):
 
             if instructions[0].lower()==HelpInstruction.lower():
                 if len(instructions) == 1:
-                    self.runHelp()
+                    self.runHelp(commandLine)
                 elif len(instructions) >=2:
                     if instructions[1].lower() == BatcaveInstruction.lower():
                         self.printInTerminal(commandLine, BatcaveHelp)
@@ -836,7 +912,7 @@ class Terminal(QWidget):
                     elif instructions[1].lower() == ReloadModulesInstruction.lower():
                         self.printInTerminal(commandLine, ReloadModulesHelp)
                     elif instructions[1].lower() == DropperInstruction.lower():
-                        availableModules = DropperAvailableHeader
+                        availableModules = DropperHelp + DropperAvailableHeader
                         for module in DropperModules:
                             availableModules += "  " + module.__name__ + "\n"
                         availableModules += DropperArchitectureHelp
@@ -846,7 +922,7 @@ class Terminal(QWidget):
                     elif instructions[1].lower() ==  SocksInstruction.lower():
                         self.printInTerminal(commandLine, SocksHelp)
                     else:
-                        self.runHelp()
+                        self.printInTerminal(commandLine, f"No terminal help available for {instructions[1]}.")
             elif instructions[0].lower()==BatcaveInstruction.lower():
                 self.runBatcave(commandLine, instructions)
             elif instructions[0].lower()==HostInstruction.lower():
@@ -865,8 +941,8 @@ class Terminal(QWidget):
         self.setCursorEditorAtEnd()
 
 
-    def runHelp(self):
-        self.printInTerminal(HelpInstruction, getHelpMsg())
+    def runHelp(self, commandLine=HelpInstruction):
+        self.printInTerminal(commandLine, getHelpMsg())
 
 
     def runReloadModules(self, commandLine, instructions):
@@ -1200,7 +1276,7 @@ class Terminal(QWidget):
     #
     def runDropper(self, commandLine, instructions):
         if len(instructions) < 2:
-            availableModules = DropperAvailableHeader
+            availableModules = DropperHelp + DropperAvailableHeader
             for module in DropperModules:
                 availableModules += "  " + module.__name__ + "\n"
             availableModules += DropperArchitectureHelp

@@ -218,6 +218,24 @@ void testPrepareCommonCommand()
     C2Message message;
     assert(service.prepareMessage("sleep 0.5", message, true) == 0);
     assert(message.instruction() == SleepCmd);
+
+    C2Message listenerMessage;
+    assert(service.prepareMessage("listener start tcp 0.0.0.0 4444", listenerMessage, true) == 0);
+    assert(listenerMessage.instruction() == ListenerCmd);
+    assert(listenerMessage.cmd() == "STA tcp 0.0.0.0 4444");
+
+    C2Message invalidPortMessage;
+    assert(service.prepareMessage("listener start tcp 0.0.0.0 notaport", invalidPortMessage, true) == -1);
+    assert(invalidPortMessage.instruction().empty());
+    assert(invalidPortMessage.returnvalue() == "Error: Invalid TCP listener port. Expected an integer between 1 and 65535.");
+
+    C2Message zeroPortMessage;
+    assert(service.prepareMessage("listener start tcp 0.0.0.0 0", zeroPortMessage, true) == -1);
+    assert(zeroPortMessage.instruction().empty());
+
+    C2Message highPortMessage;
+    assert(service.prepareMessage("listener start tcp 0.0.0.0 65536", highPortMessage, true) == -1);
+    assert(highPortMessage.instruction().empty());
 }
 
 void testPrepareModuleCommandCaseInsensitive()

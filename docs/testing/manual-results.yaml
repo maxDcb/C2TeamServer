@@ -81,6 +81,14 @@ results:
     evidence: "After the artifact delete fix, an uploaded artifact could be deleted directly from the Artifacts tab."
     notes: "Validated uploaded artifact delete from the client UI. Generated and hosted delete paths were already covered by automated tests."
 
+  - id: C2CLIENT-STARTUP-GUI-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "python3 -m C2Client.GUI starts successfully after terminal/help/artifact UI changes."
+    notes: "Validated fixed tabs, terminal startup help, terminal lowercase autocomplete, and Artifacts loading."
+
   - id: TEAMSERVER-ARTIFACT-CATALOG-001
     status: pass
     date: "2026-05-08"
@@ -88,6 +96,22 @@ results:
     tester: "max"
     evidence: "Artifacts tab validated base filters plus Scripts, Generated, Upload, and Hosted categories. Hosted artifact flow works after autocomplete cleanup."
     notes: "Manual UI coverage complements TeamServer artifact catalog automated tests."
+
+  - id: TEAMSERVER-STARTUP-TLS-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Clean TeamServer startup and C2Client GUI connection over TLS validated. Correct C2_CERT_PATH works and base RPCs respond."
+    notes: "Validated TeamServer startup, TLS client connection, and base sessions/listeners/artifacts/commands RPC availability."
+
+  - id: TEAMSERVER-LISTENER-SESSION-SERVICE-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated listModule, loadModule ls, loadModule cd, duplicate loadModule ls rejection, cd ., ls, sleep 0.01, and listModule on an active beacon. listenerPoll heartbeat no longer creates noisy task-result logs after starting a beacon-side TCP listener."
+    notes: "Covers command queueing, duplicate module tracking, result routing, sleep command result, module list state, and child listener heartbeat handling."
 
   - id: COMMON-LOADMODULE-001
     status: pass
@@ -112,6 +136,14 @@ results:
     tester: "max"
     evidence: "unloadModule cat completed with Success. A following cat toto.testupload returned Module not loaded."
     notes: "Windows beacon over TCP."
+
+  - id: COMMON-HELP-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Terminal help and beacon console help were validated after command casing and description alignment. Terminal commands are displayed in lowercase, include descriptions, and command-specific help follows the CommandSpec-style layout."
+    notes: "Validated help and help <command> behavior in both terminal and beacon console."
 
   - id: MODULE-RUN-CONTRACT-001
     status: pass

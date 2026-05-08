@@ -90,7 +90,7 @@ def test_extract_dropper_target_arch_accepts_aliases_and_removes_flag():
 
 
 def test_dropper_arch_help_and_file_names_are_arch_specific():
-    assert "Dropper Config BeaconArch x86|x64|arm64" in terminal_panel.DropperArchitectureHelp
+    assert "dropper config beaconArch x86|x64|arm64" in terminal_panel.DropperArchitectureHelp
     assert terminal_panel.makeBeaconFilePath("windows", "arm64") == "./Beacon-arm64.exe"
     assert terminal_panel.makeBeaconFilePath("linux", "x64") == "./Beacon-linux"
 
@@ -110,7 +110,7 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     grpc = FakeGrpc()
     worker = terminal_panel.DropperWorker(
         grpc,
-        "Dropper FakeDropper dl beacon --arch arm64",
+        "dropper FakeDropper dl beacon --arch arm64",
         "fakedropper",
         "dl",
         "beacon",
@@ -130,7 +130,7 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     assert donut_calls[0][0] == "./Beacon-arm64.exe"
     assert donut_calls[0][2] == "arm64"
     assert (tmp_path / "Beacon-arm64.exe").read_bytes() == b"beacon"
-    assert results == [("Dropper FakeDropper dl beacon --arch arm64", "generated")]
+    assert results == [("dropper FakeDropper dl beacon --arch arm64", "generated")]
 
 
 def test_terminal_command_error_message_uses_status_message(qtbot):
@@ -138,7 +138,7 @@ def test_terminal_command_error_message_uses_status_message(qtbot):
     terminal = terminal_panel.Terminal(parent, FakeKoGrpc())
     qtbot.addWidget(terminal)
 
-    terminal.runReloadModules("ReloadModules", ["ReloadModules"])
+    terminal.runReloadModules("reloadModules", ["reloadModules"])
 
     assert "Reload failed." in terminal.editorOutput.toPlainText()
     assert "raw failure" not in terminal.editorOutput.toPlainText()
@@ -150,7 +150,7 @@ def test_terminal_host_uses_artifact_reference(qtbot):
     terminal = terminal_panel.Terminal(parent, grpc)
     qtbot.addWidget(terminal)
 
-    terminal.runHost("Host artifact-123 listener-pri", ["Host", "artifact-123", "listener-pri"])
+    terminal.runHost("host artifact-123 listener-pri", ["host", "artifact-123", "listener-pri"])
 
     assert "infoListener listener-pri" in grpc.commands
     assert "hostArtifact listener-pri artifact-123" in grpc.commands
@@ -166,8 +166,8 @@ def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
     qtbot.addWidget(terminal)
 
     terminal.runHost(
-        "Host dropper.exe(artifact-123) listener-pri",
-        ["Host", "dropper.exe(artifact-123)", "listener-pri"],
+        "host dropper.exe(artifact-123) listener-pri",
+        ["host", "dropper.exe(artifact-123)", "listener-pri"],
     )
 
     assert "hostArtifact listener-pri artifact-123" in grpc.commands
@@ -185,7 +185,7 @@ def test_terminal_shows_welcome_message(qtbot):
     assert lines[2] == ""
     assert "[+]" not in output
     assert "Local TeamServer terminal." in output
-    assert "Type Help to list available commands" in output
+    assert "Type help to list available commands" in output
 
 
 def test_terminal_uses_dark_panel_toolbar(qtbot):
@@ -207,13 +207,59 @@ def test_terminal_user_commands_use_user_badge(qtbot, tmp_path, monkeypatch):
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
     qtbot.addWidget(terminal)
 
-    terminal.commandEditor.setText("Help")
+    terminal.commandEditor.setText("help")
     terminal.runCommand()
 
     output = terminal.editorOutput.toPlainText()
-    assert "[user] Help" in output
+    assert "[user] help" in output
     assert output.endswith("\n\n")
     assert "[+]" not in output
+
+
+def test_terminal_help_lists_lowercase_commands_with_descriptions(qtbot):
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    terminal.runHelp("help")
+
+    output = terminal.editorOutput.toPlainText()
+    assert "Available terminal commands:" in output
+    assert "Use help <command> for command-specific details." in output
+    assert "host - Host a TeamServer artifact through an HTTP/HTTPS listener." in output
+    assert "dropper - Generate and host a beacon dropper." in output
+    assert "Host\n" not in output
+    assert "Socks\n" not in output
+
+
+def test_terminal_specific_help_matches_command_spec_style(qtbot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    terminal.commandEditor.setText("help host")
+    terminal.runCommand()
+
+    output = terminal.editorOutput.toPlainText()
+    assert "host\nHost a TeamServer artifact" in output
+    assert "Usage: host <artifact_id|name> <listener_hash> [hosted_filename]" in output
+    assert "Kind: terminal" in output
+    assert "Target: teamserver" in output
+    assert "Arguments:" in output
+    assert "Examples:" in output
+
+
+def test_terminal_unknown_help_is_explicit(qtbot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(terminal)
+
+    terminal.commandEditor.setText("help doesNotExist")
+    terminal.runCommand()
+
+    assert "No terminal help available for doesNotExist." in terminal.editorOutput.toPlainText()
 
 
 def test_create_donut_shellcode_reports_subprocess_crash(tmp_path, monkeypatch):
@@ -281,7 +327,7 @@ def test_terminal_host_completer_displays_artifact_label_but_inserts_safe_token(
 
     assert artifact_item.text() == "dropper.exe (artifact-123)"
     assert artifact_item.data(terminal_panel.CodeCompleter.MatchRole) == "dropper.exe(artifact-123)"
-    assert artifact_item.data(terminal_panel.CodeCompleter.ConcatenationRole) == "Host dropper.exe(artifact-123)"
+    assert artifact_item.data(terminal_panel.CodeCompleter.ConcatenationRole) == "host dropper.exe(artifact-123)"
 
 
 def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_path, qtbot, monkeypatch):
