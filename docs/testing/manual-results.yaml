@@ -193,6 +193,22 @@ results:
     evidence: "Created TCP listener on 4444. .\\BeaconTcp.exe 172.28.141.244 4444 -> connection OK. loadModule/cd/ls/upload/cat commands completed over TCP."
     notes: "Windows beacon over TCP listener 4444."
 
+  - id: LISTENER-SMB-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "listener start smb gogo returned a child listener hash. After the SMB listener stop fix, listener stop was retested and the parent beacon remained responsive instead of freezing."
+    notes: "Validates Windows SMB/named-pipe child listener start and stop behavior after waking the SMB listener thread before join."
+
+  - id: COMMON-LISTENER-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated listener start tcp, listener start smb, child listener rehydration after TeamServer restart, and listener stop without beacon freeze."
+    notes: "Covers the common listener command contract for beacon-side child listeners."
+
   - id: MODULE-CD-CONTRACT-001
     status: pass
     date: "2026-05-07"
@@ -345,13 +361,21 @@ results:
     evidence: "Linux HTTPS beacon completed listModule, loadModule ls/cd/cat/upload/download/script, cd, ls, upload of an UploadedArtifacts file to /tmp/c2-upload-test.txt, cat of the uploaded file, download back into GeneratedArtifacts, listModule state validation, and script testScript.sh from UploadedArtifacts after the runtime-by-extension fix."
     notes: "Validated Linux x64 happy path including UploadedArtifacts-backed script execution."
 
-  - id: VALIDATION-ERROR-HANDLING-001
-    status: untested
+  - id: VALIDATION-GOLDEN-PATH-WINDOWS-001
+    status: pass
     date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Validated clear errors for missing module, duplicate loadModule, missing upload artifact, missing download args, missing upload args, missing Donut source for assemblyExec/inject, missing script artifact for powershell, and Windows-only pwSh on Linux."
-    notes: "Keep final status partial until listener start tcp invalid-port rejection is retested with a rebuilt beacon. TeamServer-side validation now rejects non-numeric, zero, and out-of-range ports."
+    evidence: "Windows x64 HTTPS beacon completed listModule, loadModule ls/cd/cat/upload/download/screenShot, cd to C:\\users\\max\\desktop, ls, upload by artifact hash to c2-upload-test.txt, cat returned toto, listModule showed loaded modules, and screenShot generated 1778266470248372166-d90a-desktop2.bmp."
+    notes: "Also validated expected failures for upload test.txt when the upload artifact was absent and download c2-upload-test2.txt when the remote file did not exist. Sleep 0.01 completed while screenshot was pending, confirming the beacon remained responsive."
+
+  - id: VALIDATION-ERROR-HANDLING-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated clear errors for missing module, duplicate loadModule, missing upload artifact, missing download args, missing upload args, missing Donut source for assemblyExec/inject, missing script artifact for powershell, and Windows-only pwSh on Linux. Retested rebuilt beacon listener validation: listener start tcp with notaport, 0, and 65536 all returned 'Error: Invalid TCP listener port. Expected an integer between 1 and 65535.' and did not create a listener."
+    notes: "Also validated listener start tcp 0.0.0.0 5555 then listener stop by full listener hash completed successfully."
 
   - id: RELEASE-WINDOWS-ARTIFACTS-001
     status: blocked
