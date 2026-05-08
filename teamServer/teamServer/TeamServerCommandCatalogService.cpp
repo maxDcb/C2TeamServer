@@ -61,6 +61,8 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
         argSpec->set_variadic(arg.variadic);
         for (const std::string& value : arg.values)
             argSpec->add_values(value);
+        for (const std::string& parent : arg.completionParents)
+            argSpec->add_completion_parents(parent);
 
         if (arg.hasArtifactFilter)
         {

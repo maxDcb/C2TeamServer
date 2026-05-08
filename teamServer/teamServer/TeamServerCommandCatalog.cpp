@@ -119,6 +119,7 @@ TeamServerCommandArgSpec parseArgSpec(const json& input)
     arg.description = jsonString(input, "description");
     arg.values = jsonStringList(input, "values");
     arg.variadic = jsonBool(input, "variadic", false);
+    arg.completionParents = jsonStringList(input, "completion_parents");
 
     auto artifactFilterIt = input.find("artifact_filter");
     if (artifactFilterIt != input.end() && artifactFilterIt->is_object())

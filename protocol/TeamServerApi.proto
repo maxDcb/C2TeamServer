@@ -183,6 +183,7 @@ message CommandArgSpec
   ArtifactQuery artifact_filter = 6;
   bool variadic = 7;
   repeated ArtifactQuery artifact_filters = 8;
+  repeated string completion_parents = 9;
 }
 
 

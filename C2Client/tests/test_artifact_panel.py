@@ -112,6 +112,8 @@ class FakeGrpc:
         for artifact in self.artifacts:
             if artifact.artifact_id == artifact_id and artifact.category == "hosted":
                 message = "Hosted artifact deleted."
+            if artifact.artifact_id == artifact_id and artifact.category == "upload":
+                message = "Uploaded artifact deleted."
         self.artifacts = [
             artifact for artifact in self.artifacts
             if artifact.artifact_id != artifact_id
@@ -269,6 +271,46 @@ def test_artifacts_panel_deletes_hosted_artifacts(qtbot, monkeypatch):
     assert grpc.deleted == ["artifact-hosted-1"]
     assert panel.artifactTable.rowCount() == 0
     assert panel.statusLabel.text() == "Artifacts: Hosted artifact deleted."
+
+
+def test_artifacts_panel_deletes_uploaded_artifacts(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    grpc.artifacts.append(SimpleNamespace(
+        artifact_id="artifact-upload-1",
+        name="operator-note.txt",
+        display_name="operator-note.txt",
+        category="upload",
+        scope="operator",
+        target="beacon",
+        platform="windows",
+        arch="x64",
+        runtime="file",
+        format="txt",
+        source="operator",
+        size=5,
+        sha256="f" * 64,
+        description="Uploaded note.",
+    ))
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    panel.categoryFilter.setCurrentText("upload")
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 1).text() == "operator"
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-upload-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Uploaded artifact deleted."
 
 
 def test_artifacts_panel_downloads_and_uploads_files(qtbot, monkeypatch, tmp_path):

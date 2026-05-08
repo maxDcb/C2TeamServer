@@ -87,6 +87,7 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
       "type": "number",
       "required": true,
       "description": "Sleep interval.",
+      "completion_parents": ["interval"],
       "artifact_filter": {
         "category": "tool",
         "scope": "server",
@@ -202,6 +203,8 @@ void testCommandCatalogLoadsManifestSpecs()
     assert(sleep->args[0].artifactFilter.runtime == "any");
     assert(sleep->args[0].artifactFilter.nameContains == ".exe");
     assert(sleep->args[0].artifactFilters.size() == 1);
+    assert(sleep->args[0].completionParents.size() == 1);
+    assert(sleep->args[0].completionParents[0] == "interval");
     assert(sleep->examples.size() == 1);
 
     const TeamServerCommandSpecRecord* end = findCommand(commands, "end");
@@ -273,6 +276,8 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].args(0).artifact_filter().name_contains() == ".exe");
     assert(commands[0].args(0).artifact_filters_size() == 1);
     assert(commands[0].args(0).artifact_filters(0).category() == "tool");
+    assert(commands[0].args(0).completion_parents_size() == 1);
+    assert(commands[0].args(0).completion_parents(0) == "interval");
     assert(commands[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 
     teamserverapi::CommandQuery psExecQuery;

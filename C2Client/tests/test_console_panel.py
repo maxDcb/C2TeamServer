@@ -491,10 +491,29 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
             SimpleNamespace(name="-s", type="flag", values=[], artifact_filter=powershell_filter),
         ],
     )
+    pwsh_spec = SimpleNamespace(
+        name="pwSh",
+        kind="module",
+        examples=["pwSh script PowerView.ps1"],
+        args=[
+            SimpleNamespace(
+                name="action",
+                type="enum",
+                values=["init", "run", "import", "script"],
+            ),
+            SimpleNamespace(
+                name="command_or_script",
+                type="text",
+                values=[],
+                artifact_filter=powershell_filter,
+                completion_parents=["import", "script"],
+            ),
+        ],
+    )
 
     grpc = FakeGrpc()
     session = SimpleNamespace(os="Linux", arch="x64")
-    server_data = command_specs_to_completer_data([script_spec, powershell_spec], grpcClient=grpc, session=session)
+    server_data = command_specs_to_completer_data([script_spec, powershell_spec, pwsh_spec], grpcClient=grpc, session=session)
 
     script_children = _completion_children(server_data, "script")
     assert ("cleanup.sh", []) in script_children
@@ -502,6 +521,10 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
     powershell_children = _completion_children(server_data, "powershell")
     assert _completion_children(powershell_children, "-i")
     assert ("PowerView.ps1", []) in _completion_children(powershell_children, "-s")
+    pwsh_children = _completion_children(server_data, "pwSh")
+    assert ("PowerView.ps1", []) in _completion_children(pwsh_children, "script")
+    assert ("PowerView.ps1", []) in _completion_children(pwsh_children, "import")
+    assert not _completion_children(pwsh_children, "run")
     assert grpc.queries[0].category == "script"
     assert grpc.queries[0].platform == "linux"
     assert grpc.queries[1].platform == "windows"

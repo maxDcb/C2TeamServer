@@ -436,6 +436,7 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
                             session->getListenerHash(),
                             input,
                             c2Message.instruction(),
+                            c2Message.outputfile(),
                         });
                         stopCommandSent = true;
                     }
@@ -879,6 +880,7 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             listenerHash,
             input,
             instruction,
+            c2Message.outputfile(),
         });
 
         response->set_status(teamserverapi::OK);
@@ -951,15 +953,20 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 auto sentCommand = std::find_if(
                     m_sentCommands.begin(),
                     m_sentCommands.end(),
-                    [&commandId](const BeaconCommandContext& context)
+                    [&commandId, &c2Message](const BeaconCommandContext& context)
                     {
-                        return context.commandId == commandId;
+                        if (!commandId.empty() && context.commandId == commandId)
+                            return true;
+                        return !c2Message.outputfile().empty()
+                            && !context.outputFile.empty()
+                            && context.outputFile == c2Message.outputfile();
                     });
                 bool trackedCommand = false;
                 bool keepCommandContext = false;
                 if (sentCommand != m_sentCommands.end())
                 {
                     trackedCommand = true;
+                    commandId = sentCommand->commandId;
                     listenerHash = sentCommand->listenerHash;
                     commandLine = sentCommand->commandLine;
                     if (!sentCommand->instruction.empty())

@@ -28,6 +28,7 @@ struct TeamServerCommandArgSpec
     std::vector<TeamServerCommandArtifactFilter> artifactFilters;
     bool hasArtifactFilter = false;
     bool variadic = false;
+    std::vector<std::string> completionParents;
 };
 
 struct TeamServerCommandSpecRecord

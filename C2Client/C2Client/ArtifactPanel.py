@@ -131,7 +131,7 @@ class Artifacts(QWidget):
         self.downloadButton.clicked.connect(self.downloadSelectedArtifactToClient)
         self.copyIdButton = self.createToolbarButton("Copy ID", "Copy selected artifact id.", width=72)
         self.copyIdButton.clicked.connect(self.copySelectedArtifactId)
-        self.deleteButton = self.createToolbarButton("Delete", "Delete selected generated or hosted artifact.", width=72)
+        self.deleteButton = self.createToolbarButton("Delete", "Delete selected generated, hosted, or uploaded artifact.", width=72)
         self.deleteButton.clicked.connect(self.deleteSelectedArtifact)
 
         toolbar.addWidget(QLabel("Category"))
@@ -338,7 +338,9 @@ class Artifacts(QWidget):
     def isDeletableArtifact(self, artifact: Any | None) -> bool:
         if artifact is None:
             return False
-        return _text(_field(artifact, "scope")).lower() == "generated"
+        category = _text(_field(artifact, "category")).lower()
+        scope = _text(_field(artifact, "scope")).lower()
+        return scope == "generated" or (category == "upload" and scope == "operator")
 
     def selectedUploadTarget(self) -> tuple[str, str]:
         return (
@@ -431,7 +433,7 @@ class Artifacts(QWidget):
             apply_status(self.statusLabel, "Artifacts: select an artifact first.", StatusKind.ERROR)
             return
         if not self.isDeletableArtifact(artifact):
-            apply_status(self.statusLabel, "Artifacts: only generated or hosted artifacts can be deleted.", StatusKind.ERROR)
+            apply_status(self.statusLabel, "Artifacts: only generated, hosted, or uploaded artifacts can be deleted.", StatusKind.ERROR)
             return
 
         name = _text(_field(artifact, "display_name")) or _text(_field(artifact, "name")) or artifact_id

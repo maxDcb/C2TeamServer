@@ -334,6 +334,16 @@ def _add_arg_completions(
         _add_artifact_completions(children, grpcClient, arg, session, command_name)
         first_positional_done = True
 
+    for arg in args:
+        for parent in _arg_completion_parents(arg):
+            _add_completion_path(children, [parent])
+            parent_entry = _find_entry(children, parent)
+            if parent_entry is None:
+                continue
+            for value in getattr(arg, "values", []):
+                _add_completion_value(parent_entry[1], value)
+            _add_artifact_completions(parent_entry[1], grpcClient, arg, session, command_name)
+
 
 def _normalized_module_name(value: Any) -> str:
     name = os.path.basename(str(value or "").strip())
@@ -431,6 +441,17 @@ def _artifact_filters_for_arg(arg: Any) -> list[Any]:
 
 def _arg_has_artifact_filter(arg: Any) -> bool:
     return bool(_artifact_filters_for_arg(arg))
+
+
+def _arg_completion_parents(arg: Any) -> list[str]:
+    try:
+        parents = getattr(arg, "completion_parents", [])
+    except Exception:
+        return []
+    try:
+        return _dedupe_values([str(parent).strip() for parent in parents if str(parent).strip()])
+    except TypeError:
+        return []
 
 
 def _artifact_query_from_filter(artifact_filter: Any, session: Any | None) -> Any:

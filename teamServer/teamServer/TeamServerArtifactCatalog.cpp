@@ -624,8 +624,47 @@ bool TeamServerArtifactCatalog::deleteGeneratedArtifact(const std::string& artif
 
         if (hostedIt == hostedArtifacts.end())
         {
-            message = "Artifact not found.";
-            return false;
+            TeamServerArtifactQuery uploadQuery;
+            uploadQuery.category = "upload";
+            uploadQuery.scope = "operator";
+            const std::vector<TeamServerArtifactRecord> uploadedArtifacts = listArtifacts(uploadQuery);
+            const auto uploadIt = std::find_if(
+                uploadedArtifacts.begin(),
+                uploadedArtifacts.end(),
+                [&](const TeamServerArtifactRecord& artifact)
+                {
+                    return artifact.artifactId == artifactId;
+                });
+
+            if (uploadIt == uploadedArtifacts.end())
+            {
+                message = "Artifact not found.";
+                return false;
+            }
+
+            const fs::path uploadedRoot = m_runtimeConfig.uploadedArtifactsDirectoryPath;
+            const fs::path payloadPath = uploadIt->internalPath;
+            if (!isPathWithinRoot(payloadPath, uploadedRoot))
+            {
+                message = "Uploaded artifact path is outside the uploaded artifact root.";
+                return false;
+            }
+
+            std::error_code uploadEc;
+            const bool removedUploadedPayload = fs::remove(payloadPath, uploadEc);
+            if (uploadEc)
+            {
+                message = "Uploaded artifact could not be deleted: " + uploadEc.message();
+                return false;
+            }
+            if (!removedUploadedPayload)
+            {
+                message = "Uploaded artifact file was already missing.";
+                return false;
+            }
+
+            message = "Uploaded artifact deleted.";
+            return true;
         }
 
         const fs::path hostedRoot = m_runtimeConfig.hostedArtifactsDirectoryPath;

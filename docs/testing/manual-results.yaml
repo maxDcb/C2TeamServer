@@ -74,12 +74,12 @@ results:
     notes: "GeneratedArtifacts/hosted path validated through browser download."
 
   - id: C2CLIENT-ARTIFACTS-DELETE-001
-    status: fail
-    date: "2026-05-07"
+    status: pass
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Could not delete the uploaded artifact from the Artifacts tab."
-    notes: "Uploaded artifact delete is not working or not exposed correctly in the UI/API."
+    evidence: "After the artifact delete fix, an uploaded artifact could be deleted directly from the Artifacts tab."
+    notes: "Validated uploaded artifact delete from the client UI. Generated and hosted delete paths were already covered by automated tests."
 
   - id: COMMON-LOADMODULE-001
     status: pass
@@ -194,28 +194,28 @@ results:
     notes: "GeneratedArtifacts/download/beacon, GeneratedArtifacts/screenshot/beacon, and GeneratedArtifacts shellcode paths validated. The screenshot artifact was around 42 MB, which is functionally OK but should be optimized."
 
   - id: TEAMSERVER-FILE-TRANSFER-001
-    status: fail
-    date: "2026-05-07"
+    status: pass
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Large download completed and artifact hash was OK, but intermediate chunks were emitted to the console as done unknown 7572294763565533 with progress values like 84934656/89771848."
-    notes: "File transfer data is correct, but command context/UI response suppression for intermediate chunks is not correct enough."
+    evidence: "After tracking chunked results by outputfile when UUID is missing, a big file download completed without intermediate done unknown progress messages."
+    notes: "Validated live with a large beacon download. File transfer data and user-facing command context are now correct."
 
   - id: BEACON-CORE-CHUNKED-RESULTS-001
-    status: fail
-    date: "2026-05-07"
+    status: pass
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Large download chunking completed successfully, but intermediate chunk progress appeared as multiple done unknown messages before the final Downloaded artifact stored line."
-    notes: "Chunk transport works, but the user-facing result stream should not expose unhelpful intermediate unknown command messages."
+    evidence: "A big file download no longer emitted intermediate visible progress chunks as separate done unknown responses."
+    notes: "Validated the chunked command result path after the TeamServer command-context tracking fix."
 
   - id: C2CLIENT-CONSOLE-FORMATTING-001
-    status: fail
-    date: "2026-05-07"
+    status: pass
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Large download showed repeated intermediate console lines such as [done] unknown 7572294763565533 84934656/89771848."
-    notes: "Console should either suppress intermediate generated-artifact chunks or render them as explicit progress tied to the original command."
+    evidence: "After the server-side chunk context fix, big file download no longer produced intermediate done unknown lines in the console."
+    notes: "The console no longer has to render malformed chunk progress as command results for this path."
 
   - id: MODULE-SCREENSHOT-CONTRACT-001
     status: pass
@@ -250,12 +250,36 @@ results:
     notes: "Functional execution, argument preservation, generated shellcode creation, raw generated shellcode reuse, and all three execution modes are validated. Raw by artifact ID is not expected to work yet for this command path."
 
   - id: C2CLIENT-CONSOLE-AUTOCOMPLETE-001
-    status: fail
+    status: pass
     date: "2026-05-07"
     build: "local-dev"
     tester: "max"
-    evidence: "assemblyExec --donut-exe proposed x86 tools while interacting with an x64 Windows beacon."
-    notes: "The CommandSpec tool filters for assemblyExec and sibling tool-backed modules must bind artifact arch to session.arch so autocomplete does not mix x86/x64 payloads."
+    evidence: "assemblyExec --donut-exe initially proposed x86 tools and .bin generated shellcode artifacts while interacting with an x64 Windows beacon. After adding arch=session.arch and format filters to CommandSpecs/ListArtifacts, autocomplete no longer proposes x86 tools or .bin files for --donut-exe."
+    notes: "Validated on the live beacon console after rebuilding TeamServer/client proto paths and refreshing CommandSpecs."
+
+  - id: MODULE-INJECT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "inject passed with --pid -1 and with a real notepad PID. Autocomplete proposed the expected payloads without wrong-arch or .bin entries, and payload execution completed correctly."
+    notes: "Validated shellcode preparation, inject autocomplete, spawn target mode, existing PID mode, and payload execution on a Windows beacon."
+
+  - id: MODULE-PWSH-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "One beacon completed loadModule pwSh, pwSh init, pwSh run whoami, and pwSh script testScript.ps1 successfully. After adding completion_parents and improving the CLR/AppDomain error text, retest confirmed pwSh script/import autocomplete works and the init failure on the alternate beacon context now returns a verbose actionable error."
+    notes: "Validated happy path, script artifact autocomplete for import/script, and clear CLR/AppDomain failure reporting."
+
+  - id: BEACON-CORE-HEARTBEAT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "A beacon left inactive for more than 5 minutes moved to stale state in the client."
+    notes: "Manual validation confirms the stale transition path. Reconnect transition can be covered separately if needed."
 
   - id: RELEASE-WINDOWS-ARTIFACTS-001
     status: blocked

@@ -496,7 +496,6 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
 
     C2Message firstChunk;
     firstChunk.set_instruction("screenShot");
-    firstChunk.set_uuid("shot-0001");
     firstChunk.set_outputfile(preparedOutputFile);
     firstChunk.set_args("0");
     firstChunk.set_data("AA");
@@ -509,7 +508,6 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
 
     C2Message finalChunk;
     finalChunk.set_instruction("screenShot");
-    finalChunk.set_uuid("shot-0001");
     finalChunk.set_outputfile(preparedOutputFile);
     finalChunk.set_args("1");
     finalChunk.set_data("BB");

@@ -318,6 +318,29 @@ void testCatalogDeletesHostedArtifacts()
     assert(artifacts.empty());
 }
 
+void testCatalogDeletesUploadedArtifacts()
+{
+    ScopedPath tempRoot(makeTempDirectory("upload-delete"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    seedArtifacts(runtimeConfig);
+
+    TeamServerArtifactCatalog catalog(runtimeConfig);
+    TeamServerArtifactQuery query;
+    query.category = "upload";
+    query.scope = "operator";
+    query.nameContains = "operator-note";
+    const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
+    assert(artifacts.size() == 1);
+
+    const std::string artifactId = artifacts[0].artifactId;
+    std::string message;
+    assert(catalog.deleteGeneratedArtifact(artifactId, message));
+    assert(message == "Uploaded artifact deleted.");
+    assert(!fs::exists(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator-note.txt"));
+
+    assert(catalog.listArtifacts(query).empty());
+}
+
 void testArtifactServiceStreamsPublicMetadataOnly()
 {
     ScopedPath tempRoot(makeTempDirectory("service"));
@@ -444,6 +467,7 @@ int main()
     testCatalogFiltersArtifacts();
     testCatalogIndexesAndDeletesGeneratedArtifacts();
     testCatalogDeletesHostedArtifacts();
+    testCatalogDeletesUploadedArtifacts();
     testArtifactServiceStreamsPublicMetadataOnly();
     testArtifactServiceDownloadsArtifactPayload();
     testArtifactServiceUploadsOperatorArtifact();

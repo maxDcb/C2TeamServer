@@ -9,4 +9,5 @@ struct BeaconCommandContext
     std::string listenerHash;
     std::string commandLine;
     std::string instruction;
+    std::string outputFile;
 };
