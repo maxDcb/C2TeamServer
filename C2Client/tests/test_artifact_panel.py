@@ -87,6 +87,8 @@ class FakeGrpc:
             if not expected:
                 return True
             actual = getattr(artifact, field, "")
+            if field == "runtime":
+                return actual == expected
             return actual == expected or actual == "any"
 
         def name_matches(artifact):
@@ -178,20 +180,21 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
     assert panel.categoryFilter.findText("minidump") != -1
     assert panel.categoryFilter.findText("screenshot") != -1
     assert panel.categoryFilter.findText("hosted") != -1
+    assert not hasattr(panel, "scopeFilter")
+    assert not hasattr(panel, "targetFilter")
+    assert panel.platformFilter.findText("any") == -1
+    assert panel.archFilter.findText("any") == -1
+    assert panel.runtimeFilter.findText("any") == -1
     assert panel.isDeletableArtifact(SimpleNamespace(category="hosted", scope="generated"))
     assert panel.artifactTable.rowCount() == 4
     assert panel.artifactTable.item(0, 0).text() == "module"
-    assert panel.artifactTable.item(0, 1).text() == "beacon"
-    assert panel.artifactTable.item(0, 2).text() == "beacon"
-    assert panel.artifactTable.item(0, 3).text() == "winmod64.dll"
-    assert panel.artifactTable.item(0, 6).text() == "native"
-    assert panel.artifactTable.item(0, 8).text() == "2.0 KB"
-    assert panel.artifactTable.item(0, 9).text() == "aaaaaaaaaaaa"
-    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 3).toolTip()
+    assert panel.artifactTable.item(0, 1).text() == "winmod64.dll"
+    assert panel.artifactTable.item(0, 4).text() == "native"
+    assert panel.artifactTable.item(0, 6).text() == "2.0 KB"
+    assert panel.artifactTable.item(0, 7).text() == "aaaaaaaaaaaa"
+    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 1).toolTip()
 
     panel.categoryFilter.setCurrentText("module")
-    panel.scopeFilter.setCurrentText("beacon")
-    panel.targetFilter.setCurrentText("beacon")
     panel.platformFilter.setCurrentText("windows")
     panel.archFilter.setCurrentText("x64")
     panel.runtimeFilter.setCurrentText("native")
@@ -200,8 +203,8 @@ def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
 
     query = grpc.queries[-1]
     assert query.category == "module"
-    assert query.scope == "beacon"
-    assert query.target == "beacon"
+    assert query.scope == ""
+    assert query.target == ""
     assert query.platform == "windows"
     assert query.arch == "x64"
     assert query.runtime == "native"
@@ -223,17 +226,16 @@ def test_artifacts_panel_filters_on_selection_and_deletes_generated(qtbot, monke
 
     assert not hasattr(panel, "generatedButton")
     panel.categoryFilter.setCurrentText("payload")
-    panel.scopeFilter.setCurrentText("generated")
     panel.runtimeFilter.setCurrentText("shellcode")
 
     query = grpc.queries[-1]
     assert query.category == "payload"
-    assert query.scope == "generated"
+    assert query.scope == ""
     assert query.runtime == "shellcode"
     assert panel.artifactTable.rowCount() == 1
-    assert panel.artifactTable.item(0, 1).text() == "generated"
-    assert panel.artifactTable.item(0, 10).text() == "donut"
-    assert "SHA256: " + ("c" * 64) in panel.artifactTable.item(0, 3).toolTip()
+    assert panel.artifactTable.item(0, 1).text() == "9d4c1e5f0a3b-Rubeus.exe.bin"
+    assert panel.artifactTable.item(0, 8).text() == "donut"
+    assert "SHA256: " + ("c" * 64) in panel.artifactTable.item(0, 1).toolTip()
 
     monkeypatch.setattr(
         QMessageBox,
@@ -297,7 +299,7 @@ def test_artifacts_panel_deletes_uploaded_artifacts(qtbot, monkeypatch):
 
     panel.categoryFilter.setCurrentText("upload")
     assert panel.artifactTable.rowCount() == 1
-    assert panel.artifactTable.item(0, 1).text() == "operator"
+    assert panel.artifactTable.item(0, 1).text() == "operator-note.txt"
 
     monkeypatch.setattr(
         QMessageBox,

@@ -59,7 +59,7 @@ bool matchesQuery(const TeamServerArtifactRecord& artifact, const TeamServerArti
         && matchesExact(query.target, artifact.target)
         && matchesExactOrAny(query.platform, artifact.platform)
         && matchesExactOrAny(query.arch, artifact.arch)
-        && matchesExactOrAny(query.runtime, artifact.runtime)
+        && matchesExact(query.runtime, artifact.runtime)
         && matchesExact(query.format, artifact.format)
         && containsCaseInsensitive(artifact.name, query.nameContains);
 }
@@ -190,6 +190,27 @@ std::string detectFormat(const fs::path& path)
     return extension;
 }
 
+std::string detectScriptRuntime(const fs::path& path)
+{
+    const std::string format = detectFormat(path);
+    if (format == "ps1")
+        return "powershell";
+    if (format == "py")
+        return "python";
+    if (format == "sh")
+        return "shell";
+    if (format == "bat" || format == "cmd")
+        return "cmd";
+    return "script";
+}
+
+std::string resolveRuntime(const std::string& category, const std::string& runtime, const fs::path& path)
+{
+    if (category == "script" && runtime == "script")
+        return detectScriptRuntime(path);
+    return runtime;
+}
+
 std::string sanitizeArtifactName(std::string value)
 {
     value = fs::path(value).filename().string();
@@ -293,7 +314,7 @@ void collectDirectoryArtifacts(
         artifact.platform = platform;
         artifact.arch = arch;
         artifact.format = detectFormat(path);
-        artifact.runtime = runtime;
+        artifact.runtime = resolveRuntime(category, runtime, path);
         artifact.source = source;
         artifact.sha256 = contentHash;
         artifact.internalPath = path.string();

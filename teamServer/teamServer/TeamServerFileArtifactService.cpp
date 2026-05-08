@@ -230,7 +230,6 @@ TeamServerPreparedInputArtifact TeamServerFileArtifactService::resolveScriptArti
     query.target = "beacon";
     query.platform = platformName(isWindows);
     query.arch = normalizeArch(isWindows, arch, m_runtimeConfig);
-    query.runtime = "script";
 
     TeamServerArtifactCatalog catalog(m_runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);

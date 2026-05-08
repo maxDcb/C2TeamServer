@@ -116,6 +116,7 @@ void seedArtifacts(const TeamServerRuntimeConfig& runtimeConfig)
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconHttp.exe", "windows-beacon-x64");
     writeFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Windows" / "x64" / "batcave.zip", "tool-archive");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / "startup.ps1", "script");
+    writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Linux" / "startup.py", "script");
     writeFile(fs::path(runtimeConfig.scriptsDirectoryPath) / "Windows" / ".ignored.ps1", "hidden-script");
     writeFile(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Any" / "any" / "operator-note.txt", "upload");
     writeFile(fs::path(runtimeConfig.hostedArtifactsDirectoryPath) / "payload.bin", "hosted-file");
@@ -150,7 +151,7 @@ void testCatalogIndexesReleaseRoots()
     TeamServerArtifactCatalog catalog(runtimeConfig);
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts();
 
-    assert(artifacts.size() == 10);
+    assert(artifacts.size() == 11);
     assert(findArtifact(artifacts, ".ignored.ps1", "script", "windows", "any") == nullptr);
 
     const TeamServerArtifactRecord* windowsModule = findArtifact(artifacts, "winmod64.dll", "module", "windows", "x64");
@@ -176,7 +177,12 @@ void testCatalogIndexesReleaseRoots()
     assert(script->scope == "server");
     assert(script->target == "beacon");
     assert(script->format == "ps1");
-    assert(script->runtime == "script");
+    assert(script->runtime == "powershell");
+
+    const TeamServerArtifactRecord* pythonScript = findArtifact(artifacts, "startup.py", "script", "linux", "any");
+    assert(pythonScript != nullptr);
+    assert(pythonScript->format == "py");
+    assert(pythonScript->runtime == "python");
 
     const TeamServerArtifactRecord* upload = findArtifact(artifacts, "operator-note.txt", "upload", "any", "any");
     assert(upload != nullptr);
@@ -246,6 +252,13 @@ void testCatalogFiltersArtifacts()
     artifacts = catalog.listArtifacts(hostedFiles);
     assert(artifacts.size() == 1);
     assert(artifacts[0].name == "payload.bin");
+
+    TeamServerArtifactQuery pythonScripts;
+    pythonScripts.category = "script";
+    pythonScripts.runtime = "python";
+    artifacts = catalog.listArtifacts(pythonScripts);
+    assert(artifacts.size() == 1);
+    assert(artifacts[0].name == "startup.py");
 }
 
 void testCatalogIndexesAndDeletesGeneratedArtifacts()
@@ -351,6 +364,7 @@ void testArtifactServiceStreamsPublicMetadataOnly()
 
     teamserverapi::ArtifactQuery query;
     query.set_category("script");
+    query.set_runtime("powershell");
     std::vector<teamserverapi::ArtifactSummary> summaries;
     assert(service.listArtifacts(query, [&](const teamserverapi::ArtifactSummary& artifact)
     {
@@ -363,7 +377,7 @@ void testArtifactServiceStreamsPublicMetadataOnly()
     assert(summaries[0].category() == "script");
     assert(summaries[0].scope() == "server");
     assert(summaries[0].target() == "beacon");
-    assert(summaries[0].runtime() == "script");
+    assert(summaries[0].runtime() == "powershell");
     assert(summaries[0].sha256().size() == 64);
     assert(summaries[0].DebugString().find(tempRoot.path().string()) == std::string::npos);
 }

@@ -113,6 +113,22 @@ results:
     evidence: "Validated listModule, loadModule ls, loadModule cd, duplicate loadModule ls rejection, cd ., ls, sleep 0.01, and listModule on an active beacon. listenerPoll heartbeat no longer creates noisy task-result logs after starting a beacon-side TCP listener."
     notes: "Covers command queueing, duplicate module tracking, result routing, sleep command result, module list state, and child listener heartbeat handling."
 
+  - id: TEAMSERVER-CONFIG-DIRECTORIES-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Release/runtime directory paths were checked after the layout normalization and are present in the expected locations."
+    notes: "Validated TeamServer runtime directory layout for artifact roots, tools, scripts, beacons, modules, and command specs."
+
+  - id: ARTIFACT-LAYOUT-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Canonical artifact paths were checked and are OK, including generated/hosted, uploaded, tools, scripts, beacons, modules, and command specs."
+    notes: "Manual path validation complements catalog/runtime automated checks."
+
   - id: COMMON-LOADMODULE-001
     status: pass
     date: "2026-05-07"
@@ -320,6 +336,14 @@ results:
     tester: "max"
     evidence: "A beacon left inactive for more than 5 minutes moved to stale state in the client."
     notes: "Manual validation confirms the stale transition path. Reconnect transition can be covered separately if needed."
+
+  - id: VALIDATION-ERROR-HANDLING-001
+    status: untested
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated clear errors for missing module, duplicate loadModule, missing upload artifact, missing download args, missing upload args, missing Donut source for assemblyExec/inject, missing script artifact for powershell, and Windows-only pwSh on Linux."
+    notes: "Keep final status partial until listener start tcp invalid-port rejection is retested with a rebuilt beacon. TeamServer-side validation now rejects non-numeric, zero, and out-of-range ports."
 
   - id: RELEASE-WINDOWS-ARTIFACTS-001
     status: blocked

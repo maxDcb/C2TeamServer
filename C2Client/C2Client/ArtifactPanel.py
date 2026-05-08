@@ -31,25 +31,21 @@ ArtifactTabTitle = "Artifacts"
 
 ALL_FILTER = "All"
 CATEGORY_FILTERS = [ALL_FILTER, "module", "beacon", "tool", "script", "payload", "hosted", "upload", "download", "minidump", "screenshot"]
-SCOPE_FILTERS = [ALL_FILTER, "generated", "beacon", "implant", "teamserver", "server", "operator", "any"]
-TARGET_FILTERS = [ALL_FILTER, "teamserver", "beacon", "listener", "operator", "any"]
-PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server", "any"]
-ARCH_FILTERS = [ALL_FILTER, "x64", "x86", "arm64", "any"]
-RUNTIME_FILTERS = [ALL_FILTER, "native", "file", "python", "dotnet", "powershell", "bof", "shellcode", "text", "archive", "any"]
+PLATFORM_FILTERS = [ALL_FILTER, "windows", "linux", "server"]
+ARCH_FILTERS = [ALL_FILTER, "x64", "x86", "arm64"]
+RUNTIME_FILTERS = [ALL_FILTER, "native", "file", "python", "powershell", "shell", "cmd", "dotnet", "bof", "shellcode", "text", "archive", "script"]
 UPLOAD_PLATFORMS = {"windows", "linux", "any"}
 UPLOAD_ARCHS = {"x64", "x86", "arm64", "any"}
 
 COL_CATEGORY = 0
-COL_SCOPE = 1
-COL_TARGET = 2
-COL_NAME = 3
-COL_PLATFORM = 4
-COL_ARCH = 5
-COL_RUNTIME = 6
-COL_FORMAT = 7
-COL_SIZE = 8
-COL_SHA256 = 9
-COL_SOURCE = 10
+COL_NAME = 1
+COL_PLATFORM = 2
+COL_ARCH = 3
+COL_RUNTIME = 4
+COL_FORMAT = 5
+COL_SIZE = 6
+COL_SHA256 = 7
+COL_SOURCE = 8
 
 
 def _text(value: Any) -> str:
@@ -96,7 +92,7 @@ def _upload_filter_value(value: str, allowed: set[str]) -> str:
 
 
 class Artifacts(QWidget):
-    COLUMN_WIDTHS = [82, 92, 92, 220, 86, 66, 92, 70, 86, 112, 88]
+    COLUMN_WIDTHS = [82, 240, 86, 66, 96, 70, 86, 112, 88]
     STRETCH_COLUMN = COL_NAME
 
     def __init__(self, parent: QWidget | None, grpcClient: Any) -> None:
@@ -113,8 +109,6 @@ class Artifacts(QWidget):
         toolbar.setSpacing(6)
 
         self.categoryFilter = self.createFilter(CATEGORY_FILTERS, "Filter by artifact category.")
-        self.scopeFilter = self.createFilter(SCOPE_FILTERS, "Filter by artifact scope.")
-        self.targetFilter = self.createFilter(TARGET_FILTERS, "Filter by execution or ownership target.")
         self.platformFilter = self.createFilter(PLATFORM_FILTERS, "Filter by target platform.")
         self.archFilter = self.createFilter(ARCH_FILTERS, "Filter by target architecture.")
         self.runtimeFilter = self.createFilter(RUNTIME_FILTERS, "Filter by runtime or file family.")
@@ -136,10 +130,6 @@ class Artifacts(QWidget):
 
         toolbar.addWidget(QLabel("Category"))
         toolbar.addWidget(self.categoryFilter)
-        toolbar.addWidget(QLabel("Scope"))
-        toolbar.addWidget(self.scopeFilter)
-        toolbar.addWidget(QLabel("Target"))
-        toolbar.addWidget(self.targetFilter)
         toolbar.addWidget(QLabel("Platform"))
         toolbar.addWidget(self.platformFilter)
         toolbar.addWidget(QLabel("Arch"))
@@ -166,7 +156,7 @@ class Artifacts(QWidget):
         self.artifactTable.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.artifactTable.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.artifactTable.setRowCount(0)
-        self.artifactTable.setColumnCount(11)
+        self.artifactTable.setColumnCount(len(self.COLUMN_WIDTHS))
         self.artifactTable.verticalHeader().setVisible(False)
         self.artifactTable.itemSelectionChanged.connect(self.updateActionButtons)
         self.configureTableColumns()
@@ -205,8 +195,6 @@ class Artifacts(QWidget):
     def connectFilterSignals(self) -> None:
         for combo in (
             self.categoryFilter,
-            self.scopeFilter,
-            self.targetFilter,
             self.platformFilter,
             self.archFilter,
             self.runtimeFilter,
@@ -220,10 +208,6 @@ class Artifacts(QWidget):
         if category != ALL_FILTER:
             query.category = category
 
-        scope = self.scopeFilter.currentText()
-        if scope != ALL_FILTER:
-            query.scope = scope
-
         platform = self.platformFilter.currentText()
         if platform != ALL_FILTER:
             query.platform = platform
@@ -231,10 +215,6 @@ class Artifacts(QWidget):
         arch = self.archFilter.currentText()
         if arch != ALL_FILTER:
             query.arch = arch
-
-        target = self.targetFilter.currentText()
-        if target != ALL_FILTER:
-            query.target = target
 
         runtime = self.runtimeFilter.currentText()
         if runtime != ALL_FILTER:
@@ -269,7 +249,7 @@ class Artifacts(QWidget):
     def printArtifacts(self) -> None:
         self.artifactTable.setRowCount(len(self.artifacts))
         self.artifactTable.setHorizontalHeaderLabels(
-            ["Category", "Scope", "Target", "Name", "Platform", "Arch", "Runtime", "Format", "Size", "SHA256", "Source"]
+            ["Category", "Name", "Platform", "Arch", "Runtime", "Format", "Size", "SHA256", "Source"]
         )
 
         for row, artifact in enumerate(self.artifacts):
@@ -281,8 +261,6 @@ class Artifacts(QWidget):
 
             values = [
                 _text(_field(artifact, "category")),
-                _text(_field(artifact, "scope")),
-                _text(_field(artifact, "target")),
                 name,
                 _text(_field(artifact, "platform")),
                 _text(_field(artifact, "arch")),
@@ -298,8 +276,6 @@ class Artifacts(QWidget):
                     f"Artifact ID: {artifact_id}" if artifact_id else "",
                     f"Name: {name}" if name else "",
                     f"Display: {display_name}" if display_name and display_name != name else "",
-                    f"Scope: {_text(_field(artifact, 'scope'))}" if _text(_field(artifact, "scope")) else "",
-                    f"Target: {_text(_field(artifact, 'target'))}" if _text(_field(artifact, "target")) else "",
                     f"Source: {_text(_field(artifact, 'source'))}" if _text(_field(artifact, "source")) else "",
                     f"Size: {format_size(_field(artifact, 'size', 0))}",
                     f"SHA256: {full_hash}" if full_hash else "",

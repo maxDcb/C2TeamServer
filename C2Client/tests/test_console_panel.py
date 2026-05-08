@@ -462,7 +462,7 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
         target="beacon",
         platform="session.platform",
         arch="",
-        runtime="script",
+        runtime="",
         name_contains="",
     )
     powershell_filter = SimpleNamespace(
@@ -471,7 +471,7 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
         target="beacon",
         platform="windows",
         arch="",
-        runtime="script",
+        runtime="powershell",
         name_contains=".ps1",
     )
     script_spec = SimpleNamespace(
