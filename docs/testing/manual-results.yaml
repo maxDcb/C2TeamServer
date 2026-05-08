@@ -193,6 +193,14 @@ results:
     evidence: "Created TCP listener on 4444. .\\BeaconTcp.exe 172.28.141.244 4444 -> connection OK. loadModule/cd/ls/upload/cat commands completed over TCP."
     notes: "Windows beacon over TCP listener 4444."
 
+  - id: LISTENER-HTTP-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "HTTP listener on port 8000 accepted a Windows beacon. listModule returned no loaded modules, loadModule whoami and whoami completed successfully, loadModule ls and ls completed successfully, and sleep 0.01 returned 10ms."
+    notes: "Also retested that creating an HTTP listener on an already-used port is now rejected instead of creating a ghost listener."
+
   - id: LISTENER-SMB-001
     status: pass
     date: "2026-05-08"
