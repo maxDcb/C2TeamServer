@@ -19,6 +19,13 @@ class FakeGrpc:
                 artifact_id="artifact-1234567890",
                 name="hosted/dropper.exe",
                 display_name="dropper.exe",
+                category="upload",
+            ),
+            SimpleNamespace(
+                artifact_id="hosted-1234567890",
+                name="hosted/dropper.exe",
+                display_name="dropper.exe",
+                category="hosted",
             ),
         ])
 
@@ -69,7 +76,7 @@ FakeDropperModule.__name__ = "FakeDropper"
 
 
 def _completion_children(entries, text):
-    return next(children for entry_text, children in entries if entry_text == text)
+    return next(entry[1] for entry in entries if entry[0] == text)
 
 
 def test_extract_dropper_target_arch_accepts_aliases_and_removes_flag():
@@ -152,6 +159,20 @@ def test_terminal_host_uses_artifact_reference(qtbot):
     assert not any(command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction) for command in grpc.commands)
 
 
+def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
+    parent = QWidget()
+    grpc = FakeGrpc()
+    terminal = terminal_panel.Terminal(parent, grpc)
+    qtbot.addWidget(terminal)
+
+    terminal.runHost(
+        "Host dropper.exe(artifact-123) listener-pri",
+        ["Host", "dropper.exe(artifact-123)", "listener-pri"],
+    )
+
+    assert "hostArtifact listener-pri artifact-123" in grpc.commands
+
+
 def test_terminal_shows_welcome_message(qtbot):
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
@@ -221,7 +242,12 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
     assert (terminal_panel.SocksInstruction, []) in help_children
 
     host_children = _completion_children(completions, terminal_panel.HostInstruction)
-    artifact_children = _completion_children(host_children, "dropper.exe")
+    host_labels = [entry[0] for entry in host_children]
+    assert host_labels == ["dropper.exe (artifact-123)"]
+    assert "dropper.exe" not in host_labels
+    assert "artifact-1234567890" not in host_labels
+    assert "artifact-123" not in host_labels
+    artifact_children = _completion_children(host_children, "dropper.exe (artifact-123)")
     listener_children = _completion_children(artifact_children, "listener-primary")
     assert ("<hosted_filename>", []) in listener_children
 
@@ -239,6 +265,23 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
     socks_children = _completion_children(completions, terminal_panel.SocksInstruction)
     socks_bind_children = _completion_children(socks_children, "bind")
     assert ("beacon-active", []) in socks_bind_children
+
+
+def test_terminal_host_completer_displays_artifact_label_but_inserts_safe_token(qtbot):
+    completions = terminal_panel.build_terminal_completer_data(FakeGrpc())
+    completer = terminal_panel.CodeCompleter(completions)
+    qtbot.addWidget(completer.popup())
+
+    host_item = next(
+        completer.model().item(row)
+        for row in range(completer.model().rowCount())
+        if completer.model().item(row).text() == terminal_panel.HostInstruction
+    )
+    artifact_item = host_item.child(0)
+
+    assert artifact_item.text() == "dropper.exe (artifact-123)"
+    assert artifact_item.data(terminal_panel.CodeCompleter.MatchRole) == "dropper.exe(artifact-123)"
+    assert artifact_item.data(terminal_panel.CodeCompleter.ConcatenationRole) == "Host dropper.exe(artifact-123)"
 
 
 def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_path, qtbot, monkeypatch):

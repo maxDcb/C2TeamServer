@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-05-07"
+updated_at: "2026-05-08"
 description: >
   Manual validation results for scenarios defined in test-catalog.yaml. Keep
   this file result-only: every result id must already exist in the catalog.
@@ -35,10 +35,10 @@ results:
 
   - id: C2CLIENT-ARTIFACTS-LIST-001
     status: pass
-    date: "2026-05-07"
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Uploaded TXT artifact was visible in Artifacts tab and its ID could be copied from the panel."
+    evidence: "Uploaded TXT artifact was visible in Artifacts tab and its ID could be copied from the panel. Basic filters, Scripts, Generated, Upload, and Hosted views were validated."
     notes: "Validated through Artifacts panel workflow."
 
   - id: C2CLIENT-ARTIFACTS-UPLOAD-001
@@ -59,11 +59,11 @@ results:
 
   - id: C2CLIENT-TERMINAL-HOST-001
     status: pass
-    date: "2026-05-07"
+    date: "2026-05-08"
     build: "local-dev"
     tester: "max"
-    evidence: "Hosted the uploaded TXT artifact from Terminal using the copied artifact ID, then downloaded the hosted file from the browser."
-    notes: "Terminal host command works with artifact ID."
+    evidence: "Hosted the uploaded TXT artifact from Terminal using the copied artifact ID, then downloaded the hosted file from the browser. Host autocomplete now presents upload artifacts as name plus short hash and the command still resolves by name, short hash, or full hash."
+    notes: "Terminal host command works with artifact references and human-readable autocomplete."
 
   - id: TEAMSERVER-HOSTED-ARTIFACTS-001
     status: pass
@@ -80,6 +80,14 @@ results:
     tester: "max"
     evidence: "After the artifact delete fix, an uploaded artifact could be deleted directly from the Artifacts tab."
     notes: "Validated uploaded artifact delete from the client UI. Generated and hosted delete paths were already covered by automated tests."
+
+  - id: TEAMSERVER-ARTIFACT-CATALOG-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Artifacts tab validated base filters plus Scripts, Generated, Upload, and Hosted categories. Hosted artifact flow works after autocomplete cleanup."
+    notes: "Manual UI coverage complements TeamServer artifact catalog automated tests."
 
   - id: COMMON-LOADMODULE-001
     status: pass

@@ -435,8 +435,28 @@ def _add_completion_path(entries: list[tuple[str, list]], parts: list[str]) -> N
         _add_completion_path(children, parts[1:])
 
 
-def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple[str, list]]) -> None:
-    for text, children in source:
+def _completion_text(entry: tuple) -> str:
+    return str(entry[0]).strip() if entry else ""
+
+
+def _completion_children(entry: tuple) -> list[tuple]:
+    if len(entry) < 2 or entry[1] is None:
+        return []
+    return entry[1]
+
+
+def _completion_insert_text(entry: tuple) -> str:
+    if len(entry) >= 3:
+        insert_text = str(entry[2]).strip()
+        if insert_text:
+            return insert_text
+    return _completion_text(entry)
+
+
+def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple]) -> None:
+    for entry in source:
+        text = _completion_text(entry)
+        children = _completion_children(entry)
         _add_completion_path(destination, [text])
         destination_entry = next(entry for entry in destination if entry[0] == text)
         if children:
@@ -454,18 +474,44 @@ def _safe_completion_token(value: Any) -> str:
     return text
 
 
-def _artifact_completion_values(artifact: Any) -> list[str]:
-    values = []
+def _artifact_short_reference(artifact: Any) -> str:
     artifact_id = _safe_completion_token(_field(artifact, "artifact_id"))
-    if artifact_id:
-        values.append(artifact_id)
-        if len(artifact_id) > 12:
-            values.append(artifact_id[:12])
-    for field_name in ("name", "display_name"):
-        token = _safe_completion_token(_field(artifact, field_name))
-        if token:
-            values.append(token)
-    return list(dict.fromkeys(values))
+    if not artifact_id:
+        return ""
+    if len(artifact_id) > 12:
+        return artifact_id[:12]
+    return artifact_id
+
+
+def _artifact_display_name(artifact: Any) -> str:
+    display_name = str(_field(artifact, "display_name") or "").strip()
+    if display_name:
+        return display_name
+    name = str(_field(artifact, "name") or "").strip()
+    if name:
+        return re.split(r"[\\/]", name)[-1] or name
+    return _artifact_short_reference(artifact)
+
+
+def _is_hostable_artifact(artifact: Any) -> bool:
+    category = str(_field(artifact, "category") or "").strip().lower()
+    return category != "hosted"
+
+
+def _host_artifact_entry(artifact: Any, children: list[tuple]) -> tuple[str, list, str] | None:
+    short_reference = _artifact_short_reference(artifact)
+    display_name = _artifact_display_name(artifact)
+    if not display_name:
+        return None
+    if not short_reference:
+        insert_token = _safe_completion_token(display_name)
+        if not insert_token:
+            return None
+        return (display_name, children.copy(), insert_token)
+    label = f"{display_name} ({short_reference})"
+    safe_display_name = _safe_completion_token(display_name)
+    insert_token = f"{safe_display_name}({short_reference})" if safe_display_name else short_reference
+    return (label, children.copy(), insert_token)
 
 
 def _listener_completion_values(listener: Any) -> list[str]:
@@ -492,16 +538,26 @@ def _module_completion_name(module: Any) -> str:
     return _safe_completion_token(getattr(module, "__name__", ""))
 
 
-def _artifact_entries(artifacts: list[Any], children: list[tuple[str, list]]) -> list[tuple[str, list]]:
-    entries: list[tuple[str, list]] = []
+def _host_artifact_entries(artifacts: list[Any], children: list[tuple[str, list]]) -> list[tuple]:
+    entries: list[tuple] = []
     for artifact in artifacts:
-        for value in _artifact_completion_values(artifact):
-            _add_completion_path(entries, [value])
-            artifact_entry = next(entry for entry in entries if entry[0] == value)
-            _merge_completion_entries(artifact_entry[1], children)
+        if not _is_hostable_artifact(artifact):
+            continue
+        entry = _host_artifact_entry(artifact, children)
+        if entry is None:
+            continue
+        entries.append(entry)
     if not entries:
         entries.append(("<artifact_id|name>", children.copy()))
     return entries
+
+
+def _host_artifact_reference_from_token(token: str) -> str:
+    text = str(token or "").strip()
+    match = re.match(r"^.+\(([^()\s]+)\)$", text)
+    if match:
+        return match.group(1)
+    return text
 
 
 def _listener_entries(listeners: list[Any], children: list[tuple[str, list]] | None = None) -> list[tuple[str, list]]:
@@ -584,7 +640,7 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
 
     return [
         (HelpInstruction, [(command, []) for command in terminal_commands]),
-        (HostInstruction, _artifact_entries(artifacts, listener_with_optional_filename)),
+        (HostInstruction, _host_artifact_entries(artifacts, listener_with_optional_filename)),
         (DropperInstruction, dropper_children),
         (BatcaveInstruction, [("Install", []), ("BundleInstall", []), ("Search", [])]),
         (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, [])]),
@@ -1010,7 +1066,7 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, HostHelp)
             return;
 
-        artifactReference = instructions[1]
+        artifactReference = _host_artifact_reference_from_token(instructions[1])
         hostListenerHash = instructions[2]
         hostedFilename = instructions[3] if len(instructions) >= 4 else ""
 
@@ -1491,10 +1547,12 @@ class CommandEditor(QLineEdit):
 
 class CodeCompleter(QCompleter):
     ConcatenationRole = Qt.ItemDataRole.UserRole + 1
+    MatchRole = Qt.ItemDataRole.UserRole + 2
 
     def __init__(self, data, parent=None):
         super().__init__(parent)
         self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.setCompletionRole(CodeCompleter.MatchRole)
         self.createModel(data)
 
     def updateData(self, data):
@@ -1508,9 +1566,13 @@ class CodeCompleter(QCompleter):
 
     def createModel(self, data):
         def addItems(parent, elements, t=""):
-            for text, children in elements:
+            for entry in elements:
+                text = _completion_text(entry)
+                children = _completion_children(entry)
+                insert_text = _completion_insert_text(entry)
                 item = QStandardItem(text)
-                data = t + " " + text if t else text
+                item.setData(insert_text, CodeCompleter.MatchRole)
+                data = t + " " + insert_text if t else insert_text
                 item.setData(data, CodeCompleter.ConcatenationRole)
                 parent.appendRow(item)
                 if children:
