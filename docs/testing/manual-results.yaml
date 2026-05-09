@@ -616,3 +616,107 @@ results:
     tester: "max"
     evidence: "Initial rebuilt WindowsModules/x64 DLLs returned Prepared shellcode tasks are not supported by this module, indicating a server/test ABI build. After replacing the modules, strings on build/artifacts/Release/WindowsModules/x64/*.dll no longer finds that server/test-only message, and screenShot executes successfully."
     notes: "The ABI issue is resolved for the current x64 module set, but the full Windows release artifact layout still needs a clean release validation across expected arches before marking this pass."
+
+  - id: MODULE-CHISEL-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the required chisel tool/runtime setup is not available in the current lab."
+    notes: "Keep as blocked until a suitable chisel.exe artifact and network validation setup are available."
+
+  - id: MODULE-COFFLOADER-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no known-good COFF test artifact is available in the current lab."
+    notes: "Keep as blocked until a controlled COFF artifact is added under Tools/Windows/x64."
+
+  - id: MODULE-KERBEROSUSETICKET-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because there is no Kerberos lab context/ticket setup for a meaningful functional validation."
+    notes: "Requires a controlled .kirbi ticket and domain/lab context."
+
+  - id: MODULE-MINIDUMP-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the current lab does not have the intended elevated/safe dump validation setup."
+    notes: "Requires an explicit safe target/process and artifact verification path before marking pass."
+
+  - id: MODULE-PSEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows target/service-execution lab setup is available."
+    notes: "Requires a controlled remote host, credentials, and service executable artifact."
+
+  - id: MODULE-REVERSEPORTFORWARD-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the current lab does not have the desired live forwarding setup available."
+    notes: "Requires a controlled local service and remote beacon-side connectivity check."
+
+  - id: MODULE-CIMEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-DCOMEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-SSHEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no controlled SSH execution target is available."
+    notes: "Part of the remote execution module group."
+
+  - id: MODULE-WINRM-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no WinRM-enabled remote Windows lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-WMIEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-WINDOWS-EXEC-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the remote execution lab setup is not available."
+    notes: "Group remains blocked until cimExec, dcomExec, sshExec, winRm, and wmiExec can be validated against controlled targets."
+
+  - id: TEAMSERVER-SOCKS-SERVICE-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Terminal SOCKS lifecycle validated: bind before start returned Socks server not running; start succeeded on port 1080; duplicate start returned already running; bind succeeded for beacon iON5Ki2e; duplicate bind returned already bind; unbind succeeded; stop succeeded; restart and rebind also succeeded. End-to-end traffic validated with curl --socks5 127.0.0.1:1080 http://example.com/ -I returning HTTP/1.1 200 OK. After socks unbind and socks stop, curl against 127.0.0.1:1080 failed with curl: (7) Couldn't connect to server."
+    notes: "Covers TeamServer SOCKS service lifecycle, terminal error handling, bind/rebind behavior, live proxied HTTP traffic through the bound beacon, and shutdown behavior."
