@@ -402,6 +402,17 @@ entries:
       auto: ["teamServer/tests/TeamServerSocksServiceTests.cpp"]
       manual: ["Run terminal socks start/list/stop against a live beacon route."]
 
+  - id: TEAMSERVER-SOCKS-STRESS-001
+    area: TeamServer
+    feature: SOCKS stress
+    scenario: "Sustain concurrent SOCKS5 HTTP(S) requests through a bound live beacon and report latency/error distribution."
+    priority: high
+    validation: manual
+    axes: {os: teamserver, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: []
+      manual: ["Run scripts/socks5_stress_test.py against a live socks start/bind route with a fixed request/concurrency target."]
+
   - id: BEACON-CORE-REGISTER-001
     area: Beacon
     feature: Registration and metadata

@@ -720,3 +720,11 @@ results:
     tester: "max"
     evidence: "Terminal SOCKS lifecycle validated: bind before start returned Socks server not running; start succeeded on port 1080; duplicate start returned already running; bind succeeded for beacon iON5Ki2e; duplicate bind returned already bind; unbind succeeded; stop succeeded; restart and rebind also succeeded. End-to-end traffic validated with curl --socks5 127.0.0.1:1080 http://example.com/ -I returning HTTP/1.1 200 OK. After socks unbind and socks stop, curl against 127.0.0.1:1080 failed with curl: (7) Couldn't connect to server."
     notes: "Covers TeamServer SOCKS service lifecycle, terminal error handling, bind/rebind behavior, live proxied HTTP traffic through the bound beacon, and shutdown behavior."
+
+  - id: TEAMSERVER-SOCKS-STRESS-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "scripts/socks5_stress_test.py --proxy-host 127.0.0.1 --proxy-port 1080 --url http://example.com/ --requests 300 --concurrency 25 --timeout 15 --expect-status 200 completed with 300 passed, 0 failed, HTTP 200:300, elapsed 9.46s, throughput 31.72 req/s, p50 775.9ms, p95 926.4ms, p99 1105.3ms."
+    notes: "The stress tool resolves the target hostname locally to IPv4 by default because the current TeamServer SOCKS path supports IPv4 CONNECT but not SOCKS domain-name CONNECT."
