@@ -1,5 +1,5 @@
 schema_version: 1
-updated_at: "2026-05-08"
+updated_at: "2026-05-09"
 description: >
   Manual validation results for scenarios defined in test-catalog.yaml. Keep
   this file result-only: every result id must already exist in the catalog.
@@ -163,10 +163,10 @@ results:
 
   - id: MODULE-RUN-CONTRACT-001
     status: pass
-    date: "2026-05-07"
+    date: "2026-05-09"
     build: "local-dev"
     tester: "max"
-    evidence: "Executed dir through loaded run.dll successfully."
+    evidence: "Executed dir through loaded run.dll successfully. Retested run whoami on a Windows beacon during the module batch and the command completed successfully."
     notes: "Windows beacon over HTTPS."
 
   - id: BEACON-CORE-TASK-QUEUE-001
@@ -264,6 +264,222 @@ results:
     tester: "max"
     evidence: "loadModule download succeeded. download test1234.txt stored 1778165820263799973-a83c-test1234.txt. download C:\\Windows\\System32\\OneDriveSetup.exe stored 1778165909382546237-5f96-OneDriveSetup.exe. Download from Artifacts worked and SHA-256 hash check was OK."
     notes: "Validated small and large file download from Windows beacon."
+
+  - id: MODULE-PWD-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule pwd and pwd completed successfully on a Windows beacon."
+    notes: "Validated during the simple module batch."
+
+  - id: MODULE-MKDIR-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule mkDir and mkDir C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated directory creation on a Windows beacon."
+
+  - id: MODULE-TREE-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule tree and tree C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated tree output on the test directory created by mkDir."
+
+  - id: MODULE-REMOVE-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule remove and remove C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated file/directory removal on a Windows beacon."
+
+  - id: MODULE-SIMPLE-FILESYSTEM-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated cat, cd, ls, pwd, mkDir, tree, remove, upload, and download across the Windows module batches and golden paths."
+    notes: "Combines prior cat/cd/ls/upload/download validation with the 2026-05-09 pwd/mkDir/tree/remove batch."
+
+  - id: MODULE-WHOAMI-CONTRACT-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule whoami and whoami completed successfully over the HTTP listener test; output included the current user and group memberships."
+    notes: "Windows beacon over HTTP."
+
+  - id: MODULE-GETENV-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule getEnv and getEnv completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-IPCONFIG-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule ipConfig and ipConfig completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-NETSTAT-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule netstat and netstat completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-PS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule ps and ps completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-KILLPROCESS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule killProcess succeeded and killProcess was validated against a safe test process."
+    notes: "Windows beacon module test."
+
+  - id: MODULE-SHELL-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule shell succeeded. shell whoami returned desktop-92jlelp\\max, shell exit returned shell terminated, and a later shell whoami also returned desktop-92jlelp\\max."
+    notes: "Current behavior allows a shell command after exit to start a new shell/process instance; keep as observed behavior unless the shell lifecycle contract is tightened."
+
+  - id: MODULE-SIMPLE-SYSTEM-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated whoami, getEnv, ipConfig, netstat, ps, killProcess, shell, and run across the Windows simple system module batches."
+    notes: "Combines the 2026-05-08 HTTP whoami/run coverage with the 2026-05-09 simple system and killProcess tests."
+
+  - id: MODULE-REGISTRY-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule registry succeeded. registry createKey/set/query/deleteValue/deleteKey against HKCU\\Software\\C2ModuleTest completed and query returned Type: 1, Data: ok."
+    notes: "Validated local Windows registry lifecycle on a Windows beacon."
+
+  - id: MODULE-ENUMERATESHARES-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule enumerateShares succeeded. enumerateShares returned ADMIN$, C$, D$, E$, and IPC$ with readable descriptions."
+    notes: "Validated local share enumeration on a Windows beacon."
+
+  - id: MODULE-ENUMERATERDPSESSIONS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule enumerateRdpSessions succeeded. enumerateRdpSessions returned the active Console session for DESKTOP-92JLELP\\Max with readable columns."
+    notes: "Validated local RDP session enumeration on a Windows beacon."
+
+  - id: MODULE-TASKSCHEDULER-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule taskScheduler succeeded. taskScheduler created, started, and deleted the C2ModuleTest task; the task wrote c2-task-ok and the test file was removed afterward."
+    notes: "Validated local scheduled task execution and cleanup on a Windows beacon."
+
+  - id: MODULE-EVASION-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule evasion succeeded. evasion CheckHooks completed with readable hook-check output for the expected Windows DLLs."
+    notes: "Smoke test kept to CheckHooks to avoid mutating process telemetry state."
+
+  - id: MODULE-WINDOWS-ADMIN-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated registry, taskScheduler, evasion CheckHooks, enumerateShares, and enumerateRdpSessions on a Windows x64 beacon."
+    notes: "Windows admin module group covered by local, non-remote smoke tests."
+
+  - id: MODULE-STEALTOKEN-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule stealToken succeeded. stealToken was validated against a safe process token; while impersonated, whoami returned No information."
+    notes: "The No information result is accepted for this test because it depends on token type and group lookup behavior."
+
+  - id: MODULE-REV2SELF-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule rev2self succeeded. rev2self returned Reverted to self, and a following whoami returned User: Max with expected group information."
+    notes: "Validated return to the original Windows beacon token context after impersonation."
+
+  - id: MODULE-SPAWNAS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule spawnAs succeeded. spawnAs --no-profile .\\c2test launched cmd.exe and wrote c2-spawnas-ok to C:\\Users\\Public\\c2-spawnas.txt; cat verified the content and the file was removed."
+    notes: "Default --with-profile path hit CreateProcessAsUserW privilege error 0x522 in this beacon context; --no-profile is the validated smoke-test path."
+
+  - id: MODULE-MAKETOKEN-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule makeToken succeeded. makeToken c2test with the local test account returned successful login/impersonation and rev2self returned to the original Max context."
+    notes: "Because makeToken uses LOGON32_LOGON_NEW_CREDENTIALS, whoami continued to show the local identity; this is expected for the validated mode."
+
+  - id: MODULE-WINDOWS-PRIVILEGE-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated makeToken, stealToken, rev2self, and spawnAs with a local c2test account and a safe process token."
+    notes: "spawnAs validated with --no-profile; makeToken validated as net-credentials impersonation where whoami can keep reporting the local identity."
+
+  - id: MODULE-KEYLOGGER-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule keyLogger succeeded. keyLogger start, dump, and stop were tested and returned cleanly."
+    notes: "Smoke test validates current in-memory keylogger lifecycle. Persisting incremental output to GeneratedArtifacts/keylogger remains tracked by MODULE-KEYLOGGER-GENERATED-ARTIFACT-002."
+
+  - id: MODULE-SCRIPT-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule script succeeded. script test.cmd from uploaded artifacts executed successfully on a Windows beacon; Linux script execution from UploadedArtifacts/testScript.sh was already validated in the Linux golden path."
+    notes: "Windows autocomplete initially missed uploaded .cmd artifacts because the CommandSpec only queried server scripts; the spec now includes upload artifact filters for cmd/shell scripts."
+
+  - id: MODULE-DOTNETEXEC-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule dotnetExec succeeded. dotnetExec load and run were tested successfully against a .NET tool artifact."
+    notes: "Validated Windows x64 .NET assembly load/execute path and tool autocomplete behavior during module stabilization."
 
   - id: C2CLIENT-ARTIFACTS-DOWNLOAD-001
     status: pass

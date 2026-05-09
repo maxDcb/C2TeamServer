@@ -454,17 +454,28 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
 
         def listArtifacts(self, query):
             self.queries.append(query)
-            if query.platform == "linux":
+            if query.category == "script" and query.platform == "linux" and query.runtime == "shell":
                 return iter([SimpleNamespace(name="cleanup.sh", display_name="cleanup.sh")])
+            if query.category == "upload" and query.platform == "linux" and query.runtime == "shell":
+                return iter([SimpleNamespace(name="uploadedCleanup.sh", display_name="uploadedCleanup.sh")])
             return iter([SimpleNamespace(name="PowerView.ps1", display_name="PowerView.ps1")])
 
-    script_filter = SimpleNamespace(
+    script_server_filter = SimpleNamespace(
         category="script",
         scope="server",
         target="beacon",
         platform="session.platform",
         arch="",
-        runtime="",
+        runtime="shell",
+        name_contains="",
+    )
+    script_upload_filter = SimpleNamespace(
+        category="upload",
+        scope="operator",
+        target="beacon",
+        platform="session.platform",
+        arch="session.arch",
+        runtime="shell",
         name_contains="",
     )
     powershell_filter = SimpleNamespace(
@@ -481,7 +492,12 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
         kind="module",
         examples=["script cleanup.sh"],
         args=[
-            SimpleNamespace(name="script_artifact", type="artifact", values=[], artifact_filter=script_filter),
+            SimpleNamespace(
+                name="script_artifact",
+                type="artifact",
+                values=[],
+                artifact_filters=[script_server_filter, script_upload_filter],
+            ),
         ],
     )
     powershell_spec = SimpleNamespace(
@@ -519,6 +535,7 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
 
     script_children = _completion_children(server_data, "script")
     assert ("cleanup.sh", []) in script_children
+    assert ("uploadedCleanup.sh", []) in script_children
 
     powershell_children = _completion_children(server_data, "powershell")
     assert _completion_children(powershell_children, "-i")
@@ -529,7 +546,10 @@ def test_script_and_powershell_commands_use_script_artifact_completions():
     assert not _completion_children(pwsh_children, "run")
     assert grpc.queries[0].category == "script"
     assert grpc.queries[0].platform == "linux"
-    assert grpc.queries[1].platform == "windows"
+    assert grpc.queries[1].category == "upload"
+    assert grpc.queries[1].platform == "linux"
+    assert grpc.queries[1].arch == "x64"
+    assert grpc.queries[2].platform == "windows"
 
 
 def test_command_specs_add_flag_completions_without_positional_mode_mix():
