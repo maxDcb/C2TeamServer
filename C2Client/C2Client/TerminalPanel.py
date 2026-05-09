@@ -6,8 +6,8 @@ import re
 import subprocess
 from datetime import datetime
 from typing import Any
-from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QStandardItem, QStandardItemModel, QShortcut, QTextCursor, QTextDocument
+from PyQt6.QtCore import QPoint, Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
+from PyQt6.QtGui import QGuiApplication, QStandardItem, QStandardItemModel, QShortcut, QTextCursor, QTextDocument
 from PyQt6.QtWidgets import (
     QCompleter,
     QHBoxLayout,
@@ -594,10 +594,9 @@ def _listener_completion_values(listener: Any) -> list[str]:
     listener_hash = _safe_completion_token(_field(listener, "listener_hash"))
     if not listener_hash:
         return []
-    values = [listener_hash]
     if len(listener_hash) > 8:
-        values.append(listener_hash[:8])
-    return list(dict.fromkeys(values))
+        return [listener_hash[:8]]
+    return [listener_hash]
 
 
 def _session_completion_values(session: Any) -> list[str]:
@@ -1575,6 +1574,7 @@ class CommandEditor(QLineEdit):
         self.codeCompleter.activated.connect(self.onActivated)
         self.setCompleter(self.codeCompleter)
         self.tabPressed.connect(self.nextCompletion)
+        self.textEdited.connect(self.scheduleCompletionPopup)
 
     def refreshCompleter(self, force=False):
         completionData = build_terminal_completer_data(self.grpcClient)
@@ -1582,10 +1582,81 @@ class CommandEditor(QLineEdit):
             self.completionData = completionData
             self.codeCompleter.updateData(completionData)
 
+    def completionPrefix(self):
+        return self.text()[:self.cursorPosition()]
+
+    def completionLookupPrefix(self):
+        prefix = self.completionPrefix()
+        stripped = prefix.strip()
+        if stripped and stripped == prefix and any(entry[0] == stripped and entry[1] for entry in self.completionData):
+            return prefix + " "
+        return prefix
+
+    def openCompletionPopup(self):
+        popup = self.codeCompleter.popup()
+        width = max(self.width(), popup.sizeHintForColumn(0) + popup.verticalScrollBar().sizeHint().width() + 24)
+        popup.setMinimumWidth(width)
+        rect = self.rect()
+        rect.setWidth(width)
+        self.codeCompleter.complete(rect)
+
+        visible_rows = min(max(self.codeCompleter.completionCount(), 1), self.codeCompleter.maxVisibleItems())
+        row_height = max(popup.sizeHintForRow(0), popup.fontMetrics().height() + 6)
+        height = row_height * visible_rows + 2 * popup.frameWidth() + 4
+        popup.resize(width, height)
+        popup.move(self.completionPopupPosition(popup))
+        popup.show()
+        popup.raise_()
+
+    def completionPopupPosition(self, popup):
+        below = self.mapToGlobal(QPoint(0, self.height()))
+        screen = QGuiApplication.screenAt(below)
+        if screen is None and self.window() and self.window().windowHandle():
+            screen = self.window().windowHandle().screen()
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return below
+
+        geometry = screen.availableGeometry()
+        x = min(max(below.x(), geometry.left()), max(geometry.left(), geometry.right() - popup.width() + 1))
+        y = below.y()
+        if y + popup.height() > geometry.bottom() + 1:
+            above = self.mapToGlobal(QPoint(0, 0)).y() - popup.height()
+            if above >= geometry.top():
+                y = above
+            else:
+                y = max(geometry.top(), geometry.bottom() - popup.height() + 1)
+        return QPoint(x, y)
+
+    def showCompletionPopup(self, _text=None, allowEmpty=False):
+        prefix = self.completionLookupPrefix()
+        popup = self.codeCompleter.popup()
+        if not prefix.strip() and not allowEmpty:
+            popup.hide()
+            return False
+
+        self.codeCompleter.setCompletionPrefix(prefix)
+        if self.codeCompleter.completionCount() <= 0:
+            popup.hide()
+            return False
+
+        if self.codeCompleter.currentRow() < 0:
+            self.codeCompleter.setCurrentRow(0)
+        self.openCompletionPopup()
+        return True
+
+    def scheduleCompletionPopup(self, _text=None):
+        QTimer.singleShot(0, self.showCompletionPopup)
+
     def nextCompletion(self):
-        self.refreshCompleter()
+        popup = self.codeCompleter.popup()
+        if not popup.isVisible():
+            self.showCompletionPopup(allowEmpty=True)
+            return
+
         index = self.codeCompleter.currentIndex()
-        self.codeCompleter.popup().setCurrentIndex(index)
+        popup.setCurrentIndex(index)
         start = self.codeCompleter.currentRow()
         if not self.codeCompleter.setCurrentRow(start + 1):
             self.codeCompleter.setCurrentRow(0)
@@ -1628,6 +1699,8 @@ class CodeCompleter(QCompleter):
     def __init__(self, data, parent=None):
         super().__init__(parent)
         self.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.setMaxVisibleItems(8)
         self.setCompletionRole(CodeCompleter.MatchRole)
         self.createModel(data)
 

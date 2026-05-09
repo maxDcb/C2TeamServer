@@ -219,6 +219,25 @@ void testPrepareCommonCommand()
     assert(service.prepareMessage("sleep 0.5", message, true) == 0);
     assert(message.instruction() == SleepCmd);
 
+    C2Message zeroSleepMessage;
+    assert(service.prepareMessage("sleep 0", zeroSleepMessage, true) == 0);
+    assert(zeroSleepMessage.instruction() == SleepCmd);
+
+    C2Message invalidSleepMessage;
+    assert(service.prepareMessage("sleep abc", invalidSleepMessage, true) == -1);
+    assert(invalidSleepMessage.instruction().empty());
+    assert(invalidSleepMessage.returnvalue().find("Invalid sleep interval") != std::string::npos);
+
+    C2Message partialSleepMessage;
+    assert(service.prepareMessage("sleep 1abc", partialSleepMessage, true) == -1);
+    assert(partialSleepMessage.instruction().empty());
+    assert(partialSleepMessage.returnvalue().find("Invalid sleep interval") != std::string::npos);
+
+    C2Message negativeSleepMessage;
+    assert(service.prepareMessage("sleep -1", negativeSleepMessage, true) == -1);
+    assert(negativeSleepMessage.instruction().empty());
+    assert(negativeSleepMessage.returnvalue().find("Invalid sleep interval") != std::string::npos);
+
     C2Message listenerMessage;
     assert(service.prepareMessage("listener start tcp 0.0.0.0 4444", listenerMessage, true) == 0);
     assert(listenerMessage.instruction() == ListenerCmd);

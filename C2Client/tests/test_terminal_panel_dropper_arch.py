@@ -294,13 +294,15 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
     assert "artifact-1234567890" not in host_labels
     assert "artifact-123" not in host_labels
     artifact_children = _completion_children(host_children, "dropper.exe (artifact-123)")
-    listener_children = _completion_children(artifact_children, "listener-primary")
+    assert ("listener-primary", []) not in artifact_children
+    listener_children = _completion_children(artifact_children, "listener")
     assert ("<hosted_filename>", []) in listener_children
 
     dropper_children = _completion_children(completions, terminal_panel.DropperInstruction)
     module_children = _completion_children(dropper_children, "FakeDropper")
-    download_listener_children = _completion_children(module_children, "listener-primary")
-    beacon_listener_children = _completion_children(download_listener_children, "listener-primary")
+    assert ("listener-primary", []) not in module_children
+    download_listener_children = _completion_children(module_children, "listener")
+    beacon_listener_children = _completion_children(download_listener_children, "listener")
     arch_children = _completion_children(beacon_listener_children, "--arch")
     assert ("arm64", []) in arch_children
 
@@ -335,9 +337,34 @@ def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_p
     editor = terminal_panel.CommandEditor(grpcClient=FakeGrpc())
     qtbot.addWidget(editor)
 
-    assert editor.codeCompleter.setCurrentRow(0) is True
+    editor.nextCompletion()
+    assert editor.codeCompleter.popup().isVisible()
+    assert editor.codeCompleter.currentRow() == 0
+
     editor.nextCompletion()
     assert editor.codeCompleter.currentRow() == 1
 
     editor.nextCompletion()
     assert editor.codeCompleter.currentRow() == 2
+
+
+def test_terminal_command_editor_opens_completer_while_typing(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    editor = terminal_panel.CommandEditor(grpcClient=FakeGrpc())
+    qtbot.addWidget(editor)
+    editor.show()
+    editor.setFocus()
+
+    qtbot.keyClicks(editor, "h")
+    qtbot.wait(10)
+
+    assert editor.completionPrefix() == "h"
+    assert editor.codeCompleter.popup().isVisible()
+    assert editor.codeCompleter.currentRow() == 0
+
+    editor.setText("host")
+    editor.setCursorPosition(4)
+    assert editor.showCompletionPopup()
+    assert editor.completionPrefix() == "host"
+    assert editor.codeCompleter.completionPrefix() == "host "
+    assert editor.codeCompleter.currentCompletion() == "host dropper.exe(artifact-123)"
