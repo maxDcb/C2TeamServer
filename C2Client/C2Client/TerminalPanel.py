@@ -1553,7 +1553,6 @@ class CommandEditor(CompletionInput):
         super().__init__(
             parent,
             completion_data=build_terminal_completer_data(grpcClient),
-            refresh_on_focus=True,
         )
         self.grpcClient = grpcClient
         self._completionProvider = self.loadCompletionData

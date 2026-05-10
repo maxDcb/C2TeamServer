@@ -28,6 +28,7 @@ from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style
 from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
+from .window_chrome import apply_dark_window_chrome
 
 logger = logging.getLogger(__name__)
 
@@ -570,6 +571,7 @@ class CreateListner(QWidget):
     def __init__(self, existingListenersProvider=None):
         super().__init__()
         self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        apply_dark_panel_style(self)
         
         layout = QFormLayout()
         layout.setContentsMargins(12, 12, 12, 12)
@@ -616,11 +618,16 @@ class CreateListner(QWidget):
         self.setLayout(layout)
         self.setWindowTitle(AddListenerWindowTitle)
         self.setMinimumWidth(360)
+        apply_dark_window_chrome(self)
         self.param1.textChanged.connect(self.updateFormState)
         self.param2.textChanged.connect(self.updateFormState)
         self.param1.returnPressed.connect(self.checkAndSend)
         self.param2.returnPressed.connect(self.checkAndSend)
         self.changeLabels()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        apply_dark_window_chrome(self)
 
     def setExistingListenersProvider(self, existingListenersProvider):
         self.existingListenersProvider = existingListenersProvider or (lambda: [])

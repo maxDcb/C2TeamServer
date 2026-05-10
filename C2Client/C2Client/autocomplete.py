@@ -324,12 +324,14 @@ class CompletionInput(QWidget):
 
     def nextCompletion(self) -> None:
         if not self.dropdown.isVisible():
+            self.refreshCompletions()
             self.showCompletionPopup(allowEmpty=True, descendExact=True)
             return
         self.moveSelection(1)
 
     def previousCompletion(self) -> None:
         if not self.dropdown.isVisible():
+            self.refreshCompletions()
             if self.showCompletionPopup(allowEmpty=True, descendExact=True):
                 self.moveSelection(-1)
             return

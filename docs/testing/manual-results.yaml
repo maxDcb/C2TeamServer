@@ -800,3 +800,35 @@ results:
     tester: "max"
     evidence: "Manual UI validation confirmed the Graph panel separates listeners/sessions/pivots by default, Auto redistributes nodes, Fit recenters, +/- zoom works, manual positions remain stable after refresh, the redundant Graph frame is absent, dark theme is consistent, and labels/tooltips are readable."
     notes: "Validated during UI stabilization after graph layout, zoom, and theme polish."
+
+  - id: C2CLIENT-MAIN-THEME-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the main window, sessions, listeners, graph, terminal/consoles, hooks, Data AI, Add Listener dialog, and native Windows window chrome are visually harmonized with the dark theme."
+    notes: "Validated after applying the shared dark panel style to remaining panels and DWM dark chrome on Windows."
+
+  - id: ARTIFACT-TOOLS-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual validation confirmed Tools artifacts are visible in the Artifacts tab, filters by platform/arch behave correctly, downloads work from the tab, compatible tools are proposed by autocomplete, and tool-backed commands can consume the selected artifacts."
+    notes: "Closes the critical Tools artifact gap after the artifact catalog and CommandSpec autocomplete stabilization."
+
+  - id: RELEASE-LINUX-ARTIFACTS-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual validation after a clean Linux build/release confirmed LinuxBeacons/<arch>, LinuxModules/<arch>, Tools/Linux/<arch>, Scripts/Linux, and CommandSpecs are present in the expected release layout. Artifacts filters show the Linux x64 entries correctly, and a short Linux beacon golden path with listModule/loadModule/cd/ls/upload/download works."
+    notes: "Closes the last non-blocked critical release artifact gap for the Linux side."
+
+  - id: C2CLIENT-CONSOLE-HELP-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual beacon console validation confirmed help output for help, sleep, assemblyExec, inject, upload, download, and listModule renders from CommandSpecs with clear usage, readable arguments, coherent examples, and no legacy << or >> markers."
+    notes: "Validated after the CommandSpec help migration and console formatting cleanup."

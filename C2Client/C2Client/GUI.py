@@ -39,6 +39,7 @@ from .ui_status import (
     format_last_error,
     format_last_rpc,
 )
+from .window_chrome import apply_dark_window_chrome
 
 import qdarktheme
 
@@ -69,6 +70,7 @@ class CredentialDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Login")
         self.setModal(True)
+        apply_dark_window_chrome(self)
 
         layout = QVBoxLayout(self)
         description = QLabel("Login:")
@@ -106,6 +108,10 @@ class CredentialDialog(QDialog):
 
     def credentials(self) -> Tuple[str, str]:
         return self.username_input.text().strip(), self.password_input.text()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        apply_dark_window_chrome(self)
 
 
 class App(QMainWindow):
@@ -146,6 +152,7 @@ class App(QMainWindow):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
         apply_main_window_style(self)
+        apply_dark_window_chrome(self)
 
         self.rpcStatusEvents = RpcStatusEvents(self)
         self.rpcStatusEvents.rpcStatus.connect(self.updateRpcStatus)
@@ -270,6 +277,10 @@ class App(QMainWindow):
         """Ensure scripts are stopped when the window is destroyed."""
         if hasattr(self, 'consoleWidget'):
             self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        apply_dark_window_chrome(self)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

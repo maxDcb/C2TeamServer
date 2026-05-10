@@ -1,6 +1,7 @@
 import os
 from types import SimpleNamespace
 
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QWidget
 
 import C2Client.grpcClient as grpc_client_module
@@ -12,6 +13,7 @@ from C2Client.ConsolePanel import (
     Console,
     ConsolesTab,
     DOTNET_LOAD_NAME_PLACEHOLDER,
+    SYSTEM_TAB_COUNT,
     _load_artifacts_for_arg,
     build_completer_data,
     console_completion_options,
@@ -58,6 +60,12 @@ class StubGrpc:
 class DummyPanel(QWidget):
     def __init__(self, parent=None, *_args, **_kwargs):
         super().__init__(parent)
+
+    def consoleScriptMethod(self, *args, **kwargs):
+        pass
+
+    def consoleAssistantMethod(self, *args, **kwargs):
+        pass
 
 
 def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
@@ -330,6 +338,51 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
         assert page.layout().contentsMargins().left() == 0
         assert page.layout().contentsMargins().top() == 0
         assert page.layout().spacing() == 0
+
+
+def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
+    class FakeConsole(QWidget):
+        consoleScriptSignal = pyqtSignal(str, str, str, str, str, str, str)
+        instances = []
+
+        def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):
+            super().__init__(parent)
+            self.beaconHash = beaconHash
+            self.pollingActive = None
+            self.pollingStates = []
+            FakeConsole.instances.append(self)
+
+        def setResponsePollingActive(self, active):
+            self.pollingActive = active
+            self.pollingStates.append(active)
+
+    monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Artifacts', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Commands', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.Console', FakeConsole)
+
+    parent = QWidget()
+    consoles = ConsolesTab(parent, StubGrpc())
+    qtbot.addWidget(consoles)
+
+    consoles.addConsole("beacon-1", "listener", "host", "user")
+    first = FakeConsole.instances[0]
+    assert first.pollingActive is True
+
+    consoles.addConsole("beacon-2", "listener", "host", "user")
+    second = FakeConsole.instances[1]
+    assert first.pollingActive is False
+    assert second.pollingActive is True
+
+    consoles.tabs.setCurrentIndex(SYSTEM_TAB_COUNT)
+    assert first.pollingActive is True
+    assert second.pollingActive is False
+
+    consoles.tabs.setCurrentIndex(0)
+    assert first.pollingActive is False
+    assert second.pollingActive is False
 
 
 def _completion_children(entries, text):
@@ -896,6 +949,8 @@ def test_command_editor_tab_cycles_completion_rows_without_reset(tmp_path, qtbot
     qtbot.addWidget(editor)
     editor.show()
     editor.setFocus()
+
+    assert editor._refreshOnFocus is False
 
     editor.nextCompletion()
     assert editor.dropdown.isVisible()

@@ -876,6 +876,8 @@ class ConsolesTab(QWidget):
         self.tabs.addTab(tab, "Data AI")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
         self.protectSystemTabs()
+        self.tabs.currentChanged.connect(self.updateConsolePolling)
+        self.updateConsolePolling(self.tabs.currentIndex())
 
     def createConsolePage(self, child):
         tab = QWidget()
@@ -891,6 +893,21 @@ class ConsolesTab(QWidget):
         for index in range(min(SYSTEM_TAB_COUNT, self.tabs.count())):
             tabBar.setTabButton(index, QTabBar.ButtonPosition.LeftSide, None)
             tabBar.setTabButton(index, QTabBar.ButtonPosition.RightSide, None)
+
+    def consoleFromTab(self, index):
+        page = self.tabs.widget(index)
+        if page is None or page.layout() is None or page.layout().count() == 0:
+            return None
+        child = page.layout().itemAt(0).widget()
+        if isinstance(child, Console):
+            return child
+        return None
+
+    def updateConsolePolling(self, currentIndex):
+        for index in range(self.tabs.count()):
+            console = self.consoleFromTab(index)
+            if console is not None:
+                console.setResponsePollingActive(index == currentIndex)
         
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False
@@ -1000,6 +1017,7 @@ class Console(QWidget):
         )
         self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
+        self.responsePollingActive = True
 
         # Thread to get sessions response
         # https://realpython.com/python-pyqt-qthread/
@@ -1032,6 +1050,9 @@ class Console(QWidget):
         self.consoleNoticeLabel.setText(message)
         color = CONSOLE_COLORS["error"] if is_error else CONSOLE_COLORS["muted"]
         self.consoleNoticeLabel.setStyleSheet(f"color: {color};")
+
+    def setResponsePollingActive(self, active):
+        self.responsePollingActive = bool(active)
 
     def findNextSearchMatch(self, backward=False):
         search_text = self.searchInput.text().strip()
@@ -1345,6 +1366,8 @@ class Console(QWidget):
         self.setCursorEditorAtEnd()
 
     def displayResponse(self):
+        if not self.responsePollingActive:
+            return
         session = TeamServerApi_pb2.SessionSelector(beacon_hash=self.beaconHash, listener_hash=self.listenerHash)
         responses = self.grpcClient.streamSessionCommandResults(session)
         for response in responses:
@@ -1419,7 +1442,6 @@ class CommandEditor(CompletionInput):
             parent,
             completion_data=completion_provider.build(force=True),
             completion_provider=completion_provider.build,
-            refresh_on_focus=True,
         )
 
         self.cmdHistory: list[str] = []

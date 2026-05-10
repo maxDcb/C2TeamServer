@@ -349,6 +349,8 @@ def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_p
     editor.show()
     editor.setFocus()
 
+    assert editor._refreshOnFocus is False
+
     editor.nextCompletion()
     assert editor.dropdown.isVisible()
     assert editor.dropdown.currentRow() == 0
