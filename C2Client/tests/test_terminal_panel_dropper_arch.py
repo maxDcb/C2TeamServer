@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget
 
 import C2Client.grpcClient as grpc_client_module
@@ -315,37 +316,48 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
     assert ("beacon-active", []) in socks_bind_children
 
 
-def test_terminal_host_completer_displays_artifact_label_but_inserts_safe_token(qtbot):
+def test_terminal_host_completer_displays_artifact_label_but_inserts_safe_token():
     completions = terminal_panel.build_terminal_completer_data(FakeGrpc())
-    completer = terminal_panel.CodeCompleter(completions)
-    qtbot.addWidget(completer.popup())
+    options = terminal_panel.completion_options(completions, "host")
+    hash_options = terminal_panel.completion_options(completions, "host artifact-123")
 
-    host_item = next(
-        completer.model().item(row)
-        for row in range(completer.model().rowCount())
-        if completer.model().item(row).text() == terminal_panel.HostInstruction
-    )
-    artifact_item = host_item.child(0)
+    assert options[0].label == "dropper.exe (artifact-123)"
+    assert options[0].insert_text == "dropper.exe(artifact-123)"
+    assert options[0].full_text == "host dropper.exe(artifact-123)"
+    assert hash_options[0].label == "dropper.exe (artifact-123)"
 
-    assert artifact_item.text() == "dropper.exe (artifact-123)"
-    assert artifact_item.data(terminal_panel.CodeCompleter.MatchRole) == "dropper.exe(artifact-123)"
-    assert artifact_item.data(terminal_panel.CodeCompleter.ConcatenationRole) == "host dropper.exe(artifact-123)"
+
+def test_terminal_completer_does_not_offer_exact_leaf_commands():
+    completions = terminal_panel.build_terminal_completer_data(FakeGrpc())
+
+    assert terminal_panel.completion_options(completions, "socks start") == []
+    assert terminal_panel.completion_options(completions, "reloadModules") == []
 
 
 def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     editor = terminal_panel.CommandEditor(grpcClient=FakeGrpc())
     qtbot.addWidget(editor)
+    editor.show()
+    editor.setFocus()
 
     editor.nextCompletion()
-    assert editor.codeCompleter.popup().isVisible()
-    assert editor.codeCompleter.currentRow() == 0
+    assert editor.dropdown.isVisible()
+    assert editor.dropdown.currentRow() == 0
 
     editor.nextCompletion()
-    assert editor.codeCompleter.currentRow() == 1
+    assert editor.dropdown.currentRow() == 1
 
     editor.nextCompletion()
-    assert editor.codeCompleter.currentRow() == 2
+    assert editor.dropdown.currentRow() == 2
+
+    editor.previousCompletion()
+    assert editor.dropdown.currentRow() == 1
+
+    editor.hideCompletionPopup()
+    qtbot.keyClick(editor.lineEdit, Qt.Key.Key_Backtab)
+    assert editor.dropdown.isVisible()
+    assert editor.dropdown.currentRow() == editor.dropdown.count() - 1
 
 
 def test_terminal_command_editor_opens_completer_while_typing(tmp_path, qtbot, monkeypatch):
@@ -355,16 +367,17 @@ def test_terminal_command_editor_opens_completer_while_typing(tmp_path, qtbot, m
     editor.show()
     editor.setFocus()
 
-    qtbot.keyClicks(editor, "h")
+    qtbot.keyClicks(editor.lineEdit, "h")
     qtbot.wait(10)
 
     assert editor.completionPrefix() == "h"
-    assert editor.codeCompleter.popup().isVisible()
-    assert editor.codeCompleter.currentRow() == 0
+    assert editor.dropdown.isVisible()
+    assert editor.dropdown.currentRow() == 0
+    assert editor.dropdown.item(0).text() == "help"
 
     editor.setText("host")
     editor.setCursorPosition(4)
     assert editor.showCompletionPopup()
     assert editor.completionPrefix() == "host"
-    assert editor.codeCompleter.completionPrefix() == "host "
-    assert editor.codeCompleter.currentCompletion() == "host dropper.exe(artifact-123)"
+    assert editor.dropdown.item(0).text() == "dropper.exe (artifact-123)"
+    assert editor.currentCompletion().full_text == "host dropper.exe(artifact-123)"
