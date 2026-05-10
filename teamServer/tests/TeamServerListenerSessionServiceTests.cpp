@@ -501,12 +501,12 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
         {
             TeamServerGeneratedFileArtifactSpec spec;
             spec.remotePath = input;
-            spec.nameHint = "desktop.bmp";
+            spec.nameHint = "desktop.png";
             spec.category = "screenshot";
             spec.source = "beacon";
             spec.target = "teamserver";
             spec.runtime = "file";
-            spec.format = "bmp";
+            spec.format = "png";
             spec.isWindows = true;
             spec.arch = "x64";
             spec.writeResultData = true;
@@ -523,7 +523,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     teamserverapi::SessionCommandRequest command;
     command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
     command.mutable_session()->set_listener_hash("listener-primary");
-    command.set_command("screenShot desktop.bmp");
+    command.set_command("screenShot desktop.png");
     command.set_command_id("shot-0001");
 
     teamserverapi::CommandAck response;
@@ -559,7 +559,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     assert(sentCommands.empty());
     assert(cmdResponses.size() == 1);
     assert(cmdResponses[0].command_id() == "shot-0001");
-    assert(cmdResponses[0].command() == "screenShot desktop.bmp");
+    assert(cmdResponses[0].command() == "screenShot desktop.png");
     assert(cmdResponses[0].output().find("Generated artifact stored:") != std::string::npos);
     assert(readFile(preparedOutputFile) == "AABB");
     assert(fs::exists(preparedOutputFile + ".artifact.json"));

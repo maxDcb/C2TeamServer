@@ -724,13 +724,13 @@ entries:
   - id: MODULE-SCREENSHOT-CONTRACT-001
     area: Modules
     feature: screenShot
-    scenario: "Capture desktop BMP, return chunked generated screenshot artifact, and show a single final console result."
+    scenario: "Capture desktop PNG, return chunked generated screenshot artifact, and show a single final console result."
     priority: high
     validation: auto+manual
     axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
     evidence:
       auto: ["core/modules/ScreenShot/tests/testsScreenShot.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
-      manual: ["Run screenShot desktop.bmp on Windows x64 HTTPS beacon and open generated BMP."]
+      manual: ["Run screenShot desktop.png on Windows x64 HTTPS beacon and open generated PNG."]
 
   - id: MODULE-POWERSHELL-CONTRACT-001
     area: Modules
