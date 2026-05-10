@@ -754,9 +754,9 @@ results:
     notes: "Dropper module limitations remain outside the terminal workflow: PeInjectorSyscall injection fails without -p self, likely because the default target PID is not valid; PowershellWebDelivery does not currently work on the Windows 11 lab; other dropper modules were not tested."
 
   - id: C2CLIENT-TERMINAL-BASE-001
-    status: blocked
+    status: pass
     date: "2026-05-10"
     build: "local-dev"
     tester: "max"
-    evidence: "Manual UI validation found the Terminal autocomplete popup is not reliable in the general case, especially after moving the UI between screens. Autocomplete data and insertion can work, but the dropdown is not consistently visible or anchored under the input field."
-    notes: "Keep terminal command execution and host workflow results separate. This blocks only the generic Terminal tab/autocomplete UX. TODO added to replace QCompleter with a custom dropdown integrated in the Terminal layout."
+    evidence: "Manual UI retest after replacing QCompleter with integrated CompletionInput: Terminal autocomplete is visible under the input, Tab descends, Shift+Tab ascends, Escape closes, help+Enter executes help, and host+Tab descends into artifacts/listeners. Beacon console retest validated ls+Enter and cd+Enter execute the bare commands, while Tab or trailing space explicitly opens argument/example suggestions. Hooks and Data AI input height and integrated autocomplete behavior were also validated."
+    notes: "The previous QCompleter multi-screen popup blocker is resolved. Exact command matches no longer auto-descend into examples unless completion is explicitly requested."
