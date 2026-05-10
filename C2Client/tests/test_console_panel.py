@@ -824,6 +824,7 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         "<pid>",
         "",
     ]
+    server_data = command_specs_to_completer_data([inject_spec], grpcClient=grpc, session=session)
     options = console_completion_options(server_data, "inject --pid 4321 ")
     raw_option = next(option for option in options if option.label == "--raw")
     assert raw_option.full_text == "inject --pid 4321 --raw"

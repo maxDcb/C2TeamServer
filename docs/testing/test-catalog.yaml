@@ -402,6 +402,17 @@ entries:
       auto: ["teamServer/tests/TeamServerSocksServiceTests.cpp"]
       manual: ["Run terminal socks start/list/stop against a live beacon route."]
 
+  - id: LIBSOCKS5-PROTOCOL-001
+    area: Libraries
+    feature: libSocks5 protocol handling
+    scenario: "Negotiate SOCKS5 no-auth, accept IPv4 CONNECT, and reject unsupported commands/address types with explicit replies."
+    priority: high
+    validation: auto
+    axes: {os: teamserver, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["libs/libSocks5/tests/TestsSocksServer.cpp"]
+      manual: []
+
   - id: TEAMSERVER-SOCKS-STRESS-001
     area: TeamServer
     feature: SOCKS stress

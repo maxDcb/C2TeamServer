@@ -155,7 +155,9 @@ def test_graph_zoom_buttons_update_view_scale(qtbot, monkeypatch):
 def test_graph_uses_shared_dark_panel_theme(qtbot, monkeypatch):
     monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
 
-    graph = Graph(QWidget(), StubGrpc())
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    graph = Graph(parent, StubGrpc())
     qtbot.addWidget(graph)
 
     assert CONSOLE_COLORS["background"] in graph.styleSheet()
