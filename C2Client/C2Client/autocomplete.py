@@ -4,7 +4,15 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .console_style import CONSOLE_COLORS, console_font
 
@@ -140,9 +148,11 @@ class CompletionInput(QWidget):
         self._refreshOnFocus = refresh_on_focus
         self._maxVisibleItems = max(1, max_visible_items)
         self._currentOptions: list[CompletionOption] = []
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
         self.lineEdit = QLineEdit(self)
         self.lineEdit.setFont(console_font())
+        self.lineEdit.setMinimumHeight(28)
         self.lineEdit.installEventFilter(self)
         self.lineEdit.textEdited.connect(self.scheduleCompletionPopup)
 

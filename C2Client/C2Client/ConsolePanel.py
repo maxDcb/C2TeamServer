@@ -983,7 +983,7 @@ class Console(QWidget):
             beaconHash=self.beaconHash,
             listenerHash=self.listenerHash,
         )
-        self.layout.addWidget(self.commandEditor, 2)
+        self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
         # Thread to get sessions response

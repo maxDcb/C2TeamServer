@@ -74,7 +74,7 @@ class Assistant(QWidget):
 
         self.commandEditor = CommandEditor()
         self.commandEditor.setPlaceholderText("Ask assistant or /help")
-        self.layout.addWidget(self.commandEditor, 2)
+        self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
         self.responseReady.connect(self._process_assistant_response)

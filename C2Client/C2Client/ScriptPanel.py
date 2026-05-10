@@ -196,7 +196,7 @@ class Script(QWidget):
 
         self.commandEditor = CommandEditor()
         self.commandEditor.setPlaceholderText("Hooks command")
-        self.layout.addWidget(self.commandEditor, 2)
+        self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
         self.buildAutomationStates()
