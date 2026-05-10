@@ -907,7 +907,12 @@ class ConsolesTab(QWidget):
         for index in range(self.tabs.count()):
             console = self.consoleFromTab(index)
             if console is not None:
-                console.setResponsePollingActive(index == currentIndex)
+                if hasattr(console, "setConsoleActive"):
+                    console.setConsoleActive(index == currentIndex)
+                else:
+                    console.setResponsePollingActive(index == currentIndex)
+                if index == currentIndex and hasattr(self.assistant, "setActiveSession"):
+                    self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
         
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         tabAlreadyOpen=False
@@ -924,6 +929,8 @@ class ConsolesTab(QWidget):
             tab = self.createConsolePage(console)
             self.tabs.addTab(tab, beaconHash[0:8])
             self.tabs.setCurrentIndex(self.tabs.count()-1)
+        if hasattr(self.assistant, "setActiveSession"):
+            self.assistant.setActiveSession(beaconHash, listenerHash)
 
     def closeTab(self, currentIndex):
         currentQWidget = self.tabs.widget(currentIndex)
@@ -1017,15 +1024,17 @@ class Console(QWidget):
         )
         self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
-        self.responsePollingActive = True
+        self.consoleActive = True
 
-        # Thread to get sessions response
+        # Thread to get session responses. Response collection must stay
+        # independent from the visible tab because the assistant resumes
+        # pending tool calls from these events while the Data AI tab is focused.
         # https://realpython.com/python-pyqt-qthread/
         self.thread = QThread()
-        self.getSessionResponse = GetSessionResponse()
+        self.getSessionResponse = GetSessionResponse(self.grpcClient, self.beaconHash, self.listenerHash)
         self.getSessionResponse.moveToThread(self.thread)
         self.thread.started.connect(self.getSessionResponse.run)
-        self.getSessionResponse.checkin.connect(self.displayResponse)
+        self.getSessionResponse.responseReady.connect(self.displayResponse)
         self.thread.start()
 
     def __del__(self):
@@ -1052,7 +1061,10 @@ class Console(QWidget):
         self.consoleNoticeLabel.setStyleSheet(f"color: {color};")
 
     def setResponsePollingActive(self, active):
-        self.responsePollingActive = bool(active)
+        self.setConsoleActive(active)
+
+    def setConsoleActive(self, active):
+        self.consoleActive = bool(active)
 
     def findNextSearchMatch(self, backward=False):
         search_text = self.searchInput.text().strip()
@@ -1365,45 +1377,47 @@ class Console(QWidget):
 
         self.setCursorEditorAtEnd()
 
-    def displayResponse(self):
-        if not self.responsePollingActive:
-            return
+    def displayResponse(self, response=None):
         session = TeamServerApi_pb2.SessionSelector(beacon_hash=self.beaconHash, listener_hash=self.listenerHash)
-        responses = self.grpcClient.streamSessionCommandResults(session)
-        for response in responses:
-            context = "Host " + self.hostname + " - Username " + self.username
-            command_id = getattr(response, "command_id", "")
-            if command_id and command_id in self.renderedResponseIds:
-                continue
-            listener_hash = response.session.listener_hash or self.listenerHash
-            command_text = response.command or response.instruction
-            decoded_response = response.output.decode('utf-8', 'replace')
-            response_ok = is_response_ok(response)
-            if not response_ok:
-                decoded_response = response_message(response) or decoded_response or "Command failed."
-            self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
-            # check the response for mimikatz and not the cmd line ???
-            if "-e mimikatz.exe" in command_text:
-                credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
-            status = "done" if response_ok else "error"
-            self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
-            self.printCommandStatusInTerminal(command_id, status, command_text)
-            self.printInTerminal("", "", decoded_response)
-            if command_id:
-                self.renderedResponseIds.add(command_id)
-            self.appendConsoleEvent(
-                status,
-                command_id=command_id,
-                command=command_text,
-                output=decoded_response,
-                source="response",
-            )
-            self.setCursorEditorAtEnd()
+        if response is None:
+            responses = self.grpcClient.streamSessionCommandResults(session)
+            for session_response in responses:
+                self.displayResponse(session_response)
+            return
 
-            with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
-                logFile.write('[+] result: \"' + command_text + '\"')
-                logFile.write('\n' + decoded_response  + '\n')
-                logFile.write('\n')
+        context = "Host " + self.hostname + " - Username " + self.username
+        command_id = getattr(response, "command_id", "")
+        if command_id and command_id in self.renderedResponseIds:
+            return
+        listener_hash = response.session.listener_hash or self.listenerHash
+        command_text = response.command or response.instruction
+        decoded_response = response.output.decode('utf-8', 'replace')
+        response_ok = is_response_ok(response)
+        if not response_ok:
+            decoded_response = response_message(response) or decoded_response or "Command failed."
+        self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
+        # check the response for mimikatz and not the cmd line ???
+        if "-e mimikatz.exe" in command_text:
+            credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
+        status = "done" if response_ok else "error"
+        self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
+        self.printCommandStatusInTerminal(command_id, status, command_text)
+        self.printInTerminal("", "", decoded_response)
+        if command_id:
+            self.renderedResponseIds.add(command_id)
+        self.appendConsoleEvent(
+            status,
+            command_id=command_id,
+            command=command_text,
+            output=decoded_response,
+            source="response",
+        )
+        self.setCursorEditorAtEnd()
+
+        with open(os.path.join(logsDir, self.logFileName), 'a') as logFile:
+            logFile.write('[+] result: \"' + command_text + '\"')
+            logFile.write('\n' + decoded_response  + '\n')
+            logFile.write('\n')
 
     def setCursorEditorAtEnd(self, force=False):
         if not force and self.isAutoscrollPaused():
@@ -1412,17 +1426,30 @@ class Console(QWidget):
     
 
 class GetSessionResponse(QObject):
-    """Background worker querying session responses."""
+    """Background worker collecting session responses off the UI thread."""
 
-    checkin = pyqtSignal()
+    responseReady = pyqtSignal(object)
 
-    def __init__(self) -> None:
+    def __init__(self, grpcClient, beaconHash, listenerHash) -> None:
         super().__init__()
+        self.grpcClient = grpcClient
+        self.beaconHash = beaconHash
+        self.listenerHash = listenerHash
         self.exit = False
 
     def run(self) -> None:
         while not self.exit:
-            self.checkin.emit()
+            session = TeamServerApi_pb2.SessionSelector(
+                beacon_hash=self.beaconHash,
+                listener_hash=self.listenerHash,
+            )
+            try:
+                for response in self.grpcClient.streamSessionCommandResults(session):
+                    if self.exit:
+                        break
+                    self.responseReady.emit(response)
+            except Exception as exc:
+                logger.debug("Session response polling failed for %s: %s", self.beaconHash[:8], exc)
             time.sleep(1)
 
     def quit(self) -> None:

@@ -200,6 +200,7 @@ message CommandSpec
   repeated CommandArgSpec args = 9;
   repeated string examples = 10;
   string source = 11;
+  string command_template = 12;
 }
 
 

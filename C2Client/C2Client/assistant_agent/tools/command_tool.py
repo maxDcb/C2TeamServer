@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .command_builder import build_command_line
-from .loader import C2ToolSpec
+from .command_specs import C2CommandSpecToolSpec
+from .module_state_tool import has_loaded_module
 
 from agent_core.execution_context import ExecutionContext
 from agent_core.llm.base import LLMToolDefinition
@@ -17,7 +18,7 @@ from ...grpcClient import TeamServerApi_pb2
 
 @dataclass(slots=True)
 class C2CommandTool:
-    spec: C2ToolSpec
+    spec: C2CommandSpecToolSpec
     grpc_client: Any
 
     @property
@@ -38,6 +39,13 @@ class C2CommandTool:
     def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
         beacon_hash = arguments["beacon_hash"]
         listener_hash = arguments["listener_hash"]
+        module_loaded = self._module_loaded(beacon_hash=beacon_hash, listener_hash=listener_hash)
+        if module_loaded is False:
+            return ToolResult(
+                ok=False,
+                content=f"Module `{self.spec.name}` is not loaded on this beacon. Use `loadModule {self.spec.name}` first, then retry the command.",
+            )
+
         command_line = build_command_line(self.spec, arguments)
         command_id = uuid.uuid4().hex
         command = TeamServerApi_pb2.SessionCommandRequest(
@@ -64,4 +72,15 @@ class C2CommandTool:
                 "listener_hash": listener_hash,
                 "command_line": command_line,
             },
+        )
+
+    def _module_loaded(self, *, beacon_hash: str, listener_hash: str) -> bool | None:
+        command_spec = self.spec.command_spec
+        if str(getattr(command_spec, "kind", "") or "").lower() != "module":
+            return True
+        return has_loaded_module(
+            self.grpc_client,
+            beacon_hash=beacon_hash,
+            listener_hash=listener_hash,
+            module_name=self.spec.name,
         )

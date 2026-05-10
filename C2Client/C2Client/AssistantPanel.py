@@ -111,8 +111,16 @@ class Assistant(QWidget):
             arch=arch,
             privilege=privilege,
             os_name=os,
+            killed=killed,
         )
         return
+
+
+    def setActiveSession(self, beaconHash, listenerHash):
+        self.agent.domain_hooks.record_active_session(
+            beacon_hash=beaconHash,
+            listener_hash=listenerHash,
+        )
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
@@ -120,8 +128,20 @@ class Assistant(QWidget):
 
 
     def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
+        if action == "send":
+            self.agent.domain_hooks.record_active_session(
+                beacon_hash=beaconHash,
+                listener_hash=listenerHash,
+            )
+            return
+
         if action != "receive":
             return
+
+        self.agent.domain_hooks.record_active_session(
+            beacon_hash=beaconHash,
+            listener_hash=listenerHash,
+        )
 
         command_text = cmd or ""
         if isinstance(command_text, bytes):

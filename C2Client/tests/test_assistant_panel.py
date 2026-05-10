@@ -8,9 +8,13 @@ from C2Client.AssistantPanel import Assistant
 class FakeDomainHooks:
     def __init__(self):
         self.observations = []
+        self.active_sessions = []
 
     def record_session_event(self, **kwargs):
         pass
+
+    def record_active_session(self, **kwargs):
+        self.active_sessions.append(kwargs)
 
     def record_console_observation(self, **kwargs):
         self.observations.append(kwargs)

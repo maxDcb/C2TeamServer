@@ -44,6 +44,7 @@ struct TeamServerCommandSpecRecord
     std::vector<TeamServerCommandArgSpec> args;
     std::vector<std::string> examples;
     std::string source;
+    std::string commandTemplate;
     std::string internalPath;
 };
 

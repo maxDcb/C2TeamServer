@@ -77,6 +77,7 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "display_name": "sleep",
   "kind": "common",
   "description": "Set beacon sleep interval.",
+  "command_template": "sleep {seconds}",
   "target": "beacon",
   "requires_session": true,
   "platforms": ["windows", "linux"],
@@ -109,6 +110,7 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "name": "end",
   "kind": "common",
   "description": "Terminate beacon.",
+  "command_template": "end",
   "target": "beacon",
   "requires_session": true,
   "platforms": ["windows", "linux"],
@@ -123,6 +125,7 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "name": "psExec",
   "kind": "module",
   "description": "Copy and run a service executable.",
+  "command_template": "psExec {auth_mode} {username:q?} {password:q?} {target:q} {service_artifact:q}",
   "target": "beacon",
   "requires_session": true,
   "platforms": ["windows"],
@@ -188,6 +191,7 @@ void testCommandCatalogLoadsManifestSpecs()
     assert(sleep != nullptr);
     assert(sleep->kind == "common");
     assert(sleep->target == "beacon");
+    assert(sleep->commandTemplate == "sleep {seconds}");
     assert(sleep->requiresSession);
     assert(sleep->platforms.size() == 2);
     assert(sleep->args.size() == 1);
@@ -263,6 +267,7 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].name() == "sleep");
     assert(commands[0].kind() == "common");
     assert(commands[0].requires_session());
+    assert(commands[0].command_template() == "sleep {seconds}");
     assert(commands[0].args_size() == 1);
     assert(commands[0].args(0).name() == "seconds");
     assert(commands[0].args(0).type() == "number");

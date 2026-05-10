@@ -160,6 +160,7 @@ TeamServerCommandSpecRecord parseCommandSpec(const fs::path& path)
     command.archs = jsonStringList(spec, "archs");
     command.examples = jsonStringList(spec, "examples");
     command.source = jsonString(spec, "source", "manifest");
+    command.commandTemplate = jsonString(spec, "command_template");
     command.internalPath = path.string();
 
     auto argsIt = spec.find("args");

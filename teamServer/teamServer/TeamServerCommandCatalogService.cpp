@@ -43,6 +43,7 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
     spec.set_target(command.target);
     spec.set_requires_session(command.requiresSession);
     spec.set_source(command.source);
+    spec.set_command_template(command.commandTemplate);
 
     for (const std::string& platform : command.platforms)
         spec.add_platforms(platform);

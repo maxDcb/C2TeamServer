@@ -193,6 +193,39 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
     assert emitted[0][-2] == "Command failed."
 
 
+def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+
+    grpc = StubGrpc()
+    grpc.responses = [
+        SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            session=SimpleNamespace(listener_hash="listener"),
+            command="whoami",
+            instruction="",
+            command_id="cmd-1",
+            output=b"user",
+            message="",
+        )
+    ]
+    parent = QWidget()
+    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+    emitted = []
+    console.consoleScriptSignal.connect(lambda *args: emitted.append(args))
+
+    console.setResponsePollingActive(False)
+    console.displayResponse()
+
+    assert console.consoleActive is False
+    assert console.commandStatusById["cmd-1"]["status"] == "done"
+    assert emitted[0][0] == "receive"
+    assert emitted[0][-1] == "cmd-1"
+    assert "user" in console.editorOutput.toPlainText()
+
+
 def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))

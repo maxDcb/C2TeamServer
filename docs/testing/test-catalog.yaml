@@ -135,7 +135,7 @@ entries:
     validation: auto+manual
     axes: {os: client, arch: n/a, listener: any, artifact_category: command_specs}
     evidence:
-      auto: ["C2Client/tests/test_console_panel.py", "C2Client/tests/assistant_agent/test_command_builder.py"]
+      auto: ["C2Client/tests/test_console_panel.py", "C2Client/tests/assistant_agent/test_command_builder.py", "C2Client/tests/assistant_agent/test_command_specs.py"]
       manual: ["Press Tab on assemblyExec, inject, dotnetExec, download, upload, and loadModule commands."]
 
   - id: C2CLIENT-CONSOLE-HELP-001
@@ -1241,12 +1241,12 @@ entries:
   - id: MODULE-COMMANDSPEC-COVERAGE-001
     area: Modules
     feature: CommandSpec coverage
-    scenario: "Every user-facing module command has a CommandSpec JSON and matching C2Client schema where applicable."
+    scenario: "Every user-facing module command has a CommandSpec JSON with assistant-renderable command_template metadata."
     priority: critical
     validation: auto
     axes: {os: teamserver, arch: n/a, listener: n/a, artifact_category: command_specs}
     evidence:
-      auto: ["teamServer/tests/TeamServerCommandCatalogTests.cpp", "C2Client/tests/assistant_agent/test_tool_loader.py", "C2Client/tests/assistant_agent/test_tool_registry.py"]
+      auto: ["teamServer/tests/TeamServerCommandCatalogTests.cpp", "C2Client/tests/assistant_agent/test_command_specs.py", "C2Client/tests/assistant_agent/test_command_help_tool.py", "C2Client/tests/assistant_agent/test_module_state_tool.py", "C2Client/tests/assistant_agent/test_tool_registry.py"]
       manual: []
 
   - id: RELEASE-WINDOWS-ARTIFACTS-001

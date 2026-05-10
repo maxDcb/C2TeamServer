@@ -42,8 +42,7 @@ C2Client = [
     "DropperModules.conf",
     "ShellCodeModules.conf",
     "assistant_agent/prompts/system/*.md",
-    "assistant_agent/prompts/memory/*.md",
-    "assistant_agent/tools/schemas/*.json"
+    "assistant_agent/prompts/memory/*.md"
 ]
 
 [project.scripts]
