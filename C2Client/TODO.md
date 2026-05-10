@@ -38,6 +38,7 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 30 | [ ] | Ajouter tags/notes/assignation sessions cote serveur | XL | Fort | Tags persistants, notes operationnelles, owner operateur, priorite, commentaires. |
 | 31 | [ ] | Ajouter `StreamEvents` global | XL | Tres fort | Flux unique pour sessions, listeners, commandes, logs et erreurs; remplacer le polling toutes les 2 secondes. |
 | 32 | [ ] | Ajouter upload/download chunked avec progression | XL | Fort | Progression, checksum, reprise partielle, erreurs propres, limites configurables. |
+| 33 | [ ] | Simplifier l'usage des outils complexes via l'assistant | L | Tres fort | Ajouter des workflows guides pour les commandes a forte friction (`assemblyExec`, `inject`, `dotnetExec`, `pwSh`, SOCKS, dropper/hosted): choix progressif des options, verification des pre-requis, usage de `listLoadedModules`, aide CommandSpec, selection d'artefacts, generation d'une commande finale relue avant execution. |
 
 ## Details `.env`
 
@@ -95,4 +96,4 @@ C2_SHELLCODE_MODULES_DIR=
 1. Phase 1: items 1 a 8. Aucun changement proto, beaucoup d'UX gagnee vite.
 2. Phase 2: items 9 a 16. Client plus productif, tables/console/graph vraiment exploitables.
 3. Phase 3: items 17 a 26. Contrat client-server propre pour capabilities, commandes, erreurs, SOCKS5 et artefacts generes par flux.
-4. Phase 4: items 27 a 32. Fonctionnalites operationnelles avancees, credential store serveur, audit et reduction du polling.
+4. Phase 4: items 27 a 33. Fonctionnalites operationnelles avancees, credential store serveur, audit, reduction du polling et workflows assistants pour les usages complexes.
