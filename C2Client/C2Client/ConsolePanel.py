@@ -108,9 +108,14 @@ def restore_console_completion_text(command_text: str, placeholder_values: dict[
     return text
 
 
-def console_completion_options(completion_data: list[tuple], command_text: str) -> list[CompletionOption]:
+def console_completion_options(
+    completion_data: list[tuple],
+    command_text: str,
+    *,
+    descend_exact: bool = False,
+) -> list[CompletionOption]:
     normalized_text, placeholder_values = normalize_console_completion_text(command_text)
-    options = completion_options(completion_data, normalized_text)
+    options = completion_options(completion_data, normalized_text, descend_exact=descend_exact)
     return [
         CompletionOption(
             label=option.label,
@@ -1435,8 +1440,12 @@ class CommandEditor(CompletionInput):
             self.refreshCompleter()
         super().previousCompletion()
 
-    def buildCompletionOptions(self) -> list[CompletionOption]:
-        return console_completion_options(self.completionData, self.completionPrefix())
+    def buildCompletionOptions(self, descend_exact: bool = False) -> list[CompletionOption]:
+        return console_completion_options(
+            self.completionData,
+            self.completionPrefix(),
+            descend_exact=descend_exact,
+        )
 
     def historyUp(self):
         if self.idx < len(self.cmdHistory) and self.idx >= 0:

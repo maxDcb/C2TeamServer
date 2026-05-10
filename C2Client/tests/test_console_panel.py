@@ -768,6 +768,10 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     raw_option = next(option for option in options if option.label == "--raw")
     assert raw_option.full_text == "inject --pid 4321 --raw"
 
+    assert console_completion_options([("ls", [("/tmp", [])])], "ls") == []
+    explicit_ls_options = console_completion_options([("ls", [("/tmp", [])])], "ls", descend_exact=True)
+    assert explicit_ls_options[0].full_text == "ls /tmp"
+
 
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():
     class FakeGrpc:

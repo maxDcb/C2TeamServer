@@ -318,7 +318,7 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
 
 def test_terminal_host_completer_displays_artifact_label_but_inserts_safe_token():
     completions = terminal_panel.build_terminal_completer_data(FakeGrpc())
-    options = terminal_panel.completion_options(completions, "host")
+    options = terminal_panel.completion_options(completions, "host", descend_exact=True)
     hash_options = terminal_panel.completion_options(completions, "host artifact-123")
 
     assert options[0].label == "dropper.exe (artifact-123)"
@@ -332,6 +332,14 @@ def test_terminal_completer_does_not_offer_exact_leaf_commands():
 
     assert terminal_panel.completion_options(completions, "socks start") == []
     assert terminal_panel.completion_options(completions, "reloadModules") == []
+
+
+def test_terminal_completer_only_descends_exact_matches_on_explicit_completion():
+    completions = [("ls", [("/tmp", [])]), ("cd", [("/tmp", [])])]
+
+    assert terminal_panel.completion_options(completions, "ls") == []
+    assert terminal_panel.completion_options(completions, "ls ")[0].full_text == "ls /tmp"
+    assert terminal_panel.completion_options(completions, "ls", descend_exact=True)[0].full_text == "ls /tmp"
 
 
 def test_terminal_command_editor_tab_cycles_without_static_completer_reset(tmp_path, qtbot, monkeypatch):
@@ -377,7 +385,7 @@ def test_terminal_command_editor_opens_completer_while_typing(tmp_path, qtbot, m
 
     editor.setText("host")
     editor.setCursorPosition(4)
-    assert editor.showCompletionPopup()
+    assert editor.showCompletionPopup(descendExact=True)
     assert editor.completionPrefix() == "host"
     assert editor.dropdown.item(0).text() == "dropper.exe (artifact-123)"
     assert editor.currentCompletion().full_text == "host dropper.exe(artifact-123)"

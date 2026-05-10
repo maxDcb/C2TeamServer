@@ -94,7 +94,13 @@ def _options_for_level(entries: Iterable[tuple], prefix_parts: list[str], token:
     return options
 
 
-def completion_options(completion_data: list[tuple], command_text: str, cursor_position: int | None = None) -> list[CompletionOption]:
+def completion_options(
+    completion_data: list[tuple],
+    command_text: str,
+    cursor_position: int | None = None,
+    *,
+    descend_exact: bool = False,
+) -> list[CompletionOption]:
     text = command_text if cursor_position is None else command_text[:cursor_position]
     if text is None:
         text = ""
@@ -121,7 +127,7 @@ def completion_options(completion_data: list[tuple], command_text: str, cursor_p
         exact_entry = _find_entry(level, current_token)
         if exact_entry is not None:
             children = completion_entry_children(exact_entry)
-            if children:
+            if children and descend_exact:
                 return _options_for_level(children, [*prefix_parts, completion_entry_insert_text(exact_entry)])
             return []
 
@@ -229,9 +235,18 @@ class CompletionInput(QWidget):
                     self.nextCompletion()
                     return True
                 if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                    if self.dropdown.isVisible() and self.currentCompletion() is not None:
-                        self.acceptCurrentCompletion()
+                    current_completion = None
+                    if self.dropdown.isVisible():
+                        selected_row = self.dropdown.currentRow()
+                        self._currentOptions = self.buildCompletionOptions(descend_exact=False)
+                        if 0 <= selected_row < len(self._currentOptions):
+                            current_completion = self._currentOptions[selected_row]
+                        elif self._currentOptions:
+                            current_completion = self._currentOptions[0]
+                    if current_completion is not None and current_completion.full_text.strip() != self.text().strip():
+                        self.acceptCompletion(current_completion)
                     else:
+                        self.hideCompletionPopup()
                         self.returnPressed.emit()
                     return True
                 if key == Qt.Key.Key_Escape and self.dropdown.isVisible():
@@ -251,13 +266,18 @@ class CompletionInput(QWidget):
     def completionPrefix(self) -> str:
         return self.text()[: self.cursorPosition()]
 
-    def showCompletionPopup(self, _text: str | None = None, allowEmpty: bool = False) -> bool:
+    def showCompletionPopup(
+        self,
+        _text: str | None = None,
+        allowEmpty: bool = False,
+        descendExact: bool = False,
+    ) -> bool:
         prefix = self.completionPrefix()
         if not prefix.strip() and not allowEmpty:
             self.hideCompletionPopup()
             return False
 
-        self._currentOptions = self.buildCompletionOptions()
+        self._currentOptions = self.buildCompletionOptions(descendExact)
         if not self._currentOptions:
             self.hideCompletionPopup()
             return False
@@ -274,8 +294,13 @@ class CompletionInput(QWidget):
         self.dropdown.show()
         return True
 
-    def buildCompletionOptions(self) -> list[CompletionOption]:
-        return completion_options(self.completionData, self.text(), self.cursorPosition())
+    def buildCompletionOptions(self, descend_exact: bool = False) -> list[CompletionOption]:
+        return completion_options(
+            self.completionData,
+            self.text(),
+            self.cursorPosition(),
+            descend_exact=descend_exact,
+        )
 
     def hideCompletionPopup(self) -> None:
         self.dropdown.hide()
@@ -299,13 +324,13 @@ class CompletionInput(QWidget):
 
     def nextCompletion(self) -> None:
         if not self.dropdown.isVisible():
-            self.showCompletionPopup(allowEmpty=True)
+            self.showCompletionPopup(allowEmpty=True, descendExact=True)
             return
         self.moveSelection(1)
 
     def previousCompletion(self) -> None:
         if not self.dropdown.isVisible():
-            if self.showCompletionPopup(allowEmpty=True):
+            if self.showCompletionPopup(allowEmpty=True, descendExact=True):
                 self.moveSelection(-1)
             return
         self.moveSelection(-1)
