@@ -520,6 +520,15 @@ def run_self_test() -> int:
         )
         if not run_stress(config):
             return 1
+        hostname_config = dataclasses.replace(
+            config,
+            url=f"http://localhost:{http_port}/",
+            target_host="localhost",
+            socks_host="localhost",
+            host_header=f"localhost:{http_port}",
+        )
+        if not run_stress(hostname_config):
+            return 1
         print("self-test passed")
         return 0
     finally:
@@ -539,7 +548,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument(
         "--socks-hostname",
         action="store_true",
-        help="Send the URL hostname to SOCKS instead of resolving it locally to IPv4. The current TeamServer SOCKS path only supports IPv4.",
+        help="Send the URL hostname to SOCKS instead of resolving it locally to IPv4. This validates remote hostname resolution from the beacon context.",
     )
     parser.add_argument("--method", choices=("HEAD", "GET"), default="HEAD", help="HTTP method to send.")
     parser.add_argument("--requests", default=100, type=_positive_int, help="Total request count.")

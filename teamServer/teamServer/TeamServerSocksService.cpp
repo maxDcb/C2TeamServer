@@ -88,6 +88,25 @@ void setTerminalError(teamserverapi::TerminalCommandResponse* response, const st
     response->set_result(result);
     response->set_message(result);
 }
+
+bool isSocksInitFailure(const std::string& data)
+{
+    return data == "fail" || data.rfind("fail:", 0) == 0;
+}
+
+std::string tunnelDestinationPayload(SocksTunnelServer* tunnel)
+{
+    if (tunnel->getAddressType() == AddressType::DName)
+        return "host:" + tunnel->getDestinationHost();
+    return std::to_string(tunnel->getIpDst());
+}
+
+std::string tunnelDestinationLabel(SocksTunnelServer* tunnel)
+{
+    if (tunnel->getAddressType() == AddressType::DName)
+        return tunnel->getDestinationHost();
+    return std::to_string(tunnel->getIpDst());
+}
 } // namespace
 
 TeamServerSocksService::TeamServerSocksService(
@@ -265,15 +284,14 @@ void TeamServerSocksService::run()
             SocksState state = tunnel->getState();
             if (state == SocksState::INIT)
             {
-                int ip = tunnel->getIpDst();
                 int port = tunnel->getPort();
 
-                m_logger->debug("Socks5 to {}:{}", std::to_string(ip), std::to_string(port));
+                m_logger->debug("Socks5 to {}:{}", tunnelDestinationLabel(tunnel), std::to_string(port));
 
                 C2Message c2MessageToSend;
                 c2MessageToSend.set_instruction(Socks5Cmd);
                 c2MessageToSend.set_cmd(InitCmd);
-                c2MessageToSend.set_data(std::to_string(ip));
+                c2MessageToSend.set_data(tunnelDestinationPayload(tunnel));
                 c2MessageToSend.set_args(std::to_string(port));
                 c2MessageToSend.set_pid(id);
 
@@ -290,9 +308,10 @@ void TeamServerSocksService::run()
                 {
                     m_logger->debug("Socks5 handshake received {}", id);
 
-                    if (c2Message.data() == "fail")
+                    if (isSocksInitFailure(c2Message.data()))
                     {
                         m_logger->debug("Socks5 handshake failed {}", id);
+                        tunnel->failHandshake(Response::HostUnreachable);
                         m_socksServer->resetTunnel(i);
                     }
                     else
