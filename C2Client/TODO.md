@@ -27,16 +27,17 @@ Objectif: rendre le client plus agreable pour un operateur, puis enrichir propre
 | 19 | [ ] | Generer des formulaires de commandes depuis les schemas assistant | L | Fort | Utiliser `assistant_agent/tools/schemas/*.json` pour proposer des commandes guidees sans tout taper a la main. |
 | 20 | [ ] | Ajouter `GetServerInfo` / `GetCapabilities` au proto | L | Fort | Version serveur, modules charges, features, chemins runtime, limites max message, auth mode. Premier vrai changement client-server. |
 | 21 | [x] | Ajouter `ListCommands` / `ListModules` structure | L | Tres fort | Fait. `ListCommands` expose le catalogue serveur, tab UI `Commands`, autocomplete console sans fallback hardcode, specs simples pour modules, `GetCommandHelp` genere l'aide depuis les specs, `ListModules` stream les modules suivis par beacon, `listModule` affiche name/status dans la console, `loadModule` cache les modules actifs et `unloadModule` propose les modules charges. Persistence/historique modules reportes aux items audit/historique. |
-| 22 | [ ] | Persister `keyLogger` en artefact live | L | Fort | Ecrire chaque `followUp` dans un fichier `GeneratedArtifacts/keylogger/beacon`, nomme avec hostname + timestamp, visible dans `Artifacts` sans action `dump`; mettre a jour le sidecar/hash a chaque append et garder `stop` limite a l'arret du module. |
-| 23 | [ ] | Supporter les hostnames SOCKS5 cote beacon | L | Tres fort | Accepter `ATYP=DName` dans `libSocks5`, transporter une destination typee TeamServer -> beacon, resoudre/connecter depuis le contexte beacon, garder IPv4 compatible, ajouter tests hostname/stress avec `scripts/socks5_stress_test.py --socks-hostname` et erreurs propres au lieu d'un EOF silencieux. |
-| 24 | [ ] | Ajouter `ValidateCommand` / `DryRunCommand` | L | Tres fort | Verifier une commande sans l'envoyer au beacon; retourner erreur, hint, instruction preparee, fichiers requis. |
-| 25 | [ ] | Ajouter un modele d'erreurs type dans le proto | L | Fort | `code`, `message`, `hint`, `details`; eviter de parser du texte libre cote client. |
-| 26 | [ ] | Ajouter un credential store serveur pour les modules | XL | Tres fort | Store central cote TeamServer avec RPC list/search/add/update/delete, audit et masquage des secrets; ajouter un `credential_filter` aux CommandSpecs pour autocompleter les modules qui prennent des credentials (`psExec`, `wmiExec`, `winRm`, `dcomExec`, `spawnAs`, `makeToken`, etc.) sans exposer les mots de passe. |
-| 27 | [ ] | Ajouter historique/audit operateur cote serveur | XL | Tres fort | Qui a envoye quoi, quand, sur quelle session, command_id, resultat, statut. Base pour recherche, replay, reporting. |
-| 28 | [ ] | Ajouter `GetCommandStatus` / `ListCommandHistory` / `CancelCommand` | XL | Tres fort | Suivi propre des commandes queued/running/done/error/cancelled; utile pour console, assistant et workflows longs. |
-| 29 | [ ] | Ajouter tags/notes/assignation sessions cote serveur | XL | Fort | Tags persistants, notes operationnelles, owner operateur, priorite, commentaires. |
-| 30 | [ ] | Ajouter `StreamEvents` global | XL | Tres fort | Flux unique pour sessions, listeners, commandes, logs et erreurs; remplacer le polling toutes les 2 secondes. |
-| 31 | [ ] | Ajouter upload/download chunked avec progression | XL | Fort | Progression, checksum, reprise partielle, erreurs propres, limites configurables. |
+| 22 | [ ] | Synchroniser l'assistant avec `CommandSpecs` / `ListCommands` | L | Tres fort | L'assistant n'est probablement plus a jour depuis la migration CommandSpec. Le faire charger le catalogue serveur, `GetCommandHelp`, les arguments/artefacts requis, modules charges et capabilities pour construire ses commandes depuis la meme source que la console, au lieu de schemas ou prompts statiques. |
+| 23 | [ ] | Persister `keyLogger` en artefact live | L | Fort | Ecrire chaque `followUp` dans un fichier `GeneratedArtifacts/keylogger/beacon`, nomme avec hostname + timestamp, visible dans `Artifacts` sans action `dump`; mettre a jour le sidecar/hash a chaque append et garder `stop` limite a l'arret du module. |
+| 24 | [ ] | Supporter les hostnames SOCKS5 cote beacon | L | Tres fort | Accepter `ATYP=DName` dans `libSocks5`, transporter une destination typee TeamServer -> beacon, resoudre/connecter depuis le contexte beacon, garder IPv4 compatible, ajouter tests hostname/stress avec `scripts/socks5_stress_test.py --socks-hostname` et erreurs propres au lieu d'un EOF silencieux. |
+| 25 | [ ] | Ajouter `ValidateCommand` / `DryRunCommand` | L | Tres fort | Verifier une commande sans l'envoyer au beacon; retourner erreur, hint, instruction preparee, fichiers requis. |
+| 26 | [ ] | Ajouter un modele d'erreurs type dans le proto | L | Fort | `code`, `message`, `hint`, `details`; eviter de parser du texte libre cote client. |
+| 27 | [ ] | Ajouter un credential store serveur pour les modules | XL | Tres fort | Store central cote TeamServer avec RPC list/search/add/update/delete, audit et masquage des secrets; ajouter un `credential_filter` aux CommandSpecs pour autocompleter les modules qui prennent des credentials (`psExec`, `wmiExec`, `winRm`, `dcomExec`, `spawnAs`, `makeToken`, etc.) sans exposer les mots de passe. |
+| 28 | [ ] | Ajouter historique/audit operateur cote serveur | XL | Tres fort | Qui a envoye quoi, quand, sur quelle session, command_id, resultat, statut. Base pour recherche, replay, reporting. |
+| 29 | [ ] | Ajouter `GetCommandStatus` / `ListCommandHistory` / `CancelCommand` | XL | Tres fort | Suivi propre des commandes queued/running/done/error/cancelled; utile pour console, assistant et workflows longs. |
+| 30 | [ ] | Ajouter tags/notes/assignation sessions cote serveur | XL | Fort | Tags persistants, notes operationnelles, owner operateur, priorite, commentaires. |
+| 31 | [ ] | Ajouter `StreamEvents` global | XL | Tres fort | Flux unique pour sessions, listeners, commandes, logs et erreurs; remplacer le polling toutes les 2 secondes. |
+| 32 | [ ] | Ajouter upload/download chunked avec progression | XL | Fort | Progression, checksum, reprise partielle, erreurs propres, limites configurables. |
 
 ## Details `.env`
 
@@ -93,5 +94,5 @@ C2_SHELLCODE_MODULES_DIR=
 
 1. Phase 1: items 1 a 8. Aucun changement proto, beaucoup d'UX gagnee vite.
 2. Phase 2: items 9 a 16. Client plus productif, tables/console/graph vraiment exploitables.
-3. Phase 3: items 17 a 25. Contrat client-server propre pour capabilities, commandes, erreurs, SOCKS5 et artefacts generes par flux.
-4. Phase 4: items 26 a 31. Fonctionnalites operationnelles avancees, credential store serveur, audit et reduction du polling.
+3. Phase 3: items 17 a 26. Contrat client-server propre pour capabilities, commandes, erreurs, SOCKS5 et artefacts generes par flux.
+4. Phase 4: items 27 a 32. Fonctionnalites operationnelles avancees, credential store serveur, audit et reduction du polling.

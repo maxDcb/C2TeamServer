@@ -83,6 +83,28 @@ def test_add_listener_invalid_fields_are_not_sent(qtbot, monkeypatch):
     assert "#b00020" in listeners.statusLabel.styleSheet()
 
 
+def test_add_listener_blocks_tcp_bound_port_conflict(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    grpc = StubGrpc()
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    listeners.listListenerObject = [
+        Listener(0, "https-listener-full-hash", HttpsType, "0.0.0.0", 8443, 0),
+        Listener(1, "child-listener-full-hash", "tcp", "0.0.0.0", 4444, 0, "beacon-full-hash"),
+    ]
+    qtbot.addWidget(listeners)
+
+    listeners.addListener(["tcp", "0.0.0.0", "8443"])
+
+    assert grpc.added_listeners == []
+    assert listeners.statusLabel.text() == "Add listener: Port 8443 is already used by https listener https-li."
+    assert "#b00020" in listeners.statusLabel.styleSheet()
+
+    listeners.addListener(["tcp", "0.0.0.0", "4444"])
+    assert len(grpc.added_listeners) == 1
+
+
 def test_add_listener_form_blocks_invalid_port(qtbot):
     form = CreateListner()
     qtbot.addWidget(form)
@@ -97,6 +119,27 @@ def test_add_listener_form_blocks_invalid_port(qtbot):
     assert emitted == []
     assert form.errorLabel.isHidden() is False
     assert form.errorLabel.text() == "Port must be a number between 1 and 65535."
+
+
+def test_add_listener_form_blocks_tcp_bound_port_conflict(qtbot):
+    form = CreateListner(lambda: [
+        Listener(0, "https-listener-full-hash", HttpsType, "0.0.0.0", 8443, 0)
+    ])
+    qtbot.addWidget(form)
+    emitted = []
+    form.procDone.connect(lambda values: emitted.append(values))
+
+    form.qcombo.setCurrentText("tcp")
+    form.param1.setText("0.0.0.0")
+    form.param2.setText("8443")
+
+    assert form.buttonOk.isEnabled() is False
+
+    form.checkAndSend()
+
+    assert emitted == []
+    assert form.errorLabel.isHidden() is False
+    assert form.errorLabel.text() == "Port 8443 is already used by https listener https-li."
 
 
 def test_add_listener_form_updates_fields_by_type(qtbot):

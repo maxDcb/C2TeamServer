@@ -71,6 +71,35 @@ std::string toLower(std::string value)
     return value;
 }
 
+bool isTcpBoundListenerType(const std::string& type)
+{
+    return type == ListenerHttpType || type == ListenerHttpsType || type == ListenerTcpType;
+}
+
+std::shared_ptr<Listener> findTcpPortConflict(
+    const std::vector<std::shared_ptr<Listener>>& listeners,
+    const std::string& type,
+    int port)
+{
+    if (!isTcpBoundListenerType(type))
+        return nullptr;
+
+    const std::string portText = std::to_string(port);
+    auto object = std::find_if(
+        listeners.begin(),
+        listeners.end(),
+        [&](const std::shared_ptr<Listener>& obj)
+        {
+            return obj &&
+                isTcpBoundListenerType(obj->getType()) &&
+                obj->getParam2() == portText;
+        });
+
+    if (object == listeners.end())
+        return nullptr;
+    return *object;
+}
+
 std::string currentUtcTimestamp()
 {
     const auto now = std::chrono::system_clock::now();
@@ -238,6 +267,18 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     m_logger->trace("AddListener");
     const std::string type = listenerToCreate.type();
     response->set_status(teamserverapi::KO);
+
+    if (auto conflictingListener = findTcpPortConflict(m_listeners, type, listenerToCreate.port()))
+    {
+        m_logger->warn("Add listener failed: port {0} already used by {1} listener {2}",
+            std::to_string(listenerToCreate.port()),
+            conflictingListener->getType(),
+            conflictingListener->getListenerHash());
+        response->set_message(
+            "Port " + std::to_string(listenerToCreate.port()) +
+            " is already used by " + conflictingListener->getType() + " listener.");
+        return grpc::Status::OK;
+    }
 
     if (type == ListenerGithubType)
     {

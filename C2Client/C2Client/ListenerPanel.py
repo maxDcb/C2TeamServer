@@ -55,6 +55,7 @@ SmbType = "smb"
 DOMAIN_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 GITHUB_PROJECT_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 PORT_FIELD_TYPES = {HttpType, HttpsType, TcpType, DnsType}
+TCP_BOUND_LISTENER_TYPES = {HttpType, HttpsType, TcpType}
 PRIMARY_LISTENER_TYPES = [HttpType, HttpsType, TcpType, GithubType, DnsType]
 AUTO_FIELD_VALUES = {"0.0.0.0", "8443", "8080", "4444", "53"}
 LISTENER_FORM_CONFIG = {
@@ -171,6 +172,32 @@ def validate_listener_fields(listenerType, param1, param2):
         return True, ""
 
     return False, "Unknown listener type."
+
+
+def find_tcp_port_conflict(listenerType, port, existingListeners):
+    listenerType = _text(listenerType).lower()
+    if listenerType not in TCP_BOUND_LISTENER_TYPES:
+        return None
+
+    portText = _text(port)
+    if not portText.isdigit():
+        return None
+
+    for listenerStore in existingListeners or []:
+        if _text(getattr(listenerStore, "beaconHash", "")):
+            continue
+        existingType = _text(getattr(listenerStore, "type", "")).lower()
+        if existingType not in TCP_BOUND_LISTENER_TYPES:
+            continue
+        if _text(getattr(listenerStore, "port", "")) == portText:
+            return listenerStore
+    return None
+
+
+def listener_port_conflict_message(conflict):
+    listenerHash = _text(getattr(conflict, "listenerHash", ""))
+    listenerRef = f" {listenerHash[:8]}" if listenerHash else ""
+    return f"Port {conflict.port} is already used by {conflict.type} listener{listenerRef}."
 
 
 #
@@ -397,8 +424,10 @@ class Listeners(QWidget):
     # form for adding a listener
     def listenerForm(self):
         if self.createListenerWindow is None:
-            self.createListenerWindow = CreateListner()
+            self.createListenerWindow = CreateListner(lambda: self.listListenerObject)
             self.createListenerWindow.procDone.connect(self.addListener)
+        else:
+            self.createListenerWindow.setExistingListenersProvider(lambda: self.listListenerObject)
         self.createListenerWindow.show()
 
 
@@ -410,6 +439,10 @@ class Listeners(QWidget):
         valid, error = validate_listener_fields(listenerType, param1, param2)
         if not valid:
             self.setInlineStatus(format_action_status("Add listener", error), False)
+            return
+        conflict = find_tcp_port_conflict(listenerType, param2, self.listListenerObject)
+        if conflict is not None:
+            self.setInlineStatus(format_action_status("Add listener", listener_port_conflict_message(conflict)), False)
             return
 
         if listenerType=="github":
@@ -534,8 +567,9 @@ class CreateListner(QWidget):
 
     procDone = pyqtSignal(list)
     
-    def __init__(self):
+    def __init__(self, existingListenersProvider=None):
         super().__init__()
+        self.existingListenersProvider = existingListenersProvider or (lambda: [])
         
         layout = QFormLayout()
         layout.setContentsMargins(12, 12, 12, 12)
@@ -587,6 +621,10 @@ class CreateListner(QWidget):
         self.param1.returnPressed.connect(self.checkAndSend)
         self.param2.returnPressed.connect(self.checkAndSend)
         self.changeLabels()
+
+    def setExistingListenersProvider(self, existingListenersProvider):
+        self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        self.updateFormState()
 
 
     def changeLabels(self):
@@ -664,6 +702,8 @@ class CreateListner(QWidget):
             self.param1.text(),
             self.param2.text(),
         )
+        if valid and find_tcp_port_conflict(self.type.currentText(), self.param2.text(), self.existingListenersProvider()):
+            valid = False
         self.buttonOk.setEnabled(valid)
 
     def checkAndSend(self):
@@ -674,6 +714,10 @@ class CreateListner(QWidget):
         valid, error = validate_listener_fields(type, param1, param2)
         if not valid:
             self.showValidationError(error)
+            return
+        conflict = find_tcp_port_conflict(type, param2, self.existingListenersProvider())
+        if conflict is not None:
+            self.showValidationError(listener_port_conflict_message(conflict))
             return
 
         result = [type, param1, param2]

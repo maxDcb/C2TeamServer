@@ -40,6 +40,7 @@ from .console_style import (
 from .autocomplete import CompletionInput, CompletionOption, completion_options
 from .env import env_path
 from .grpc_status import is_response_ok, response_message
+from .panel_style import apply_dark_panel_style
 
 logger = logging.getLogger(__name__)
 CONSOLE_EVENT_PREFIX = "[console] "
@@ -928,7 +929,10 @@ class Console(QWidget):
 
     def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):
         super(QWidget, self).__init__(parent)
+        apply_dark_panel_style(self)
         self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(6)
 
         self.grpcClient = grpcClient
 
@@ -943,21 +947,27 @@ class Console(QWidget):
 
         self.searchInput = QLineEdit()
         self.searchInput.setPlaceholderText("Search output")
+        self.searchInput.setFixedHeight(26)
         self.searchInput.returnPressed.connect(self.findNextSearchMatch)
 
         self.findPreviousButton = QPushButton("Prev")
+        self.findPreviousButton.setFixedHeight(26)
         self.findPreviousButton.clicked.connect(
             lambda _checked=False: self.findNextSearchMatch(backward=True)
         )
         self.findNextButton = QPushButton("Next")
+        self.findNextButton.setFixedHeight(26)
         self.findNextButton.clicked.connect(
             lambda _checked=False: self.findNextSearchMatch()
         )
         self.clearOutputButton = QPushButton("Clear")
+        self.clearOutputButton.setFixedHeight(26)
         self.clearOutputButton.clicked.connect(self.clearConsoleOutput)
         self.exportLogButton = QPushButton("Export")
+        self.exportLogButton.setFixedHeight(26)
         self.exportLogButton.clicked.connect(self.exportConsoleOutput)
         self.resendButton = QPushButton("Resend")
+        self.resendButton.setFixedHeight(26)
         self.resendButton.clicked.connect(self.resendLastCommand)
         self.pauseAutoscrollCheckBox = QCheckBox("Pause scroll")
         self.pauseAutoscrollCheckBox.toggled.connect(self.onAutoscrollToggled)

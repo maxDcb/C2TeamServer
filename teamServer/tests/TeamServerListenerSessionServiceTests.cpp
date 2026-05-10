@@ -281,6 +281,47 @@ void testQueueStopAndResponseDeduplication()
     assert(secondClientResponses.size() == 1);
 }
 
+void testAddListenerRejectsTcpBoundPortConflicts()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    listeners.push_back(std::make_shared<TestListener>("0.0.0.0", "8443", ListenerHttpsType, "listener-primary"));
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        nullptr,
+        [](const std::string&, C2Message&, bool, const std::string&)
+        {
+            return 0;
+        });
+
+    teamserverapi::Listener tcpListener;
+    tcpListener.set_type(ListenerTcpType);
+    tcpListener.set_ip("0.0.0.0");
+    tcpListener.set_port(8443);
+
+    teamserverapi::OperationAck response;
+    assert(service.addListener(tcpListener, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.message() == "Port 8443 is already used by https listener.");
+    assert(listeners.size() == 1);
+}
+
 void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
 {
     nlohmann::json config = {{"LogLevel", "off"}};
@@ -530,6 +571,7 @@ int main()
 {
     testCollectListenersAndSessions();
     testQueueStopAndResponseDeduplication();
+    testAddListenerRejectsTcpBoundPortConflicts();
     testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
     testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     return 0;

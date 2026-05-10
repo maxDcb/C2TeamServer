@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
 )
 
 from .env import env_int
+from .console_style import CONSOLE_COLORS
+from .panel_style import apply_dark_panel_style
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +31,8 @@ ListenerNodeItemType = "Listener"
 NODE_ICON_SIZE = 64
 NODE_LABEL_WIDTH = 132
 NODE_TEXT_COLOR = QColor("#e4e7ec")
-GRAPH_BACKGROUND_COLOR = QColor("#0b1117")
-GRAPH_EDGE_COLOR = QColor("#7cd4fd")
+GRAPH_BACKGROUND_COLOR = QColor(CONSOLE_COLORS["background"])
+GRAPH_EDGE_COLOR = QColor(CONSOLE_COLORS["timestamp"])
 GRAPH_ZOOM_STEP = 1.18
 GRAPH_MIN_ZOOM = 0.25
 GRAPH_MAX_ZOOM = 3.0
@@ -294,22 +296,31 @@ class Graph(QWidget):
         self.listNodeItem = []
         self.listConnector = []
         self.zoomFactor = 1.0
+        apply_dark_panel_style(self)
 
         self.scene = QGraphicsScene()
         self.scene.setBackgroundBrush(GRAPH_BACKGROUND_COLOR)
 
         self.view = QGraphicsView(self.scene)
+        self.view.setObjectName("C2GraphView")
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         self.view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
-        self.view.setStyleSheet("QGraphicsView { border: 1px solid #263241; }")
+        self.view.setStyleSheet(
+            f"""
+            QGraphicsView#C2GraphView {{
+                background-color: {CONSOLE_COLORS["background"]};
+                border: 1px solid {CONSOLE_COLORS["border"]};
+            }}
+            """
+        )
 
         self.vbox = QVBoxLayout()
         self.vbox.setContentsMargins(4, 4, 4, 4)
-        self.vbox.setSpacing(4)
+        self.vbox.setSpacing(6)
         self.toolbar = QHBoxLayout()
-        self.toolbar.setSpacing(4)
+        self.toolbar.setSpacing(6)
         self.toolbar.addStretch(1)
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh graph now.", width=70)
         self.refreshButton.clicked.connect(self.updateGraph)

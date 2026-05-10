@@ -760,3 +760,43 @@ results:
     tester: "max"
     evidence: "Manual UI retest after replacing QCompleter with integrated CompletionInput: Terminal autocomplete is visible under the input, Tab descends, Shift+Tab ascends, Escape closes, help+Enter executes help, and host+Tab descends into artifacts/listeners. Beacon console retest validated ls+Enter and cd+Enter execute the bare commands, while Tab or trailing space explicitly opens argument/example suggestions. Hooks and Data AI input height and integrated autocomplete behavior were also validated."
     notes: "The previous QCompleter multi-screen popup blocker is resolved. Exact command matches no longer auto-descend into examples unless completion is explicitly requested."
+
+  - id: C2CLIENT-SESSION-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI retest validated the Sessions panel: stable table sizing during refresh, readable IPs, humanized last seen/state behavior, OS tooltip, and visual alignment with the dark theme."
+    notes: "Session panel validation completed during the UI stabilization pass."
+
+  - id: C2CLIENT-LISTENER-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual retest validated the Listeners panel after the port-conflict fix: stable table sizing during refresh, readable listener fields, invalid ports rejected, duplicate TCP-bound ports across http/https/tcp rejected cleanly, and valid listener start/stop flows still work."
+    notes: "The previous crash path is fixed: UI blocks conflicting http/https/tcp ports before RPC and TeamServer rejects the same conflict server-side."
+
+  - id: C2CLIENT-HOOKS-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the Hooks panel lists hooks/scripts, descriptions are available in tooltips, enable/disable works, activation counters update, ManualStart receives the sessions/listeners snapshot, non-ManualStart hooks without captured context show a clear message, and the compact integrated autocomplete input behaves correctly."
+    notes: "Validated after the shared CompletionInput migration and Hooks panel polish."
+
+  - id: C2CLIENT-AI-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed Data AI renders system/user/assistant markers with distinct colors, message text is visually separate from badges, blocks keep readable spacing, the input stays compact, and integrated autocomplete/local commands behave correctly."
+    notes: "Functional command knowledge is not considered fully current after the CommandSpec migration; tracked separately in the TODO item for synchronizing the assistant with ListCommands/CommandSpecs."
+
+  - id: C2CLIENT-GRAPH-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the Graph panel separates listeners/sessions/pivots by default, Auto redistributes nodes, Fit recenters, +/- zoom works, manual positions remain stable after refresh, the redundant Graph frame is absent, dark theme is consistent, and labels/tooltips are readable."
+    notes: "Validated during UI stabilization after graph layout, zoom, and theme polish."

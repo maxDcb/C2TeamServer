@@ -69,6 +69,13 @@ def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
     console = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
+    assert "#0b1117" in console.styleSheet()
+    assert "#101820" in console.styleSheet()
+    assert console.searchInput.minimumHeight() == 26
+    assert console.searchInput.maximumHeight() == 26
+    assert console.findPreviousButton.minimumHeight() == 26
+    assert console.findPreviousButton.maximumHeight() == 26
+
     console.commandEditor.setText('help assemblyExec')
     console.runCommand()
 

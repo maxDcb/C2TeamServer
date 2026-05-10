@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QWidget
 
+from C2Client.console_style import CONSOLE_COLORS
 from C2Client.GraphPanel import BeaconNodeItemType, Graph, ListenerNodeItemType
 
 
@@ -149,3 +150,18 @@ def test_graph_zoom_buttons_update_view_scale(qtbot, monkeypatch):
     graph.zoomOutButton.click()
 
     assert graph.view.transform().m11() == initial_scale
+
+
+def test_graph_uses_shared_dark_panel_theme(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
+
+    graph = Graph(QWidget(), StubGrpc())
+    qtbot.addWidget(graph)
+
+    assert CONSOLE_COLORS["background"] in graph.styleSheet()
+    assert CONSOLE_COLORS["background"] in graph.view.styleSheet()
+    assert CONSOLE_COLORS["border"] in graph.view.styleSheet()
+    assert graph.vbox.spacing() == 6
+    assert graph.toolbar.spacing() == 6
+    assert graph.refreshButton.minimumHeight() == 26
+    assert graph.refreshButton.maximumHeight() == 26
