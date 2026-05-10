@@ -8,14 +8,15 @@ import sys
 sys.modules['grpcClient'] = grpc_client_module
 
 from C2Client.ConsolePanel import (
-    CodeCompleter,
     CommandEditor,
     Console,
     ConsolesTab,
     DOTNET_LOAD_NAME_PLACEHOLDER,
     _load_artifacts_for_arg,
     build_completer_data,
+    console_completion_options,
     command_specs_to_completer_data,
+    normalize_console_completion_text,
 )
 from C2Client.grpcClient import TeamServerApi_pb2
 
@@ -707,8 +708,8 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     pid_first_exe_children = _completion_children(pid_value_children, "--donut-exe")
     assert ("--", []) in _completion_children(pid_first_exe_children, "SharpHound.exe")
 
-    completer = CodeCompleter(server_data)
-    assert completer.splitPath("inject --pid 4321 --donut-exe ") == [
+    normalized, _placeholders = normalize_console_completion_text("inject --pid 4321 --donut-exe ")
+    assert normalized.split(" ") == [
         "inject",
         "--pid",
         "<pid>",
@@ -745,7 +746,8 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
     assert ("SharpHound.exe", []) in dotnet_name_children
     assert _completion_children(dotnet_name_children, "Tools/Example.dll")
     assert ("<type_for_dll>", []) in _completion_children(dotnet_name_children, "Tools/Example.dll")
-    assert CodeCompleter(server_data).splitPath("dotnetExec load seatbelt Tools/Example.dll ") == [
+    normalized, _placeholders = normalize_console_completion_text("dotnetExec load seatbelt Tools/Example.dll ")
+    assert normalized.split(" ") == [
         "dotnetExec",
         "load",
         DOTNET_LOAD_NAME_PLACEHOLDER,
@@ -753,7 +755,8 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         "",
     ]
     assert [query.name_contains for query in grpc.queries] == [".exe", ".dll"]
-    assert completer.splitPath("inject --donut-exe SharpHound.exe --pid 4321 ") == [
+    normalized, _placeholders = normalize_console_completion_text("inject --donut-exe SharpHound.exe --pid 4321 ")
+    assert normalized.split(" ") == [
         "inject",
         "--donut-exe",
         "SharpHound.exe",
@@ -761,12 +764,9 @@ def test_command_specs_add_flag_completions_without_positional_mode_mix():
         "<pid>",
         "",
     ]
-    model = completer.model()
-    inject_item = next(model.item(row) for row in range(model.rowCount()) if model.item(row).text() == "inject")
-    pid_item = next(inject_item.child(row) for row in range(inject_item.rowCount()) if inject_item.child(row).text() == "--pid")
-    pid_value_item = next(pid_item.child(row) for row in range(pid_item.rowCount()) if pid_item.child(row).text() == "<pid>")
-    raw_item = next(pid_value_item.child(row) for row in range(pid_value_item.rowCount()) if pid_value_item.child(row).text() == "--raw")
-    assert completer.pathFromIndex(raw_item.index()) == "inject --pid 4321 --raw"
+    options = console_completion_options(server_data, "inject --pid 4321 ")
+    raw_option = next(option for option in options if option.label == "--raw")
+    assert raw_option.full_text == "inject --pid 4321 --raw"
 
 
 def test_contextual_completer_uses_artifacts_listeners_and_module_specs():
@@ -883,10 +883,18 @@ def test_command_editor_tab_cycles_completion_rows_without_reset(tmp_path, qtbot
     monkeypatch.chdir(tmp_path)
     editor = CommandEditor(grpcClient=CompletionGrpc())
     qtbot.addWidget(editor)
-
-    assert editor.codeCompleter.setCurrentRow(0) is True
-    editor.nextCompletion()
-    assert editor.codeCompleter.currentRow() == 1
+    editor.show()
+    editor.setFocus()
 
     editor.nextCompletion()
-    assert editor.codeCompleter.currentRow() == 0
+    assert editor.dropdown.isVisible()
+    assert editor.dropdown.currentRow() == 0
+
+    editor.nextCompletion()
+    assert editor.dropdown.currentRow() == 1
+
+    editor.nextCompletion()
+    assert editor.dropdown.currentRow() == 0
+
+    editor.previousCompletion()
+    assert editor.dropdown.currentRow() == 1

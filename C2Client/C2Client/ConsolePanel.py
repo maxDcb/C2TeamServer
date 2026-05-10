@@ -7,8 +7,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from PyQt6.QtCore import QObject, Qt, QEvent, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel, QTextCursor, QTextDocument, QShortcut
+from PyQt6.QtCore import QObject, Qt, QEvent, QThread, pyqtSignal
+from PyQt6.QtGui import QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
     QTabBar,
@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QTextEdit,
     QLineEdit,
-    QCompleter,
     QCheckBox,
     QLabel,
     QPushButton,
@@ -38,6 +37,7 @@ from .console_style import (
     console_status_html,
     move_editor_to_end,
 )
+from .autocomplete import CompletionInput, CompletionOption, completion_options
 from .env import env_path
 from .grpc_status import is_response_ok, response_message
 
@@ -84,6 +84,42 @@ MODULE_COMMAND_ALIASES = {
 }
 PID_COMPLETION_PLACEHOLDER = "<pid>"
 DOTNET_LOAD_NAME_PLACEHOLDER = "<name>"
+
+
+def normalize_console_completion_text(command_text: str) -> tuple[str, dict[str, str]]:
+    parts = str(command_text or "").split(" ")
+    placeholder_values: dict[str, str] = {}
+    if parts and parts[0] == "inject":
+        for index, part in enumerate(parts[:-1]):
+            if part == "--pid" and parts[index + 1]:
+                placeholder_values[PID_COMPLETION_PLACEHOLDER] = parts[index + 1]
+                parts[index + 1] = PID_COMPLETION_PLACEHOLDER
+                break
+    if len(parts) >= 3 and parts[0] == "dotnetExec" and parts[1] == "load" and parts[2]:
+        placeholder_values[DOTNET_LOAD_NAME_PLACEHOLDER] = parts[2]
+        parts[2] = DOTNET_LOAD_NAME_PLACEHOLDER
+    return " ".join(parts), placeholder_values
+
+
+def restore_console_completion_text(command_text: str, placeholder_values: dict[str, str]) -> str:
+    text = str(command_text or "")
+    for placeholder, replacement in placeholder_values.items():
+        text = text.replace(placeholder, replacement)
+    return text
+
+
+def console_completion_options(completion_data: list[tuple], command_text: str) -> list[CompletionOption]:
+    normalized_text, placeholder_values = normalize_console_completion_text(command_text)
+    options = completion_options(completion_data, normalized_text)
+    return [
+        CompletionOption(
+            label=option.label,
+            insert_text=option.insert_text,
+            full_text=restore_console_completion_text(option.full_text, placeholder_values),
+            has_children=option.has_children,
+        )
+        for option in options
+    ]
 
 
 def _completion_suffix(command_name: Any, example: Any):
@@ -1355,9 +1391,7 @@ class GetSessionResponse(QObject):
         self.exit = True
 
 
-class CommandEditor(QLineEdit):
-    tabPressed = pyqtSignal()
-
+class CommandEditor(CompletionInput):
     def __init__(
         self,
         parent: QWidget | None = None,
@@ -1365,111 +1399,61 @@ class CommandEditor(QLineEdit):
         beaconHash: str = "",
         listenerHash: str = "",
     ) -> None:
-        super().__init__(parent)
+        completion_provider = CommandCompletionProvider(grpcClient, beaconHash, listenerHash)
+        super().__init__(
+            parent,
+            completion_data=completion_provider.build(force=True),
+            completion_provider=completion_provider.build,
+            refresh_on_focus=True,
+        )
 
         self.cmdHistory: list[str] = []
         self.idx: int = 0
-        self.completionProvider = CommandCompletionProvider(grpcClient, beaconHash, listenerHash)
+        self.completionProvider = completion_provider
 
         if os.path.isfile(CmdHistoryFileName):
-            with open(CmdHistoryFileName) as cmdHistoryFile:
+            with open(CmdHistoryFileName, encoding="utf-8") as cmdHistoryFile:
                 self.cmdHistory = cmdHistoryFile.readlines()
             self.idx = len(self.cmdHistory) - 1
 
-        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
-
-        self.completionData = self.completionProvider.build(force=True)
-        self.codeCompleter = CodeCompleter(self.completionData, self)
-        # needed to clear the completer after activation
-        self.codeCompleter.activated.connect(self.onActivated)
-        self.setCompleter(self.codeCompleter)
-        self.tabPressed.connect(self.nextCompletion)
+        QShortcut(Qt.Key.Key_Up, self.lineEdit, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self.lineEdit, self.historyDown)
 
     def refreshCompleter(self, force: bool = False):
         completionData = self.completionProvider.build(force=force)
         if completionData != self.completionData:
             self.completionData = completionData
-            self.codeCompleter.updateData(completionData)
+            self.hideCompletionPopup()
 
     def nextCompletion(self):
-        self.refreshCompleter()
-        index = self.codeCompleter.currentIndex()
-        self.codeCompleter.popup().setCurrentIndex(index)
-        start = self.codeCompleter.currentRow()
-        if not self.codeCompleter.setCurrentRow(start + 1):
-            self.codeCompleter.setCurrentRow(0)
+        if not self.dropdown.isVisible():
+            self.refreshCompleter()
+        super().nextCompletion()
 
-    def event(self, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
-            self.tabPressed.emit()
-            return True
-        return super().event(event)
+    def previousCompletion(self):
+        if not self.dropdown.isVisible():
+            self.refreshCompleter()
+        super().previousCompletion()
+
+    def buildCompletionOptions(self) -> list[CompletionOption]:
+        return console_completion_options(self.completionData, self.completionPrefix())
 
     def historyUp(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
-            self.idx=max(self.idx-1,0)
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
+            self.idx = max(self.idx - 1, 0)
             self.setText(cmd.strip())
 
     def historyDown(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            self.idx=min(self.idx+1,len(self.cmdHistory)-1)
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            self.idx = min(self.idx + 1, len(self.cmdHistory) - 1)
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
             self.setText(cmd.strip())
 
     def setCmdHistory(self) -> None:
-        with open(CmdHistoryFileName) as cmdHistoryFile:
+        with open(CmdHistoryFileName, encoding="utf-8") as cmdHistoryFile:
             self.cmdHistory = cmdHistoryFile.readlines()
         self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()
-
-    def onActivated(self):
-        QTimer.singleShot(0, self.clear)
-
-
-class CodeCompleter(QCompleter):
-    ConcatenationRole = Qt.ItemDataRole.UserRole + 1
-
-    def __init__(self, data, parent=None):
-        super().__init__(parent)
-        self.placeholderValues: dict[str, str] = {}
-        self.createModel(data)
-
-    def updateData(self, data):
-        self.createModel(data)
-
-    def splitPath(self, path):
-        parts = path.split(' ')
-        self.placeholderValues = {}
-        if parts and parts[0] == "inject":
-            for index, part in enumerate(parts[:-1]):
-                if part == "--pid" and parts[index + 1]:
-                    self.placeholderValues[PID_COMPLETION_PLACEHOLDER] = parts[index + 1]
-                    parts[index + 1] = PID_COMPLETION_PLACEHOLDER
-                    break
-        if len(parts) >= 3 and parts[0] == "dotnetExec" and parts[1] == "load" and parts[2]:
-            self.placeholderValues[DOTNET_LOAD_NAME_PLACEHOLDER] = parts[2]
-            parts[2] = DOTNET_LOAD_NAME_PLACEHOLDER
-        return parts
-
-    def pathFromIndex(self, ix):
-        value = ix.data(CodeCompleter.ConcatenationRole)
-        for placeholder, replacement in self.placeholderValues.items():
-            value = value.replace(placeholder, replacement)
-        return value
-
-    def createModel(self, data):
-        def addItems(parent, elements, t=""):
-            for text, children in elements:
-                item = QStandardItem(text)
-                data = t + " " + text if t else text
-                item.setData(data, CodeCompleter.ConcatenationRole)
-                parent.appendRow(item)
-                if children:
-                    addItems(item, children, data)
-        model = QStandardItemModel(self)
-        addItems(model, data)
-        self.setModel(model)

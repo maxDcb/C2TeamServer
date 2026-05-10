@@ -247,7 +247,7 @@ class CompletionInput(QWidget):
             self.hideCompletionPopup()
             return False
 
-        self._currentOptions = completion_options(self.completionData, self.text(), self.cursorPosition())
+        self._currentOptions = self.buildCompletionOptions()
         if not self._currentOptions:
             self.hideCompletionPopup()
             return False
@@ -263,6 +263,9 @@ class CompletionInput(QWidget):
         self.updateDropdownHeight()
         self.dropdown.show()
         return True
+
+    def buildCompletionOptions(self) -> list[CompletionOption]:
+        return completion_options(self.completionData, self.text(), self.cursorPosition())
 
     def hideCompletionPopup(self) -> None:
         self.dropdown.hide()

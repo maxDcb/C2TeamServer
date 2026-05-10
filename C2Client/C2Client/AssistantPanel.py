@@ -5,7 +5,6 @@ from threading import Thread, Lock, Semaphore
 from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
 from PyQt6.QtGui import QShortcut
 from PyQt6.QtWidgets import (
-    QLineEdit,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -20,9 +19,16 @@ from .console_style import (
     append_console_spacing,
     move_editor_to_end,
 )
+from .autocomplete import CompletionInput
 from .env import env_int
 
 DEFAULT_PENDING_TOOL_TIMEOUT_MS = 2 * 60 * 1000
+ASSISTANT_COMPLETIONS = [
+    ("/help", []),
+    ("/status", []),
+    ("/cancel", []),
+    ("/reset", []),
+]
 
 ASSISTANT_HEADER_ROLES = {
     "system": ("[system]", "system", False),
@@ -67,6 +73,7 @@ class Assistant(QWidget):
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
+        self.commandEditor.setPlaceholderText("Ask assistant or /help")
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
@@ -442,40 +449,32 @@ class Assistant(QWidget):
         move_editor_to_end(self.editorOutput)
 
 
-class CommandEditor(QLineEdit):
-    tabPressed = pyqtSignal()
+class CommandEditor(CompletionInput):
     cmdHistory = []
     idx = 0
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, completion_data=ASSISTANT_COMPLETIONS)
 
-        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
-
-    def event(self, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
-            self.tabPressed.emit()
-            return True
-        return super().event(event)
+        QShortcut(Qt.Key.Key_Up, self.lineEdit, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self.lineEdit, self.historyDown)
 
     def historyUp(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
-            self.idx=max(self.idx-1,0)
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
+            self.idx = max(self.idx - 1, 0)
             self.setText(cmd.strip())
 
     def historyDown(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            self.idx=min(self.idx+1,len(self.cmdHistory)-1)
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            self.idx = min(self.idx + 1, len(self.cmdHistory) - 1)
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        cmdHistoryFile = open('.termHistory')
-        self.cmdHistory = cmdHistoryFile.readlines()
-        self.idx=len(self.cmdHistory)-1
-        cmdHistoryFile.close()
+        with open(".termHistory", encoding="utf-8") as cmdHistoryFile:
+            self.cmdHistory = cmdHistoryFile.readlines()
+            self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()

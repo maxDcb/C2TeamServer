@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QLineEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -29,6 +28,7 @@ from .console_style import (
     append_console_spacing,
     move_editor_to_end,
 )
+from .autocomplete import CompletionInput
 from .panel_style import apply_dark_panel_style
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,9 @@ CONSOLE_HOOKS = {
     "send": "OnConsoleSend",
     "receive": "OnConsoleReceive",
 }
+SCRIPT_COMPLETIONS = [
+    ("help", []),
+]
 
 SCRIPT_NAME_ROLE = Qt.ItemDataRole.UserRole
 
@@ -192,6 +195,7 @@ class Script(QWidget):
         self.layout.addWidget(self.editorOutput, 5)
 
         self.commandEditor = CommandEditor()
+        self.commandEditor.setPlaceholderText("Hooks command")
         self.layout.addWidget(self.commandEditor, 2)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
@@ -710,17 +714,9 @@ class Script(QWidget):
         move_editor_to_end(self.editorOutput)
 
 
-class CommandEditor(QLineEdit):
-    tabPressed = pyqtSignal()
-
+class CommandEditor(CompletionInput):
     def __init__(self, parent=None):
-        super().__init__(parent)
-
-    def event(self, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
-            self.tabPressed.emit()
-            return True
-        return super().event(event)
+        super().__init__(parent, completion_data=SCRIPT_COMPLETIONS)
 
     def clearLine(self):
         self.clear()
