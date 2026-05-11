@@ -18,11 +18,11 @@ This repository contains:
 ## Look And Feel
 
 <p align="center">
-  <img src="images/ListenersAndSessions.png?raw=true" />
+  <img src="images/ListenersAndSessions.png" />
 </p>
 
 <p align="center">
-  <img src="images/ListenersAndSessions2.png?raw=true" />
+  <img src="images/ListenersAndSessions2.png" />
 </p>
 
 ## Architecture
