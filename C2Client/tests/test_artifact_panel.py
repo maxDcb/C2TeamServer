@@ -1,0 +1,360 @@
+from types import SimpleNamespace
+
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QWidget
+
+from C2Client.ArtifactPanel import Artifacts, format_size
+from C2Client.grpcClient import TeamServerApi_pb2
+
+
+class FakeGrpc:
+    def __init__(self):
+        self.queries = []
+        self.artifacts = [
+            SimpleNamespace(
+                artifact_id="artifact-module-1",
+                name="winmod64.dll",
+                display_name="winmod64.dll",
+                category="module",
+                scope="beacon",
+                target="beacon",
+                platform="windows",
+                arch="x64",
+                runtime="native",
+                format="dll",
+                source="release",
+                size=2048,
+                sha256="a" * 64,
+                description="Windows module",
+            ),
+            SimpleNamespace(
+                artifact_id="artifact-script-1",
+                name="startup.py",
+                display_name="startup.py",
+                category="script",
+                scope="teamserver",
+                target="teamserver",
+                platform="any",
+                arch="any",
+                runtime="python",
+                format="py",
+                source="release",
+                size=12,
+                sha256="b" * 64,
+                description="Startup hook",
+            ),
+            SimpleNamespace(
+                artifact_id="artifact-generated-1",
+                name="9d4c1e5f0a3b-Rubeus.exe.bin",
+                display_name="Rubeus.exe.bin",
+                category="payload",
+                scope="generated",
+                target="beacon",
+                platform="windows",
+                arch="x64",
+                runtime="shellcode",
+                format="bin",
+                source="donut",
+                size=4096,
+                sha256="c" * 64,
+                description="Generated shellcode for assemblyExec.",
+            ),
+            SimpleNamespace(
+                artifact_id="artifact-hosted-1",
+                name="dropper.exe",
+                display_name="dropper.exe",
+                category="hosted",
+                scope="generated",
+                target="listener",
+                platform="any",
+                arch="any",
+                runtime="file",
+                format="exe",
+                source="operator",
+                size=1024,
+                sha256="e" * 64,
+                description="Hosted dropper.",
+            ),
+        ]
+        self.deleted = []
+        self.downloaded = []
+        self.uploaded = []
+
+    def listArtifacts(self, query):
+        self.queries.append(query)
+
+        def matches(artifact, field):
+            expected = getattr(query, field, "")
+            if not expected:
+                return True
+            actual = getattr(artifact, field, "")
+            if field == "runtime":
+                return actual == expected
+            return actual == expected or actual == "any"
+
+        def name_matches(artifact):
+            expected = getattr(query, "name_contains", "")
+            if not expected:
+                return True
+            return expected.lower() in getattr(artifact, "name", "").lower()
+
+        return iter([
+            artifact for artifact in self.artifacts
+            if matches(artifact, "category")
+            and matches(artifact, "scope")
+            and matches(artifact, "target")
+            and matches(artifact, "platform")
+            and matches(artifact, "arch")
+            and matches(artifact, "runtime")
+            and name_matches(artifact)
+        ])
+
+    def deleteArtifact(self, artifact_id):
+        self.deleted.append(artifact_id)
+        message = "Generated artifact deleted."
+        for artifact in self.artifacts:
+            if artifact.artifact_id == artifact_id and artifact.category == "hosted":
+                message = "Hosted artifact deleted."
+            if artifact.artifact_id == artifact_id and artifact.category == "upload":
+                message = "Uploaded artifact deleted."
+        self.artifacts = [
+            artifact for artifact in self.artifacts
+            if artifact.artifact_id != artifact_id
+        ]
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, message=message)
+
+    def deleteGeneratedArtifact(self, artifact_id):
+        return self.deleteArtifact(artifact_id)
+
+    def downloadArtifact(self, artifact_id):
+        self.downloaded.append(artifact_id)
+        return SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            message="Artifact downloaded.",
+            artifact_id=artifact_id,
+            name="downloaded.bin",
+            display_name="downloaded.bin",
+            data=b"artifact-bytes",
+        )
+
+    def uploadArtifact(self, name, data, platform="any", arch="any"):
+        self.uploaded.append((name, data, platform, arch))
+        self.artifacts.append(
+            SimpleNamespace(
+                artifact_id="artifact-uploaded-1",
+                name=name,
+                display_name=name,
+                category="upload",
+                scope="operator",
+                target="beacon",
+                platform=platform,
+                arch=arch,
+                runtime="file",
+                format="bin",
+                source="release",
+                size=len(data),
+                sha256="d" * 64,
+                description="Uploaded from client.",
+            )
+        )
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, message=f"Uploaded artifact stored: {name}")
+
+
+class FailingGrpc:
+    def listArtifacts(self, query):
+        raise RuntimeError("catalog unavailable")
+
+
+def test_format_size_uses_human_units():
+    assert format_size(0) == "0 B"
+    assert format_size(42) == "42 B"
+    assert format_size(2048) == "2.0 KB"
+    assert format_size(1024 * 1024) == "1.0 MB"
+
+
+def test_artifacts_panel_lists_filters_and_copies_id(qtbot):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    assert panel.categoryFilter.findText("minidump") != -1
+    assert panel.categoryFilter.findText("screenshot") != -1
+    assert panel.categoryFilter.findText("hosted") != -1
+    assert not hasattr(panel, "scopeFilter")
+    assert not hasattr(panel, "targetFilter")
+    assert panel.platformFilter.findText("any") == -1
+    assert panel.archFilter.findText("any") == -1
+    assert panel.runtimeFilter.findText("any") == -1
+    assert panel.isDeletableArtifact(SimpleNamespace(category="hosted", scope="generated"))
+    assert panel.artifactTable.rowCount() == 4
+    assert panel.artifactTable.item(0, 0).text() == "module"
+    assert panel.artifactTable.item(0, 1).text() == "winmod64.dll"
+    assert panel.artifactTable.item(0, 4).text() == "native"
+    assert panel.artifactTable.item(0, 6).text() == "2.0 KB"
+    assert panel.artifactTable.item(0, 7).text() == "aaaaaaaaaaaa"
+    assert "Artifact ID: artifact-module-1" in panel.artifactTable.item(0, 1).toolTip()
+
+    panel.categoryFilter.setCurrentText("module")
+    panel.platformFilter.setCurrentText("windows")
+    panel.archFilter.setCurrentText("x64")
+    panel.runtimeFilter.setCurrentText("native")
+    panel.searchInput.setText("win")
+    panel.refreshArtifacts()
+
+    query = grpc.queries[-1]
+    assert query.category == "module"
+    assert query.scope == ""
+    assert query.target == ""
+    assert query.platform == "windows"
+    assert query.arch == "x64"
+    assert query.runtime == "native"
+    assert query.name_contains == "win"
+
+    panel.artifactTable.selectRow(0)
+    panel.copyIdButton.click()
+
+    assert QApplication.clipboard().text() == "artifact-module-1"
+    assert panel.statusLabel.text() == "Artifacts: artifact ID copied."
+    assert not panel.deleteButton.isEnabled()
+
+
+def test_artifacts_panel_filters_on_selection_and_deletes_generated(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    assert not hasattr(panel, "generatedButton")
+    panel.categoryFilter.setCurrentText("payload")
+    panel.runtimeFilter.setCurrentText("shellcode")
+
+    query = grpc.queries[-1]
+    assert query.category == "payload"
+    assert query.scope == ""
+    assert query.runtime == "shellcode"
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 1).text() == "9d4c1e5f0a3b-Rubeus.exe.bin"
+    assert panel.artifactTable.item(0, 8).text() == "donut"
+    assert "SHA256: " + ("c" * 64) in panel.artifactTable.item(0, 1).toolTip()
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-generated-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Generated artifact deleted."
+
+
+def test_artifacts_panel_deletes_hosted_artifacts(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    panel.categoryFilter.setCurrentText("hosted")
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 0).text() == "hosted"
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-hosted-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Hosted artifact deleted."
+
+
+def test_artifacts_panel_deletes_uploaded_artifacts(qtbot, monkeypatch):
+    grpc = FakeGrpc()
+    grpc.artifacts.append(SimpleNamespace(
+        artifact_id="artifact-upload-1",
+        name="operator-note.txt",
+        display_name="operator-note.txt",
+        category="upload",
+        scope="operator",
+        target="beacon",
+        platform="windows",
+        arch="x64",
+        runtime="file",
+        format="txt",
+        source="operator",
+        size=5,
+        sha256="f" * 64,
+        description="Uploaded note.",
+    ))
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    panel.categoryFilter.setCurrentText("upload")
+    assert panel.artifactTable.rowCount() == 1
+    assert panel.artifactTable.item(0, 1).text() == "operator-note.txt"
+
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.artifactTable.selectRow(0)
+    assert panel.deleteButton.isEnabled()
+    panel.deleteButton.click()
+
+    assert grpc.deleted == ["artifact-upload-1"]
+    assert panel.artifactTable.rowCount() == 0
+    assert panel.statusLabel.text() == "Artifacts: Uploaded artifact deleted."
+
+
+def test_artifacts_panel_downloads_and_uploads_files(qtbot, monkeypatch, tmp_path):
+    grpc = FakeGrpc()
+    parent = QWidget()
+    panel = Artifacts(parent, grpc)
+    qtbot.addWidget(panel)
+
+    destination = tmp_path / "artifact.bin"
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args, **kwargs: (str(destination), ""),
+    )
+    panel.artifactTable.selectRow(0)
+    panel.downloadButton.click()
+
+    assert grpc.downloaded == ["artifact-module-1"]
+    assert destination.read_bytes() == b"artifact-bytes"
+    assert panel.statusLabel.text() == "Artifacts: downloaded artifact.bin."
+
+    source = tmp_path / "local payload.bin"
+    source.write_bytes(b"local-bytes")
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args, **kwargs: (str(source), ""),
+    )
+    panel.platformFilter.setCurrentText("windows")
+    panel.archFilter.setCurrentText("x64")
+    panel.uploadButton.click()
+
+    assert grpc.uploaded == [("local payload.bin", b"local-bytes", "windows", "x64")]
+    assert panel.statusLabel.text() == "Artifacts: Uploaded artifact stored: local payload.bin"
+    assert any(getattr(artifact, "artifact_id", "") == "artifact-uploaded-1" for artifact in panel.artifacts)
+
+
+def test_artifacts_panel_reports_refresh_errors(qtbot):
+    parent = QWidget()
+    panel = Artifacts(parent, FailingGrpc())
+    qtbot.addWidget(panel)
+
+    assert panel.artifactTable.rowCount() == 0
+    assert "catalog unavailable" in panel.statusLabel.text()
+    assert "#b00020" in panel.statusLabel.styleSheet()

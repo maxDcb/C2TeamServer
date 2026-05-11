@@ -1,25 +1,36 @@
 import time
 import logging
+import re
+from ipaddress import ip_address
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
+    QApplication,
     QComboBox,
     QFormLayout,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMenu,
     QPushButton,
-    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QWidget,
     QHeaderView,
     QAbstractItemView,
+    QSizePolicy,
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
+from .panel_style import apply_dark_panel_style
+from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
+from .window_chrome import apply_dark_window_chrome
+
+logger = logging.getLogger(__name__)
 
 
 #
@@ -42,19 +53,181 @@ GithubType = "github"
 DnsType = "dns"
 SmbType = "smb"
 
+DOMAIN_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+GITHUB_PROJECT_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+PORT_FIELD_TYPES = {HttpType, HttpsType, TcpType, DnsType}
+TCP_BOUND_LISTENER_TYPES = {HttpType, HttpsType, TcpType}
+PRIMARY_LISTENER_TYPES = [HttpType, HttpsType, TcpType, GithubType, DnsType]
+AUTO_FIELD_VALUES = {"0.0.0.0", "8443", "8080", "4444", "53"}
+LISTENER_FORM_CONFIG = {
+    HttpType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "8080",
+        "help": "HTTP listener bound on a local interface.",
+        "secret": False,
+    },
+    HttpsType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "8443",
+        "help": "HTTPS listener bound on a local interface.",
+        "secret": False,
+    },
+    TcpType: {
+        "param1_label": IpLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "0.0.0.0 or ::",
+        "param2_placeholder": "1-65535",
+        "default_param1": "0.0.0.0",
+        "default_param2": "4444",
+        "help": "Raw TCP listener bound on a local interface.",
+        "secret": False,
+    },
+    GithubType: {
+        "param1_label": ProjectLabel,
+        "param2_label": TokenLabel,
+        "param1_placeholder": "project or owner/repo",
+        "param2_placeholder": "GitHub token",
+        "default_param1": "",
+        "default_param2": "",
+        "help": "GitHub listener using a simple project name or owner/repo.",
+        "secret": True,
+    },
+    DnsType: {
+        "param1_label": DomainLabel,
+        "param2_label": PortLabel,
+        "param1_placeholder": "example.com",
+        "param2_placeholder": "1-65535",
+        "default_param1": "",
+        "default_param2": "53",
+        "help": "DNS listener for a controlled domain.",
+        "secret": False,
+    },
+}
+
+
+def _text(value):
+    return str(value or "").strip()
+
+
+def _validate_port(port):
+    portText = _text(port)
+    if not portText.isdigit():
+        return False, "Port must be a number between 1 and 65535."
+
+    parsedPort = int(portText)
+    if parsedPort < 1 or parsedPort > 65535:
+        return False, "Port must be a number between 1 and 65535."
+    return True, ""
+
+
+def _is_valid_domain(domain):
+    domainText = _text(domain).rstrip(".")
+    if not domainText or len(domainText) > 253:
+        return False
+    if "://" in domainText or "/" in domainText or ":" in domainText:
+        return False
+    return all(DOMAIN_LABEL_PATTERN.match(label) for label in domainText.split("."))
+
+
+def _is_valid_github_project(project):
+    projectParts = _text(project).split("/")
+    if len(projectParts) > 2:
+        return False
+    return all(GITHUB_PROJECT_PART_PATTERN.match(part) for part in projectParts)
+
+
+def validate_listener_fields(listenerType, param1, param2):
+    listenerType = _text(listenerType).lower()
+    param1 = _text(param1)
+    param2 = _text(param2)
+
+    if listenerType in {HttpType, HttpsType, TcpType}:
+        if not param1:
+            return False, "IP is required."
+        try:
+            ip_address(param1)
+        except ValueError:
+            return False, "IP must be a valid IPv4 or IPv6 address."
+        return _validate_port(param2)
+
+    if listenerType == DnsType:
+        if not _is_valid_domain(param1):
+            return False, "Domain must be a valid DNS name."
+        return _validate_port(param2)
+
+    if listenerType == GithubType:
+        if not param1:
+            return False, "GitHub project is required."
+        if not _is_valid_github_project(param1):
+            return False, "GitHub project must use a simple name or owner/repo."
+        if not param2:
+            return False, "GitHub token is required."
+        return True, ""
+
+    return False, "Unknown listener type."
+
+
+def find_tcp_port_conflict(listenerType, port, existingListeners):
+    listenerType = _text(listenerType).lower()
+    if listenerType not in TCP_BOUND_LISTENER_TYPES:
+        return None
+
+    portText = _text(port)
+    if not portText.isdigit():
+        return None
+
+    for listenerStore in existingListeners or []:
+        if _text(getattr(listenerStore, "beaconHash", "")):
+            continue
+        existingType = _text(getattr(listenerStore, "type", "")).lower()
+        if existingType not in TCP_BOUND_LISTENER_TYPES:
+            continue
+        if _text(getattr(listenerStore, "port", "")) == portText:
+            return listenerStore
+    return None
+
+
+def listener_port_conflict_message(conflict):
+    listenerHash = _text(getattr(conflict, "listenerHash", ""))
+    listenerRef = f" {listenerHash[:8]}" if listenerHash else ""
+    return f"Port {conflict.port} is already used by {conflict.type} listener{listenerRef}."
+
 
 #
 # Listener tab implementation
 #
 class Listener():
 
-    def __init__(self, id, hash, type, host, port, nbSession):
+    def __init__(self, id, hash, type, host, port, nbSession, beaconHash=""):
         self.id = id
         self.listenerHash = hash
         self.type = type
         self.host = host
         self.port = port
         self.nbSession = nbSession
+        self.beaconHash = beaconHash
+
+    def hostDisplay(self):
+        if self.beaconHash:
+            return self.beaconHash[:8]
+        return self.host
+
+    def hostTooltip(self):
+        if not self.beaconHash:
+            return self.host
+
+        endpoint = self.host
+        if self.port:
+            endpoint = f"{endpoint}:{self.port}"
+        return f"Beacon ID: {self.beaconHash}\nEndpoint: {endpoint}"
 
 
 class Listeners(QWidget):
@@ -63,27 +236,61 @@ class Listeners(QWidget):
 
     idListener = 0
     listListenerObject = []
+    COLUMN_WIDTHS = [76, 70, 160, 72]
+    STRETCH_COLUMN = 2
 
 
     def __init__(self, parent, grpcClient):
         super(QWidget, self).__init__(parent)
 
         self.grpcClient = grpcClient
+        self.idListener = 0
+        self.listListenerObject = []
+        apply_dark_panel_style(self)
                 
         self.createListenerWindow = None
 
         widget = QWidget(self)
         self.layout = QGridLayout(widget)
+        self.layout.setContentsMargins(4, 4, 4, 4)
+        self.layout.setHorizontalSpacing(6)
+        self.layout.setVerticalSpacing(4)
+        self.layout.setColumnStretch(0, 1)
+        self.layout.setRowStretch(2, 1)
 
         self.label = QLabel(ListenerTabTitle)
-        self.layout.addWidget(self.label)
+        self.headerLayout = QHBoxLayout()
+        self.headerLayout.setSpacing(4)
+        self.headerLayout.addWidget(self.label)
+        self.headerLayout.addStretch(1)
+
+        self.addListenerButton = self.createToolbarButton("Add", "Create a new primary listener.")
+        self.addListenerButton.clicked.connect(self.listenerForm)
+        self.headerLayout.addWidget(self.addListenerButton)
+
+        self.stopListenerButton = self.createToolbarButton("Stop", "Stop the selected listener.")
+        self.stopListenerButton.clicked.connect(self.stopSelectedListener)
+        self.headerLayout.addWidget(self.stopListenerButton)
+
+        self.copyListenerIdButton = self.createToolbarButton("Copy", "Copy the selected listener hash.")
+        self.copyListenerIdButton.clicked.connect(self.copySelectedListenerId)
+        self.headerLayout.addWidget(self.copyListenerIdButton)
+
+        self.refreshButton = self.createToolbarButton("Refresh", "Refresh listeners now.", width=70)
+        self.refreshButton.clicked.connect(self.listListeners)
+        self.headerLayout.addWidget(self.refreshButton)
+        self.layout.addLayout(self.headerLayout, 0, 0)
+
         self.statusLabel = QLabel("")
-        self.layout.addWidget(self.statusLabel)
+        self.statusLabel.setMinimumHeight(18)
+        self.layout.addWidget(self.statusLabel, 1, 0)
 
         # List of sessions
         self.listListener = QTableWidget()
         self.listListener.setShowGrid(False)
+        self.listListener.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.listListener.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.listListener.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         self.listListener.setRowCount(0)
         self.listListener.setColumnCount(4)
@@ -91,12 +298,11 @@ class Listeners(QWidget):
         # self.listListener.cellPressed.connect(self.listListenerClicked)
         self.listListener.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.listListener.customContextMenuRequested.connect(self.showContextMenu)
+        self.listListener.itemSelectionChanged.connect(self.updateActionButtons)
 
         self.listListener.verticalHeader().setVisible(False)
-        header = self.listListener.horizontalHeader()      
-        for i in range(header.count()):
-            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
-        self.layout.addWidget(self.listListener)
+        self.configureTableColumns()
+        self.layout.addWidget(self.listListener, 2, 0)
 
         # Thread to get listeners every second
         # https://realpython.com/python-pyqt-qthread/
@@ -108,14 +314,79 @@ class Listeners(QWidget):
         self.thread.start()
 
         self.setLayout(self.layout)
+        self.updateActionButtons()
 
-    def setStatusMessage(self, ack, successFallback):
+    def createToolbarButton(self, text, tooltip, width=58):
+        button = QPushButton(text)
+        button.setToolTip(tooltip)
+        button.setFixedHeight(26)
+        button.setMinimumWidth(width)
+        button.setMaximumWidth(width)
+        return button
+
+    def configureTableColumns(self):
+        header = self.listListener.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(44)
+        for index, width in enumerate(self.COLUMN_WIDTHS):
+            if index == self.STRETCH_COLUMN:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
+                self.listListener.setColumnWidth(index, width)
+
+    def setStatusMessage(self, ack, successFallback, action="Operation"):
         message = operation_ack_text(ack, successFallback)
-        self.statusLabel.setText(message)
-        if is_response_ok(ack):
-            self.statusLabel.setStyleSheet("color: #0a7f2e;")
-        else:
-            self.statusLabel.setStyleSheet("color: #b00020;")
+        self.setInlineStatus(format_action_status(action, message), is_response_ok(ack))
+
+    def setInlineStatus(self, message, ok=True):
+        apply_status(self.statusLabel, message, status_kind_for_ok(ok))
+
+    def updateActionButtons(self):
+        hasSelection = self.selectedListener() is not None
+        self.stopListenerButton.setEnabled(hasSelection)
+        self.copyListenerIdButton.setEnabled(hasSelection)
+
+    def selectedListener(self):
+        selectedRows = self.listListener.selectionModel().selectedRows() if self.listListener.selectionModel() else []
+        if not selectedRows:
+            return None
+
+        row = selectedRows[0].row()
+        if row < 0 or row >= len(self.listListenerObject):
+            return None
+        return self.listListenerObject[row]
+
+    def scriptSnapshot(self):
+        snapshots = []
+        for listenerStore in self.listListenerObject:
+            snapshots.append(
+                {
+                    "id": listenerStore.id,
+                    "listener_hash": _text(listenerStore.listenerHash),
+                    "beacon_hash": _text(listenerStore.beaconHash),
+                    "type": _text(listenerStore.type),
+                    "host": _text(listenerStore.host),
+                    "port": listenerStore.port,
+                    "session_count": listenerStore.nbSession,
+                }
+            )
+        return snapshots
+
+    def stopSelectedListener(self):
+        listenerStore = self.selectedListener()
+        if listenerStore is None:
+            self.setInlineStatus("Select a listener first.", False)
+            return
+        self.stopListener(listenerStore.listenerHash)
+
+    def copySelectedListenerId(self):
+        listenerStore = self.selectedListener()
+        if listenerStore is None:
+            self.setInlineStatus("Select a listener first.", False)
+            return
+        QApplication.clipboard().setText(listenerStore.listenerHash)
+        self.setInlineStatus("Listener ID copied to clipboard.")
 
     def __del__(self):
         self.getListenerWorker.quit()
@@ -154,30 +425,44 @@ class Listeners(QWidget):
     # form for adding a listener
     def listenerForm(self):
         if self.createListenerWindow is None:
-            self.createListenerWindow = CreateListner()
+            self.createListenerWindow = CreateListner(lambda: self.listListenerObject)
             self.createListenerWindow.procDone.connect(self.addListener)
+        else:
+            self.createListenerWindow.setExistingListenersProvider(lambda: self.listListenerObject)
         self.createListenerWindow.show()
 
 
     # send message for adding a listener
     def addListener(self, message):
-        if message[0]=="github":
+        listenerType = _text(message[0]) if len(message) > 0 else ""
+        param1 = _text(message[1]) if len(message) > 1 else ""
+        param2 = _text(message[2]) if len(message) > 2 else ""
+        valid, error = validate_listener_fields(listenerType, param1, param2)
+        if not valid:
+            self.setInlineStatus(format_action_status("Add listener", error), False)
+            return
+        conflict = find_tcp_port_conflict(listenerType, param2, self.listListenerObject)
+        if conflict is not None:
+            self.setInlineStatus(format_action_status("Add listener", listener_port_conflict_message(conflict)), False)
+            return
+
+        if listenerType=="github":
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            project=message[1],
-            token=message[2])
-        elif message[0]=="dns":
+            type=listenerType,
+            project=param1,
+            token=param2)
+        elif listenerType=="dns":
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            domain=message[1],
-            port=int(message[2]))
+            type=listenerType,
+            domain=param1,
+            port=int(param2))
         else:
             listener = TeamServerApi_pb2.Listener(
-            type=message[0],
-            ip=message[1],
-            port=int(message[2]))
+            type=listenerType,
+            ip=param1,
+            port=int(param2))
         ack = self.grpcClient.addListener(listener)
-        self.setStatusMessage(ack, "Listener command accepted.")
+        self.setStatusMessage(ack, "Listener command accepted.", action="Add listener")
 
 
     # send message for stoping a listener
@@ -185,7 +470,7 @@ class Listeners(QWidget):
         listener = TeamServerApi_pb2.ListenerSelector(
         listener_hash=listenerHash)
         ack = self.grpcClient.stopListener(listener)
-        self.setStatusMessage(ack, "Listener stop command accepted.")
+        self.setStatusMessage(ack, "Listener stop command accepted.", action="Stop listener")
 
 
     # query the server to get the list of listeners
@@ -213,29 +498,55 @@ class Listeners(QWidget):
                 # maj
                 if listener.listener_hash == listenerStore.listenerHash:
                     inStore=True
-                    listenerStore.nbSession=listener.session_count
+                    listenerStore.type = listener.type
+                    listenerStore.nbSession = listener.session_count
+                    listenerStore.beaconHash = _text(getattr(listener, "beacon_hash", ""))
+                    if listener.type == GithubType:
+                        listenerStore.host = listener.project
+                        listenerStore.port = listener.token[0:10]
+                    elif listener.type == DnsType:
+                        listenerStore.host = listener.domain
+                        listenerStore.port = listener.port
+                    elif listener.type == SmbType:
+                        listenerStore.host = listener.ip
+                        listenerStore.port = listener.domain
+                    else:
+                        listenerStore.host = listener.ip
+                        listenerStore.port = listener.port
             # add
             # if listener is not yet already on our list
             if not inStore:
-
-                self.listenerScriptSignal.emit("start", "", "", "")
-
+                beaconHash = _text(getattr(listener, "beacon_hash", ""))
                 if listener.type == GithubType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count, beaconHash)
                 elif listener.type == DnsType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count, beaconHash)
                 elif listener.type == SmbType:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count, beaconHash)
                 else:
-                    self.listListenerObject.append(Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count))
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count, beaconHash)
+                self.listListenerObject.append(listenerStore)
                 self.idListener = self.idListener+1
+                self.listenerScriptSignal.emit(
+                    "start",
+                    listenerStore.listenerHash,
+                    listenerStore.type,
+                    listenerStore.host,
+                )
 
         self.printListeners()
 
 
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["Listener ID", "Type", "Host", "Port"])
+        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host/Beacon", "Port"])
+        for index, tooltip in {
+            0: "Listener hash",
+            2: "Primary bind host, or beacon ID for child listeners.",
+        }.items():
+            headerItem = self.listListener.horizontalHeaderItem(index)
+            if headerItem is not None:
+                headerItem.setToolTip(tooltip)
         for ix, listenerStore in enumerate(self.listListenerObject):
 
             listenerHash = QTableWidgetItem(listenerStore.listenerHash[0:8])
@@ -244,71 +555,179 @@ class Listeners(QWidget):
             type = QTableWidgetItem(listenerStore.type)
             self.listListener.setItem(ix, 1, type)
 
-            host = QTableWidgetItem(listenerStore.host)
+            host = QTableWidgetItem(listenerStore.hostDisplay())
+            host.setToolTip(listenerStore.hostTooltip())
             self.listListener.setItem(ix, 2, host)
 
             port = QTableWidgetItem(str(listenerStore.port))
             self.listListener.setItem(ix, 3, port)
+        self.updateActionButtons()
 
 
 class CreateListner(QWidget):
 
     procDone = pyqtSignal(list)
     
-    def __init__(self):
+    def __init__(self, existingListenersProvider=None):
         super().__init__()
+        self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        apply_dark_panel_style(self)
         
         layout = QFormLayout()
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(8)
         self.labelType = QLabel(TypeLabel)
         self.qcombo = QComboBox(self)
-        self.qcombo.addItems([HttpType , HttpsType, TcpType, GithubType, DnsType])
+        self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
         self.qcombo.setCurrentIndex(1)
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
+        self.helpLabel = QLabel("")
+        self.helpLabel.setWordWrap(True)
+        layout.addRow(self.helpLabel)
+
         self.labelIP = QLabel(IpLabel)
         self.param1 = QLineEdit()
-        self.param1.setText("0.0.0.0")
+        self.param1.setClearButtonEnabled(True)
         layout.addRow(self.labelIP, self.param1)
 
         self.labelPort = QLabel(PortLabel)
         self.param2 = QLineEdit()
-        self.param2.setText("8443")
+        self.param2.setClearButtonEnabled(True)
+        self.portValidator = QIntValidator(1, 65535, self)
         layout.addRow(self.labelPort, self.param2)
 
-        self.buttonOk = QPushButton('&OK', clicked=self.checkAndSend)
-        layout.addRow(self.buttonOk)
+        self.errorLabel = QLabel("")
+        self.errorLabel.setMinimumHeight(18)
+        self.errorLabel.setWordWrap(True)
+        self.errorLabel.setVisible(False)
+        layout.addRow(self.errorLabel)
+
+        self.buttonLayout = QHBoxLayout()
+        self.buttonLayout.addStretch(1)
+        self.cancelButton = QPushButton("Cancel", clicked=self.close)
+        self.buttonOk = QPushButton("Add", clicked=self.checkAndSend)
+        self.buttonOk.setDefault(True)
+        self.buttonLayout.addWidget(self.cancelButton)
+        self.buttonLayout.addWidget(self.buttonOk)
+        layout.addRow(self.buttonLayout)
 
         self.setLayout(layout)
         self.setWindowTitle(AddListenerWindowTitle)
+        self.setMinimumWidth(360)
+        apply_dark_window_chrome(self)
+        self.param1.textChanged.connect(self.updateFormState)
+        self.param2.textChanged.connect(self.updateFormState)
+        self.param1.returnPressed.connect(self.checkAndSend)
+        self.param2.returnPressed.connect(self.checkAndSend)
+        self.changeLabels()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        apply_dark_window_chrome(self)
+
+    def setExistingListenersProvider(self, existingListenersProvider):
+        self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        self.updateFormState()
 
 
     def changeLabels(self):
-        if self.qcombo.currentText() == HttpType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-        elif self.qcombo.currentText() == HttpsType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-        elif self.qcombo.currentText() == TcpType:
-            self.labelIP.setText(IpLabel)
-            self.labelPort.setText(PortLabel)
-        elif self.qcombo.currentText() == GithubType:
-            self.labelIP.setText(ProjectLabel)
-            self.labelPort.setText(TokenLabel)
-        elif self.qcombo.currentText() == DnsType:
-            self.labelIP.setText(DomainLabel)
-            self.labelPort.setText(PortLabel)
+        self.clearValidationError()
+        listenerType = self.qcombo.currentText()
+        config = LISTENER_FORM_CONFIG[listenerType]
 
+        self.labelIP.setText(config["param1_label"])
+        self.labelPort.setText(config["param2_label"])
+        self.helpLabel.setText(config["help"])
+        self.param1.setPlaceholderText(config["param1_placeholder"])
+        self.param2.setPlaceholderText(config["param2_placeholder"])
+        self.param1.setToolTip(config["param1_placeholder"])
+        self.param2.setToolTip(config["param2_placeholder"])
+
+        if listenerType in PORT_FIELD_TYPES:
+            self.param2.setValidator(self.portValidator)
+            self.param2.setEchoMode(QLineEdit.EchoMode.Normal)
+        else:
+            self.param2.setValidator(None)
+            self.param2.setEchoMode(
+                QLineEdit.EchoMode.Password if config["secret"] else QLineEdit.EchoMode.Normal
+            )
+
+        self.applyParam1Default(listenerType, config["default_param1"])
+        self.applyParam2Default(listenerType, config["default_param2"])
+        self.updateFormState()
+
+    def applyParam1Default(self, listenerType, defaultValue):
+        current = self.param1.text().strip()
+        shouldReset = not current or current in AUTO_FIELD_VALUES
+
+        if listenerType in {HttpType, HttpsType, TcpType}:
+            shouldReset = shouldReset or not self.looksLikeIp(current)
+        elif listenerType == DnsType:
+            shouldReset = shouldReset or self.looksLikeIp(current) or "/" in current or ":" in current
+        elif listenerType == GithubType:
+            shouldReset = shouldReset or self.looksLikeIp(current) or "://" in current
+
+        if shouldReset:
+            self.param1.setText(defaultValue)
+
+    def applyParam2Default(self, listenerType, defaultValue):
+        current = self.param2.text().strip()
+        if listenerType in PORT_FIELD_TYPES:
+            shouldReset = not current or current in AUTO_FIELD_VALUES or not current.isdigit()
+        else:
+            shouldReset = current in AUTO_FIELD_VALUES or current.isdigit()
+
+        if shouldReset:
+            self.param2.setText(defaultValue)
+
+    def looksLikeIp(self, value):
+        candidate = _text(value)
+        if candidate and candidate not in AUTO_FIELD_VALUES:
+            try:
+                ip_address(candidate)
+                return True
+            except ValueError:
+                return False
+        return False
+
+    def clearValidationError(self):
+        clear_status(self.errorLabel, "")
+        self.errorLabel.setVisible(False)
+
+    def showValidationError(self, message):
+        apply_error(self.errorLabel, message)
+        self.errorLabel.setVisible(True)
+
+    def updateFormState(self):
+        self.clearValidationError()
+        valid, _ = validate_listener_fields(
+            self.type.currentText(),
+            self.param1.text(),
+            self.param2.text(),
+        )
+        if valid and find_tcp_port_conflict(self.type.currentText(), self.param2.text(), self.existingListenersProvider()):
+            valid = False
+        self.buttonOk.setEnabled(valid)
 
     def checkAndSend(self):
-        type = self.type.currentText()
-        param1 = self.param1.text()
-        param2 = self.param2.text()
+        type = self.type.currentText().strip()
+        param1 = self.param1.text().strip()
+        param2 = self.param2.text().strip()
+
+        valid, error = validate_listener_fields(type, param1, param2)
+        if not valid:
+            self.showValidationError(error)
+            return
+        conflict = find_tcp_port_conflict(type, param2, self.existingListenersProvider())
+        if conflict is not None:
+            self.showValidationError(listener_port_conflict_message(conflict))
+            return
 
         result = [type, param1, param2]
-
         self.procDone.emit(result)
         self.close()
 
@@ -319,6 +738,7 @@ class GetListenerWorker(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.exit = False
+        self.refreshIntervalSeconds = env_int("C2_LISTENER_REFRESH_MS", 2000, minimum=100) / 1000
 
     def __del__(self):
         self.exit=True
@@ -328,9 +748,9 @@ class GetListenerWorker(QObject):
             while self.exit==False:
                 if self.receivers(self.checkin) > 0:
                     self.checkin.emit()
-                time.sleep(2)
-        except Exception as e:
-            pass
+                time.sleep(self.refreshIntervalSeconds)
+        except Exception:
+            logger.exception("Listener refresh worker stopped unexpectedly")
 
     def quit(self):
         self.exit=True

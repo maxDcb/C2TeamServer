@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .loader import C2ToolSpec
+from .command_specs import C2CommandSpecToolSpec
 
 _OPTIONAL_SEGMENT_RE = re.compile(r"\[(?P<body>[^\[\]]+)\]")
 _PLACEHOLDER_RE = re.compile(r"\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<modifier>raw|q|flag))?(?P<optional>\?)?\}")
@@ -15,23 +15,28 @@ class _OmitOptionalSegment(Exception):
 
 def quote_argument(value: object) -> str:
     if value is None:
-        return '""'
+        return "''"
 
     text = str(value)
     if not text:
-        return '""'
+        return "''"
 
-    if text.startswith('"') and text.endswith('"') and len(text) >= 2:
+    if (
+        (text.startswith("'") and text.endswith("'"))
+        or (text.startswith('"') and text.endswith('"'))
+    ) and len(text) >= 2:
         return text
 
     if any(ch.isspace() for ch in text) or '"' in text:
+        if "'" not in text:
+            return f"'{text}'"
         escaped = text.replace('"', '\\"')
         return f'"{escaped}"'
 
     return text
 
 
-def build_command_line(spec: C2ToolSpec, arguments: dict[str, Any]) -> str:
+def build_command_line(spec: C2CommandSpecToolSpec, arguments: dict[str, Any]) -> str:
     _validate_required_arguments(spec, arguments)
 
     def render_optional_segment(match: re.Match[str]) -> str:
@@ -85,7 +90,7 @@ def _render_template_part(template: str, arguments: dict[str, Any], *, implicit_
     return _PLACEHOLDER_RE.sub(replace, template)
 
 
-def _validate_required_arguments(spec: C2ToolSpec, arguments: dict[str, Any]) -> None:
+def _validate_required_arguments(spec: C2CommandSpecToolSpec, arguments: dict[str, Any]) -> None:
     required = spec.parameters.get("required", [])
     if not isinstance(required, list):
         return

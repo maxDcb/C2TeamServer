@@ -4,8 +4,18 @@ from ..grpcClient import TeamServerApi_pb2
 from ..grpc_status import is_response_ok, response_message
 
 
-def OnSessionStart(grpcClient, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
+DESCRIPTION = "Stops new beacon sessions that look like the known sandbox hostname."
+HOOK_DESCRIPTIONS = {
+	"OnSessionStart": "Checks the session object from the trigger snapshot and queues end when the hostname is sandboxhostname.",
+}
+
+
+def OnSessionStart(grpcClient, context):
 	output = ""
+	session = context.get("object") or context.get("event", {})
+	beaconHash = session.get("beacon_hash", "")
+	listenerHash = session.get("listener_hash", "")
+	hostname = session.get("hostname", "")
 	if hostname == "sandboxhostname":
 		output += "checkSandbox:\nSandbox detected ending beacon\n";
 

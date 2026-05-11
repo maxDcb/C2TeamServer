@@ -3,110 +3,155 @@ from __future__ import annotations
 import pytest
 
 from C2Client.assistant_agent.tools.command_builder import build_command_line
-from C2Client.assistant_agent.tools.loader import C2ToolSpec, load_tool_specs
+from C2Client.assistant_agent.tools.command_specs import command_spec_to_tool_spec
+
+from helpers import arg, command_spec
 
 
-def spec_by_name(name: str) -> C2ToolSpec:
-    return {spec.name: spec for spec in load_tool_specs()}[name]
+def tool_spec(command):
+    return command_spec_to_tool_spec(command)
 
 
 def test_build_command_line_quotes_paths_with_spaces():
-    assert build_command_line(spec_by_name("cat"), {"beacon_hash": "b", "listener_hash": "l", "path": "C:\\Users\\Public\\notes.txt"}) == "cat C:\\Users\\Public\\notes.txt"
-    assert build_command_line(spec_by_name("ls"), {"beacon_hash": "b", "listener_hash": "l", "path": "C:\\Program Files"}) == 'ls "C:\\Program Files"'
+    cat = tool_spec(command_spec("cat", "cat {path:q}", [arg("path", arg_type="path", required=True)]))
+    ls = tool_spec(command_spec("ls", "ls {path:q?}", [arg("path", arg_type="path")]))
+
+    assert build_command_line(cat, {"beacon_hash": "b", "listener_hash": "l", "path": "C:\\Users\\Public\\notes.txt"}) == "cat C:\\Users\\Public\\notes.txt"
+    assert build_command_line(ls, {"beacon_hash": "b", "listener_hash": "l", "path": "C:\\Program Files"}) == "ls 'C:\\Program Files'"
 
 
 def test_build_command_line_supports_raw_command_tail():
+    run = tool_spec(command_spec("run", "run {command:raw}", [arg("command", required=True, variadic=True)]))
+
     assert build_command_line(
-        spec_by_name("run"),
+        run,
         {"beacon_hash": "b", "listener_hash": "l", "command": "whoami /all"},
     ) == "run whoami /all"
 
 
 def test_build_command_line_omits_empty_optional_argument():
+    enumerate_shares = tool_spec(command_spec("enumerateShares", "enumerateShares {host:q?}", [arg("host")]))
+    ls = tool_spec(command_spec("ls", "ls {path:q?}", [arg("path", arg_type="path")]))
+
     assert build_command_line(
-        spec_by_name("enumerateShares"),
+        enumerate_shares,
         {"beacon_hash": "b", "listener_hash": "l", "host": ""},
     ) == "enumerateShares"
     assert build_command_line(
-        spec_by_name("ls"),
+        ls,
         {"beacon_hash": "b", "listener_hash": "l"},
     ) == "ls"
 
 
 def test_build_command_line_supports_optional_flag_segments():
+    dcom_exec = tool_spec(
+        command_spec(
+            "dcomExec",
+            "dcomExec -h {h:q} -c {c:q} [-a {a:q}] [-n {n:flag}]",
+            [
+                arg("-h", required=True),
+                arg("-c", required=True),
+                arg("-a"),
+                arg("-n"),
+            ],
+        )
+    )
+
     assert build_command_line(
-        spec_by_name("dcomExec"),
+        dcom_exec,
         {
             "beacon_hash": "b",
             "listener_hash": "l",
-            "hostname": "host1",
-            "command": "cmd.exe",
-            "arguments": "/c whoami",
-            "no_password": True,
+            "h": "host1",
+            "c": "cmd.exe",
+            "a": "/c whoami",
+            "n": True,
         },
-    ) == 'dcomExec -h host1 -c cmd.exe -a "/c whoami" -n'
-    assert build_command_line(
-        spec_by_name("screenShot"),
-        {"beacon_hash": "b", "listener_hash": "l"},
-    ) == "screenShot"
+    ) == "dcomExec -h host1 -c cmd.exe -a '/c whoami' -n"
 
 
 def test_build_command_line_rejects_missing_required_argument():
+    cat = tool_spec(command_spec("cat", "cat {path:q}", [arg("path", arg_type="path", required=True)]))
+
     with pytest.raises(KeyError):
-        build_command_line(spec_by_name("cat"), {"beacon_hash": "b", "listener_hash": "l"})
+        build_command_line(cat, {"beacon_hash": "b", "listener_hash": "l"})
 
 
 @pytest.mark.parametrize(
-    ("name", "arguments", "expected"),
+    ("command", "arguments", "expected"),
     [
-        ("assemblyExec", {"action": "thread"}, "assemblyExec thread"),
-        ("cat", {"path": "C:\\Temp\\a.txt"}, "cat C:\\Temp\\a.txt"),
-        ("cd", {"path": "C:\\Users\\Public"}, "cd C:\\Users\\Public"),
-        ("chisel", {"binary_path_or_action": "stop", "pid": 1234}, "chisel stop 1234"),
-        ("cimExec", {"hostname": "host1", "command": "cmd.exe", "arguments": "/c whoami"}, 'cimExec -h host1 -c cmd.exe -a "/c whoami"'),
-        ("coffLoader", {"coff_file": "whoami.x64.o", "function_name": "go", "packed_arguments": "Zs c:\\ 0"}, "coffLoader whoami.x64.o go Zs c:\\ 0"),
-        ("dcomExec", {"hostname": "host1", "command": "cmd.exe", "working_dir": "C:\\Windows"}, "dcomExec -h host1 -c cmd.exe -w C:\\Windows"),
-        ("dotnetExec", {"action": "runDll", "module_name": "lib", "method_name": "Run", "arguments": "arg1 arg2"}, "dotnetExec runDll lib Run arg1 arg2"),
-        ("download", {"remote_path": "C:\\Temp\\a.txt", "local_path": "/tmp/a.txt"}, "download C:\\Temp\\a.txt /tmp/a.txt"),
-        ("enumerateRdpSessions", {"server": "fileserver"}, "enumerateRdpSessions -s fileserver"),
-        ("enumerateShares", {"host": "fileserver"}, "enumerateShares fileserver"),
-        ("evasion", {"action": "ReadMemory", "address": "0x1234", "value": "16"}, "evasion ReadMemory 0x1234 16"),
-        ("getEnv", {}, "getEnv"),
-        ("inject", {"payload_type": "-d", "input_file": "payload.dll", "pid": 4242, "method": "Run", "arguments": "a b"}, "inject -d payload.dll 4242 Run a b"),
-        ("ipConfig", {}, "ipConfig"),
-        ("kerberosUseTicket", {"ticket_file": "/tmp/ticket.kirbi"}, "kerberosUseTicket /tmp/ticket.kirbi"),
-        ("keyLogger", {"action": "start"}, "keyLogger start"),
-        ("killProcess", {"pid": 4242}, "killProcess 4242"),
-        ("listProcesses", {}, "ps"),
-        ("loadModule", {"module_to_load": "whoami.dll"}, "loadModule whoami.dll"),
-        ("ls", {}, "ls"),
-        ("makeToken", {"username": "DOMAIN\\user", "password": "Password123!"}, "makeToken DOMAIN\\user Password123!"),
-        ("miniDump", {"action": "dump", "path": "lsass.xored"}, "miniDump dump lsass.xored"),
-        ("mkDir", {"path": "C:\\Temp\\new dir"}, 'mkDir "C:\\Temp\\new dir"'),
-        ("netstat", {}, "netstat"),
-        ("powershell", {"command": "whoami | write-output"}, "powershell whoami | write-output"),
-        ("psExec", {"auth_mode": "-u", "username": "DOMAIN\\user", "password": "pw", "target": "host1", "service_file": "svc.exe"}, "psExec -u DOMAIN\\user pw host1 svc.exe"),
-        ("pwSh", {"action": "run", "command": "Get-Process"}, "pwSh run Get-Process"),
-        ("pwd", {}, "pwd"),
-        ("registry", {"operation": "set", "root_key": "HKLM", "sub_key": "Software\\Acme", "value_name": "Path", "value_data": "C:/Temp", "value_type": "REG_SZ"}, "registry set -h HKLM -k Software\\Acme -n Path -d C:/Temp -t REG_SZ"),
-        ("remove", {"path": "C:\\Temp\\old.txt"}, "remove C:\\Temp\\old.txt"),
-        ("rev2self", {}, "rev2self"),
-        ("reversePortForward", {"remote_port": 8080, "local_host": "127.0.0.1", "local_port": 80}, "reversePortForward 8080 127.0.0.1 80"),
-        ("run", {"command": "whoami /all"}, "run whoami /all"),
-        ("screenShot", {}, "screenShot"),
-        ("script", {"script_path": "/tmp/test.sh"}, "script /tmp/test.sh"),
-        ("shell", {"command": "ls -la"}, "shell ls -la"),
-        ("spawnAs", {"domain": "DOMAIN", "username": "user", "password": "pw", "net_only": True, "command": "cmd.exe /c whoami"}, "spawnAs -d DOMAIN --netonly user pw -- cmd.exe /c whoami"),
-        ("sshExec", {"host": "host1", "username": "user", "password": "pw", "command": "id"}, "sshExec -h host1 -u user -p pw -- id"),
-        ("stealToken", {"pid": 4242}, "stealToken 4242"),
-        ("taskScheduler", {"command": "cmd.exe", "arguments": "/c whoami", "skip_run": True, "keep_task": True}, 'taskScheduler -c cmd.exe -a "/c whoami" --no-run --nocleanup'),
-        ("tree", {}, "tree"),
-        ("upload", {"local_path": "/tmp/a.txt", "remote_path": "C:\\Temp\\a.txt"}, "upload /tmp/a.txt C:\\Temp\\a.txt"),
-        ("whoami", {}, "whoami"),
-        ("winRm", {"auth_mode": "-n", "target": "host1", "command": "whoami"}, "winRm -n host1 whoami"),
-        ("wmiExec", {"auth_mode": "-k", "dc": "dc1", "target": "host1", "command": "whoami"}, "wmiExec -k dc1 host1 whoami"),
+        (
+            command_spec(
+                "assemblyExec",
+                "assemblyExec [--mode {mode}] [--donut-exe {donut_exe:q}] [--method {method:q}] [-- {arguments:raw}]",
+                [
+                    arg("--mode", values=["thread", "process"]),
+                    arg("--donut-exe", artifact=True),
+                    arg("--method"),
+                    arg("arguments", variadic=True),
+                ],
+            ),
+            {"mode": "process", "donut_exe": "Rubeus.exe", "arguments": "triage"},
+            "assemblyExec --mode process --donut-exe Rubeus.exe -- triage",
+        ),
+        (
+            command_spec(
+                "inject",
+                "inject --pid {pid} [--donut-exe {donut_exe:q}] [-- {arguments:raw}]",
+                [
+                    arg("--pid", arg_type="number", required=True),
+                    arg("--donut-exe", artifact=True),
+                    arg("arguments", variadic=True),
+                ],
+            ),
+            {"pid": -1, "donut_exe": "BeaconHttp.exe", "arguments": "arg1 arg2"},
+            "inject --pid -1 --donut-exe BeaconHttp.exe -- arg1 arg2",
+        ),
+        (
+            command_spec(
+                "registry",
+                "registry {operation} -h {h:q} -k {k:q} [-n {n:q}]",
+                [
+                    arg("operation", values=["query", "set"], required=True),
+                    arg("-h", required=True),
+                    arg("-k", required=True),
+                    arg("-n"),
+                ],
+            ),
+            {"operation": "query", "h": "HKCU", "k": "Software\\C2", "n": "Smoke"},
+            "registry query -h HKCU -k Software\\C2 -n Smoke",
+        ),
+        (
+            command_spec(
+                "spawnAs",
+                "spawnAs [--no-profile {no_profile:flag}] {username:q} {password:q} -- {command:raw}",
+                [
+                    arg("--no-profile"),
+                    arg("username", required=True),
+                    arg("password", required=True),
+                    arg("command", required=True, variadic=True),
+                ],
+            ),
+            {"no_profile": True, "username": ".\\c2test", "password": "pw", "command": "cmd.exe /c whoami"},
+            "spawnAs --no-profile .\\c2test pw -- cmd.exe /c whoami",
+        ),
+        (
+            command_spec(
+                "sshExec",
+                "sshExec -h {h:q} [-P {P}] -u {u:q} -p {p:q} -- {command:raw}",
+                [
+                    arg("-h", required=True),
+                    arg("-P", arg_type="number"),
+                    arg("-u", required=True),
+                    arg("-p", required=True),
+                    arg("command", required=True, variadic=True),
+                ],
+            ),
+            {"h": "server", "P": 2222, "u": "admin", "p": "pw", "command": "/bin/id"},
+            "sshExec -h server -P 2222 -u admin -p pw -- /bin/id",
+        ),
     ],
 )
-def test_build_command_lines_cover_core_module_init_forms(name, arguments, expected):
+def test_build_command_lines_from_command_spec_templates(command, arguments, expected):
     arguments = {"beacon_hash": "b", "listener_hash": "l", **arguments}
-    assert build_command_line(spec_by_name(name), arguments) == expected
+    assert build_command_line(tool_spec(command), arguments) == expected

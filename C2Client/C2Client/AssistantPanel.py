@@ -1,12 +1,10 @@
 import os
-from datetime import datetime
 
 from threading import Thread, Lock, Semaphore
 
 from PyQt6.QtCore import Qt, QEvent, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QTextCursor, QShortcut
+from PyQt6.QtGui import QShortcut
 from PyQt6.QtWidgets import (
-    QLineEdit,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -15,19 +13,36 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .assistant_agent import C2AssistantAgent
+from .console_style import (
+    apply_console_output_style,
+    append_console_block,
+    append_console_spacing,
+    move_editor_to_end,
+)
+from .autocomplete import CompletionInput
+from .env import env_int
 
 DEFAULT_PENDING_TOOL_TIMEOUT_MS = 2 * 60 * 1000
+ASSISTANT_COMPLETIONS = [
+    ("/help", []),
+    ("/status", []),
+    ("/cancel", []),
+    ("/reset", []),
+]
+
+ASSISTANT_HEADER_ROLES = {
+    "system": ("[system]", "system", False),
+    "user": ("[user]", "user", False),
+    "analysis": ("[assistant]", "assistant", False),
+}
 
 
 def _load_pending_tool_timeout_ms():
-    value = os.environ.get("C2_ASSISTANT_PENDING_TIMEOUT_MS")
-    if not value:
-        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
-
-    try:
-        return max(0, int(value))
-    except ValueError:
-        return DEFAULT_PENDING_TOOL_TIMEOUT_MS
+    return env_int(
+        "C2_ASSISTANT_PENDING_TIMEOUT_MS",
+        DEFAULT_PENDING_TOOL_TIMEOUT_MS,
+        minimum=0,
+    )
 
 
 #
@@ -50,7 +65,7 @@ class Assistant(QWidget):
         # self.logFileName=LogFileName
 
         self.editorOutput = QTextBrowser()
-        self.editorOutput.setFont(QFont("JetBrainsMono Nerd Font")) 
+        apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
         # Force word wrapping
         self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
@@ -58,7 +73,8 @@ class Assistant(QWidget):
         self.layout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
-        self.layout.addWidget(self.commandEditor, 2)
+        self.commandEditor.setPlaceholderText("Ask assistant or /help")
+        self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
 
         self.responseReady.connect(self._process_assistant_response)
@@ -95,8 +111,16 @@ class Assistant(QWidget):
             arch=arch,
             privilege=privilege,
             os_name=os,
+            killed=killed,
         )
         return
+
+
+    def setActiveSession(self, beaconHash, listenerHash):
+        self.agent.domain_hooks.record_active_session(
+            beacon_hash=beaconHash,
+            listener_hash=listenerHash,
+        )
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
@@ -104,8 +128,20 @@ class Assistant(QWidget):
 
 
     def consoleAssistantMethod(self, action, beaconHash, listenerHash, context, cmd, result, commandId=""):
+        if action == "send":
+            self.agent.domain_hooks.record_active_session(
+                beacon_hash=beaconHash,
+                listener_hash=listenerHash,
+            )
+            return
+
         if action != "receive":
             return
+
+        self.agent.domain_hooks.record_active_session(
+            beacon_hash=beaconHash,
+            listener_hash=listenerHash,
+        )
 
         command_text = cmd or ""
         if isinstance(command_text, bytes):
@@ -178,27 +214,40 @@ class Assistant(QWidget):
         return super().event(event)
 
 
-    def printInTerminal(self, header="", message="", detail=""):
-        now = datetime.now()
-        formater = (
-            '<p style="white-space:pre-wrap; word-wrap:break-word;">'
-            '<span style="color:blue;">['+now.strftime("%Y:%m:%d %H:%M:%S").rstrip()+']</span>'
-            '<span style="color:red;"> [+] </span>'
-            '<span style="color:red;">{}</span>'
-            '</p>'
-        )
-
+    def printInTerminal(self, header="", message="", detail="", rich_message=False):
         self.sem.acquire()
         try:
-            if header:
-                self.editorOutput.append(formater.format(header))
-            for text in (message, detail):
-                if text:
-                    self.editorOutput.append(text)
+            has_entry = bool(header or message or detail)
+            marker, tone, show_label = self._console_role_for_header(header)
+            append_console_block(
+                self.editorOutput,
+                header,
+                message,
+                marker=marker,
+                tone=tone,
+                rich_message=rich_message,
+                show_label=show_label,
+            )
+            if detail:
+                append_console_block(
+                    self.editorOutput,
+                    "",
+                    detail,
+                    tone=tone,
+                    rich_message=rich_message,
+                )
+            if has_entry:
+                append_console_spacing(self.editorOutput)
 
             self.setCursorEditorAtEnd()
         finally:
             self.sem.release()
+
+    def _console_role_for_header(self, header):
+        normalized = str(header or "").strip().rstrip(":").lower()
+        if normalized in ASSISTANT_HEADER_ROLES:
+            return ASSISTANT_HEADER_ROLES[normalized]
+        return "[assistant]", "assistant", True
 
 
     def runCommand(self):
@@ -357,7 +406,11 @@ class Assistant(QWidget):
     def _process_assistant_response(self, message):
         assistant_reply = getattr(message, "content", "") or ""
         if assistant_reply:
-            self.printInTerminal("Analysis:", markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]))
+            self.printInTerminal(
+                "Analysis:",
+                markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]),
+                rich_message=True,
+            )
 
         if getattr(message, "is_pending", False):
             metadata = getattr(message, "metadata", {}) or {}
@@ -413,45 +466,35 @@ class Assistant(QWidget):
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
-        cursor = self.editorOutput.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.editorOutput.setTextCursor(cursor)
+        move_editor_to_end(self.editorOutput)
 
 
-class CommandEditor(QLineEdit):
-    tabPressed = pyqtSignal()
+class CommandEditor(CompletionInput):
     cmdHistory = []
     idx = 0
 
     def __init__(self, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, completion_data=ASSISTANT_COMPLETIONS)
 
-        QShortcut(Qt.Key.Key_Up, self, self.historyUp)
-        QShortcut(Qt.Key.Key_Down, self, self.historyDown)
-
-    def event(self, event):
-        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
-            self.tabPressed.emit()
-            return True
-        return super().event(event)
+        QShortcut(Qt.Key.Key_Up, self.lineEdit, self.historyUp)
+        QShortcut(Qt.Key.Key_Down, self.lineEdit, self.historyDown)
 
     def historyUp(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
-            self.idx=max(self.idx-1,0)
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
+            self.idx = max(self.idx - 1, 0)
             self.setText(cmd.strip())
 
     def historyDown(self):
-        if(self.idx<len(self.cmdHistory) and self.idx>=0):
-            self.idx=min(self.idx+1,len(self.cmdHistory)-1)
-            cmd = self.cmdHistory[self.idx%len(self.cmdHistory)]
+        if self.idx < len(self.cmdHistory) and self.idx >= 0:
+            self.idx = min(self.idx + 1, len(self.cmdHistory) - 1)
+            cmd = self.cmdHistory[self.idx % len(self.cmdHistory)]
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        cmdHistoryFile = open('.termHistory')
-        self.cmdHistory = cmdHistoryFile.readlines()
-        self.idx=len(self.cmdHistory)-1
-        cmdHistoryFile.close()
+        with open(".termHistory", encoding="utf-8") as cmdHistoryFile:
+            self.cmdHistory = cmdHistoryFile.readlines()
+            self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()

@@ -71,6 +71,10 @@ EXPECTED_WINDOWS_ARCHES = (
     "arm64",
 )
 
+EXPECTED_LINUX_ARCHES = (
+    "x64",
+)
+
 EXPECTED_WINDOWS_BEACONS = (
     "BeaconDns.exe",
     "BeaconDnsDll.dll",
@@ -141,6 +145,64 @@ EXPECTED_LINUX_BEACONS = (
 )
 
 EXPECTED_LINUX_MODULES = EXPECTED_TEAMSERVER_MODULES
+
+EXPECTED_COMMAND_SPECS_COMMON = (
+    "sleep.json",
+    "end.json",
+    "help.json",
+    "listener.json",
+    "listModule.json",
+    "loadModule.json",
+    "unloadModule.json",
+)
+
+EXPECTED_COMMAND_SPECS_MODULES = (
+    "assemblyExec.json",
+    "cat.json",
+    "cd.json",
+    "chisel.json",
+    "cimExec.json",
+    "coffLoader.json",
+    "dcomExec.json",
+    "dotnetExec.json",
+    "download.json",
+    "enumerateRdpSessions.json",
+    "enumerateShares.json",
+    "evasion.json",
+    "getEnv.json",
+    "inject.json",
+    "ipConfig.json",
+    "kerberosUseTicket.json",
+    "keyLogger.json",
+    "killProcess.json",
+    "ls.json",
+    "makeToken.json",
+    "miniDump.json",
+    "mkDir.json",
+    "netstat.json",
+    "ps.json",
+    "psExec.json",
+    "pwSh.json",
+    "powershell.json",
+    "pwd.json",
+    "registry.json",
+    "remove.json",
+    "rev2self.json",
+    "reversePortForward.json",
+    "run.json",
+    "screenShot.json",
+    "shell.json",
+    "script.json",
+    "spawnAs.json",
+    "sshExec.json",
+    "stealToken.json",
+    "taskScheduler.json",
+    "tree.json",
+    "upload.json",
+    "whoami.json",
+    "winRm.json",
+    "wmiExec.json",
+)
 
 
 class ValidationError(RuntimeError):
@@ -219,6 +281,7 @@ def validate_base_release(release_root: Path) -> None:
 
     teamserver_root = release_root / "TeamServer"
     modules_root = release_root / "TeamServerModules"
+    command_specs_root = release_root / "CommandSpecs"
     client_root = release_root / "Client"
 
     if not teamserver_root.is_dir():
@@ -233,7 +296,20 @@ def validate_base_release(release_root: Path) -> None:
     if not (teamserver_root / "logs").is_dir():
         raise ValidationError(f"Missing TeamServer logs directory: {teamserver_root / 'logs'}")
 
+    runtime_data_roots = ("data", "Tools", "Scripts", "UploadedArtifacts", "GeneratedArtifacts", "www")
+    packaged_data_roots = [name for name in runtime_data_roots if (release_root / name).exists()]
+    if packaged_data_roots:
+        raise ValidationError(
+            "Release staging contains runtime/operator data directories: "
+            + ", ".join(packaged_data_roots)
+        )
+
     _require_directory_exact(modules_root, EXPECTED_TEAMSERVER_MODULES)
+
+    for spec in EXPECTED_COMMAND_SPECS_COMMON:
+        _require_non_empty_file(command_specs_root / "common" / spec)
+    for spec in EXPECTED_COMMAND_SPECS_MODULES:
+        _require_non_empty_file(command_specs_root / "modules" / spec)
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")
@@ -268,8 +344,16 @@ def validate_implants(release_root: Path) -> None:
         EXPECTED_WINDOWS_ARCHES,
         EXPECTED_WINDOWS_MODULES,
     )
-    _require_directory_exact(release_root / "LinuxBeacons", EXPECTED_LINUX_BEACONS)
-    _require_directory_exact(release_root / "LinuxModules", EXPECTED_LINUX_MODULES)
+    _require_arch_directories_exact(
+        release_root / "LinuxBeacons",
+        EXPECTED_LINUX_ARCHES,
+        EXPECTED_LINUX_BEACONS,
+    )
+    _require_arch_directories_exact(
+        release_root / "LinuxModules",
+        EXPECTED_LINUX_ARCHES,
+        EXPECTED_LINUX_MODULES,
+    )
 
 
 def main() -> int:

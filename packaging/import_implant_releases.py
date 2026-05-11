@@ -14,6 +14,7 @@ from typing import Iterable
 
 from validate_release import (
     EXPECTED_LINUX_BEACONS,
+    EXPECTED_LINUX_ARCHES,
     EXPECTED_LINUX_MODULES,
     EXPECTED_WINDOWS_ARCHES,
     EXPECTED_WINDOWS_BEACONS,
@@ -25,6 +26,7 @@ from validate_release import (
 
 DEFAULT_WINDOWS_REPO = "maxDcb/C2Implant"
 DEFAULT_LINUX_REPO = "maxDcb/C2LinuxImplant"
+DEFAULT_LINUX_ARCH = EXPECTED_LINUX_ARCHES[0]
 
 
 def _request(url: str, token: str | None = None) -> urllib.request.Request:
@@ -177,8 +179,8 @@ def _prepare_linux(repo: str, tag: str | None, import_root: Path, stage_root: Pa
     _require_directory_exact(linux_beacons, EXPECTED_LINUX_BEACONS)
     _require_directory_exact(linux_modules, EXPECTED_LINUX_MODULES)
     return [
-        (linux_beacons, stage_root / "LinuxBeacons", EXPECTED_LINUX_BEACONS),
-        (linux_modules, stage_root / "LinuxModules", EXPECTED_LINUX_MODULES),
+        (linux_beacons, stage_root / "LinuxBeacons" / DEFAULT_LINUX_ARCH, EXPECTED_LINUX_BEACONS),
+        (linux_modules, stage_root / "LinuxModules" / DEFAULT_LINUX_ARCH, EXPECTED_LINUX_MODULES),
     ]
 
 
@@ -231,6 +233,8 @@ def main(argv: Iterable[str] | None = None) -> int:
 
         shutil.rmtree(stage_root / "WindowsBeacons", ignore_errors=True)
         shutil.rmtree(stage_root / "WindowsModules", ignore_errors=True)
+        shutil.rmtree(stage_root / "LinuxBeacons", ignore_errors=True)
+        shutil.rmtree(stage_root / "LinuxModules", ignore_errors=True)
         for source, destination, expected_files in copy_plan:
             _copy_validated_dir(source, destination, expected_files)
     except (RuntimeError, ValidationError, zipfile.BadZipFile, tarfile.TarError) as exc:

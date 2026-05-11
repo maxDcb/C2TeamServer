@@ -38,6 +38,27 @@ int findFreePort()
     ::close(sock);
     return port;
 }
+
+int bindLocalPort(int& port)
+{
+    const int sock = ::socket(AF_INET, SOCK_STREAM, 0);
+    assert(sock >= 0);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+
+    const int bindResult = ::bind(sock, reinterpret_cast<const sockaddr*>(&addr), sizeof(addr));
+    assert(bindResult == 0);
+
+    socklen_t len = sizeof(addr);
+    const int nameResult = ::getsockname(sock, reinterpret_cast<sockaddr*>(&addr), &len);
+    assert(nameResult == 0);
+
+    port = ntohs(addr.sin_port);
+    return sock;
+}
 #else
 int findFreePort()
 {
@@ -113,10 +134,33 @@ void testHttpAndWebSocketTransport()
     assert(reply.empty());
     ws.close();
 }
+
+void testHttpInitRejectsOccupiedPort()
+{
+#ifndef _WIN32
+    int port = 0;
+    const int occupiedSocket = bindLocalPort(port);
+
+    nlohmann::json config = {
+        {"LogLevel", "off"},
+        {"ListenerHttpConfig",
+         {
+             {"uri", {"/checkin"}},
+             {"server", {{"headers", nlohmann::json::object()}}},
+         }},
+    };
+
+    ListenerHttp listener("127.0.0.1", port, config, false);
+    assert(listener.init() < 0);
+
+    ::close(occupiedSocket);
+#endif
+}
 } // namespace
 
 int main()
 {
     testHttpAndWebSocketTransport();
+    testHttpInitRejectsOccupiedPort();
     return 0;
 }

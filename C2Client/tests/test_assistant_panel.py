@@ -8,9 +8,13 @@ from C2Client.AssistantPanel import Assistant
 class FakeDomainHooks:
     def __init__(self):
         self.observations = []
+        self.active_sessions = []
 
     def record_session_event(self, **kwargs):
         pass
+
+    def record_active_session(self, **kwargs):
+        self.active_sessions.append(kwargs)
 
     def record_console_observation(self, **kwargs):
         self.observations.append(kwargs)
@@ -74,6 +78,22 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     assert "/status - Show the current assistant pending command state." in output
     assert "/cancel - Cancel the current pending beacon result wait." in output
     assert "/reset - Alias for /cancel." in output
+
+
+def test_assistant_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant.editorOutput.clear()
+
+    assistant.printInTerminal("System", "ready")
+    assistant.printInTerminal("User:", "hello")
+    assistant.printInTerminal("Analysis:", "ok")
+
+    output = assistant.editorOutput.toPlainText()
+    assert "[system]\nready" in output
+    assert "[user]\nhello" in output
+    assert "[assistant]\nok" in output
+    assert "[+]" not in output
+    assert "color:#d0d5dd" in assistant.editorOutput.toHtml()
 
 
 def test_unknown_slash_command_redirects_to_help_without_calling_assistant(qtbot, monkeypatch):

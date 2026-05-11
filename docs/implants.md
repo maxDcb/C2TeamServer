@@ -18,7 +18,9 @@ Release/
     x64/
     arm64/
   LinuxBeacons/
+    x64/
   LinuxModules/
+    x64/
 ```
 
 ## C2Implant Assets
@@ -64,6 +66,13 @@ or:
 ```text
 LinuxBeacons/
 LinuxModules/
+```
+
+The Linux importer stages the current Linux release under:
+
+```text
+Release/LinuxBeacons/x64/
+Release/LinuxModules/x64/
 ```
 
 Legacy layouts are rejected:

@@ -1,0 +1,1305 @@
+schema_version: 1
+catalog_version: "2026-05-07"
+description: >
+  Source of truth for C2TeamServer validation coverage. This catalog describes
+  what must be tested; it does not store pass/fail results. Automated and manual
+  runners should report results by stable id.
+
+status_model:
+  auto_result: [pass, fail, blocked, untested]
+  manual_result: [pass, fail, blocked, untested]
+  final_result:
+    pass: "all required auto/manual validations passed"
+    fail: "at least one required validation failed"
+    partial: "some required validation is still untested"
+    blocked: "validation cannot run because a dependency is missing"
+    untested: "no validation result exists yet"
+    planned: "known required coverage with no stable validation yet"
+
+validation_modes:
+  auto: "validated by automated tests only"
+  manual: "validated by a predetermined manual procedure only"
+  auto+manual: "requires both automated tests and a real lab/manual validation"
+  planned: "known required coverage with no stable validation yet"
+
+axes:
+  os: [any, windows, linux, teamserver, client]
+  arch: [any, x64, x86, arm64, n/a]
+  listener: [n/a, https, http, tcp, smb, dns, github, any]
+  artifact_category:
+    - n/a
+    - command_specs
+    - tools
+    - scripts
+    - uploaded
+    - generated
+    - hosted
+    - beacons
+    - modules
+    - any
+
+entries:
+  - id: C2CLIENT-CONFIG-ENV-001
+    area: C2Client
+    feature: Config loading
+    scenario: "Load .env values and environment overrides with documented precedence."
+    priority: critical
+    validation: auto
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_env_loading.py"]
+      manual: []
+
+  - id: C2CLIENT-CONFIG-CERT-001
+    area: C2Client
+    feature: TLS certificate config
+    scenario: "Use C2_CERT_PATH when set and report a clear error when the certificate is missing."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_env_loading.py", "C2Client/tests/test_grpc_client.py"]
+      manual: ["Start C2Client with C2_CERT_PATH pointing to the release TeamServer certificate."]
+
+  - id: C2CLIENT-STARTUP-GUI-001
+    area: C2Client
+    feature: GUI startup
+    scenario: "Start python3 -m C2Client.GUI without crashing and create non-closable core tabs."
+    priority: critical
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_gui_startup.py"]
+      manual: ["Run python3 -m C2Client.GUI and verify Terminal, AI, Hooks, and Artifacts tabs are present."]
+
+  - id: C2CLIENT-RPC-BINDINGS-001
+    area: C2Client
+    feature: Protocol bindings
+    scenario: "Expose TeamServer RPC fields used by sessions, listeners, artifacts, commands, and hooks."
+    priority: critical
+    validation: auto
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_protocol_bindings.py", "C2Client/tests/test_grpc_client.py"]
+      manual: []
+
+  - id: C2CLIENT-SESSION-PANEL-001
+    area: C2Client
+    feature: Sessions panel
+    scenario: "Render sessions table with stable column sizing, readable IPs, last seen, state, OS tooltip, and module count context."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_session_panel.py", "C2Client/tests/test_ui_status.py"]
+      manual: ["Connect at least one Windows and one Linux beacon and inspect session row readability while resizing."]
+
+  - id: C2CLIENT-LISTENER-PANEL-001
+    area: C2Client
+    feature: Listener panel
+    scenario: "Render listeners table, restrict form fields, and preserve column sizing during refresh."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_listener_panel.py"]
+      manual: ["Create/list/stop an HTTPS listener and verify form validation for host and port."]
+
+  - id: C2CLIENT-GRAPH-PANEL-001
+    area: C2Client
+    feature: Graph panel
+    scenario: "Render separated nodes by default, zoom in/out controls, and no redundant title frame."
+    priority: medium
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_graph_panel.py"]
+      manual: ["Open Graph with multiple sessions/listeners and verify nodes are not stacked."]
+
+  - id: C2CLIENT-CONSOLE-FORMATTING-001
+    area: C2Client
+    feature: Console formatting
+    scenario: "Use unified timestamp, marker, and body colors with no duplicated queued/done/result lines."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_console_panel.py"]
+      manual: ["Run pwd and ls on a beacon and verify one queued line and one done line with output."]
+
+  - id: C2CLIENT-CONSOLE-AUTOCOMPLETE-001
+    area: C2Client
+    feature: Beacon console autocomplete
+    scenario: "Build autocomplete from CommandSpec, artifact catalog, sessions, listeners, and loaded module state."
+    priority: critical
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: command_specs}
+    evidence:
+      auto: ["C2Client/tests/test_console_panel.py", "C2Client/tests/assistant_agent/test_command_builder.py", "C2Client/tests/assistant_agent/test_command_specs.py"]
+      manual: ["Press Tab on assemblyExec, inject, dotnetExec, download, upload, and loadModule commands."]
+
+  - id: C2CLIENT-CONSOLE-HELP-001
+    area: C2Client
+    feature: Beacon command help
+    scenario: "Render help from TeamServer CommandSpec without legacy << or >> markers."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: command_specs}
+    evidence:
+      auto: ["C2Client/tests/test_console_panel.py", "teamServer/tests/TeamServerHelpServiceTests.cpp"]
+      manual: ["Run help and help assemblyExec in a beacon console."]
+
+  - id: C2CLIENT-TERMINAL-BASE-001
+    area: C2Client
+    feature: Terminal tab
+    scenario: "Show base help text, command history, unified colors, and terminal autocomplete."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_terminal_panel_dropper_arch.py", "C2Client/tests/test_console_panel.py"]
+      manual: ["Open Terminal, press Tab, run help, and verify formatting/newlines."]
+
+  - id: C2CLIENT-TERMINAL-HOST-001
+    area: C2Client
+    feature: Terminal host command
+    scenario: "Host an artifact reference through GeneratedArtifacts/hosted instead of arbitrary legacy file paths."
+    priority: critical
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: https, artifact_category: hosted}
+    evidence:
+      auto: ["C2Client/tests/test_terminal_panel_dropper_arch.py", "teamServer/tests/TeamServerTermLocalServiceTests.cpp"]
+      manual: ["Run host <listener> <artifact-id-or-name> and fetch the returned URL."]
+
+  - id: C2CLIENT-TERMINAL-DROPPER-001
+    area: C2Client
+    feature: Dropper
+    scenario: "Generate and host droppers with selected beacon arch and shellcode generator."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: x64, listener: https, artifact_category: hosted}
+    evidence:
+      auto: ["C2Client/tests/test_terminal_panel_dropper_arch.py"]
+      manual: ["Generate an HTTPS Windows x64 dropper and verify it appears as a hosted artifact."]
+
+  - id: C2CLIENT-TERMINAL-CREDENTIALS-001
+    area: C2Client
+    feature: Credential store terminal commands
+    scenario: "Add, list, and retrieve credentials through terminal commands."
+    priority: medium
+    validation: planned
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["teamServer/tests/TeamServerTermLocalServiceTests.cpp"]
+      manual: ["Use credential add/list/get once the server-side credential store is stabilized."]
+
+  - id: C2CLIENT-ARTIFACTS-LIST-001
+    area: C2Client
+    feature: Artifacts tab
+    scenario: "List CommandSpecs, Tools, Scripts, UploadedArtifacts, GeneratedArtifacts, hosted artifacts, beacons, and modules with category filters."
+    priority: critical
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: any}
+    evidence:
+      auto: ["C2Client/tests/test_artifact_panel.py", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: ["Open Artifacts tab after a clean release build and verify each expected category."]
+
+  - id: C2CLIENT-ARTIFACTS-UPLOAD-001
+    area: C2Client
+    feature: Artifact upload
+    scenario: "Upload operator files into UploadedArtifacts with selected platform and arch."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: any, listener: n/a, artifact_category: uploaded}
+    evidence:
+      auto: ["C2Client/tests/test_artifact_panel.py", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: ["Upload a file from the Artifacts tab and verify it is usable by upload/kerberosUseTicket/psExec."]
+
+  - id: C2CLIENT-ARTIFACTS-DOWNLOAD-001
+    area: C2Client
+    feature: Artifact download
+    scenario: "Download selected artifacts from TeamServer to the client filesystem."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: generated}
+    evidence:
+      auto: ["C2Client/tests/test_artifact_panel.py"]
+      manual: ["Download a generated artifact from Artifacts tab and verify file hash/size."]
+
+  - id: C2CLIENT-ARTIFACTS-DELETE-001
+    area: C2Client
+    feature: Artifact delete
+    scenario: "Delete uploaded, generated, and hosted artifacts using artifact IDs, not legacy terminal paths."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: generated}
+    evidence:
+      auto: ["C2Client/tests/test_artifact_panel.py"]
+      manual: ["Delete an uploaded artifact, a generated screenshot, and a hosted artifact from Artifacts tab."]
+
+  - id: C2CLIENT-HOOKS-PANEL-001
+    area: C2Client
+    feature: Hooks panel
+    scenario: "List hooks with descriptions/tooltips, activation counts, and manual start using context snapshot."
+    priority: high
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: any, artifact_category: scripts}
+    evidence:
+      auto: ["C2Client/tests/test_script_panel.py"]
+      manual: ["Run a ManualStart hook and verify it receives beacon/listener snapshot context."]
+
+  - id: C2CLIENT-AI-PANEL-001
+    area: C2Client
+    feature: Data AI panel
+    scenario: "Render system/user/assistant markers with distinct colors and line breaks."
+    priority: medium
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_assistant_panel.py", "C2Client/tests/assistant_agent/test_service_bootstrap.py"]
+      manual: ["Open Data AI tab and verify marker colors and multiline output readability."]
+
+  - id: C2CLIENT-MAIN-THEME-001
+    area: C2Client
+    feature: Main layout theme
+    scenario: "Use consistent dark background across main layout, sessions, listeners, graph, consoles, and hooks."
+    priority: medium
+    validation: auto+manual
+    axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["C2Client/tests/test_ui_status.py"]
+      manual: ["Resize the main window and inspect for stray light rectangles or unthemed panels."]
+
+  - id: TEAMSERVER-CONFIG-DIRECTORIES-001
+    area: TeamServer
+    feature: Runtime directory layout
+    scenario: "Resolve release data layout for Tools, Scripts, UploadedArtifacts, GeneratedArtifacts, hosted, Beacons, Modules, and CommandSpecs."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: any}
+    evidence:
+      auto: ["teamServer/tests/TeamServerArtifactCatalogTests.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Inspect build/artifacts/Release/data after a clean build and download scripts."]
+
+  - id: TEAMSERVER-STARTUP-TLS-001
+    area: TeamServer
+    feature: Startup and TLS
+    scenario: "Start TeamServer with generated certificate, client auth, and readable config errors."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: n/a, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["teamServer/tests/testsTestServer.cpp"]
+      manual: ["Start Release TeamServer and connect C2Client over TLS."]
+
+  - id: TEAMSERVER-COMMAND-CATALOG-001
+    area: TeamServer
+    feature: Command catalog
+    scenario: "List CommandSpecs from core modules and common commands with help and argument metadata."
+    priority: critical
+    validation: auto
+    axes: {os: teamserver, arch: n/a, listener: n/a, artifact_category: command_specs}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandCatalogTests.cpp", "teamServer/tests/TeamServerHelpServiceTests.cpp"]
+      manual: []
+
+  - id: TEAMSERVER-COMMAND-PREPARATION-001
+    area: TeamServer
+    feature: Command preparation
+    scenario: "Prepare common commands, module commands, artifact-backed commands, shellcode-backed commands, and rejected commands."
+    priority: critical
+    validation: auto
+    axes: {os: teamserver, arch: any, listener: any, artifact_category: any}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: []
+
+  - id: TEAMSERVER-ARTIFACT-CATALOG-001
+    area: TeamServer
+    feature: Artifact catalog
+    scenario: "List, filter, upload, delete, and resolve artifacts by category/platform/arch/runtime/source."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: any}
+    evidence:
+      auto: ["teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: ["Use C2Client Artifacts tab to filter and delete uploaded/generated/hosted artifacts."]
+
+  - id: TEAMSERVER-GENERATED-ARTIFACTS-001
+    area: TeamServer
+    feature: Generated artifact store
+    scenario: "Register generated artifacts with sidecars, hash, size, source, format, and category."
+    priority: critical
+    validation: auto
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: generated}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: []
+
+  - id: TEAMSERVER-HOSTED-ARTIFACTS-001
+    area: TeamServer
+    feature: Hosted artifacts
+    scenario: "Host artifacts under GeneratedArtifacts/hosted and list/delete them through artifact services."
+    priority: high
+    validation: auto+manual
+    axes: {os: teamserver, arch: n/a, listener: https, artifact_category: hosted}
+    evidence:
+      auto: ["teamServer/tests/TeamServerTermLocalServiceTests.cpp", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: ["Host an artifact, fetch its URL, then delete it from Artifacts tab."]
+
+  - id: TEAMSERVER-FILE-TRANSFER-001
+    area: TeamServer
+    feature: File transfer service
+    scenario: "Prepare upload/download paths, write chunked command results, and keep command context until final success."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: any, artifact_category: generated}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run download and screenShot from a real beacon and verify a single final console result."]
+
+  - id: TEAMSERVER-SHELLCODE-SERVICE-001
+    area: TeamServer
+    feature: Shellcode service
+    scenario: "Generate shellcode artifacts from supported sources and expose generic generator metadata."
+    priority: high
+    validation: auto+manual
+    axes: {os: teamserver, arch: x64, listener: n/a, artifact_category: generated}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "core/modules/AssemblyExec/tests/testsAssemblyExec.cpp", "core/modules/Inject/tests/testsInject.cpp"]
+      manual: ["Run assemblyExec --donut-exe and inject with a real Windows beacon."]
+
+  - id: TEAMSERVER-LISTENER-SESSION-SERVICE-001
+    area: TeamServer
+    feature: Listener/session service
+    scenario: "Stream sessions/listeners, queue commands, deduplicate responses, track modules, and route command results."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Connect multiple beacons/listeners and verify command routing in C2Client."]
+
+  - id: TEAMSERVER-LISTENER-ARTIFACT-SERVICE-001
+    area: TeamServer
+    feature: Listener artifact service
+    scenario: "Resolve beacon binaries by target OS and arch for droppers and terminal operations."
+    priority: high
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: any, artifact_category: beacons}
+    evidence:
+      auto: ["teamServer/tests/TeamServerListenerArtifactServiceTests.cpp"]
+      manual: ["Generate a dropper for Windows x64 and Linux x64 and verify selected beacon binary."]
+
+  - id: TEAMSERVER-SOCKS-SERVICE-001
+    area: TeamServer
+    feature: SOCKS service
+    scenario: "Start, list, and stop TeamServer SOCKS routes from terminal commands."
+    priority: medium
+    validation: auto+manual
+    axes: {os: teamserver, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["teamServer/tests/TeamServerSocksServiceTests.cpp"]
+      manual: ["Run terminal socks start/list/stop against a live beacon route."]
+
+  - id: LIBSOCKS5-PROTOCOL-001
+    area: Libraries
+    feature: libSocks5 protocol handling
+    scenario: "Negotiate SOCKS5 no-auth, accept IPv4 and hostname CONNECT, and reject unsupported commands/address types with explicit replies."
+    priority: high
+    validation: auto
+    axes: {os: teamserver, arch: n/a, listener: n/a, artifact_category: n/a}
+    evidence:
+      auto: ["libs/libSocks5/tests/TestsSocksServer.cpp"]
+      manual: []
+
+  - id: TEAMSERVER-SOCKS-STRESS-001
+    area: TeamServer
+    feature: SOCKS stress
+    scenario: "Sustain concurrent SOCKS5 HTTP(S) requests through a bound live beacon, including hostname-mode CONNECT, and report latency/error distribution."
+    priority: high
+    validation: manual
+    axes: {os: teamserver, arch: n/a, listener: any, artifact_category: n/a}
+    evidence:
+      auto: []
+      manual: ["Run scripts/socks5_stress_test.py against a live socks start/bind route with a fixed request/concurrency target, then repeat with --socks-hostname."]
+
+  - id: BEACON-CORE-REGISTER-001
+    area: Beacon
+    feature: Registration and metadata
+    scenario: "Register hostname, username, OS, arch, privilege, process id, internal IPs, and additional information."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/beacon/tests/testBeacon.cpp", "core/beacon/tests/testBeaconHttp.cpp"]
+      manual: ["Launch Windows and Linux beacons and verify rows in Sessions panel."]
+
+  - id: BEACON-CORE-HEARTBEAT-001
+    area: Beacon
+    feature: Heartbeat and state
+    scenario: "Update last seen, stale state, listener proof of life, and reconnect behavior."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/beacon/tests/testBeacon.cpp", "C2Client/tests/test_session_panel.py"]
+      manual: ["Use low C2_SESSION_STALE_AFTER_MS and verify now/stale transitions."]
+
+  - id: BEACON-CORE-TASK-QUEUE-001
+    area: Beacon
+    feature: Task queue
+    scenario: "Receive tasks, execute common commands/modules, return command IDs, and preserve command context."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/beacon/tests/testBeacon.cpp", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run pwd, ls, help, loadModule, and download through a live beacon."]
+
+  - id: BEACON-CORE-CHUNKED-RESULTS-001
+    area: Beacon
+    feature: Chunked command results
+    scenario: "Emit recurring chunks for large results and finish with a single success response."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/Download/tests/testsDownload.cpp", "core/modules/MiniDump/tests/testsMiniDump.cpp", "core/modules/ScreenShot/tests/testsScreenShot.cpp"]
+      manual: ["Run download of a large file and screenShot from a real beacon."]
+
+  - id: BEACON-CORE-MODULE-LIFECYCLE-001
+    area: Beacon
+    feature: Module lifecycle
+    scenario: "loadModule, unloadModule, listModule, duplicate-load rejection, and module count tracking."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: modules}
+    evidence:
+      auto: ["teamServer/tests/TeamServerListenerSessionServiceTests.cpp", "core/modules/ModuleCmd/tests/testsModuleCmd.cpp"]
+      manual: ["Load pwd, verify listModule, attempt duplicate load, then unload."]
+
+  - id: LISTENER-HTTPS-001
+    area: Listeners
+    feature: HTTPS listener
+    scenario: "Start listener, register beacon, exchange tasks/results, host artifacts, and stop listener."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: hosted}
+    evidence:
+      auto: ["core/beacon/tests/testBeaconHttp.cpp", "teamServer/tests/TeamServerHttpListenerTransportTests.cpp"]
+      manual: ["Run a full Windows x64 and Linux x64 beacon golden path over HTTPS."]
+
+  - id: LISTENER-HTTP-001
+    area: Listeners
+    feature: HTTP listener
+    scenario: "Start listener, register beacon, and exchange simple command results."
+    priority: high
+    validation: manual
+    axes: {os: any, arch: any, listener: http, artifact_category: n/a}
+    evidence:
+      auto: []
+      manual: ["Run whoami/pwd through HTTP listener."]
+
+  - id: LISTENER-TCP-001
+    area: Listeners
+    feature: TCP listener
+    scenario: "Start TCP listener and route task/result traffic."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: tcp, artifact_category: n/a}
+    evidence:
+      auto: ["core/listener/tests/testListenerTcp.cpp", "core/beacon/tests/testBeaconTcp.cpp"]
+      manual: ["Run whoami/pwd through TCP listener."]
+
+  - id: LISTENER-SMB-001
+    area: Listeners
+    feature: SMB listener
+    scenario: "Start SMB listener and route task/result traffic through named pipe transport."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: any, listener: smb, artifact_category: n/a}
+    evidence:
+      auto: ["core/listener/tests/testListenerSmb.cpp", "core/beacon/tests/testBeaconSmb.cpp"]
+      manual: ["Run whoami through SMB listener with a Windows beacon."]
+
+  - id: LISTENER-DNS-001
+    area: Listeners
+    feature: DNS listener
+    scenario: "Start DNS listener and route task/result traffic within DNS transport limits."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: dns, artifact_category: n/a}
+    evidence:
+      auto: ["core/listener/tests/testListenerDns.cpp", "core/beacon/tests/testBeaconDns.cpp"]
+      manual: ["Run small commands through DNS listener and verify no large artifact test is attempted."]
+
+  - id: LISTENER-GITHUB-001
+    area: Listeners
+    feature: GitHub listener
+    scenario: "Start GitHub listener and route task/result traffic through configured repository transport."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: github, artifact_category: n/a}
+    evidence:
+      auto: ["core/listener/tests/testListenerGithub.cpp", "core/beacon/tests/testBeaconGithub.cpp"]
+      manual: ["Run a simple command through GitHub listener with test credentials/repo."]
+
+  - id: COMMON-HELP-001
+    area: CommonCommands
+    feature: help
+    scenario: "List commands and show command-specific help from CommandSpec."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: command_specs}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/help.json", "teamServer/tests/TeamServerHelpServiceTests.cpp"]
+      manual: ["Run help and help <command> in a beacon console."]
+
+  - id: COMMON-SLEEP-001
+    area: CommonCommands
+    feature: sleep
+    scenario: "Change beacon sleep interval and reject invalid values clearly."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/sleep.json", "core/beacon/tests/testBeacon.cpp"]
+      manual: ["Run sleep 1 then verify beacon polling delay changes."]
+
+  - id: COMMON-END-001
+    area: CommonCommands
+    feature: end
+    scenario: "Stop a beacon session cleanly."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/end.json", "core/beacon/tests/testBeacon.cpp"]
+      manual: ["Run end and verify session stops updating."]
+
+  - id: COMMON-LISTENER-001
+    area: CommonCommands
+    feature: listener
+    scenario: "Start and stop child listeners from a beacon using validated listener parameters."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/listener.json", "core/beacon/tests/testBeacon.cpp"]
+      manual: ["Run listener start tcp and listener stop from a beacon."]
+
+  - id: COMMON-LOADMODULE-001
+    area: CommonCommands
+    feature: loadModule
+    scenario: "Autocomplete unloaded modules, resolve module artifacts by OS/arch, and reject duplicates."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: modules}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/loadModule.json", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run loadModule pwd, listModule, duplicate loadModule pwd."]
+
+  - id: COMMON-UNLOADMODULE-001
+    area: CommonCommands
+    feature: unloadModule
+    scenario: "Autocomplete loaded modules and unload selected module."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: modules}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/unloadModule.json", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run unloadModule pwd after loadModule pwd."]
+
+  - id: COMMON-LISTMODULE-001
+    area: CommonCommands
+    feature: listModule
+    scenario: "List loaded modules by name and state in the beacon console."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: modules}
+    evidence:
+      auto: ["core/modules/ModuleCmd/CommandSpecs/common/listModule.json", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run listModule and verify name/status output only."]
+
+  - id: ARTIFACT-LAYOUT-001
+    area: Artifacts
+    feature: Release data layout
+    scenario: "Release scripts place files under the canonical data layout with platform and arch subfolders."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: any}
+    evidence:
+      auto: ["docs/artifacts.md", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      manual: ["Run clean build plus download-c2implant-artifacts.sh and download-c2linuximplant-artifacts.sh."]
+
+  - id: ARTIFACT-TOOLS-001
+    area: Artifacts
+    feature: Tools
+    scenario: "Resolve Tools/<platform>/<arch> and Tools/Any/any for module preparers and terminal upload."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: tools}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Place a tool under Tools/Windows/x64 and verify autocomplete/preparer resolution."]
+
+  - id: ARTIFACT-SCRIPTS-001
+    area: Artifacts
+    feature: Scripts
+    scenario: "Resolve Scripts/Windows, Scripts/Linux, and Scripts/Any for script-backed commands."
+    priority: high
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: scripts}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run powershell -s and script with files from Scripts folder."]
+
+  - id: ARTIFACT-UPLOADED-001
+    area: Artifacts
+    feature: UploadedArtifacts
+    scenario: "Resolve operator-uploaded payloads by category, platform, arch, and Any/any fallback."
+    priority: high
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: uploaded}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "C2Client/tests/test_artifact_panel.py"]
+      manual: ["Upload a file via Artifacts tab and use it with upload and kerberosUseTicket."]
+
+  - id: ARTIFACT-GENERATED-001
+    area: Artifacts
+    feature: GeneratedArtifacts
+    scenario: "Store download, screenshot, minidump, shellcode, hosted, and future generated categories with sidecars."
+    priority: critical
+    validation: auto+manual
+    axes: {os: teamserver, arch: any, listener: n/a, artifact_category: generated}
+    evidence:
+      auto: ["teamServer/tests/TeamServerArtifactCatalogTests.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Generate download, screenshot, and payload artifacts and inspect Artifacts tab."]
+
+  - id: MODULE-ASSEMBLYEXEC-CONTRACT-001
+    area: Modules
+    feature: assemblyExec
+    scenario: "Generate shellcode on TeamServer from exe/dll/raw artifacts, preserve args, autocomplete artifact inputs, and execute on Windows beacon."
+    priority: critical
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/AssemblyExec/tests/testsAssemblyExec.cpp", "core/modules/AssemblyExec/tests/functional/testsAssemblyExecFunctional.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "C2Client/tests/test_console_panel.py"]
+      manual: ["Run assemblyExec --donut-exe Rubeus.exe -- <args> on Windows x64 HTTPS beacon."]
+
+  - id: MODULE-INJECT-CONTRACT-001
+    area: Modules
+    feature: inject
+    scenario: "Prepare shellcode payload from tools/beacons/raw, support pid/spawn modes, autocomplete payload and args, and execute on Windows beacon."
+    priority: critical
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/Inject/tests/testsInject.cpp", "core/modules/Inject/tests/functional/testsInjectFunctional.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "C2Client/tests/test_console_panel.py"]
+      manual: ["Run inject --pid <pid> --donut-exe Tool.exe -- <args> and inject with beacon payload option."]
+
+  - id: MODULE-DOWNLOAD-CONTRACT-001
+    area: Modules
+    feature: download
+    scenario: "Download remote file into GeneratedArtifacts/download/beacon using chunked output and registered sidecar."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/Download/tests/testsDownload.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run download <remote-path> and verify generated artifact hash/size in Artifacts tab."]
+
+  - id: MODULE-UPLOAD-CONTRACT-001
+    area: Modules
+    feature: upload
+    scenario: "Upload an UploadedArtifact to a remote path with server-controlled input resolution."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: uploaded}
+    evidence:
+      auto: ["core/modules/Upload/tests/testsUpload.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Upload an operator file in Artifacts tab, run upload <artifact> <remote-path>, then cat/list it remotely."]
+
+  - id: MODULE-MINIDUMP-CONTRACT-001
+    area: Modules
+    feature: miniDump
+    scenario: "Dump LSASS to XORed GeneratedArtifacts/minidump/beacon output and support local decrypt helper."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/MiniDump/tests/testsMiniDump.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run miniDump dump lsass.xored as elevated Windows beacon and verify generated artifact."]
+
+  - id: MODULE-SCREENSHOT-CONTRACT-001
+    area: Modules
+    feature: screenShot
+    scenario: "Capture desktop PNG, return chunked generated screenshot artifact, and show a single final console result."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/ScreenShot/tests/testsScreenShot.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "teamServer/tests/TeamServerListenerSessionServiceTests.cpp"]
+      manual: ["Run screenShot desktop.png on Windows x64 HTTPS beacon and open generated PNG."]
+
+  - id: MODULE-POWERSHELL-CONTRACT-001
+    area: Modules
+    feature: powershell
+    scenario: "Execute inline commands and Scripts-backed -s payloads without sending literal -s to PowerShell."
+    priority: critical
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: scripts}
+    evidence:
+      auto: ["core/modules/Powershell/tests/testsPowershell.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run powershell -s testScript.ps1 and verify script output, then run powershell whoami."]
+
+  - id: MODULE-PWSH-CONTRACT-001
+    area: Modules
+    feature: pwSh
+    scenario: "Load fixed rdm.dll from Tools/Any/any and execute/import PowerShell runner commands."
+    priority: critical
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: tools}
+    evidence:
+      auto: ["core/modules/PwSh/tests/testsPwSh.cpp", "core/modules/PwSh/tests/functional/testsPwShFunctional.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run pwSh init, pwSh command, and pwSh script with rdm.dll from Tools/Any/any."]
+
+  - id: MODULE-SCRIPT-CONTRACT-001
+    area: Modules
+    feature: script
+    scenario: "Execute Scripts-backed Windows/Linux scripts with server-side script artifact resolution."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: scripts}
+    evidence:
+      auto: ["core/modules/Script/tests/testsScript.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run script with a Windows script and a Linux script on matching beacons."]
+
+  - id: MODULE-CHISEL-CONTRACT-001
+    area: Modules
+    feature: chisel
+    scenario: "Resolve fixed chisel binary from Tools for beacon arch and manage chisel start/status/stop."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: tools}
+    evidence:
+      auto: ["core/modules/Chisel/tests/testsChisel.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run chisel start/status/stop after placing chisel.exe under Tools/Windows/x64."]
+
+  - id: MODULE-DOTNETEXEC-CONTRACT-001
+    area: Modules
+    feature: dotnetExec
+    scenario: "Load .NET assemblies from Tools, execute loaded assemblies, and autocomplete load artifacts."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: tools}
+    evidence:
+      auto: ["core/modules/DotnetExec/tests/testsDotnetExec.cpp", "core/modules/DotnetExec/tests/functional/testsDotnetExecFunctional.cpp", "C2Client/tests/test_console_panel.py"]
+      manual: ["Run dotnetExec load <tool.dll> then execute a command from the loaded assembly."]
+
+  - id: MODULE-PSEXEC-CONTRACT-001
+    area: Modules
+    feature: psExec
+    scenario: "Resolve service executable from Tools or UploadedArtifacts, handle credentials, and execute remote service command."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: tools}
+    evidence:
+      auto: ["core/modules/PsExec/tests/testsPsExec.cpp", "core/modules/PsExec/tests/functional/testsPsExecFunctional.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run psExec against a lab Windows host with a Tools or UploadedArtifacts service binary."]
+
+  - id: MODULE-KERBEROSUSETICKET-CONTRACT-001
+    area: Modules
+    feature: kerberosUseTicket
+    scenario: "Load kirbi ticket from UploadedArtifacts and apply it on Windows beacon."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: uploaded}
+    evidence:
+      auto: ["core/modules/KerberosUseTicket/tests/testsKerberosUseTicket.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Upload a test .kirbi file and run kerberosUseTicket <artifact>."]
+
+  - id: MODULE-COFFLOADER-CONTRACT-001
+    area: Modules
+    feature: coffLoader
+    scenario: "Load COFF object from Tools and execute with packed arguments."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: tools}
+    evidence:
+      auto: ["core/modules/CoffLoader/tests/testsCoffLoader.cpp", "teamServer/tests/TeamServerCommandPreparationServiceTests.cpp"]
+      manual: ["Run coffLoader with a known test COFF artifact from Tools/Windows/x64."]
+
+  - id: MODULE-KEYLOGGER-CONTRACT-001
+    area: Modules
+    feature: keyLogger
+    scenario: "Start/stop keylogger and collect key output safely."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: ["core/modules/KeyLogger/tests/testsKeyLogger.cpp"]
+      manual: ["Run keyLogger start/stop in lab and verify expected output behavior."]
+
+  - id: MODULE-KEYLOGGER-GENERATED-ARTIFACT-002
+    area: Modules
+    feature: keyLogger generated artifact
+    scenario: "Persist keylogger follow-up output incrementally into GeneratedArtifacts/keylogger with host/timestamp naming."
+    priority: medium
+    validation: planned
+    axes: {os: windows, arch: x64, listener: https, artifact_category: generated}
+    evidence:
+      auto: []
+      manual: ["Planned feature from TODO; validate after implementation."]
+
+  - id: MODULE-REVERSEPORTFORWARD-CONTRACT-001
+    area: Modules
+    feature: reversePortForward
+    scenario: "Start/stop reverse port forwarding and emit recurring traffic chunks."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ReversePortForward/tests/testsReversePortForward.cpp"]
+      manual: ["Open a reverse port forward through a live beacon and verify bidirectional traffic."]
+
+  - id: MODULE-SIMPLE-FILESYSTEM-001
+    area: Modules
+    feature: Simple filesystem modules
+    scenario: "Validate cat, cd, ls, mkdir, remove, tree, pwd, upload, download, and path error handling."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: any}
+    evidence:
+      auto: ["core/modules/Cat/tests/testsCat.cpp", "core/modules/ChangeDirectory/tests/testsChangeDirectory.cpp", "core/modules/ListDirectory/tests/testsListDirectory.cpp", "core/modules/MkDir/tests/testsMkDir.cpp", "core/modules/Remove/tests/testsRemove.cpp", "core/modules/Tree/tests/testsTree.cpp", "core/modules/PrintWorkingDirectory/tests/testsPrintWorkingDirectory.cpp"]
+      manual: ["Run pwd, ls, cd, cat, mkDir, remove, tree, upload, and download on Windows and Linux beacons."]
+
+  - id: MODULE-SIMPLE-SYSTEM-001
+    area: Modules
+    feature: Simple system info/process modules
+    scenario: "Validate whoami, getEnv, ipConfig, netstat, ps/listProcesses, killProcess, shell, and run."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Whoami/tests/testsWhoami.cpp", "core/modules/GetEnv/tests/testsGetEnv.cpp", "core/modules/IpConfig/tests/testsIpConfig.cpp", "core/modules/Netstat/tests/testsNetstat.cpp", "core/modules/ListProcesses/tests/testsListProcesses.cpp", "core/modules/KillProcess/tests/testsKillProcess.cpp", "core/modules/Shell/tests/testsShell.cpp", "core/modules/Run/tests/testsRun.cpp"]
+      manual: ["Run whoami, getEnv, ipConfig, netstat, ps, killProcess on a safe dummy PID, shell, and run."]
+
+  - id: MODULE-WINDOWS-EXEC-001
+    area: Modules
+    feature: Windows remote execution modules
+    scenario: "Validate cimExec, dcomExec, sshExec, winRm, and wmiExec parameter validation plus functional remote execution where available."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/CimExec/tests/testsCimExec.cpp", "core/modules/CimExec/tests/functional/testsCimExecFunctional.cpp", "core/modules/DcomExec/tests/testsDcomExec.cpp", "core/modules/DcomExec/tests/functional/testsDcomExecFunctional.cpp", "core/modules/SshExec/tests/testsSshExec.cpp", "core/modules/SshExec/tests/functional/testsSshExecFunctional.cpp", "core/modules/WinRM/tests/testsWinRM.cpp", "core/modules/WinRM/tests/functional/testsWinRMFunctional.cpp", "core/modules/WmiExec/tests/testsWmiExec.cpp", "core/modules/WmiExec/tests/functional/testsWmiExecFunctional.cpp"]
+      manual: ["Run one controlled lab command for each available remote execution method."]
+
+  - id: MODULE-WINDOWS-PRIVILEGE-001
+    area: Modules
+    feature: Windows privilege/token modules
+    scenario: "Validate makeToken, stealToken, rev2self, spawnAs, and related error handling."
+    priority: high
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/MakeToken/tests/testsMakeToken.cpp", "core/modules/StealToken/tests/testsStealToken.cpp", "core/modules/Rev2self/tests/testsRev2self.cpp", "core/modules/SpawnAs/tests/testsSpawnAs.cpp", "core/modules/SpawnAs/tests/functional/testsSpawnAsFunctional.cpp"]
+      manual: ["Run token operations in a lab VM with known local users and safe target process."]
+
+  - id: MODULE-WINDOWS-ADMIN-001
+    area: Modules
+    feature: Windows admin modules
+    scenario: "Validate registry, taskScheduler, evasion, enumerateShares, and enumerateRdpSessions."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Registry/tests/testsRegistry.cpp", "core/modules/TaskScheduler/tests/testsTaskScheduler.cpp", "core/modules/TaskScheduler/tests/functional/testsTaskSchedulerFunctional.cpp", "core/modules/Evasion/tests/testsEvasion.cpp", "core/modules/Evasion/tests/functional/testsEvasionFunctional.cpp", "core/modules/EnumerateShares/tests/testsEnumerateShares.cpp", "core/modules/EnumerateRdpSessions/tests/testsEnumerateRdpSessions.cpp", "core/modules/EnumerateRdpSessions/tests/functional/testsEnumerateRdpSessionsFunctional.cpp"]
+      manual: ["Run read-only registry/query/enumeration commands and one safe task scheduler create/delete cycle."]
+
+  - id: MODULE-CAT-CONTRACT-001
+    area: Modules
+    feature: cat
+    scenario: "Read a remote file and report readable errors for missing paths."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Cat/tests/testsCat.cpp"]
+      manual: ["Run cat on an existing and missing file on Windows/Linux golden paths."]
+
+  - id: MODULE-CD-CONTRACT-001
+    area: Modules
+    feature: cd
+    scenario: "Change current working directory and reject invalid paths clearly."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ChangeDirectory/tests/testsChangeDirectory.cpp"]
+      manual: ["Run cd into an existing directory, then pwd, then cd to a missing path."]
+
+  - id: MODULE-LS-CONTRACT-001
+    area: Modules
+    feature: ls
+    scenario: "List remote directory contents with stable formatting and path error handling."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ListDirectory/tests/testsListDirectory.cpp"]
+      manual: ["Run ls on default directory, explicit directory, and missing directory."]
+
+  - id: MODULE-MKDIR-CONTRACT-001
+    area: Modules
+    feature: mkDir
+    scenario: "Create remote directories and report existing/invalid path failures."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/MkDir/tests/testsMkDir.cpp"]
+      manual: ["Run mkDir for a new temp path and verify it appears in ls."]
+
+  - id: MODULE-REMOVE-CONTRACT-001
+    area: Modules
+    feature: remove
+    scenario: "Remove remote files/directories and report safe errors for missing paths."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Remove/tests/testsRemove.cpp"]
+      manual: ["Create a temp file/directory, run remove, then verify it is gone."]
+
+  - id: MODULE-TREE-CONTRACT-001
+    area: Modules
+    feature: tree
+    scenario: "Render recursive directory tree output without breaking console formatting."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Tree/tests/testsTree.cpp"]
+      manual: ["Run tree on a small controlled directory."]
+
+  - id: MODULE-PWD-CONTRACT-001
+    area: Modules
+    feature: pwd
+    scenario: "Return current working directory once, without duplicate console output."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/PrintWorkingDirectory/tests/testsPrintWorkingDirectory.cpp"]
+      manual: ["Run pwd and verify one queued line, one done line, and one output block."]
+
+  - id: MODULE-WHOAMI-CONTRACT-001
+    area: Modules
+    feature: whoami
+    scenario: "Return current user identity with clear output."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Whoami/tests/testsWhoami.cpp"]
+      manual: ["Run whoami on Windows and Linux golden paths."]
+
+  - id: MODULE-GETENV-CONTRACT-001
+    area: Modules
+    feature: getEnv
+    scenario: "Return environment variables or a selected variable with clear missing-value handling."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/GetEnv/tests/testsGetEnv.cpp"]
+      manual: ["Run getEnv PATH or equivalent safe variable on Windows/Linux."]
+
+  - id: MODULE-IPCONFIG-CONTRACT-001
+    area: Modules
+    feature: ipConfig
+    scenario: "Return interface/network information without truncating important data."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/IpConfig/tests/testsIpConfig.cpp"]
+      manual: ["Run ipConfig and compare with local OS network information."]
+
+  - id: MODULE-NETSTAT-CONTRACT-001
+    area: Modules
+    feature: netstat
+    scenario: "Return network connection/listening information in a readable format."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Netstat/tests/testsNetstat.cpp"]
+      manual: ["Run netstat and verify expected local listener/client connections appear."]
+
+  - id: MODULE-PS-CONTRACT-001
+    area: Modules
+    feature: ps
+    scenario: "List processes with PID/name metadata and no console formatting breakage."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/ListProcesses/tests/testsListProcesses.cpp"]
+      manual: ["Run ps and verify the beacon process or a known process appears."]
+
+  - id: MODULE-KILLPROCESS-CONTRACT-001
+    area: Modules
+    feature: killProcess
+    scenario: "Kill a safe dummy process and reject invalid PID values clearly."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/KillProcess/tests/testsKillProcess.cpp"]
+      manual: ["Start a harmless dummy process, run killProcess <pid>, verify it exits."]
+
+  - id: MODULE-SHELL-CONTRACT-001
+    area: Modules
+    feature: shell
+    scenario: "Execute shell commands with stdout/stderr capture and startup failure handling."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Shell/tests/testsShell.cpp"]
+      manual: ["Run shell whoami/echo and an invalid command on Windows/Linux."]
+
+  - id: MODULE-RUN-CONTRACT-001
+    area: Modules
+    feature: run
+    scenario: "Run local process commands with stdout/stderr capture and startup failure handling."
+    priority: high
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Run/tests/testsRun.cpp"]
+      manual: ["Run a safe command and an invalid executable path."]
+
+  - id: MODULE-CIMEXEC-CONTRACT-001
+    area: Modules
+    feature: cimExec
+    scenario: "Validate CIM execution parameters and execute a controlled remote command when lab target exists."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/CimExec/tests/testsCimExec.cpp", "core/modules/CimExec/tests/functional/testsCimExecFunctional.cpp"]
+      manual: ["Run cimExec against a controlled Windows lab host."]
+
+  - id: MODULE-DCOMEXEC-CONTRACT-001
+    area: Modules
+    feature: dcomExec
+    scenario: "Validate DCOM execution parameters and execute a controlled remote command when lab target exists."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/DcomExec/tests/testsDcomExec.cpp", "core/modules/DcomExec/tests/functional/testsDcomExecFunctional.cpp"]
+      manual: ["Run dcomExec against a controlled Windows lab host."]
+
+  - id: MODULE-SSHEXEC-CONTRACT-001
+    area: Modules
+    feature: sshExec
+    scenario: "Validate SSH execution parameters and execute a controlled remote command when lab target exists."
+    priority: medium
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/SshExec/tests/testsSshExec.cpp", "core/modules/SshExec/tests/functional/testsSshExecFunctional.cpp"]
+      manual: ["Run sshExec against a controlled SSH lab host."]
+
+  - id: MODULE-WINRM-CONTRACT-001
+    area: Modules
+    feature: winRm
+    scenario: "Validate WinRM execution parameters and execute a controlled remote command when lab target exists."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/WinRM/tests/testsWinRM.cpp", "core/modules/WinRM/tests/functional/testsWinRMFunctional.cpp"]
+      manual: ["Run winRm against a controlled Windows lab host."]
+
+  - id: MODULE-WMIEXEC-CONTRACT-001
+    area: Modules
+    feature: wmiExec
+    scenario: "Validate WMI execution parameters and execute a controlled remote command when lab target exists."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/WmiExec/tests/testsWmiExec.cpp", "core/modules/WmiExec/tests/functional/testsWmiExecFunctional.cpp"]
+      manual: ["Run wmiExec against a controlled Windows lab host."]
+
+  - id: MODULE-MAKETOKEN-CONTRACT-001
+    area: Modules
+    feature: makeToken
+    scenario: "Create a logon token from credentials and report authentication failures clearly."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/MakeToken/tests/testsMakeToken.cpp"]
+      manual: ["Run makeToken with known lab credentials and then whoami or a token-aware check."]
+
+  - id: MODULE-STEALTOKEN-CONTRACT-001
+    area: Modules
+    feature: stealToken
+    scenario: "Impersonate token from a safe process and report invalid PID/access errors clearly."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/StealToken/tests/testsStealToken.cpp"]
+      manual: ["Run stealToken against a controlled process in a lab VM."]
+
+  - id: MODULE-REV2SELF-CONTRACT-001
+    area: Modules
+    feature: rev2self
+    scenario: "Revert impersonation back to the original token."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Rev2self/tests/testsRev2self.cpp"]
+      manual: ["Run makeToken or stealToken, then rev2self, then verify identity."]
+
+  - id: MODULE-SPAWNAS-CONTRACT-001
+    area: Modules
+    feature: spawnAs
+    scenario: "Spawn a process as supplied credentials and handle invalid packed parameters."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/SpawnAs/tests/testsSpawnAs.cpp", "core/modules/SpawnAs/tests/functional/testsSpawnAsFunctional.cpp"]
+      manual: ["Run spawnAs with known lab credentials and safe command."]
+
+  - id: MODULE-REGISTRY-CONTRACT-001
+    area: Modules
+    feature: registry
+    scenario: "Read/query registry keys and handle missing keys or malformed packed commands safely."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Registry/tests/testsRegistry.cpp"]
+      manual: ["Run a read-only query for HKCU/HKLM known key and a missing key."]
+
+  - id: MODULE-TASKSCHEDULER-CONTRACT-001
+    area: Modules
+    feature: taskScheduler
+    scenario: "Create/query/delete a scheduled task and validate parameter errors."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/TaskScheduler/tests/testsTaskScheduler.cpp", "core/modules/TaskScheduler/tests/functional/testsTaskSchedulerFunctional.cpp"]
+      manual: ["Create and delete a harmless lab scheduled task."]
+
+  - id: MODULE-EVASION-CONTRACT-001
+    area: Modules
+    feature: evasion
+    scenario: "Run supported evasion actions and report unsupported or failed actions clearly."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/Evasion/tests/testsEvasion.cpp", "core/modules/Evasion/tests/functional/testsEvasionFunctional.cpp"]
+      manual: ["Run supported evasion command in isolated lab VM and verify output only."]
+
+  - id: MODULE-ENUMERATESHARES-CONTRACT-001
+    area: Modules
+    feature: enumerateShares
+    scenario: "Enumerate network shares with readable output and safe error handling."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/EnumerateShares/tests/testsEnumerateShares.cpp"]
+      manual: ["Run enumerateShares against localhost or a controlled lab host."]
+
+  - id: MODULE-ENUMERATERDPSESSIONS-CONTRACT-001
+    area: Modules
+    feature: enumerateRdpSessions
+    scenario: "Enumerate RDP sessions with readable output and safe error handling."
+    priority: medium
+    validation: auto+manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: n/a}
+    evidence:
+      auto: ["core/modules/EnumerateRdpSessions/tests/testsEnumerateRdpSessions.cpp", "core/modules/EnumerateRdpSessions/tests/functional/testsEnumerateRdpSessionsFunctional.cpp"]
+      manual: ["Run enumerateRdpSessions on a lab Windows host with known session state."]
+
+  - id: MODULE-COMMANDSPEC-COVERAGE-001
+    area: Modules
+    feature: CommandSpec coverage
+    scenario: "Every user-facing module command has a CommandSpec JSON with assistant-renderable command_template metadata."
+    priority: critical
+    validation: auto
+    axes: {os: teamserver, arch: n/a, listener: n/a, artifact_category: command_specs}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandCatalogTests.cpp", "C2Client/tests/assistant_agent/test_command_specs.py", "C2Client/tests/assistant_agent/test_command_help_tool.py", "C2Client/tests/assistant_agent/test_module_state_tool.py", "C2Client/tests/assistant_agent/test_tool_registry.py"]
+      manual: []
+
+  - id: RELEASE-WINDOWS-ARTIFACTS-001
+    area: Release
+    feature: Windows release artifacts
+    scenario: "Build/release output contains WindowsBeacons/<arch>, WindowsModules, Tools, Scripts, CommandSpecs, and TeamServer data layout."
+    priority: critical
+    validation: manual
+    axes: {os: windows, arch: any, listener: n/a, artifact_category: any}
+    evidence:
+      auto: []
+      manual: ["Run clean release build and inspect build/artifacts/Release/data plus Windows artifact roots."]
+
+  - id: RELEASE-LINUX-ARTIFACTS-001
+    area: Release
+    feature: Linux release artifacts
+    scenario: "Build/release output contains LinuxBeacons/<arch>, LinuxModules/<arch>, Tools/Linux/<arch>, Scripts/Linux, and CommandSpecs."
+    priority: critical
+    validation: manual
+    axes: {os: linux, arch: any, listener: n/a, artifact_category: any}
+    evidence:
+      auto: []
+      manual: ["Run clean release build and inspect Linux artifacts with arch subfolders."]
+
+  - id: VALIDATION-GOLDEN-PATH-WINDOWS-001
+    area: Validation
+    feature: Windows golden path
+    scenario: "End-to-end Windows x64 HTTPS validation: connect, load module, run commands, use artifacts, generate output, host artifact."
+    priority: critical
+    validation: manual
+    axes: {os: windows, arch: x64, listener: https, artifact_category: any}
+    evidence:
+      auto: []
+      manual: ["Run the predetermined Windows golden path checklist once manual-results.yaml exists."]
+
+  - id: VALIDATION-GOLDEN-PATH-LINUX-001
+    area: Validation
+    feature: Linux golden path
+    scenario: "End-to-end Linux x64 HTTPS validation: connect, run commands, upload/download, script, and module lifecycle."
+    priority: critical
+    validation: manual
+    axes: {os: linux, arch: x64, listener: https, artifact_category: any}
+    evidence:
+      auto: []
+      manual: ["Run the predetermined Linux golden path checklist once manual-results.yaml exists."]
+
+  - id: VALIDATION-ERROR-HANDLING-001
+    area: Validation
+    feature: Error handling
+    scenario: "Reject invalid commands, missing artifacts, missing tools, invalid listener fields, and failed module preparation with clear messages."
+    priority: critical
+    validation: auto+manual
+    axes: {os: any, arch: any, listener: any, artifact_category: any}
+    evidence:
+      auto: ["teamServer/tests/TeamServerCommandPreparationServiceTests.cpp", "C2Client/tests/test_listener_panel.py", "C2Client/tests/test_console_panel.py"]
+      manual: ["Attempt missing tool, missing script, invalid listener port, and unknown command from UI."]

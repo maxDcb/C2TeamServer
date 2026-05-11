@@ -1,16 +1,48 @@
 #include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
+#include <unistd.h>
 
 #include <grpcpp/support/string_ref.h>
 
+#include "TeamServerFileArtifactService.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerListenerSessionService.hpp"
+
+namespace fs = std::filesystem;
 
 namespace
 {
+class ScopedPath
+{
+public:
+    explicit ScopedPath(fs::path path)
+        : m_path(std::move(path))
+    {
+    }
+
+    ~ScopedPath()
+    {
+        std::error_code ec;
+        fs::remove_all(m_path, ec);
+    }
+
+    const fs::path& path() const
+    {
+        return m_path;
+    }
+
+private:
+    fs::path m_path;
+};
+
 class TestListener final : public Listener
 {
 public:
@@ -51,6 +83,28 @@ std::multimap<grpc::string_ref, grpc::string_ref> makeMetadata(std::string& clie
     return metadata;
 }
 
+fs::path makeTempDirectory(const std::string& name)
+{
+    fs::path root = fs::temp_directory_path() / ("c2teamserver-listener-session-" + name + "-" + std::to_string(::getpid()));
+    fs::create_directories(root);
+    return root;
+}
+
+TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
+{
+    TeamServerRuntimeConfig runtimeConfig;
+    runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string() + "/";
+    runtimeConfig.defaultWindowsArch = "x64";
+    runtimeConfig.defaultLinuxArch = "x64";
+    return runtimeConfig;
+}
+
+std::string readFile(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), {});
+}
+
 void testCollectListenersAndSessions()
 {
     nlohmann::json config = {
@@ -82,6 +136,7 @@ void testCollectListenersAndSessions()
         cmdResponses,
         sentResponses,
         sentCommands,
+        nullptr,
         [](const std::string&, C2Message& c2Message, bool, const std::string&)
         {
             c2Message.set_instruction("noop");
@@ -136,6 +191,7 @@ void testQueueStopAndResponseDeduplication()
         cmdResponses,
         sentResponses,
         sentCommands,
+        nullptr,
         [&preparedArch](const std::string& input, C2Message& c2Message, bool, const std::string& windowsArch)
         {
             preparedArch = windowsArch;
@@ -224,11 +280,299 @@ void testQueueStopAndResponseDeduplication()
                .ok());
     assert(secondClientResponses.size() == 1);
 }
+
+void testAddListenerRejectsTcpBoundPortConflicts()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    listeners.push_back(std::make_shared<TestListener>("0.0.0.0", "8443", ListenerHttpsType, "listener-primary"));
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        nullptr,
+        [](const std::string&, C2Message&, bool, const std::string&)
+        {
+            return 0;
+        });
+
+    teamserverapi::Listener tcpListener;
+    tcpListener.set_type(ListenerTcpType);
+    tcpListener.set_ip("0.0.0.0");
+    tcpListener.set_port(8443);
+
+    teamserverapi::OperationAck response;
+    assert(service.addListener(tcpListener, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.message() == "Port 8443 is already used by https listener.");
+    assert(listeners.size() == 1);
+}
+
+void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    listeners.push_back(primaryListener);
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        nullptr,
+        [](const std::string& input, C2Message& c2Message, bool, const std::string&)
+        {
+            if (input.rfind("loadModule", 0) == 0)
+            {
+                c2Message.set_instruction(LoadC2ModuleCmd);
+                c2Message.set_inputfile("libPrintWorkingDirectory.so");
+                c2Message.set_data("module-bytes");
+            }
+            else if (input.rfind("unloadModule", 0) == 0)
+            {
+                c2Message.set_instruction(UnloadC2ModuleCmd);
+                c2Message.set_cmd("pwd");
+            }
+            else
+            {
+                c2Message.set_instruction("instruction");
+                c2Message.set_cmd(input);
+            }
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest loadCommand;
+    loadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    loadCommand.mutable_session()->set_listener_hash("listener-primary");
+    loadCommand.set_command("loadModule pwd");
+    loadCommand.set_command_id("load-0001");
+
+    teamserverapi::CommandAck loadResponse;
+    assert(service.sendSessionCommand(loadCommand, &loadResponse).ok());
+    assert(loadResponse.status() == teamserverapi::OK);
+
+    std::vector<teamserverapi::LoadedModule> modules;
+    teamserverapi::SessionSelector sessionSelector;
+    sessionSelector.set_beacon_hash("ABCDEFGH12345678");
+    sessionSelector.set_listener_hash("listener-primary");
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].name() == "pwd");
+    assert(modules[0].state() == "loading");
+
+    teamserverapi::CommandAck duplicateLoadResponse;
+    assert(service.sendSessionCommand(loadCommand, &duplicateLoadResponse).ok());
+    assert(duplicateLoadResponse.status() == teamserverapi::KO);
+    assert(duplicateLoadResponse.message().find("already tracked") != std::string::npos);
+
+    C2Message loadResult;
+    loadResult.set_instruction(LoadC2ModuleCmd);
+    loadResult.set_uuid("load-0001");
+    loadResult.set_returnvalue(CmdStatusSuccess);
+    assert(primaryListener->addTaskResult(loadResult, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].name() == "pwd");
+    assert(modules[0].state() == "loaded");
+    assert(modules[0].load_count() == 1);
+
+    teamserverapi::SessionCommandRequest unloadCommand;
+    unloadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    unloadCommand.mutable_session()->set_listener_hash("listener-primary");
+    unloadCommand.set_command("unloadModule pwd");
+    unloadCommand.set_command_id("unload-0001");
+
+    teamserverapi::CommandAck unloadResponse;
+    assert(service.sendSessionCommand(unloadCommand, &unloadResponse).ok());
+    assert(unloadResponse.status() == teamserverapi::OK);
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.size() == 1);
+    assert(modules[0].state() == "unloading");
+
+    C2Message unloadResult;
+    unloadResult.set_instruction(UnloadC2ModuleCmd);
+    unloadResult.set_uuid("unload-0001");
+    unloadResult.set_returnvalue(CmdStatusSuccess);
+    assert(primaryListener->addTaskResult(unloadResult, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    modules.clear();
+    assert(service.streamModulesForSession(
+               sessionSelector,
+               [&](const teamserverapi::LoadedModule& module)
+               {
+                   modules.push_back(module);
+                   return true;
+               })
+               .ok());
+    assert(modules.empty());
+}
+
+void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Windows");
+    listeners.push_back(primaryListener);
+
+    ScopedPath tempRoot(makeTempDirectory("pending-artifact"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        logger,
+        runtimeConfig,
+        artifactStore);
+
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<teamserverapi::CommandResult> cmdResponses;
+    std::unordered_map<std::string, std::vector<int>> sentResponses;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    std::string preparedOutputFile;
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        cmdResponses,
+        sentResponses,
+        sentCommands,
+        fileArtifactService,
+        [&](const std::string& input, C2Message& c2Message, bool, const std::string&)
+        {
+            TeamServerGeneratedFileArtifactSpec spec;
+            spec.remotePath = input;
+            spec.nameHint = "desktop.png";
+            spec.category = "screenshot";
+            spec.source = "beacon";
+            spec.target = "teamserver";
+            spec.runtime = "file";
+            spec.format = "png";
+            spec.isWindows = true;
+            spec.arch = "x64";
+            spec.writeResultData = true;
+            const TeamServerPreparedDownloadArtifact artifact = fileArtifactService->prepareGeneratedFileArtifact(spec);
+            assert(artifact.ok);
+
+            preparedOutputFile = artifact.path;
+            c2Message.set_instruction("screenShot");
+            c2Message.set_outputfile(artifact.path);
+            c2Message.set_cmd(input);
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_listener_hash("listener-primary");
+    command.set_command("screenShot desktop.png");
+    command.set_command_id("shot-0001");
+
+    teamserverapi::CommandAck response;
+    assert(service.sendSessionCommand(command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(!preparedOutputFile.empty());
+
+    C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
+    assert(queuedTask.instruction() == "screenShot");
+    assert(queuedTask.uuid() == "shot-0001");
+
+    C2Message firstChunk;
+    firstChunk.set_instruction("screenShot");
+    firstChunk.set_outputfile(preparedOutputFile);
+    firstChunk.set_args("0");
+    firstChunk.set_data("AA");
+    firstChunk.set_returnvalue("2/4");
+    assert(primaryListener->addTaskResult(firstChunk, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+    assert(cmdResponses.empty());
+    assert(sentCommands.size() == 1);
+    assert(readFile(preparedOutputFile) == "AA");
+
+    C2Message finalChunk;
+    finalChunk.set_instruction("screenShot");
+    finalChunk.set_outputfile(preparedOutputFile);
+    finalChunk.set_args("1");
+    finalChunk.set_data("BB");
+    finalChunk.set_returnvalue("Success");
+    assert(primaryListener->addTaskResult(finalChunk, "ABCDEFGH12345678"));
+    service.handleCmdResponse();
+
+    assert(sentCommands.empty());
+    assert(cmdResponses.size() == 1);
+    assert(cmdResponses[0].command_id() == "shot-0001");
+    assert(cmdResponses[0].command() == "screenShot desktop.png");
+    assert(cmdResponses[0].output().find("Generated artifact stored:") != std::string::npos);
+    assert(readFile(preparedOutputFile) == "AABB");
+    assert(fs::exists(preparedOutputFile + ".artifact.json"));
+    assert(!fs::exists(preparedOutputFile + ".artifact.pending.json"));
+}
 } // namespace
 
 int main()
 {
     testCollectListenersAndSessions();
     testQueueStopAndResponseDeduplication();
+    testAddListenerRejectsTcpBoundPortConflicts();
+    testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
+    testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     return 0;
 }

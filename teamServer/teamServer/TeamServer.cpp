@@ -1,12 +1,26 @@
 #include "TeamServer.hpp"
 
+#include "TeamServerArtifactCatalog.hpp"
+#include "TeamServerArtifactService.hpp"
+#include "TeamServerAssemblyExecCommandPreparer.hpp"
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
+#include "TeamServerChiselCommandPreparer.hpp"
+#include "TeamServerCommandCatalog.hpp"
+#include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerFileArtifactService.hpp"
+#include "TeamServerFileTransferCommandPreparer.hpp"
+#include "TeamServerGeneratedArtifactStore.hpp"
 #include "TeamServerHelpService.hpp"
+#include "TeamServerInjectCommandPreparer.hpp"
 #include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerListenerSessionService.hpp"
+#include "TeamServerMiniDumpCommandPreparer.hpp"
 #include "TeamServerModuleLoader.hpp"
+#include "TeamServerModuleArtifactCommandPreparer.hpp"
+#include "TeamServerScriptCommandPreparer.hpp"
+#include "TeamServerShellcodeService.hpp"
 #include "TeamServerSocksService.hpp"
 #include "TeamServerTermLocalService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
@@ -29,6 +43,30 @@ inline bool port_in_use(unsigned short port)
     return 0;
 }
 
+namespace
+{
+std::string trimTrailingPathSeparators(std::string path)
+{
+    while (!path.empty() && (path.back() == '/' || path.back() == '\\'))
+        path.pop_back();
+    return path;
+}
+
+void configureHostedDownloadFolders(nlohmann::json& config, const TeamServerRuntimeConfig& runtimeConfig)
+{
+    const std::string hostedPath = trimTrailingPathSeparators(runtimeConfig.hostedArtifactsDirectoryPath);
+    if (hostedPath.empty())
+        return;
+
+    for (const char* section : {"ListenerHttpConfig", "ListenerHttpsConfig"})
+    {
+        if (!config[section].is_object())
+            config[section] = nlohmann::json::object();
+        config[section]["downloadFolder"] = hostedPath;
+    }
+}
+} // namespace
+
 std::string getIPAddress(const std::string& interface);
 
 grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
@@ -44,14 +82,28 @@ TeamServer::TeamServer(const nlohmann::json& config)
     TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(config);
     runtimeConfig.validateDirectories(m_logger);
     runtimeConfig.configureCommonCommands(m_commonCommands);
+    configureHostedDownloadFolders(m_config, runtimeConfig);
 
     m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
     m_authManager->configure(config);
+    m_generatedArtifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
+    m_fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
+        m_logger,
+        runtimeConfig,
+        m_generatedArtifactStore);
+    m_shellcodeService = std::make_shared<TeamServerShellcodeService>(m_logger);
+    m_artifactService = std::make_unique<TeamServerArtifactService>(
+        m_logger,
+        TeamServerArtifactCatalog(runtimeConfig));
+    m_commandCatalogService = std::make_unique<TeamServerCommandCatalogService>(
+        m_logger,
+        TeamServerCommandCatalog(runtimeConfig));
     m_helpService = std::make_unique<TeamServerHelpService>(
         m_logger,
         m_listeners,
         m_moduleCmd,
-        m_commonCommands);
+        m_commonCommands,
+        TeamServerCommandCatalog(runtimeConfig));
     m_listenerSessionService = std::make_unique<TeamServerListenerSessionService>(
         m_logger,
         m_config,
@@ -61,6 +113,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_cmdResponses,
         m_sentResponses,
         m_sentCommands,
+        m_fileArtifactService,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
@@ -74,11 +127,47 @@ TeamServer::TeamServer(const nlohmann::json& config)
         });
     m_moduleLoader = std::make_unique<TeamServerModuleLoader>(m_logger, runtimeConfig);
     m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
+    std::vector<std::unique_ptr<TeamServerCommandPreparer>> commandPreparers;
+    commandPreparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerInjectCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerChiselCommandPreparer>(
+        m_logger,
+        runtimeConfig,
+        m_shellcodeService,
+        m_generatedArtifactStore,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerFileTransferCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerScriptCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerMiniDumpCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
+    commandPreparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(
+        m_logger,
+        m_fileArtifactService,
+        m_moduleCmd));
     m_commandPreparationService = std::make_unique<TeamServerCommandPreparationService>(
         m_logger,
-        runtimeConfig.teamServerModulesDirectoryPath,
+        runtimeConfig,
         m_commonCommands,
-        m_moduleCmd);
+        m_moduleCmd,
+        std::move(commandPreparers));
     m_termLocalService = std::make_unique<TeamServerTermLocalService>(
         m_logger,
         m_config,
@@ -161,6 +250,57 @@ grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamser
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->stopSession(*sessionToStop, response);
+}
+
+grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->listArtifacts(*query, [&](const teamserverapi::ArtifactSummary& artifact)
+        { return writer->Write(artifact); });
+}
+
+grpc::Status TeamServer::DownloadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::ArtifactContent* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->downloadArtifact(*selector, response);
+}
+
+grpc::Status TeamServer::UploadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactUploadRequest* request, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->uploadArtifact(*request, response);
+}
+
+grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_artifactService->deleteGeneratedArtifact(*selector, response);
+}
+
+grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_commandCatalogService->listCommands(*query, [&](const teamserverapi::CommandSpec& command)
+        { return writer->Write(command); });
+}
+
+grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::LoadedModule>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_listenerSessionService->streamModulesForSession(*session, [&](const teamserverapi::LoadedModule& module)
+        { return writer->Write(module); });
 }
 
 grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)
@@ -305,7 +445,6 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
         m_logger->debug("socks {0}", cmd);
         return m_socksService->handleCommand(splitedCmd, response);
     }
-    // TODO add a clean www directory !!!
     else
     {
         responseTmp.set_result("Error: not implemented.");

@@ -81,6 +81,8 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     fs::create_directories(runtimeConfig.windowsModulesDirectoryPath);
     fs::create_directories(runtimeConfig.linuxBeaconsDirectoryPath);
     fs::create_directories(runtimeConfig.windowsBeaconsDirectoryPath);
+    for (const auto& arch : runtimeConfig.supportedLinuxArchs)
+        fs::create_directories(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / arch);
     for (const auto& arch : runtimeConfig.supportedWindowsArchs)
         fs::create_directories(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / arch);
     fs::create_directories(runtimeConfig.toolsDirectoryPath);
@@ -129,6 +131,66 @@ void testInfoListenerForPrimaryAndSecondary()
     assert(response.message() == "Error: Listener not found.");
 }
 
+void testInfoListenerAddressFallbacks()
+{
+    ScopedPath tempRoot(makeTempDirectory("info-fallback"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    nlohmann::json config = {
+        {"DomainName", ""},
+        {"ExposedIp", ""},
+        {"IpInterface", "missing0"},
+        {"ListenerHttpsConfig", {{"uriFileDownload", "/drop.bin"}}}};
+
+    auto primary = std::make_shared<TestListener>("listener-primary", ListenerHttpsType, "192.168.56.10", "8443");
+    std::vector<std::shared_ptr<Listener>> listeners = {primary};
+
+    TeamServerListenerArtifactService service(
+        makeLogger(),
+        config,
+        runtimeConfig,
+        listeners,
+        [](const std::string&)
+        {
+            return "";
+        });
+
+    teamserverapi::TerminalCommandResponse response;
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("infoListener listener-pri");
+    assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "https\n192.168.56.10\n8443\n/drop.bin");
+
+    config["ExposedIp"] = "203.0.113.10";
+    TeamServerListenerArtifactService exposedService(makeLogger(), config, runtimeConfig, listeners);
+    assert(exposedService.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "https\n203.0.113.10\n8443\n/drop.bin");
+
+    config["ExposedIp"] = "";
+    config["IpInterface"] = "eth-test";
+    TeamServerListenerArtifactService interfaceService(
+        makeLogger(),
+        config,
+        runtimeConfig,
+        listeners,
+        [](const std::string& interface)
+        {
+            return interface == "eth-test" ? "10.10.10.10" : "";
+        });
+    assert(interfaceService.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "https\n10.10.10.10\n8443\n/drop.bin");
+
+    auto wildcard = std::make_shared<TestListener>("wildcard-listener", ListenerHttpsType, "0.0.0.0", "8443");
+    std::vector<std::shared_ptr<Listener>> wildcardListeners = {wildcard};
+    config["IpInterface"] = "";
+    TeamServerListenerArtifactService wildcardService(makeLogger(), config, runtimeConfig, wildcardListeners);
+    assert(wildcardService.handleCommand("infoListener", {"infoListener", "wildcard"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "https\n127.0.0.1\n8443\n/drop.bin");
+}
+
 void testGetBeaconBinaryForPrimaryAndSecondary()
 {
     ScopedPath tempRoot(makeTempDirectory("beacon"));
@@ -137,6 +199,7 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x86" / "BeaconHttp.exe", "HTTPBIN-X86");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "arm64" / "BeaconHttp.exe", "HTTPBIN-ARM64");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconSmb.exe", "SMBBIN-X64");
+    writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "x64" / "BeaconHttp", "LINUX-HTTPBIN-X64");
 
     nlohmann::json config = nlohmann::json::object();
     auto primary = std::make_shared<TestListener>("listener-primary");
@@ -178,6 +241,12 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     assert(response.result() == "Error: Unsupported architecture.");
     assert(response.message() == "Error: Unsupported architecture.");
 
+    command.set_command("getBeaconBinary listener-pri Linux x64");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Linux", "x64"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "ok");
+    assert(response.data() == "LINUX-HTTPBIN-X64");
+
     command.set_command("getBeaconBinary secondary");
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary"}, command, &response).ok());
     assert(response.status() == teamserverapi::OK);
@@ -190,6 +259,7 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
 int main()
 {
     testInfoListenerForPrimaryAndSecondary();
+    testInfoListenerAddressFallbacks();
     testGetBeaconBinaryForPrimaryAndSecondary();
     return 0;
 }

@@ -30,12 +30,17 @@
 #include "nlohmann/json.hpp"
 
 class TeamServerAuthManager;
+class TeamServerArtifactService;
+class TeamServerCommandCatalogService;
+class TeamServerFileArtifactService;
+class TeamServerGeneratedArtifactStore;
 class TeamServerHelpService;
 class TeamServerListenerSessionService;
 class TeamServerListenerArtifactService;
 class TeamServerModuleLoader;
 class TeamServerSocksService;
 class TeamServerCommandPreparationService;
+class TeamServerShellcodeService;
 class TeamServerTermLocalService;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
@@ -52,6 +57,13 @@ public:
 
     grpc::Status ListSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer) override;
     grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response) override;
+
+    grpc::Status ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer) override;
+    grpc::Status DownloadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::ArtifactContent* response) override;
+    grpc::Status UploadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactUploadRequest* request, teamserverapi::OperationAck* response) override;
+    grpc::Status DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response) override;
+    grpc::Status ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer) override;
+    grpc::Status ListModules(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::LoadedModule>* writer) override;
 
     grpc::Status SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response) override;
     grpc::Status StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer) override;
@@ -90,11 +102,16 @@ private:
     std::vector<BeaconCommandContext> m_sentCommands;
 
     std::unique_ptr<TeamServerAuthManager> m_authManager;
+    std::unique_ptr<TeamServerArtifactService> m_artifactService;
+    std::unique_ptr<TeamServerCommandCatalogService> m_commandCatalogService;
+    std::shared_ptr<TeamServerFileArtifactService> m_fileArtifactService;
+    std::shared_ptr<TeamServerGeneratedArtifactStore> m_generatedArtifactStore;
     std::unique_ptr<TeamServerHelpService> m_helpService;
     std::unique_ptr<TeamServerListenerSessionService> m_listenerSessionService;
     std::unique_ptr<TeamServerListenerArtifactService> m_listenerArtifactService;
     std::unique_ptr<TeamServerModuleLoader> m_moduleLoader;
     std::unique_ptr<TeamServerSocksService> m_socksService;
     std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
+    std::shared_ptr<TeamServerShellcodeService> m_shellcodeService;
     std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
 };

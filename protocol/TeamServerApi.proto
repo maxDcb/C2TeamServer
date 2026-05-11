@@ -14,6 +14,13 @@ service TeamServerApi
   rpc ListSessions(Empty) returns (stream Session) {}
   rpc StopSession(SessionSelector) returns (OperationAck) {}
 
+  rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
+  rpc DownloadArtifact(ArtifactSelector) returns (ArtifactContent) {}
+  rpc UploadArtifact(ArtifactUploadRequest) returns (OperationAck) {}
+  rpc DeleteGeneratedArtifact(ArtifactSelector) returns (OperationAck) {}
+  rpc ListCommands(CommandQuery) returns (stream CommandSpec) {}
+  rpc ListModules(SessionSelector) returns (stream LoadedModule) {}
+
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
   rpc StreamSessionCommandResults(SessionSelector) returns (stream CommandResult) {}
@@ -100,6 +107,103 @@ message Session
 }
 
 
+message ArtifactQuery
+{
+  string category = 1;
+  string scope = 2;
+  string platform = 3;
+  string arch = 4;
+  string name_contains = 5;
+  string target = 6;
+  string runtime = 7;
+  string format = 8;
+}
+
+
+message ArtifactSummary
+{
+  string artifact_id = 1;
+  string name = 2;
+  string display_name = 3;
+  string category = 4;
+  string scope = 5;
+  string platform = 6;
+  string arch = 7;
+  string format = 8;
+  string source = 9;
+  int64 size = 10;
+  string sha256 = 11;
+  string description = 12;
+  repeated string tags = 13;
+  string target = 14;
+  string runtime = 15;
+}
+
+
+message ArtifactSelector
+{
+  string artifact_id = 1;
+}
+
+message ArtifactContent
+{
+  Status status = 1;
+  string message = 2;
+  string artifact_id = 3;
+  string name = 4;
+  string display_name = 5;
+  bytes data = 6;
+}
+
+message ArtifactUploadRequest
+{
+  string name = 1;
+  string platform = 2;
+  string arch = 3;
+  bytes data = 4;
+}
+
+
+message CommandQuery
+{
+  string kind = 1;
+  string target = 2;
+  string platform = 3;
+  string name_contains = 4;
+}
+
+
+message CommandArgSpec
+{
+  string name = 1;
+  string type = 2;
+  bool required = 3;
+  string description = 4;
+  repeated string values = 5;
+  ArtifactQuery artifact_filter = 6;
+  bool variadic = 7;
+  repeated ArtifactQuery artifact_filters = 8;
+  repeated string completion_parents = 9;
+}
+
+
+message CommandSpec
+{
+  string name = 1;
+  string display_name = 2;
+  string kind = 3;
+  string description = 4;
+  string target = 5;
+  bool requires_session = 6;
+  repeated string platforms = 7;
+  repeated string archs = 8;
+  repeated CommandArgSpec args = 9;
+  repeated string examples = 10;
+  string source = 11;
+  string command_template = 12;
+}
+
+
 message CommandHelpRequest
 {
   SessionSelector session = 1;
@@ -121,6 +225,18 @@ message SessionCommandRequest
   SessionSelector session = 1;
   string command = 2;
   string command_id = 3;
+}
+
+
+message LoadedModule
+{
+  SessionSelector session = 1;
+  string name = 2;
+  string state = 3;
+  string command_id = 4;
+  string artifact = 5;
+  string updated_at = 6;
+  int32 load_count = 7;
 }
 
 

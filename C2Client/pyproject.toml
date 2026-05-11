@@ -13,7 +13,7 @@ dependencies = [
     "PyQt6==6.7.0",
     "pyqtdarktheme",
     "protobuf==6.33.5",
-    "gitpython==3.1.47",
+    "gitpython==3.1.50",
     "requests==2.33.0",
     "pwn==1.0",
     "pefile==2024.8.26",
@@ -42,8 +42,7 @@ C2Client = [
     "DropperModules.conf",
     "ShellCodeModules.conf",
     "assistant_agent/prompts/system/*.md",
-    "assistant_agent/prompts/memory/*.md",
-    "assistant_agent/tools/schemas/*.json"
+    "assistant_agent/prompts/memory/*.md"
 ]
 
 [project.scripts]

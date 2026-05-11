@@ -93,6 +93,7 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
     build_release_root = build_root / "artifacts" / "Release"
     teamserver_root = build_release_root / "TeamServer"
     modules_root = build_release_root / "TeamServerModules"
+    command_specs_root = build_release_root / "CommandSpecs"
 
     if not teamserver_root.exists():
         raise FileNotFoundError(
@@ -104,6 +105,11 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
             f"Missing TeamServer module artifacts: {modules_root}. "
             "Build the project before staging the release.",
         )
+    if not command_specs_root.exists():
+        raise FileNotFoundError(
+            f"Missing TeamServer command specs: {command_specs_root}. "
+            "Build the project before staging the release.",
+        )
 
     shutil.rmtree(output_root, ignore_errors=True)
     output_root.parent.mkdir(parents=True, exist_ok=True)
@@ -111,10 +117,12 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
 
     shutil.rmtree(output_root / "TeamServer", ignore_errors=True)
     shutil.rmtree(output_root / "TeamServerModules", ignore_errors=True)
+    shutil.rmtree(output_root / "CommandSpecs", ignore_errors=True)
     shutil.rmtree(output_root / "Modules", ignore_errors=True)
 
     _copytree(teamserver_root, output_root / "TeamServer")
     _copytree(modules_root, output_root / "TeamServerModules")
+    _copytree(command_specs_root, output_root / "CommandSpecs")
     shutil.rmtree(output_root / "TeamServer" / "logs", ignore_errors=True)
     (output_root / "TeamServer" / "logs").mkdir(parents=True, exist_ok=True)
 

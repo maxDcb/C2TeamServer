@@ -72,8 +72,15 @@ def test_import_implant_releases_stages_all_windows_architectures(tmp_path, monk
         assert beacon_path.read_text(encoding="utf-8") == f"{arch}:BeaconHttp.exe"
         assert module_path.read_text(encoding="utf-8") == f"{arch}:Inject.dll"
 
+    linux_beacon_path = stage_root / "LinuxBeacons" / "x64" / "BeaconHttp"
+    linux_module_path = stage_root / "LinuxModules" / "x64" / "libInject.so"
+    assert linux_beacon_path.read_text(encoding="utf-8") == "linux:BeaconHttp"
+    assert linux_module_path.read_text(encoding="utf-8") == "linux:libInject.so"
+
     assert not any((stage_root / "WindowsBeacons").glob("*.exe"))
     assert not any((stage_root / "WindowsModules").glob("*.dll"))
+    assert not any((stage_root / "LinuxBeacons").glob("Beacon*"))
+    assert not any((stage_root / "LinuxModules").glob("*.so"))
 
 
 def test_import_implant_releases_rejects_missing_windows_arch_asset(tmp_path, monkeypatch):

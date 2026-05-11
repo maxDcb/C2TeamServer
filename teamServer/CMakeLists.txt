@@ -3,11 +3,25 @@ include_directories(../core/modules/ModuleCmd)
 
 set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServer.cpp
+    teamServer/TeamServerAssemblyExecCommandPreparer.cpp
+    teamServer/TeamServerArtifactCatalog.cpp
+    teamServer/TeamServerArtifactService.cpp
     teamServer/TeamServerAuth.cpp
+    teamServer/TeamServerChiselCommandPreparer.cpp
+    teamServer/TeamServerCommandCatalog.cpp
+    teamServer/TeamServerCommandCatalogService.cpp
     teamServer/TeamServerCommandPreparationService.cpp
+    teamServer/TeamServerFileArtifactService.cpp
+    teamServer/TeamServerFileTransferCommandPreparer.cpp
+    teamServer/TeamServerGeneratedArtifactStore.cpp
     teamServer/TeamServerHelpService.cpp
+    teamServer/TeamServerInjectCommandPreparer.cpp
     teamServer/TeamServerListenerArtifactService.cpp
     teamServer/TeamServerModuleLoader.cpp
+    teamServer/TeamServerMiniDumpCommandPreparer.cpp
+    teamServer/TeamServerModuleArtifactCommandPreparer.cpp
+    teamServer/TeamServerScriptCommandPreparer.cpp
+    teamServer/TeamServerShellcodeService.cpp
     teamServer/TeamServerSocksService.cpp
     teamServer/TeamServerTermLocalService.cpp
     teamServer/TeamServerRuntimeConfig.cpp
@@ -42,6 +56,8 @@ set(TEAMSERVER_CORE_LINK_LIBS
     grpc::grpc
     spdlog::spdlog
     SocksServer
+    Donut
+    ${aplib64}
     dl
     rt
 )
@@ -75,6 +91,31 @@ target_link_libraries(server_core
 
 add_executable(TeamServer teamServer/main.cpp)
 target_link_libraries(TeamServer PRIVATE server_core)
+
+set(C2_COMMON_COMMAND_SPEC_ROOT "${CMAKE_SOURCE_DIR}/core/modules/ModuleCmd/CommandSpecs")
+file(GLOB_RECURSE C2_COMMON_COMMAND_SPEC_FILES CONFIGURE_DEPENDS
+    "${C2_COMMON_COMMAND_SPEC_ROOT}/*.json")
+file(GLOB C2_MODULE_COMMAND_SPEC_FILES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/core/modules/*/*.json")
+set(C2_COPY_MODULE_COMMAND_SPEC_COMMANDS)
+foreach(C2_MODULE_COMMAND_SPEC_FILE IN LISTS C2_MODULE_COMMAND_SPEC_FILES)
+    get_filename_component(C2_MODULE_COMMAND_SPEC_NAME "${C2_MODULE_COMMAND_SPEC_FILE}" NAME)
+    list(APPEND C2_COPY_MODULE_COMMAND_SPEC_COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${C2_MODULE_COMMAND_SPEC_FILE}" "${C2_RUNTIME_ROOT}/CommandSpecs/modules/${C2_MODULE_COMMAND_SPEC_NAME}")
+endforeach()
+add_custom_target(teamserver_copy_command_specs
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${C2_RUNTIME_ROOT}"
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${C2_RUNTIME_ROOT}/CommandSpecs"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${C2_COMMON_COMMAND_SPEC_ROOT}" "${C2_RUNTIME_ROOT}/CommandSpecs"
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "${C2_RUNTIME_ROOT}/CommandSpecs/modules"
+    ${C2_COPY_MODULE_COMMAND_SPEC_COMMANDS}
+    DEPENDS ${C2_COMMON_COMMAND_SPEC_FILES} ${C2_MODULE_COMMAND_SPEC_FILES}
+    VERBATIM
+)
+add_dependencies(TeamServer teamserver_copy_command_specs)
 
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     $<TARGET_FILE:TeamServer> "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/$<TARGET_FILE_NAME:TeamServer>")
@@ -110,6 +151,16 @@ if(WITH_TESTS)
     teamserver_add_test(testsTeamServerListenerArtifactService
         server_core
         tests/TeamServerListenerArtifactServiceTests.cpp
+    )
+
+    teamserver_add_test(testsTeamServerArtifactCatalog
+        server_core
+        tests/TeamServerArtifactCatalogTests.cpp
+    )
+
+    teamserver_add_test(testsTeamServerCommandCatalog
+        server_core
+        tests/TeamServerCommandCatalogTests.cpp
     )
 
     teamserver_add_test(testsTeamServerSocksService

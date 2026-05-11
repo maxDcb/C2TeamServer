@@ -1,0 +1,834 @@
+schema_version: 1
+updated_at: "2026-05-09"
+description: >
+  Manual validation results for scenarios defined in test-catalog.yaml. Keep
+  this file result-only: every result id must already exist in the catalog.
+
+allowed_statuses: [pass, fail, blocked, untested]
+
+# Example:
+# results:
+#   - id: VALIDATION-GOLDEN-PATH-WINDOWS-001
+#     status: pass
+#     date: "2026-05-07"
+#     build: "local-release"
+#     tester: "max"
+#     evidence: "Windows x64 HTTPS beacon connected, ran pwd/ls/download/screenShot, hosted artifact fetched."
+#     notes: "Lab VM: WIN11-x64."
+
+results:
+  - id: LISTENER-HTTPS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: ".\\BeaconHttp.exe 172.28.141.244 8443 https -> connection OK."
+    notes: "Windows beacon over HTTPS listener 8443."
+
+  - id: BEACON-CORE-REGISTER-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: ".\\BeaconHttp.exe 172.28.141.244 8443 https connected and appeared in the client. .\\BeaconTcp.exe 172.28.141.244 4444 also connected successfully."
+    notes: "Windows beacon registration validated through HTTPS and TCP connections."
+
+  - id: C2CLIENT-ARTIFACTS-LIST-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded TXT artifact was visible in Artifacts tab and its ID could be copied from the panel. Basic filters, Scripts, Generated, Upload, and Hosted views were validated."
+    notes: "Validated through Artifacts panel workflow."
+
+  - id: C2CLIENT-ARTIFACTS-UPLOAD-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded a TXT file from the Artifacts tab."
+    notes: "Operator-uploaded artifact creation works from the client UI."
+
+  - id: ARTIFACT-UPLOADED-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Uploaded TXT artifact was addressable by ID copied from the Artifacts panel. Upload command also resolved text.txt by name and 2941ace693c5f011f3c84b7e49ddb27a9bf0316f228df504289d849f38dc2549 by ID."
+    notes: "Uploaded artifact lookup worked for host and beacon upload workflows."
+
+  - id: C2CLIENT-TERMINAL-HOST-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Hosted the uploaded TXT artifact from Terminal using the copied artifact ID, then downloaded the hosted file from the browser. Host autocomplete presents upload artifacts as name plus short hash, listener hashes as short hashes only, and the command still resolves by name, short hash, or full hash."
+    notes: "Terminal host command works with artifact references and compact human-readable autocomplete."
+
+  - id: TEAMSERVER-HOSTED-ARTIFACTS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Hosted artifact was served by TeamServer and could be downloaded from a browser."
+    notes: "GeneratedArtifacts/hosted path validated through browser download."
+
+  - id: C2CLIENT-ARTIFACTS-DELETE-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "After the artifact delete fix, an uploaded artifact could be deleted directly from the Artifacts tab."
+    notes: "Validated uploaded artifact delete from the client UI. Generated and hosted delete paths were already covered by automated tests."
+
+  - id: C2CLIENT-STARTUP-GUI-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "python3 -m C2Client.GUI starts successfully after terminal/help/artifact UI changes."
+    notes: "Validated fixed tabs, terminal startup help, terminal lowercase autocomplete, and Artifacts loading."
+
+  - id: TEAMSERVER-ARTIFACT-CATALOG-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Artifacts tab validated base filters plus Scripts, Generated, Upload, and Hosted categories. Hosted artifact flow works after autocomplete cleanup."
+    notes: "Manual UI coverage complements TeamServer artifact catalog automated tests."
+
+  - id: TEAMSERVER-STARTUP-TLS-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Clean TeamServer startup and C2Client GUI connection over TLS validated. Correct C2_CERT_PATH works and base RPCs respond."
+    notes: "Validated TeamServer startup, TLS client connection, and base sessions/listeners/artifacts/commands RPC availability."
+
+  - id: TEAMSERVER-LISTENER-SESSION-SERVICE-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated listModule, loadModule ls, loadModule cd, duplicate loadModule ls rejection, cd ., ls, sleep 0.01, and listModule on an active beacon. listenerPoll heartbeat no longer creates noisy task-result logs after starting a beacon-side TCP listener. After TeamServer restart, the existing beacon-side TCP child listener reappears in the listener table and no repeated registered child listener info logs are emitted."
+    notes: "Covers command queueing, duplicate module tracking, result routing, sleep command result, module list state, child listener heartbeat handling, and child listener rehydration after TeamServer restart."
+
+  - id: TEAMSERVER-CONFIG-DIRECTORIES-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Release/runtime directory paths were checked after the layout normalization and are present in the expected locations."
+    notes: "Validated TeamServer runtime directory layout for artifact roots, tools, scripts, beacons, modules, and command specs."
+
+  - id: ARTIFACT-LAYOUT-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Canonical artifact paths were checked and are OK, including generated/hosted, uploaded, tools, scripts, beacons, modules, and command specs."
+    notes: "Manual path validation complements catalog/runtime automated checks."
+
+  - id: COMMON-LOADMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Loaded run.dll successfully over HTTPS. Loaded upload, cd, ls, and cat successfully over TCP. Duplicate loadModule upload was rejected with: Module already tracked on this beacon: upload (loaded)."
+    notes: "Windows beacon module loading and duplicate-load rejection validated."
+
+  - id: COMMON-LISTMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "listModule returned loaded modules cat, ls, cd, upload. After unloadModule cat, listModule returned ls, cd, upload."
+    notes: "Windows beacon over TCP."
+
+  - id: COMMON-UNLOADMODULE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "unloadModule cat completed with Success. A following cat toto.testupload returned Module not loaded."
+    notes: "Windows beacon over TCP."
+
+  - id: COMMON-HELP-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Terminal help and beacon console help were validated after command casing and description alignment. Terminal commands are displayed in lowercase, include descriptions, and command-specific help follows the CommandSpec-style layout."
+    notes: "Validated help and help <command> behavior in both terminal and beacon console."
+
+  - id: MODULE-RUN-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Executed dir through loaded run.dll successfully. Retested run whoami on a Windows beacon during the module batch and the command completed successfully."
+    notes: "Windows beacon over HTTPS."
+
+  - id: BEACON-CORE-TASK-QUEUE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Queued and completed loadModule run.dll, then executed dir successfully. TCP path also queued/completed loadModule upload/cd/ls/cat, cd, ls, upload, and cat commands."
+    notes: "Validates live beacon task queue and command result flow over HTTPS and TCP paths."
+
+  - id: BEACON-CORE-MODULE-LIFECYCLE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Loaded upload, cd, ls, and cat modules. listModule showed all loaded. Duplicate loadModule upload was rejected. unloadModule cat succeeded. cat then returned Module not loaded. listModule no longer showed cat."
+    notes: "Windows beacon module load/list/duplicate/unload lifecycle validated over TCP."
+
+  - id: LISTENER-TCP-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Created TCP listener on 4444. .\\BeaconTcp.exe 172.28.141.244 4444 -> connection OK. loadModule/cd/ls/upload/cat commands completed over TCP."
+    notes: "Windows beacon over TCP listener 4444."
+
+  - id: LISTENER-HTTP-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "HTTP listener on port 8000 accepted a Windows beacon. listModule returned no loaded modules, loadModule whoami and whoami completed successfully, loadModule ls and ls completed successfully, and sleep 0.01 returned 10ms."
+    notes: "Also retested that creating an HTTP listener on an already-used port is now rejected instead of creating a ghost listener."
+
+  - id: LISTENER-GITHUB-001
+    status: blocked
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Transport intentionally set aside during stabilization."
+    notes: "GitHub listener is an experimental/test transport that is not maintained or actively validated for the current release scope."
+
+  - id: LISTENER-SMB-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "listener start smb gogo returned a child listener hash. After the SMB listener stop fix, listener stop was retested and the parent beacon remained responsive instead of freezing."
+    notes: "Validates Windows SMB/named-pipe child listener start and stop behavior after waking the SMB listener thread before join."
+
+  - id: COMMON-LISTENER-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated listener start tcp, listener start smb, child listener rehydration after TeamServer restart, and listener stop without beacon freeze."
+    notes: "Covers the common listener command contract for beacon-side child listeners."
+
+  - id: MODULE-CD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "cd C:\\users\\max\\desktop completed and returned C:\\users\\max\\desktop."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-LS-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "ls listed C:\\users\\max\\desktop and later showed toto.testupload after upload."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-UPLOAD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "upload without args returned Usage: upload <upload_artifact> <remote_path>. upload text.txt toto.testupload succeeded and ls showed toto.testupload. upload 2941ace693c5f011f3c84b7e49ddb27a9bf0316f228df504289d849f38dc2549 testWithId also succeeded."
+    notes: "Validated usage error, upload by artifact name, and upload by artifact ID over TCP."
+
+  - id: MODULE-CAT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "cat toto.testupload returned toto."
+    notes: "Windows beacon over TCP."
+
+  - id: MODULE-DOWNLOAD-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule download succeeded. download test1234.txt stored 1778165820263799973-a83c-test1234.txt. download C:\\Windows\\System32\\OneDriveSetup.exe stored 1778165909382546237-5f96-OneDriveSetup.exe. Download from Artifacts worked and SHA-256 hash check was OK."
+    notes: "Validated small and large file download from Windows beacon."
+
+  - id: MODULE-PWD-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule pwd and pwd completed successfully on a Windows beacon."
+    notes: "Validated during the simple module batch."
+
+  - id: MODULE-MKDIR-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule mkDir and mkDir C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated directory creation on a Windows beacon."
+
+  - id: MODULE-TREE-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule tree and tree C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated tree output on the test directory created by mkDir."
+
+  - id: MODULE-REMOVE-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule remove and remove C:\\users\\max\\desktop\\c2-module-test completed successfully."
+    notes: "Validated file/directory removal on a Windows beacon."
+
+  - id: MODULE-SIMPLE-FILESYSTEM-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated cat, cd, ls, pwd, mkDir, tree, remove, upload, and download across the Windows module batches and golden paths."
+    notes: "Combines prior cat/cd/ls/upload/download validation with the 2026-05-09 pwd/mkDir/tree/remove batch."
+
+  - id: MODULE-WHOAMI-CONTRACT-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule whoami and whoami completed successfully over the HTTP listener test; output included the current user and group memberships."
+    notes: "Windows beacon over HTTP."
+
+  - id: MODULE-GETENV-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule getEnv and getEnv completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-IPCONFIG-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule ipConfig and ipConfig completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-NETSTAT-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule netstat and netstat completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-PS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule ps and ps completed successfully on a Windows beacon."
+    notes: "Validated during the simple system module batch."
+
+  - id: MODULE-KILLPROCESS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule killProcess succeeded and killProcess was validated against a safe test process."
+    notes: "Windows beacon module test."
+
+  - id: MODULE-SHELL-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule shell succeeded. shell whoami returned desktop-92jlelp\\max, shell exit returned shell terminated, and a later shell whoami also returned desktop-92jlelp\\max."
+    notes: "Current behavior allows a shell command after exit to start a new shell/process instance; keep as observed behavior unless the shell lifecycle contract is tightened."
+
+  - id: MODULE-SIMPLE-SYSTEM-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated whoami, getEnv, ipConfig, netstat, ps, killProcess, shell, and run across the Windows simple system module batches."
+    notes: "Combines the 2026-05-08 HTTP whoami/run coverage with the 2026-05-09 simple system and killProcess tests."
+
+  - id: MODULE-REGISTRY-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule registry succeeded. registry createKey/set/query/deleteValue/deleteKey against HKCU\\Software\\C2ModuleTest completed and query returned Type: 1, Data: ok."
+    notes: "Validated local Windows registry lifecycle on a Windows beacon."
+
+  - id: MODULE-ENUMERATESHARES-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule enumerateShares succeeded. enumerateShares returned ADMIN$, C$, D$, E$, and IPC$ with readable descriptions."
+    notes: "Validated local share enumeration on a Windows beacon."
+
+  - id: MODULE-ENUMERATERDPSESSIONS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule enumerateRdpSessions succeeded. enumerateRdpSessions returned the active Console session for DESKTOP-92JLELP\\Max with readable columns."
+    notes: "Validated local RDP session enumeration on a Windows beacon."
+
+  - id: MODULE-TASKSCHEDULER-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule taskScheduler succeeded. taskScheduler created, started, and deleted the C2ModuleTest task; the task wrote c2-task-ok and the test file was removed afterward."
+    notes: "Validated local scheduled task execution and cleanup on a Windows beacon."
+
+  - id: MODULE-EVASION-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule evasion succeeded. evasion CheckHooks completed with readable hook-check output for the expected Windows DLLs."
+    notes: "Smoke test kept to CheckHooks to avoid mutating process telemetry state."
+
+  - id: MODULE-WINDOWS-ADMIN-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated registry, taskScheduler, evasion CheckHooks, enumerateShares, and enumerateRdpSessions on a Windows x64 beacon."
+    notes: "Windows admin module group covered by local, non-remote smoke tests."
+
+  - id: MODULE-STEALTOKEN-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule stealToken succeeded. stealToken was validated against a safe process token; while impersonated, whoami returned No information."
+    notes: "The No information result is accepted for this test because it depends on token type and group lookup behavior."
+
+  - id: MODULE-REV2SELF-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule rev2self succeeded. rev2self returned Reverted to self, and a following whoami returned User: Max with expected group information."
+    notes: "Validated return to the original Windows beacon token context after impersonation."
+
+  - id: MODULE-SPAWNAS-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule spawnAs succeeded. spawnAs --no-profile .\\c2test launched cmd.exe and wrote c2-spawnas-ok to C:\\Users\\Public\\c2-spawnas.txt; cat verified the content and the file was removed."
+    notes: "Default --with-profile path hit CreateProcessAsUserW privilege error 0x522 in this beacon context; --no-profile is the validated smoke-test path."
+
+  - id: MODULE-MAKETOKEN-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule makeToken succeeded. makeToken c2test with the local test account returned successful login/impersonation and rev2self returned to the original Max context."
+    notes: "Because makeToken uses LOGON32_LOGON_NEW_CREDENTIALS, whoami continued to show the local identity; this is expected for the validated mode."
+
+  - id: MODULE-WINDOWS-PRIVILEGE-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated makeToken, stealToken, rev2self, and spawnAs with a local c2test account and a safe process token."
+    notes: "spawnAs validated with --no-profile; makeToken validated as net-credentials impersonation where whoami can keep reporting the local identity."
+
+  - id: MODULE-KEYLOGGER-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule keyLogger succeeded. keyLogger start, dump, and stop were tested and returned cleanly."
+    notes: "Smoke test validates current in-memory keylogger lifecycle. Persisting incremental output to GeneratedArtifacts/keylogger remains tracked by MODULE-KEYLOGGER-GENERATED-ARTIFACT-002."
+
+  - id: MODULE-SCRIPT-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule script succeeded. script test.cmd from uploaded artifacts executed successfully on a Windows beacon; Linux script execution from UploadedArtifacts/testScript.sh was already validated in the Linux golden path."
+    notes: "Windows autocomplete initially missed uploaded .cmd artifacts because the CommandSpec only queried server scripts; the spec now includes upload artifact filters for cmd/shell scripts."
+
+  - id: MODULE-DOTNETEXEC-CONTRACT-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule dotnetExec succeeded. dotnetExec load and run were tested successfully against a .NET tool artifact."
+    notes: "Validated Windows x64 .NET assembly load/execute path and tool autocomplete behavior during module stabilization."
+
+  - id: C2CLIENT-ARTIFACTS-DOWNLOAD-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Downloaded generated artifacts from the Artifacts tab after small and large beacon download; SHA-256 check was OK."
+    notes: "Generated artifact client-side download works."
+
+  - id: ARTIFACT-GENERATED-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Generated download artifacts were created for test1234.txt and OneDriveSetup.exe, then downloaded from Artifacts and hash-verified. screenShot desktop.bmp also generated 1778172748738517131-d5d3-desktop.bmp in the artifact store. assemblyExec generated 3e337fc3d150-assemblyExec-Rubeus.exe.bin and the raw generated shellcode artifact executed successfully."
+    notes: "GeneratedArtifacts/download/beacon, GeneratedArtifacts/screenshot/beacon, and GeneratedArtifacts shellcode paths validated. The screenshot artifact was around 42 MB, which is functionally OK but should be optimized."
+
+  - id: TEAMSERVER-FILE-TRANSFER-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "After tracking chunked results by outputfile when UUID is missing, a big file download completed without intermediate done unknown progress messages."
+    notes: "Validated live with a large beacon download. File transfer data and user-facing command context are now correct."
+
+  - id: BEACON-CORE-CHUNKED-RESULTS-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "A big file download no longer emitted intermediate visible progress chunks as separate done unknown responses."
+    notes: "Validated the chunked command result path after the TeamServer command-context tracking fix."
+
+  - id: C2CLIENT-CONSOLE-FORMATTING-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "After the server-side chunk context fix, big file download no longer produced intermediate done unknown lines in the console."
+    notes: "The console no longer has to render malformed chunk progress as command results for this path."
+
+  - id: MODULE-SCREENSHOT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule screenShot succeeded. Duplicate loadModule screenShot was rejected as already loaded. screenShot desktop.bmp completed while sleep 0.01 still worked during the wait, then returned: Generated artifact stored: 1778172748738517131-d5d3-desktop.bmp."
+    notes: "Functional path is OK after rebuilding beacon-compatible Windows modules. Generated BMP size was around 42 MB; add follow-up to reduce screenshot artifact size."
+
+  - id: MODULE-POWERSHELL-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "loadModule powershell succeeded. powershell -s testScript.ps1 returned desktop-92jlelp\\max. powershell -i testScript.ps1 imported the script as a dynamic module. powershell dir returned module import output plus directory details for BeaconGithubDll.dll."
+    notes: "Validated script-backed -s, import -i, and inline command execution on a Windows beacon after replacing the beacon-compatible Windows modules."
+
+  - id: ARTIFACT-SCRIPTS-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "powershell -s testScript.ps1 and powershell -i testScript.ps1 both resolved and executed/imported the script-backed payload successfully."
+    notes: "Windows script artifact resolution is validated for the powershell module path."
+
+  - id: MODULE-ASSEMBLYEXEC-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "assemblyExec --donut-exe Rubeus.exe -- triage executed correctly in process, processWithSpoofedParent, and thread modes after the StdCapture/Win32 stdout redirection fix. The -- continuation was autocompleted correctly. assemblyExec --raw 3e337fc3d150-assemblyExec-Rubeus.exe.bin also executed correctly and returned Rubeus output. assemblyExec --donut-dll rdm.dll --method go -- test returned the expected Donut error for a .NET DLL missing class/method metadata."
+    notes: "Functional execution, argument preservation, generated shellcode creation, raw generated shellcode reuse, and all three execution modes are validated. Raw by artifact ID is not expected to work yet for this command path."
+
+  - id: C2CLIENT-CONSOLE-AUTOCOMPLETE-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "assemblyExec --donut-exe initially proposed x86 tools and .bin generated shellcode artifacts while interacting with an x64 Windows beacon. After adding arch=session.arch and format filters to CommandSpecs/ListArtifacts, autocomplete no longer proposes x86 tools or .bin files for --donut-exe."
+    notes: "Validated on the live beacon console after rebuilding TeamServer/client proto paths and refreshing CommandSpecs."
+
+  - id: MODULE-INJECT-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "inject passed with --pid -1 and with a real notepad PID. Autocomplete proposed the expected payloads without wrong-arch or .bin entries, and payload execution completed correctly."
+    notes: "Validated shellcode preparation, inject autocomplete, spawn target mode, existing PID mode, and payload execution on a Windows beacon."
+
+  - id: MODULE-PWSH-CONTRACT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "One beacon completed loadModule pwSh, pwSh init, pwSh run whoami, and pwSh script testScript.ps1 successfully. After adding completion_parents and improving the CLR/AppDomain error text, retest confirmed pwSh script/import autocomplete works and the init failure on the alternate beacon context now returns a verbose actionable error."
+    notes: "Validated happy path, script artifact autocomplete for import/script, and clear CLR/AppDomain failure reporting."
+
+  - id: BEACON-CORE-HEARTBEAT-001
+    status: pass
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "A beacon left inactive for more than 5 minutes moved to stale state in the client."
+    notes: "Manual validation confirms the stale transition path. Reconnect transition can be covered separately if needed."
+
+  - id: VALIDATION-GOLDEN-PATH-LINUX-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Linux HTTPS beacon completed listModule, loadModule ls/cd/cat/upload/download/script, cd, ls, upload of an UploadedArtifacts file to /tmp/c2-upload-test.txt, cat of the uploaded file, download back into GeneratedArtifacts, listModule state validation, and script testScript.sh from UploadedArtifacts after the runtime-by-extension fix."
+    notes: "Validated Linux x64 happy path including UploadedArtifacts-backed script execution."
+
+  - id: VALIDATION-GOLDEN-PATH-WINDOWS-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Windows x64 HTTPS beacon completed listModule, loadModule ls/cd/cat/upload/download/screenShot, cd to C:\\users\\max\\desktop, ls, upload by artifact hash to c2-upload-test.txt, cat returned toto, listModule showed loaded modules, and screenShot generated 1778266470248372166-d90a-desktop2.bmp."
+    notes: "Also validated expected failures for upload test.txt when the upload artifact was absent and download c2-upload-test2.txt when the remote file did not exist. Sleep 0.01 completed while screenshot was pending, confirming the beacon remained responsive."
+
+  - id: VALIDATION-ERROR-HANDLING-001
+    status: pass
+    date: "2026-05-08"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Validated clear errors for missing module, duplicate loadModule, missing upload artifact, missing download args, missing upload args, missing Donut source for assemblyExec/inject, missing script artifact for powershell, and Windows-only pwSh on Linux. Retested rebuilt beacon listener validation: listener start tcp with notaport, 0, and 65536 all returned 'Error: Invalid TCP listener port. Expected an integer between 1 and 65535.' and did not create a listener."
+    notes: "Also validated listener start tcp 0.0.0.0 5555 then listener stop by full listener hash completed successfully."
+
+  - id: RELEASE-WINDOWS-ARTIFACTS-001
+    status: blocked
+    date: "2026-05-07"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Initial rebuilt WindowsModules/x64 DLLs returned Prepared shellcode tasks are not supported by this module, indicating a server/test ABI build. After replacing the modules, strings on build/artifacts/Release/WindowsModules/x64/*.dll no longer finds that server/test-only message, and screenShot executes successfully."
+    notes: "The ABI issue is resolved for the current x64 module set, but the full Windows release artifact layout still needs a clean release validation across expected arches before marking this pass."
+
+  - id: MODULE-CHISEL-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the required chisel tool/runtime setup is not available in the current lab."
+    notes: "Keep as blocked until a suitable chisel.exe artifact and network validation setup are available."
+
+  - id: MODULE-COFFLOADER-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no known-good COFF test artifact is available in the current lab."
+    notes: "Keep as blocked until a controlled COFF artifact is added under Tools/Windows/x64."
+
+  - id: MODULE-KERBEROSUSETICKET-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because there is no Kerberos lab context/ticket setup for a meaningful functional validation."
+    notes: "Requires a controlled .kirbi ticket and domain/lab context."
+
+  - id: MODULE-MINIDUMP-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the current lab does not have the intended elevated/safe dump validation setup."
+    notes: "Requires an explicit safe target/process and artifact verification path before marking pass."
+
+  - id: MODULE-PSEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows target/service-execution lab setup is available."
+    notes: "Requires a controlled remote host, credentials, and service executable artifact."
+
+  - id: MODULE-REVERSEPORTFORWARD-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the current lab does not have the desired live forwarding setup available."
+    notes: "Requires a controlled local service and remote beacon-side connectivity check."
+
+  - id: MODULE-CIMEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-DCOMEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-SSHEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no controlled SSH execution target is available."
+    notes: "Part of the remote execution module group."
+
+  - id: MODULE-WINRM-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no WinRM-enabled remote Windows lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-WMIEXEC-CONTRACT-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because no remote Windows execution lab target is available."
+    notes: "Part of the Windows remote execution module group."
+
+  - id: MODULE-WINDOWS-EXEC-001
+    status: blocked
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Deferred during module stabilization because the remote execution lab setup is not available."
+    notes: "Group remains blocked until cimExec, dcomExec, sshExec, winRm, and wmiExec can be validated against controlled targets."
+
+  - id: TEAMSERVER-SOCKS-SERVICE-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Terminal SOCKS lifecycle validated: bind before start returned Socks server not running; start succeeded on port 1080; duplicate start returned already running; bind succeeded for beacon iON5Ki2e; duplicate bind returned already bind; unbind succeeded; stop succeeded; restart and rebind also succeeded. End-to-end traffic validated with curl --socks5 127.0.0.1:1080 http://example.com/ -I returning HTTP/1.1 200 OK. After socks unbind and socks stop, curl against 127.0.0.1:1080 failed with curl: (7) Couldn't connect to server."
+    notes: "Covers TeamServer SOCKS service lifecycle, terminal error handling, bind/rebind behavior, live proxied HTTP traffic through the bound beacon, and shutdown behavior."
+
+  - id: TEAMSERVER-SOCKS-STRESS-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "scripts/socks5_stress_test.py --proxy-host 127.0.0.1 --proxy-port 1080 --url http://example.com/ --requests 300 --concurrency 25 --timeout 15 --expect-status 200 completed with 300 passed, 0 failed, HTTP 200:300, elapsed 9.46s, throughput 31.72 req/s, p50 775.9ms, p95 926.4ms, p99 1105.3ms."
+    notes: "The stress tool resolves the target hostname locally to IPv4 by default because the current TeamServer SOCKS path supports IPv4 CONNECT but not SOCKS domain-name CONNECT."
+
+  - id: COMMON-END-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual test on a live beacon: help end rendered CommandSpec help; end returned Success."
+    notes: "Covers common end command help and successful beacon termination command dispatch."
+
+  - id: COMMON-SLEEP-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual test on a live beacon after rebuild: help sleep rendered CommandSpec help; sleep 0.01 returned 10ms; sleep 1 returned 1000ms; sleep 0 returned 0ms and is valid; invalid values such as sleep abc were retested after the validation fix and rejected clearly."
+    notes: "Covers accepted sleep intervals, zero sleep behavior, CommandSpec help rendering, and invalid value rejection."
+
+  - id: C2CLIENT-TERMINAL-DROPPER-001
+    status: pass
+    date: "2026-05-09"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual terminal dropper workflow validated: help/config/arch selection and generation/hosting flow work as expected from the Terminal tab."
+    notes: "Dropper module limitations remain outside the terminal workflow: PeInjectorSyscall injection fails without -p self, likely because the default target PID is not valid; PowershellWebDelivery does not currently work on the Windows 11 lab; other dropper modules were not tested."
+
+  - id: C2CLIENT-TERMINAL-BASE-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI retest after replacing QCompleter with integrated CompletionInput: Terminal autocomplete is visible under the input, Tab descends, Shift+Tab ascends, Escape closes, help+Enter executes help, and host+Tab descends into artifacts/listeners. Beacon console retest validated ls+Enter and cd+Enter execute the bare commands, while Tab or trailing space explicitly opens argument/example suggestions. Hooks and Data AI input height and integrated autocomplete behavior were also validated."
+    notes: "The previous QCompleter multi-screen popup blocker is resolved. Exact command matches no longer auto-descend into examples unless completion is explicitly requested."
+
+  - id: C2CLIENT-SESSION-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI retest validated the Sessions panel: stable table sizing during refresh, readable IPs, humanized last seen/state behavior, OS tooltip, and visual alignment with the dark theme."
+    notes: "Session panel validation completed during the UI stabilization pass."
+
+  - id: C2CLIENT-LISTENER-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual retest validated the Listeners panel after the port-conflict fix: stable table sizing during refresh, readable listener fields, invalid ports rejected, duplicate TCP-bound ports across http/https/tcp rejected cleanly, and valid listener start/stop flows still work."
+    notes: "The previous crash path is fixed: UI blocks conflicting http/https/tcp ports before RPC and TeamServer rejects the same conflict server-side."
+
+  - id: C2CLIENT-HOOKS-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the Hooks panel lists hooks/scripts, descriptions are available in tooltips, enable/disable works, activation counters update, ManualStart receives the sessions/listeners snapshot, non-ManualStart hooks without captured context show a clear message, and the compact integrated autocomplete input behaves correctly."
+    notes: "Validated after the shared CompletionInput migration and Hooks panel polish."
+
+  - id: C2CLIENT-AI-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed Data AI renders system/user/assistant markers with distinct colors, message text is visually separate from badges, blocks keep readable spacing, the input stays compact, and integrated autocomplete/local commands behave correctly."
+    notes: "Functional command knowledge is not considered fully current after the CommandSpec migration; tracked separately in the TODO item for synchronizing the assistant with ListCommands/CommandSpecs."
+
+  - id: C2CLIENT-GRAPH-PANEL-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the Graph panel separates listeners/sessions/pivots by default, Auto redistributes nodes, Fit recenters, +/- zoom works, manual positions remain stable after refresh, the redundant Graph frame is absent, dark theme is consistent, and labels/tooltips are readable."
+    notes: "Validated during UI stabilization after graph layout, zoom, and theme polish."
+
+  - id: C2CLIENT-MAIN-THEME-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual UI validation confirmed the main window, sessions, listeners, graph, terminal/consoles, hooks, Data AI, Add Listener dialog, and native Windows window chrome are visually harmonized with the dark theme."
+    notes: "Validated after applying the shared dark panel style to remaining panels and DWM dark chrome on Windows."
+
+  - id: ARTIFACT-TOOLS-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual validation confirmed Tools artifacts are visible in the Artifacts tab, filters by platform/arch behave correctly, downloads work from the tab, compatible tools are proposed by autocomplete, and tool-backed commands can consume the selected artifacts."
+    notes: "Closes the critical Tools artifact gap after the artifact catalog and CommandSpec autocomplete stabilization."
+
+  - id: RELEASE-LINUX-ARTIFACTS-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual validation after a clean Linux build/release confirmed LinuxBeacons/<arch>, LinuxModules/<arch>, Tools/Linux/<arch>, Scripts/Linux, and CommandSpecs are present in the expected release layout. Artifacts filters show the Linux x64 entries correctly, and a short Linux beacon golden path with listModule/loadModule/cd/ls/upload/download works."
+    notes: "Closes the last non-blocked critical release artifact gap for the Linux side."
+
+  - id: C2CLIENT-CONSOLE-HELP-001
+    status: pass
+    date: "2026-05-10"
+    build: "local-dev"
+    tester: "max"
+    evidence: "Manual beacon console validation confirmed help output for help, sleep, assemblyExec, inject, upload, download, and listModule renders from CommandSpecs with clear usage, readable arguments, coherent examples, and no legacy << or >> markers."
+    notes: "Validated after the CommandSpec help migration and console formatting cleanup."

@@ -29,6 +29,22 @@ std::string readBinaryFile(const std::string& path)
     return std::string((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
 }
 
+std::string configString(const nlohmann::json& config, const char* key)
+{
+    const auto it = config.find(key);
+    if (it == config.end() || !it->is_string())
+        return "";
+    return it->get<std::string>();
+}
+
+bool isWildcardAddress(const std::string& address)
+{
+    return address.empty()
+        || address == "0.0.0.0"
+        || address == "::"
+        || address == "[::]";
+}
+
 void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
 {
     response->set_status(teamserverapi::OK);
@@ -86,26 +102,37 @@ grpc::Status TeamServerListenerArtifactService::handleCommand(
     return grpc::Status::OK;
 }
 
-std::string TeamServerListenerArtifactService::resolvePublicAddress() const
+std::string TeamServerListenerArtifactService::resolvePublicAddress(const std::shared_ptr<Listener>& listener) const
 {
-    const auto domainIt = m_config.find("DomainName");
-    if (domainIt != m_config.end())
-        return domainIt->get<std::string>();
+    const std::string domainName = configString(m_config, "DomainName");
+    if (!domainName.empty())
+        return domainName;
 
-    const auto exposedIt = m_config.find("ExposedIp");
-    if (exposedIt != m_config.end())
-        return exposedIt->get<std::string>();
+    const std::string exposedIp = configString(m_config, "ExposedIp");
+    if (!exposedIp.empty())
+        return exposedIp;
 
-    const auto interfaceIt = m_config.find("IpInterface");
-    if (interfaceIt != m_config.end() && !interfaceIt->get<std::string>().empty() && m_ipResolver)
-        return m_ipResolver(interfaceIt->get<std::string>());
+    const std::string ipInterface = configString(m_config, "IpInterface");
+    if (!ipInterface.empty() && m_ipResolver)
+    {
+        const std::string interfaceAddress = m_ipResolver(ipInterface);
+        if (!interfaceAddress.empty())
+            return interfaceAddress;
+    }
+
+    const std::string listenerAddress = listener ? listener->getParam1() : "";
+    if (!isWildcardAddress(listenerAddress))
+        return listenerAddress;
+
+    if (isWildcardAddress(listenerAddress))
+        return "127.0.0.1";
 
     return "";
 }
 
 std::string TeamServerListenerArtifactService::resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const
 {
-    const std::string finalAddress = resolvePublicAddress();
+    const std::string finalAddress = resolvePublicAddress(listener);
     if (finalAddress.empty())
         return "";
 
@@ -144,16 +171,17 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
 {
     const bool linuxTarget = targetOs == "Linux";
     const fs::path windowsBeaconRoot = fs::path(m_runtimeConfig.windowsBeaconsDirectoryPath) / targetArch;
+    const fs::path linuxBeaconRoot = fs::path(m_runtimeConfig.linuxBeaconsDirectoryPath) / targetArch;
     if (type == ListenerHttpType || type == ListenerHttpsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconHttp" : (windowsBeaconRoot / "BeaconHttp.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconHttp").string() : (windowsBeaconRoot / "BeaconHttp.exe").string();
     if (type == ListenerTcpType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconTcp" : (windowsBeaconRoot / "BeaconTcp.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconTcp").string() : (windowsBeaconRoot / "BeaconTcp.exe").string();
     if (primaryListener && type == ListenerGithubType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconGithub" : (windowsBeaconRoot / "BeaconGithub.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconGithub").string() : (windowsBeaconRoot / "BeaconGithub.exe").string();
     if (primaryListener && type == ListenerDnsType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconDns" : (windowsBeaconRoot / "BeaconDns.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconDns").string() : (windowsBeaconRoot / "BeaconDns.exe").string();
     if (!primaryListener && type == ListenerSmbType)
-        return linuxTarget ? m_runtimeConfig.linuxBeaconsDirectoryPath + "BeaconSmb" : (windowsBeaconRoot / "BeaconSmb.exe").string();
+        return linuxTarget ? (linuxBeaconRoot / "BeaconSmb").string() : (windowsBeaconRoot / "BeaconSmb.exe").string();
     return "";
 }
 
@@ -237,7 +265,7 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
     const std::string& listenerHash = splitedCmd[1];
     const std::string targetOsArg = splitedCmd.size() >= 3 ? lowerCopy(splitedCmd[2]) : "windows";
     const std::string targetOs = targetOsArg == "linux" ? "Linux" : "Windows";
-    std::string targetArch = m_runtimeConfig.defaultWindowsArch;
+    std::string targetArch = targetOs == "Linux" ? m_runtimeConfig.defaultLinuxArch : m_runtimeConfig.defaultWindowsArch;
     if (targetOs == "Windows")
     {
         if (splitedCmd.size() == 4)
@@ -253,6 +281,26 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
 
         if (std::find(m_runtimeConfig.supportedWindowsArchs.begin(), m_runtimeConfig.supportedWindowsArchs.end(), targetArch)
             == m_runtimeConfig.supportedWindowsArchs.end())
+        {
+            setTerminalError(response, "Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+    }
+    else
+    {
+        if (splitedCmd.size() == 4)
+            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(splitedCmd[3]);
+        else
+            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(targetArch);
+
+        if (targetArch.empty())
+        {
+            setTerminalError(response, "Error: Unsupported architecture.");
+            return grpc::Status::OK;
+        }
+
+        if (std::find(m_runtimeConfig.supportedLinuxArchs.begin(), m_runtimeConfig.supportedLinuxArchs.end(), targetArch)
+            == m_runtimeConfig.supportedLinuxArchs.end())
         {
             setTerminalError(response, "Error: Unsupported architecture.");
             return grpc::Status::OK;

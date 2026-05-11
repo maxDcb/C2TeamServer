@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <ctime>
 #include <iomanip>
 #include <memory>
 #include <openssl/md5.h>
@@ -59,6 +61,108 @@ std::string extractClientId(const std::multimap<grpc::string_ref, grpc::string_r
     }
     return "";
 }
+
+std::string toLower(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+    {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool isTcpBoundListenerType(const std::string& type)
+{
+    return type == ListenerHttpType || type == ListenerHttpsType || type == ListenerTcpType;
+}
+
+std::shared_ptr<Listener> findTcpPortConflict(
+    const std::vector<std::shared_ptr<Listener>>& listeners,
+    const std::string& type,
+    int port)
+{
+    if (!isTcpBoundListenerType(type))
+        return nullptr;
+
+    const std::string portText = std::to_string(port);
+    auto object = std::find_if(
+        listeners.begin(),
+        listeners.end(),
+        [&](const std::shared_ptr<Listener>& obj)
+        {
+            return obj &&
+                isTcpBoundListenerType(obj->getType()) &&
+                obj->getParam2() == portText;
+        });
+
+    if (object == listeners.end())
+        return nullptr;
+    return *object;
+}
+
+std::string currentUtcTimestamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
+    std::tm utcTime {};
+#ifdef _WIN32
+    gmtime_s(&utcTime, &nowTime);
+#else
+    gmtime_r(&nowTime, &utcTime);
+#endif
+    std::ostringstream output;
+    output << std::put_time(&utcTime, "%Y-%m-%dT%H:%M:%SZ");
+    return output.str();
+}
+
+std::string basename(std::string value)
+{
+    const auto slash = value.find_last_of("/\\");
+    if (slash != std::string::npos)
+        value = value.substr(slash + 1);
+    return value;
+}
+
+std::string stripExtension(std::string value)
+{
+    const auto dot = value.find_last_of('.');
+    if (dot != std::string::npos)
+        value = value.substr(0, dot);
+    return value;
+}
+
+std::vector<std::string> splitCommandLine(const std::string& input)
+{
+    std::vector<std::string> parts;
+    std::string current;
+    char quote = '\0';
+    for (char c : input)
+    {
+        if ((c == '\'' || c == '"') && quote == '\0')
+        {
+            quote = c;
+            continue;
+        }
+        if (quote != '\0' && c == quote)
+        {
+            quote = '\0';
+            continue;
+        }
+        if (quote == '\0' && std::isspace(static_cast<unsigned char>(c)))
+        {
+            if (!current.empty())
+            {
+                parts.push_back(current);
+                current.clear();
+            }
+            continue;
+        }
+        current += c;
+    }
+    if (!current.empty())
+        parts.push_back(current);
+    return parts;
+}
 } // namespace
 
 TeamServerListenerSessionService::TeamServerListenerSessionService(
@@ -70,6 +174,7 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
     std::vector<teamserverapi::CommandResult>& cmdResponses,
     std::unordered_map<std::string, std::vector<int>>& sentResponses,
     std::vector<BeaconCommandContext>& sentCommands,
+    std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
     PrepMsgCallback prepMsg)
     : m_logger(std::move(logger)),
       m_config(config),
@@ -79,6 +184,7 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
       m_cmdResponses(cmdResponses),
       m_sentResponses(sentResponses),
       m_sentCommands(sentCommands),
+      m_fileArtifactService(std::move(fileArtifactService)),
       m_prepMsg(std::move(prepMsg))
 {
 }
@@ -161,6 +267,18 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     m_logger->trace("AddListener");
     const std::string type = listenerToCreate.type();
     response->set_status(teamserverapi::KO);
+
+    if (auto conflictingListener = findTcpPortConflict(m_listeners, type, listenerToCreate.port()))
+    {
+        m_logger->warn("Add listener failed: port {0} already used by {1} listener {2}",
+            std::to_string(listenerToCreate.port()),
+            conflictingListener->getType(),
+            conflictingListener->getListenerHash());
+        response->set_message(
+            "Port " + std::to_string(listenerToCreate.port()) +
+            " is already used by " + conflictingListener->getType() + " listener.");
+        return grpc::Status::OK;
+    }
 
     if (type == ListenerGithubType)
     {
@@ -359,6 +477,7 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
                             session->getListenerHash(),
                             input,
                             c2Message.instruction(),
+                            c2Message.outputfile(),
                         });
                         stopCommandSent = true;
                     }
@@ -413,6 +532,215 @@ bool TeamServerListenerSessionService::isListenerAlive(const std::string& listen
 
     m_logger->trace("isListenerAlive end");
     return false;
+}
+
+std::string TeamServerListenerSessionService::sessionModuleKey(const std::string& beaconHash) const
+{
+    return beaconHash;
+}
+
+std::string TeamServerListenerSessionService::canonicalModuleName(const std::string& value) const
+{
+    std::string name = stripExtension(basename(value));
+    if (name.size() > 3 && toLower(name.substr(0, 3)) == "lib")
+        name = name.substr(3);
+    if (name.empty())
+        return "";
+
+    const std::string lowered = toLower(name);
+    if (lowered == "printworkingdirectory")
+        return "pwd";
+    if (lowered == "changedirectory")
+        return "cd";
+    if (lowered == "listdirectory")
+        return "ls";
+    if (lowered == "listprocesses")
+        return "ps";
+    if (lowered == "ipconfig")
+        return "ipConfig";
+    if (lowered == "mkdir")
+        return "mkDir";
+
+    name[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(name[0])));
+    return name;
+}
+
+std::string TeamServerListenerSessionService::moduleNameFromLoadTask(const std::string& input, const C2Message& c2Message) const
+{
+    std::string moduleName = canonicalModuleName(c2Message.inputfile());
+    if (!moduleName.empty())
+        return moduleName;
+
+    const std::vector<std::string> parts = splitCommandLine(input);
+    if (parts.size() >= 2)
+        return canonicalModuleName(parts[1]);
+    return "";
+}
+
+std::string TeamServerListenerSessionService::moduleNameFromUnloadTask(const std::string& input, const C2Message& c2Message) const
+{
+    std::string moduleName = canonicalModuleName(c2Message.cmd());
+    if (!moduleName.empty())
+        return moduleName;
+
+    const std::vector<std::string> parts = splitCommandLine(input);
+    if (parts.size() >= 2)
+        return canonicalModuleName(parts[1]);
+    return "";
+}
+
+bool TeamServerListenerSessionService::hasActiveModule(
+    const std::string& beaconHash,
+    const std::string& moduleName,
+    std::string& state) const
+{
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    const auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return false;
+
+    const auto moduleIt = beaconIt->second.find(toLower(moduleName));
+    if (moduleIt == beaconIt->second.end())
+        return false;
+
+    state = moduleIt->second.state;
+    return state == "loading" || state == "loaded" || state == "unloading";
+}
+
+void TeamServerListenerSessionService::markModuleLoading(
+    const std::string& beaconHash,
+    const std::string& listenerHash,
+    const std::string& moduleName,
+    const std::string& commandId,
+    const std::string& artifact)
+{
+    if (moduleName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    BeaconModuleRecord record;
+    record.beaconHash = beaconHash;
+    record.listenerHash = listenerHash;
+    record.name = moduleName;
+    record.state = "loading";
+    record.commandId = commandId;
+    record.artifact = artifact;
+    record.updatedAt = currentUtcTimestamp();
+    m_loadedModulesByBeacon[sessionModuleKey(beaconHash)][toLower(moduleName)] = record;
+}
+
+void TeamServerListenerSessionService::markModuleUnloading(
+    const std::string& beaconHash,
+    const std::string& moduleName,
+    const std::string& commandId)
+{
+    if (moduleName.empty())
+        return;
+
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return;
+
+    auto moduleIt = beaconIt->second.find(toLower(moduleName));
+    if (moduleIt == beaconIt->second.end())
+        return;
+
+    moduleIt->second.state = "unloading";
+    moduleIt->second.commandId = commandId;
+    moduleIt->second.updatedAt = currentUtcTimestamp();
+}
+
+void TeamServerListenerSessionService::applyModuleResult(
+    const std::string& beaconHash,
+    const std::string& listenerHash,
+    const std::string& commandId,
+    const std::string& instruction,
+    bool success)
+{
+    (void)instruction;
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    auto beaconIt = m_loadedModulesByBeacon.find(sessionModuleKey(beaconHash));
+    if (beaconIt == m_loadedModulesByBeacon.end())
+        return;
+
+    for (auto moduleIt = beaconIt->second.begin(); moduleIt != beaconIt->second.end();)
+    {
+        BeaconModuleRecord& record = moduleIt->second;
+        if (record.commandId != commandId)
+        {
+            ++moduleIt;
+            continue;
+        }
+
+        record.listenerHash = listenerHash.empty() ? record.listenerHash : listenerHash;
+        record.updatedAt = currentUtcTimestamp();
+        if (record.state == "loading")
+        {
+            if (success)
+            {
+                record.state = "loaded";
+                record.loadCount = std::max(1, record.loadCount + 1);
+                ++moduleIt;
+            }
+            else
+            {
+                moduleIt = beaconIt->second.erase(moduleIt);
+            }
+        }
+        else if (record.state == "unloading")
+        {
+            if (success)
+                moduleIt = beaconIt->second.erase(moduleIt);
+            else
+            {
+                record.state = "loaded";
+                ++moduleIt;
+            }
+        }
+        else
+        {
+            ++moduleIt;
+        }
+    }
+
+    if (beaconIt->second.empty())
+        m_loadedModulesByBeacon.erase(beaconIt);
+}
+
+grpc::Status TeamServerListenerSessionService::streamModulesForSession(
+    const teamserverapi::SessionSelector& targetSession,
+    const ModuleEmitter& emit) const
+{
+    std::lock_guard<std::mutex> lock(m_loadedModulesMutex);
+    const std::string targetBeaconHash = targetSession.beacon_hash();
+    const std::string targetListenerHash = targetSession.listener_hash();
+
+    for (const auto& [beaconHash, modules] : m_loadedModulesByBeacon)
+    {
+        if (!targetBeaconHash.empty() && beaconHash != targetBeaconHash)
+            continue;
+
+        for (const auto& [_, module] : modules)
+        {
+            if (!targetListenerHash.empty() && module.listenerHash != targetListenerHash)
+                continue;
+
+            teamserverapi::LoadedModule response;
+            response.mutable_session()->set_beacon_hash(module.beaconHash);
+            response.mutable_session()->set_listener_hash(module.listenerHash);
+            response.set_name(module.name);
+            response.set_state(module.state);
+            response.set_command_id(module.commandId);
+            response.set_artifact(module.artifact);
+            response.set_updated_at(module.updatedAt);
+            response.set_load_count(module.loadCount);
+            if (!emit(response))
+                return grpc::Status::OK;
+        }
+    }
+
+    return grpc::Status::OK;
 }
 
 grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerListenerSessionService::SessionEmitter& emit)
@@ -550,6 +878,25 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             return grpc::Status::OK;
         }
 
+        const std::string instruction = c2Message.instruction();
+        std::string moduleName;
+        if (instruction == LoadC2ModuleCmd)
+        {
+            moduleName = moduleNameFromLoadTask(input, c2Message);
+            std::string existingState;
+            if (hasActiveModule(beaconHash, moduleName, existingState))
+            {
+                response->set_message("Module already tracked on this beacon: " + moduleName + " (" + existingState + ").");
+                m_logger->debug("SendSessionCommand rejected duplicate module load {0} on beacon {1}", moduleName, beaconHash);
+                m_logger->trace("SendSessionCommand end");
+                return grpc::Status::OK;
+            }
+        }
+        else if (instruction == UnloadC2ModuleCmd)
+        {
+            moduleName = moduleNameFromUnloadTask(input, c2Message);
+        }
+
         m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
 
         const std::string& inputFile = c2Message.inputfile();
@@ -560,9 +907,13 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             m_logger->info("File attached to task: '{}' | size={} bytes | MD5={}", inputFile, payload.size(), md5);
         }
 
-        const std::string instruction = c2Message.instruction();
         c2Message.set_uuid(commandId);
         m_listeners[i]->queueTask(beaconHash, c2Message);
+
+        if (instruction == LoadC2ModuleCmd)
+            markModuleLoading(beaconHash, listenerHash, moduleName, commandId, c2Message.inputfile());
+        else if (instruction == UnloadC2ModuleCmd)
+            markModuleUnloading(beaconHash, moduleName, commandId);
 
         m_sentCommands.push_back(BeaconCommandContext{
             commandId,
@@ -570,6 +921,7 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             listenerHash,
             input,
             instruction,
+            c2Message.outputfile(),
         });
 
         response->set_status(teamserverapi::OK);
@@ -620,6 +972,10 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     }
                 }
 
+                std::string fileArtifactMessage;
+                if (m_fileArtifactService)
+                    m_fileArtifactService->handleCommandResult(c2Message, fileArtifactMessage);
+
                 std::string ccInstructionString = m_commonCommands.translateCmdToInstruction(instructionCmd);
                 for (int ii = 0; ii < m_commonCommands.getNumberOfCommand(); ii++)
                 {
@@ -638,19 +994,37 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 auto sentCommand = std::find_if(
                     m_sentCommands.begin(),
                     m_sentCommands.end(),
-                    [&commandId](const BeaconCommandContext& context)
+                    [&commandId, &c2Message](const BeaconCommandContext& context)
                     {
-                        return context.commandId == commandId;
+                        if (!commandId.empty() && context.commandId == commandId)
+                            return true;
+                        return !c2Message.outputfile().empty()
+                            && !context.outputFile.empty()
+                            && context.outputFile == c2Message.outputfile();
                     });
                 bool trackedCommand = false;
+                bool keepCommandContext = false;
                 if (sentCommand != m_sentCommands.end())
                 {
                     trackedCommand = true;
+                    commandId = sentCommand->commandId;
                     listenerHash = sentCommand->listenerHash;
                     commandLine = sentCommand->commandLine;
-                    if (responseInstruction.empty())
+                    if (!sentCommand->instruction.empty())
                         responseInstruction = sentCommand->instruction;
-                    m_sentCommands.erase(sentCommand);
+                    keepCommandContext = m_fileArtifactService
+                        && m_fileArtifactService->shouldKeepCommandContext(c2Message);
+                    if (!keepCommandContext)
+                        m_sentCommands.erase(sentCommand);
+                }
+
+                if (trackedCommand)
+                    applyModuleResult(beaconHash, listenerHash, commandId, responseInstruction, errorMsg.empty());
+
+                if (keepCommandContext)
+                {
+                    c2Message = m_listeners[i]->getTaskResult(beaconHash);
+                    continue;
                 }
 
                 teamserverapi::CommandResult commandResponseTmp;
@@ -668,7 +1042,7 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 }
                 else if (!c2Message.returnvalue().empty())
                 {
-                    commandResponseTmp.set_output(c2Message.returnvalue());
+                    commandResponseTmp.set_output(fileArtifactMessage.empty() ? c2Message.returnvalue() : fileArtifactMessage);
                     m_cmdResponses.push_back(commandResponseTmp);
                 }
                 else if (trackedCommand)

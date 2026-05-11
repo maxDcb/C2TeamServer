@@ -39,6 +39,9 @@ private:
     std::vector<std::unique_ptr<ModuleCmd>> loadModulesFromDisk() const;
     bool isValidFilename(const std::string& filename) const;
     std::string resolveDownloadFolderForListener(const std::string& listenerHash) const;
+    grpc::Status handleHostArtifact(
+        const std::vector<std::string>& splitedCmd,
+        teamserverapi::TerminalCommandResponse* response);
     grpc::Status handlePutIntoUploadDir(
         const std::vector<std::string>& splitedCmd,
         const teamserverapi::TerminalCommandRequest& command,
