@@ -9,6 +9,7 @@
 #include "TeamServerCommandCatalog.hpp"
 #include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerFileTransferCommandPreparer.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
@@ -95,9 +96,12 @@ TeamServer::TeamServer(const nlohmann::json& config)
     m_artifactService = std::make_unique<TeamServerArtifactService>(
         m_logger,
         TeamServerArtifactCatalog(runtimeConfig));
-    m_commandCatalogService = std::make_unique<TeamServerCommandCatalogService>(
+        m_commandCatalogService = std::make_unique<TeamServerCommandCatalogService>(
         m_logger,
         TeamServerCommandCatalog(runtimeConfig));
+        m_credentialVaultService = std::make_shared<TeamServerCredentialVaultService>(
+            m_logger,
+            runtimeConfig);
     m_helpService = std::make_unique<TeamServerHelpService>(
         m_logger,
         m_listeners,
@@ -176,7 +180,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_credentials,
         m_moduleCmd,
         [this]()
-        { return m_moduleLoader->loadModules(); });
+        { return m_moduleLoader->loadModules(); },
+        m_credentialVaultService);
 
     m_moduleCmd = m_moduleLoader->loadModules();
 
@@ -283,6 +288,47 @@ grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, c
     if (!authStatus.ok())
         return authStatus;
     return m_artifactService->deleteGeneratedArtifact(*selector, response);
+}
+
+grpc::Status TeamServer::ListCredentials(grpc::ServerContext* context, const teamserverapi::CredentialQuery* query, grpc::ServerWriter<teamserverapi::CredentialSummary>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_credentialVaultService->listCredentials(*query, [&](const teamserverapi::CredentialSummary& credential)
+        { return writer->Write(credential); });
+}
+
+grpc::Status TeamServer::GetCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::CredentialDetail* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_credentialVaultService->getCredential(*selector, response);
+}
+
+grpc::Status TeamServer::AddCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_credentialVaultService->addCredential(*request, response);
+}
+
+grpc::Status TeamServer::UpdateCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_credentialVaultService->updateCredential(*request, response);
+}
+
+grpc::Status TeamServer::DeleteCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::OperationAck* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok())
+        return authStatus;
+    return m_credentialVaultService->deleteCredential(*selector, response);
 }
 
 grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)

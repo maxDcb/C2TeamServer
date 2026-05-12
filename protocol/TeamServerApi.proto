@@ -18,6 +18,11 @@ service TeamServerApi
   rpc DownloadArtifact(ArtifactSelector) returns (ArtifactContent) {}
   rpc UploadArtifact(ArtifactUploadRequest) returns (OperationAck) {}
   rpc DeleteGeneratedArtifact(ArtifactSelector) returns (OperationAck) {}
+  rpc ListCredentials(CredentialQuery) returns (stream CredentialSummary) {}
+  rpc GetCredential(CredentialSelector) returns (CredentialDetail) {}
+  rpc AddCredential(CredentialUpsertRequest) returns (OperationAck) {}
+  rpc UpdateCredential(CredentialUpsertRequest) returns (OperationAck) {}
+  rpc DeleteCredential(CredentialSelector) returns (OperationAck) {}
   rpc ListCommands(CommandQuery) returns (stream CommandSpec) {}
   rpc ListModules(SessionSelector) returns (stream LoadedModule) {}
 
@@ -161,6 +166,80 @@ message ArtifactUploadRequest
   string platform = 2;
   string arch = 3;
   bytes data = 4;
+}
+
+
+message CredentialQuery
+{
+  string type = 1;
+  string username = 2;
+  string domain = 3;
+  string target = 4;
+  string protocol = 5;
+  string tag = 6;
+  string name_contains = 7;
+  bool include_expired = 8;
+}
+
+
+message CredentialSelector
+{
+  string credential_id = 1;
+  bool reveal_secret = 2;
+}
+
+
+message CredentialSecret
+{
+  string name = 1;
+  string value = 2;
+}
+
+
+message CredentialSummary
+{
+  string credential_id = 1;
+  string display_name = 2;
+  string type = 3;
+  string username = 4;
+  string domain = 5;
+  string realm = 6;
+  string target = 7;
+  string protocol = 8;
+  repeated string tags = 9;
+  string description = 10;
+  string created_at = 11;
+  string updated_at = 12;
+  string last_used_at = 13;
+  string expires_at = 14;
+  repeated string secret_fields = 15;
+}
+
+
+message CredentialDetail
+{
+  Status status = 1;
+  string message = 2;
+  CredentialSummary summary = 3;
+  repeated CredentialSecret secrets = 4;
+}
+
+
+message CredentialUpsertRequest
+{
+  string credential_id = 1;
+  string display_name = 2;
+  string type = 3;
+  string username = 4;
+  string domain = 5;
+  string realm = 6;
+  string target = 7;
+  string protocol = 8;
+  repeated string tags = 9;
+  string description = 10;
+  string expires_at = 11;
+  repeated CredentialSecret secrets = 12;
+  bool replace_secrets = 13;
 }
 
 

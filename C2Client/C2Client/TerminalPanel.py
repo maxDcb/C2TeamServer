@@ -210,6 +210,7 @@ GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 GrpcSocksInstruction = "socks"
 GrpcReloadModulesInstruction = "reloadModules";
+GrpcCredentialVaultInstruction = "cred"
 
 BeaconFileWindowsPattern = "Beacon-{}.exe"
 BeaconFileLinuxGenerated = "Beacon-linux"
@@ -335,26 +336,30 @@ Examples:
 
 CredentialStoreInstruction = "credentialStore"
 CredentialStoreHelp = """credentialStore
-Read and update the TeamServer credential store.
+Read and update the encrypted TeamServer credential vault.
 
-Usage: credentialStore <get|set|search> [arguments]
+Usage: credentialStore <get|set|search|reveal|delete> [arguments]
 
 Kind: terminal
 Target: teamserver
 Requires session: no
 
 Arguments:
-  <action> (text, required) - One of get, set, or search.
+    <action> (text, required) - One of get, set, search, reveal, or delete.
   [arguments] (text, optional) - Action-specific values.
 
 Examples:
   credentialStore get
   credentialStore set domain username credential
-  credentialStore search username"""
+    credentialStore search username
+    credentialStore reveal credential_id
+    credentialStore delete credential_id"""
 
 GetSubInstruction = "get"
 SetSubInstruction = "set"
 SearchSubInstruction = "search"
+RevealSubInstruction = "reveal"
+DeleteSubInstruction = "delete"
 
 ReloadModulesInstruction = "reloadModules";
 ReloadModulesHelp = """reloadModules
@@ -381,6 +386,13 @@ Use help <command> for command-specific details.
   credentialStore - Read and update TeamServer credentials.
   socks - Manage local SOCKS bridge bindings.
   reloadModules - Reload TeamServer module libraries."""
+
+
+def redactTerminalCommand(commandLine: str) -> str:
+        parts = commandLine.split()
+        if len(parts) >= 5 and parts[0].lower() == CredentialStoreInstruction.lower() and parts[1].lower() == SetSubInstruction.lower():
+                return " ".join([*parts[:4], "<redacted>"])
+        return commandLine
 
 
 def normalizeWindowsArch(arch):
@@ -718,7 +730,7 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
         (HostInstruction, _host_artifact_entries(artifacts, listener_with_optional_filename)),
         (DropperInstruction, dropper_children),
         (BatcaveInstruction, [("install", []), ("bundleInstall", []), ("search", [])]),
-        (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, [])]),
+        (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, []), (RevealSubInstruction, []), (DeleteSubInstruction, [])]),
         (SocksInstruction, [("start", []), ("stop", []), ("unbind", []), ("bind", _session_entries(sessions))]),
         (ReloadModulesInstruction, []),
     ]
@@ -883,13 +895,14 @@ class Terminal(QWidget):
             self.printInTerminal("", "")
 
         else:
+            commandLineForLog = redactTerminalCommand(commandLine)
             cmdHistoryFile = open(HistoryFileName, 'a')
-            cmdHistoryFile.write(commandLine)
+            cmdHistoryFile.write(commandLineForLog)
             cmdHistoryFile.write('\n')
             cmdHistoryFile.close()
 
             logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] send: \"' + commandLine + '\"')
+            logFile.write('[+] send: \"' + commandLineForLog + '\"')
             logFile.write('\n')
             logFile.close()
 
@@ -1071,17 +1084,9 @@ class Terminal(QWidget):
         cmd = instructions[1].lower()
 
         if cmd == GetSubInstruction.lower():
-            try:
-                currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
-            except (RuntimeError, json.JSONDecodeError) as exc:
-                self.printInTerminal(commandLine, str(exc))
-                return
-
-            toPrint = ""
-            for cred in currentcredentials:
-                toPrint+=json.dumps(cred)
-                toPrint+="\n"
-            self.printInTerminal(commandLine, toPrint)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " list")
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
             
             return    
 
@@ -1097,14 +1102,13 @@ class Terminal(QWidget):
             cred = {}
             cred["domain"] = domain
             cred["username"] = username
-            cred["manual"] = credential
-            try:
-                result = credentials.addCredentials(self.grpcClient, TeamServerApi_pb2, json.dumps(cred))
-            except (RuntimeError, json.JSONDecodeError) as exc:
-                self.printInTerminal(commandLine, str(exc))
-                return
-            if result:
-                self.printInTerminal(commandLine, result)
+            cred["password"] = credential
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(
+                command=GrpcCredentialVaultInstruction + " add",
+                data=json.dumps(cred).encode(),
+            )
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
             return
 
         elif cmd == SearchSubInstruction.lower():
@@ -1113,20 +1117,29 @@ class Terminal(QWidget):
                 return
             
             searchPatern = instructions[2]
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " list " + searchPatern)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
+            return    
 
-            try:
-                currentcredentials = json.loads(credentials.getCredentials(self.grpcClient, TeamServerApi_pb2))
-            except (RuntimeError, json.JSONDecodeError) as exc:
-                self.printInTerminal(commandLine, str(exc))
+        elif cmd == RevealSubInstruction.lower():
+            if len(instructions) < 3:
+                self.printInTerminal(commandLine, CredentialStoreHelp)
                 return
+            credentialId = instructions[2]
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " get " + credentialId + " --reveal")
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
+            return    
 
-            toPrint = ""
-            for cred in currentcredentials:
-                for key, value in cred.items():
-                    if searchPatern in value:
-                        toPrint+=json.dumps(cred)
-                        toPrint+="\n"
-            self.printInTerminal(commandLine, toPrint)
+        elif cmd == DeleteSubInstruction.lower():
+            if len(instructions) < 3:
+                self.printInTerminal(commandLine, CredentialStoreHelp)
+                return
+            credentialId = instructions[2]
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " delete " + credentialId)
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
             return    
 
         else:

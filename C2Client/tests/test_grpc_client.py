@@ -170,6 +170,45 @@ def test_grpc_client_lists_commands(tmp_path, monkeypatch):
     assert events == [("ListCommands", True, "")]
 
 
+def test_grpc_client_credential_vault_rpcs(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    summary = object()
+    detail = object()
+    ack = object()
+    stub.ListCredentials.return_value = iter([summary])
+    stub.GetCredential.return_value = detail
+    stub.AddCredential.return_value = ack
+    stub.UpdateCredential.return_value = ack
+    stub.DeleteCredential.return_value = ack
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+
+    query = TeamServerApi_pb2.CredentialQuery(username="alice")
+    assert list(client.listCredentials(query)) == [summary]
+    stub.ListCredentials.assert_called_once_with(query, metadata=client.metadata)
+
+    assert client.getCredential("cred-1", reveal_secret=True) is detail
+    selector = stub.GetCredential.call_args.args[0]
+    assert selector.credential_id == "cred-1"
+    assert selector.reveal_secret is True
+
+    request = TeamServerApi_pb2.CredentialUpsertRequest(username="alice")
+    assert client.addCredential(request) is ack
+    stub.AddCredential.assert_called_once_with(request, metadata=client.metadata)
+    assert client.updateCredential(request) is ack
+    stub.UpdateCredential.assert_called_once_with(request, metadata=client.metadata)
+    assert client.deleteCredential("cred-1") is ack
+    delete_selector = stub.DeleteCredential.call_args.args[0]
+    assert delete_selector.credential_id == "cred-1"
+
+
 def test_grpc_client_uses_env_certificate_and_grpc_options(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

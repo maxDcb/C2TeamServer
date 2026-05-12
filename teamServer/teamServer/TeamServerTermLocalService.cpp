@@ -7,6 +7,7 @@
 #include <system_error>
 
 #include "TeamServerArtifactCatalog.hpp"
+#include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerModuleLoader.hpp"
 #include "listener/ListenerHttp.hpp"
 using json = nlohmann::json;
@@ -20,6 +21,7 @@ const std::string ReloadModulesInstruction = "reloadModules";
 const std::string BatcaveInstruction = "batcaveUpload";
 const std::string AddCredentialInstruction = "addCred";
 const std::string GetCredentialInstruction = "getCred";
+const std::string CredentialVaultInstruction = "cred";
 
 void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
 {
@@ -75,13 +77,15 @@ TeamServerTermLocalService::TeamServerTermLocalService(
     std::vector<std::shared_ptr<Listener>>& listeners,
     nlohmann::json& credentials,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
-    ModuleLoader moduleLoader)
+    ModuleLoader moduleLoader,
+    std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService)
     : m_logger(std::move(logger)),
       m_config(config),
       m_runtimeConfig(std::move(runtimeConfig)),
       m_listeners(listeners),
       m_credentials(credentials),
       m_moduleCmd(moduleCmd),
+    m_credentialVaultService(std::move(credentialVaultService)),
       m_moduleLoader(std::move(moduleLoader))
 {
 }
@@ -93,6 +97,7 @@ bool TeamServerTermLocalService::canHandle(const std::string& instruction) const
         || instruction == BatcaveInstruction
         || instruction == AddCredentialInstruction
         || instruction == GetCredentialInstruction
+        || instruction == CredentialVaultInstruction
         || instruction == ReloadModulesInstruction;
 }
 
@@ -114,6 +119,8 @@ grpc::Status TeamServerTermLocalService::handleCommand(
         return handlePutIntoUploadDir(splitedCmd, command, response);
     if (instruction == BatcaveInstruction)
         return handleBatcaveUpload(splitedCmd, command, response);
+    if (instruction == CredentialVaultInstruction)
+        return handleCredentialVault(splitedCmd, command, response);
     if (instruction == AddCredentialInstruction)
         return handleAddCredential(command, response);
     if (instruction == GetCredentialInstruction)
@@ -380,6 +387,9 @@ grpc::Status TeamServerTermLocalService::handleAddCredential(
     const teamserverapi::TerminalCommandRequest& command,
     teamserverapi::TerminalCommandResponse* response)
 {
+    if (m_credentialVaultService)
+        return m_credentialVaultService->handleTerminalCommand({AddCredentialInstruction}, command, response);
+
     m_logger->debug("AddCredentials command received");
 
     json cred;
@@ -401,9 +411,29 @@ grpc::Status TeamServerTermLocalService::handleAddCredential(
 
 grpc::Status TeamServerTermLocalService::handleGetCredential(teamserverapi::TerminalCommandResponse* response)
 {
+    if (m_credentialVaultService)
+    {
+        teamserverapi::TerminalCommandRequest command;
+        command.set_command(GetCredentialInstruction);
+        return m_credentialVaultService->handleTerminalCommand({GetCredentialInstruction}, command, response);
+    }
+
     m_logger->debug("GetCredentials command received");
     setTerminalOk(response, m_credentials.dump());
     return grpc::Status::OK;
+}
+
+grpc::Status TeamServerTermLocalService::handleCredentialVault(
+    const std::vector<std::string>& splitedCmd,
+    const teamserverapi::TerminalCommandRequest& command,
+    teamserverapi::TerminalCommandResponse* response)
+{
+    if (!m_credentialVaultService)
+    {
+        setTerminalError(response, "Error: credential vault service is not available.");
+        return grpc::Status::OK;
+    }
+    return m_credentialVaultService->handleTerminalCommand(splitedCmd, command, response);
 }
 
 grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::TerminalCommandResponse* response)
