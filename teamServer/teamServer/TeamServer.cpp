@@ -171,7 +171,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         runtimeConfig,
         m_commonCommands,
         m_moduleCmd,
-        std::move(commandPreparers));
+        std::move(commandPreparers),
+        m_credentialVaultService);
     m_termLocalService = std::make_unique<TeamServerTermLocalService>(
         m_logger,
         m_config,

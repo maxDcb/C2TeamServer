@@ -28,7 +28,7 @@ from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .ArtifactPanel import Artifacts, ArtifactTabTitle
 from .CommandPanel import Commands, CommandTabTitle
-from .TerminalModules.Credentials import credentials
+from .CredentialVaultPanel import CredentialVault, CredentialVaultTabTitle
 from .console_style import (
     CONSOLE_COLORS,
     apply_console_output_style,
@@ -70,7 +70,7 @@ if not os.path.exists(logsDir):
 # Constant
 #
 TerminalTabTitle = "Terminal"
-SYSTEM_TAB_COUNT = 5
+SYSTEM_TAB_COUNT = 6
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
@@ -202,7 +202,10 @@ def _arg_name(arg: Any) -> str:
 
 
 def _command_has_artifact_args(command: Any) -> bool:
-    return any(_arg_has_artifact_filter(arg) for arg in getattr(command, "args", []))
+    return any(
+        _arg_has_artifact_filter(arg) or _arg_has_credential_filter(arg)
+        for arg in getattr(command, "args", [])
+    )
 
 
 def _flag_is_context_only(arg: Any) -> bool:
@@ -297,6 +300,24 @@ def _add_artifact_completions(
                     _add_inject_pid_continuations(artifact_entry[1], arg)
 
 
+def _credential_completion_values(credential: Any) -> list[str]:
+    credential_id = str(getattr(credential, "credential_id", "") or "").strip()
+    if not credential_id:
+        return []
+    short_id = credential_id[:8] if len(credential_id) > 8 else credential_id
+    return [f"cred:{short_id}"]
+
+
+def _add_credential_completions(
+    children: list[tuple[str, list]],
+    grpcClient: Any,
+    arg: Any,
+) -> None:
+    for credential in _load_credentials_for_arg(grpcClient, arg):
+        for value in _credential_completion_values(credential):
+            _add_completion_value(children, value)
+
+
 def _build_flag_entries(
     args: list[Any],
     grpcClient: Any = None,
@@ -320,6 +341,7 @@ def _build_flag_entries(
         for value in getattr(arg, "values", []):
             _add_completion_value(flag_entry[1], value)
         _add_artifact_completions(flag_entry[1], grpcClient, arg, session, command_name)
+        _add_credential_completions(flag_entry[1], grpcClient, arg)
 
         if command_name == "inject" and name == "--pid":
             _add_completion_path(flag_entry[1], [PID_COMPLETION_PLACEHOLDER])
@@ -371,9 +393,12 @@ def _add_arg_completions(
 
         if first_positional_done:
             continue
+        if _arg_completion_parents(arg):
+            continue
         for value in getattr(arg, "values", []):
             _add_completion_value(children, value)
         _add_artifact_completions(children, grpcClient, arg, session, command_name)
+        _add_credential_completions(children, grpcClient, arg)
         first_positional_done = True
 
     for arg in args:
@@ -385,6 +410,7 @@ def _add_arg_completions(
             for value in getattr(arg, "values", []):
                 _add_completion_value(parent_entry[1], value)
             _add_artifact_completions(parent_entry[1], grpcClient, arg, session, command_name)
+            _add_credential_completions(parent_entry[1], grpcClient, arg)
 
 
 def _normalized_module_name(value: Any) -> str:
@@ -485,6 +511,35 @@ def _arg_has_artifact_filter(arg: Any) -> bool:
     return bool(_artifact_filters_for_arg(arg))
 
 
+def _credential_filters_for_arg(arg: Any) -> list[Any]:
+    credential_filters = getattr(arg, "credential_filters", None)
+    if credential_filters is not None:
+        try:
+            filters = [credential_filter for credential_filter in credential_filters if credential_filter is not None]
+        except TypeError:
+            filters = []
+        if filters:
+            return filters
+
+    if not hasattr(arg, "credential_filter"):
+        return []
+
+    credential_filter = getattr(arg, "credential_filter", None)
+    if credential_filter is None:
+        return []
+    if hasattr(arg, "HasField"):
+        try:
+            if not arg.HasField("credential_filter"):
+                return []
+        except ValueError:
+            pass
+    return [credential_filter]
+
+
+def _arg_has_credential_filter(arg: Any) -> bool:
+    return bool(_credential_filters_for_arg(arg))
+
+
 def _arg_completion_parents(arg: Any) -> list[str]:
     try:
         parents = getattr(arg, "completion_parents", [])
@@ -502,6 +557,17 @@ def _artifact_query_from_filter(artifact_filter: Any, session: Any | None) -> An
         value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
         if value:
             setattr(query, field_name, value)
+    return query
+
+
+def _credential_query_from_filter(credential_filter: Any) -> Any:
+    query = TeamServerApi_pb2.CredentialQuery()
+    for field_name in ("type", "username", "domain", "target", "protocol", "tag", "name_contains"):
+        value = str(getattr(credential_filter, field_name, "") or "").strip()
+        if value:
+            setattr(query, field_name, value)
+    if bool(getattr(credential_filter, "include_expired", False)):
+        query.include_expired = True
     return query
 
 
@@ -574,6 +640,26 @@ def _load_artifacts_for_arg(grpcClient: Any, arg: Any, session: Any | None) -> l
         except Exception as exc:
             logger.debug("Command autocomplete could not load artifact context: %s", exc)
     return artifacts
+
+
+def _load_credentials_for_arg(grpcClient: Any, arg: Any) -> list[Any]:
+    if grpcClient is None or not hasattr(grpcClient, "listCredentials") or not _arg_has_credential_filter(arg):
+        return []
+
+    credentials: list[Any] = []
+    seen: set[str] = set()
+    for credential_filter in _credential_filters_for_arg(arg):
+        try:
+            query = _credential_query_from_filter(credential_filter)
+            for credential in grpcClient.listCredentials(query):
+                credential_id = str(getattr(credential, "credential_id", "") or "").strip()
+                if not credential_id or credential_id in seen:
+                    continue
+                seen.add(credential_id)
+                credentials.append(credential)
+        except Exception as exc:
+            logger.debug("Command autocomplete could not load credential context: %s", exc)
+    return credentials
 
 
 def _module_command_names(command_specs: list[Any]) -> list[str]:
@@ -864,6 +950,11 @@ class ConsolesTab(QWidget):
         self.artifacts = Artifacts(self, self.grpcClient)
         tab = self.createConsolePage(self.artifacts)
         self.tabs.addTab(tab, ArtifactTabTitle)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
+
+        self.credentialVault = CredentialVault(self, self.grpcClient)
+        tab = self.createConsolePage(self.credentialVault)
+        self.tabs.addTab(tab, CredentialVaultTabTitle)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
         self.commands = Commands(self, self.grpcClient)
@@ -1396,9 +1487,6 @@ class Console(QWidget):
         if not response_ok:
             decoded_response = response_message(response) or decoded_response or "Command failed."
         self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
-        # check the response for mimikatz and not the cmd line ???
-        if "-e mimikatz.exe" in command_text:
-            credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
         status = "done" if response_ok else "error"
         self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
         self.printCommandStatusInTerminal(command_id, status, command_text)

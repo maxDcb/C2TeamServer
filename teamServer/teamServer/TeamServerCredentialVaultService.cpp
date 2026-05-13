@@ -624,6 +624,13 @@ void TeamServerCredentialVaultService::fillDetail(const TeamServerCredentialReco
 
 bool TeamServerCredentialVaultService::matchesQuery(const TeamServerCredentialRecord& record, const teamserverapi::CredentialQuery& query) const
 {
+    if (!query.include_expired()
+        && !record.expiresAt.empty()
+        && record.expiresAt <= currentTimestamp())
+    {
+        return false;
+    }
+
     bool tagMatches = query.tag().empty();
     for (const std::string& tag : record.tags)
     {

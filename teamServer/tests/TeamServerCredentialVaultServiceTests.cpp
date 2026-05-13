@@ -149,11 +149,87 @@ void testTerminalIntegration()
     require(response.result().find("bob") != std::string::npos, "terminal cred list missing username");
     require(response.result().find("super-secret") == std::string::npos, "terminal cred list leaked secret");
 }
+
+void testUpdateDeleteAndExpiredFiltering()
+{
+    ScopedPath tempRoot(makeTempDirectory("lifecycle"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    TeamServerCredentialVaultService service(makeLogger(), runtimeConfig);
+
+    teamserverapi::CredentialUpsertRequest expiredRequest;
+    expiredRequest.set_display_name("expired alice");
+    expiredRequest.set_type("password");
+    expiredRequest.set_username("alice");
+    expiredRequest.set_domain("CORP");
+    expiredRequest.set_expires_at("2000-01-01T00:00:00Z");
+    teamserverapi::CredentialSecret* expiredPassword = expiredRequest.add_secrets();
+    expiredPassword->set_name("password");
+    expiredPassword->set_value("old-secret");
+    teamserverapi::OperationAck ack;
+    require(service.addCredential(expiredRequest, &ack).ok(), "expired addCredential RPC status failed");
+    require(ack.status() == teamserverapi::OK, "expired addCredential failed: " + ack.message());
+
+    std::vector<teamserverapi::CredentialSummary> activeCredentials;
+    require(service.listCredentials(teamserverapi::CredentialQuery(), [&](const teamserverapi::CredentialSummary& summary)
+    {
+        activeCredentials.push_back(summary);
+        return true;
+    }).ok(), "active listCredentials RPC status failed");
+    require(activeCredentials.empty(), "expired credential should be hidden by default");
+
+    teamserverapi::CredentialQuery includeExpiredQuery;
+    includeExpiredQuery.set_include_expired(true);
+    std::vector<teamserverapi::CredentialSummary> allCredentials;
+    require(service.listCredentials(includeExpiredQuery, [&](const teamserverapi::CredentialSummary& summary)
+    {
+        allCredentials.push_back(summary);
+        return true;
+    }).ok(), "include expired listCredentials RPC status failed");
+    require(allCredentials.size() == 1, "include expired did not return expired credential");
+
+    teamserverapi::CredentialUpsertRequest updateRequest;
+    updateRequest.set_credential_id(allCredentials[0].credential_id().substr(0, 8));
+    updateRequest.set_expires_at("2999-01-01T00:00:00Z");
+    updateRequest.set_replace_secrets(true);
+    teamserverapi::CredentialSecret* newPassword = updateRequest.add_secrets();
+    newPassword->set_name("password");
+    newPassword->set_value("new-secret");
+    require(service.updateCredential(updateRequest, &ack).ok(), "updateCredential RPC status failed");
+    require(ack.status() == teamserverapi::OK, "updateCredential failed: " + ack.message());
+
+    activeCredentials.clear();
+    require(service.listCredentials(teamserverapi::CredentialQuery(), [&](const teamserverapi::CredentialSummary& summary)
+    {
+        activeCredentials.push_back(summary);
+        return true;
+    }).ok(), "post-update listCredentials RPC status failed");
+    require(activeCredentials.size() == 1, "updated credential should be active");
+
+    teamserverapi::CredentialSelector selector;
+    selector.set_credential_id(activeCredentials[0].credential_id().substr(0, 8));
+    selector.set_reveal_secret(true);
+    teamserverapi::CredentialDetail detail;
+    require(service.getCredential(selector, &detail).ok(), "updated getCredential RPC status failed");
+    require(detail.status() == teamserverapi::OK, "updated getCredential failed: " + detail.message());
+    require(detail.secrets_size() == 1, "updated credential secret count mismatch");
+    require(detail.secrets(0).value() == "new-secret", "updated credential secret mismatch");
+
+    require(service.deleteCredential(selector, &ack).ok(), "deleteCredential RPC status failed");
+    require(ack.status() == teamserverapi::OK, "deleteCredential failed: " + ack.message());
+    activeCredentials.clear();
+    require(service.listCredentials(includeExpiredQuery, [&](const teamserverapi::CredentialSummary& summary)
+    {
+        activeCredentials.push_back(summary);
+        return true;
+    }).ok(), "post-delete listCredentials RPC status failed");
+    require(activeCredentials.empty(), "deleted credential still listed");
+}
 } // namespace
 
 int main()
 {
     testAddListRevealAndPersistence();
     testTerminalIntegration();
+    testUpdateDeleteAndExpiredFiltering();
     return 0;
 }

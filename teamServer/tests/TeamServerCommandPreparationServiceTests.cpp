@@ -11,6 +11,7 @@
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerChiselCommandPreparer.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerFileTransferCommandPreparer.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
@@ -118,6 +119,39 @@ public:
     }
 };
 
+class FakeTokenCaptureModule final : public ModuleCmd
+{
+public:
+    explicit FakeTokenCaptureModule(std::string name)
+        : ModuleCmd(std::move(name))
+    {
+    }
+
+    std::string getInfo() override
+    {
+        return "fake token capture";
+    }
+
+    int init(std::vector<std::string>& tokens, C2Message& c2Message) override
+    {
+        c2Message.set_instruction(getName());
+        std::string packed;
+        for (std::size_t i = 1; i < tokens.size(); ++i)
+        {
+            if (i > 1)
+                packed.push_back('\0');
+            packed += tokens[i];
+        }
+        c2Message.set_cmd(packed);
+        return 0;
+    }
+
+    int process(C2Message&, C2Message&) override
+    {
+        return 0;
+    }
+};
+
 fs::path makeTempDirectory(const std::string& name)
 {
     fs::path root = fs::temp_directory_path() / ("c2teamserver-prep-" + name + "-" + std::to_string(::getpid()));
@@ -201,7 +235,39 @@ TeamServerRuntimeConfig makeRuntimeConfig(const fs::path& root)
     runtimeConfig.scriptsDirectoryPath = (root / "Scripts").string() + "/";
     runtimeConfig.uploadedArtifactsDirectoryPath = (root / "UploadedArtifacts").string() + "/";
     runtimeConfig.generatedArtifactsDirectoryPath = (root / "GeneratedArtifacts").string() + "/";
+    runtimeConfig.dataRoot = root.string();
+    runtimeConfig.credentialVaultDirectoryPath = (root / "CredentialVault").string();
+    runtimeConfig.credentialVaultPath = (root / "CredentialVault" / "vault.json").string();
+    runtimeConfig.credentialVaultKeyFile = (root / "CredentialVault" / "vault.key").string();
     return runtimeConfig;
+}
+
+std::string addPasswordCredential(
+    const std::shared_ptr<TeamServerCredentialVaultService>& credentialVaultService,
+    const std::string& domain,
+    const std::string& username,
+    const std::string& passwordValue)
+{
+    teamserverapi::CredentialUpsertRequest addCredential;
+    addCredential.set_display_name(domain + " " + username);
+    addCredential.set_type("password");
+    addCredential.set_username(username);
+    addCredential.set_domain(domain);
+    teamserverapi::CredentialSecret* password = addCredential.add_secrets();
+    password->set_name("password");
+    password->set_value(passwordValue);
+    teamserverapi::OperationAck ack;
+    require(credentialVaultService->addCredential(addCredential, &ack).ok(), "vault credential add RPC failed");
+    require(ack.status() == teamserverapi::OK, "vault credential add failed");
+
+    std::vector<teamserverapi::CredentialSummary> credentials;
+    require(credentialVaultService->listCredentials(teamserverapi::CredentialQuery(), [&](const teamserverapi::CredentialSummary& summary)
+    {
+        credentials.push_back(summary);
+        return true;
+    }).ok(), "vault credential list failed");
+    require(!credentials.empty(), "vault credential count mismatch");
+    return credentials.back().credential_id().substr(0, 8);
 }
 
 void testPrepareCommonCommand()
@@ -920,10 +986,30 @@ void testPreparePsExecUsesToolThenUploadedArtifact()
 
     auto artifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
     auto fileArtifactService = std::make_shared<TeamServerFileArtifactService>(makeLogger(), runtimeConfig, artifactStore);
+    auto credentialVaultService = std::make_shared<TeamServerCredentialVaultService>(makeLogger(), runtimeConfig);
+    teamserverapi::CredentialUpsertRequest addCredential;
+    addCredential.set_display_name("corp alice");
+    addCredential.set_type("password");
+    addCredential.set_username("alice");
+    addCredential.set_domain("DOMAIN");
+    teamserverapi::CredentialSecret* password = addCredential.add_secrets();
+    password->set_name("password");
+    password->set_value("secret");
+    teamserverapi::OperationAck ack;
+    require(credentialVaultService->addCredential(addCredential, &ack).ok(), "psExec vault credential add RPC failed");
+    require(ack.status() == teamserverapi::OK, "psExec vault credential add failed");
+    std::vector<teamserverapi::CredentialSummary> credentials;
+    require(credentialVaultService->listCredentials(teamserverapi::CredentialQuery(), [&](const teamserverapi::CredentialSummary& summary)
+    {
+        credentials.push_back(summary);
+        return true;
+    }).ok(), "psExec vault credential list failed");
+    require(credentials.size() == 1, "psExec vault credential count mismatch");
+
     std::vector<std::unique_ptr<TeamServerCommandPreparer>> preparers;
     preparers.push_back(std::make_unique<TeamServerModuleArtifactCommandPreparer>(makeLogger(), fileArtifactService, modules));
 
-    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers));
+    TeamServerCommandPreparationService service(makeLogger(), runtimeConfig, commonCommands, modules, std::move(preparers), credentialVaultService);
 
     C2Message credentialMessage;
     require(service.prepareMessage("psExec -u DOMAIN\\alice secret server01 svc.exe", credentialMessage, true, "amd64") == 0, "psExec tool prepare failed");
@@ -937,11 +1023,80 @@ void testPreparePsExecUsesToolThenUploadedArtifact()
     require(credentialFields[2] == "secret", "psExec password mismatch");
     require(credentialFields[3] == "server01", "psExec target mismatch");
 
+    C2Message credentialRefMessage;
+    require(
+        service.prepareMessage("psExec -u cred:" + credentials[0].credential_id().substr(0, 8) + " server01 svc.exe", credentialRefMessage, true, "amd64") == 0,
+        "psExec credential reference prepare failed");
+    const std::vector<std::string> credentialRefFields = splitNullFields(credentialRefMessage.cmd());
+    require(credentialRefFields.size() == 4, "psExec credential reference fields count mismatch");
+    require(credentialRefFields[0] == "DOMAIN", "psExec credential reference domain mismatch");
+    require(credentialRefFields[1] == "alice", "psExec credential reference username mismatch");
+    require(credentialRefFields[2] == "secret", "psExec credential reference password mismatch");
+    require(credentialRefFields[3] == "server01", "psExec credential reference target mismatch");
+
     C2Message uploadMessage;
     require(service.prepareMessage("psExec -n server01 uploadSvc.exe", uploadMessage, true, "amd64") == 0, "psExec upload fallback prepare failed");
     require(uploadMessage.inputfile() == "uploadSvc.exe", "psExec upload artifact mismatch");
     require(uploadMessage.data() == "UPLOAD-SVC", "psExec upload bytes mismatch");
     require(uploadMessage.cmd() == "server01", "psExec token target mismatch");
+}
+
+void testPrepareCredentialReferencesForDirectModules()
+{
+    ScopedPath tempRoot(makeTempDirectory("credential-references"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    auto credentialVaultService = std::make_shared<TeamServerCredentialVaultService>(makeLogger(), runtimeConfig);
+    const std::string credentialId = addPasswordCredential(credentialVaultService, "DOMAIN", "alice", "secret");
+
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("makeToken"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("spawnAs"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("sshExec"));
+
+    TeamServerCommandPreparationService service(
+        makeLogger(),
+        runtimeConfig,
+        commonCommands,
+        modules,
+        std::vector<std::unique_ptr<TeamServerCommandPreparer>>{},
+        credentialVaultService);
+
+    C2Message makeTokenMessage;
+    require(service.prepareMessage("makeToken cred:" + credentialId, makeTokenMessage, true, "amd64") == 0, "makeToken credential reference prepare failed");
+    std::vector<std::string> makeTokenFields = splitNullFields(makeTokenMessage.cmd());
+    require(makeTokenFields.size() == 2, "makeToken credential fields count mismatch");
+    require(makeTokenFields[0] == "DOMAIN\\alice", "makeToken credential username mismatch");
+    require(makeTokenFields[1] == "secret", "makeToken credential password mismatch");
+
+    C2Message spawnAsMessage;
+    require(
+        service.prepareMessage("spawnAs --no-profile cred:" + credentialId + " -- cmd.exe /c whoami", spawnAsMessage, true, "amd64") == 0,
+        "spawnAs credential reference prepare failed");
+    std::vector<std::string> spawnAsFields = splitNullFields(spawnAsMessage.cmd());
+    require(spawnAsFields.size() == 7, "spawnAs credential fields count mismatch");
+    require(spawnAsFields[0] == "--no-profile", "spawnAs option mismatch");
+    require(spawnAsFields[1] == "DOMAIN\\alice", "spawnAs credential username mismatch");
+    require(spawnAsFields[2] == "secret", "spawnAs credential password mismatch");
+    require(spawnAsFields[3] == "--", "spawnAs separator mismatch");
+
+    C2Message sshExecMessage;
+    require(service.prepareMessage("sshExec -h host -u cred:" + credentialId + " id", sshExecMessage, true, "amd64") == 0, "sshExec credential reference prepare failed");
+    std::vector<std::string> sshExecFields = splitNullFields(sshExecMessage.cmd());
+    require(sshExecFields.size() == 7, "sshExec credential fields count mismatch");
+    require(sshExecFields[0] == "-h", "sshExec host flag mismatch");
+    require(sshExecFields[2] == "-u", "sshExec username flag mismatch");
+    require(sshExecFields[3] == "alice", "sshExec credential username should omit domain");
+    require(sshExecFields[4] == "--password", "sshExec password flag mismatch");
+    require(sshExecFields[5] == "secret", "sshExec credential password mismatch");
+
+    C2Message invalidMessage;
+    require(
+        service.prepareMessage("sshExec -u cred:" + credentialId + " --password manual host", invalidMessage, true, "amd64") == -1,
+        "sshExec credential reference should reject explicit password flag");
+    require(
+        invalidMessage.returnvalue().find("Do not provide a password flag") != std::string::npos,
+        "sshExec credential reference error mismatch");
 }
 
 void testPrepareCoffLoaderUsesToolArtifact()
@@ -1070,6 +1225,7 @@ int main()
     testPrepareScreenShotCreatesGeneratedArtifactSlot();
     testPrepareKerberosUseTicketUsesUploadedArtifact();
     testPreparePsExecUsesToolThenUploadedArtifact();
+    testPrepareCredentialReferencesForDirectModules();
     testPrepareCoffLoaderUsesToolArtifact();
     testPrepareDotnetExecLoadUsesToolArtifact();
     testPreparePwShUsesFixedRunnerAndScriptArtifacts();
