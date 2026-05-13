@@ -125,18 +125,17 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "name": "psExec",
   "kind": "module",
   "description": "Copy and run a service executable.",
-  "command_template": "psExec {auth_mode} {username:q?} {password:q?} {target:q} {service_artifact:q}",
+  "command_template": "psExec [--vault {vault:q}] {target:q} {service_artifact:q}",
   "target": "beacon",
   "requires_session": true,
   "platforms": ["windows"],
   "archs": ["x86", "x64"],
   "args": [
     {
-      "name": "username",
+      "name": "--vault",
       "type": "credential",
       "required": false,
-      "description": "Credential reference used after -u.",
-      "completion_parents": ["-u"],
+      "description": "Credential reference used by --vault.",
       "credential_filter": {
         "type": "password",
         "protocol": "smb",
@@ -322,8 +321,7 @@ void testCommandCatalogServiceStreamsProto()
     assert(commands[0].args(0).credential_filter().tag() == "admin");
     assert(commands[0].args(0).credential_filters_size() == 1);
     assert(commands[0].args(0).credential_filters(0).type() == "password");
-    assert(commands[0].args(0).completion_parents_size() == 1);
-    assert(commands[0].args(0).completion_parents(0) == "-u");
+    assert(commands[0].args(0).name() == "--vault");
     assert(commands[0].args(1).artifact_filter().category() == "tool");
     assert(commands[0].args(1).artifact_filters_size() == 2);
     assert(commands[0].args(1).artifact_filters(0).category() == "tool");

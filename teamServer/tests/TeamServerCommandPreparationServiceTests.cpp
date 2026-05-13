@@ -1025,14 +1025,22 @@ void testPreparePsExecUsesToolThenUploadedArtifact()
 
     C2Message credentialRefMessage;
     require(
-        service.prepareMessage("psExec -u cred:" + credentials[0].credential_id().substr(0, 8) + " server01 svc.exe", credentialRefMessage, true, "amd64") == 0,
-        "psExec credential reference prepare failed");
+        service.prepareMessage("psExec --vault " + credentials[0].credential_id().substr(0, 8) + " server01 svc.exe", credentialRefMessage, true, "amd64") == 0,
+        "psExec vault credential prepare failed");
     const std::vector<std::string> credentialRefFields = splitNullFields(credentialRefMessage.cmd());
-    require(credentialRefFields.size() == 4, "psExec credential reference fields count mismatch");
-    require(credentialRefFields[0] == "DOMAIN", "psExec credential reference domain mismatch");
-    require(credentialRefFields[1] == "alice", "psExec credential reference username mismatch");
-    require(credentialRefFields[2] == "secret", "psExec credential reference password mismatch");
-    require(credentialRefFields[3] == "server01", "psExec credential reference target mismatch");
+    require(credentialRefFields.size() == 4, "psExec vault credential fields count mismatch");
+    require(credentialRefFields[0] == "DOMAIN", "psExec vault credential domain mismatch");
+    require(credentialRefFields[1] == "alice", "psExec vault credential username mismatch");
+    require(credentialRefFields[2] == "secret", "psExec vault credential password mismatch");
+    require(credentialRefFields[3] == "server01", "psExec vault credential target mismatch");
+
+    C2Message oldCredentialRefMessage;
+    require(
+        service.prepareMessage("psExec -u cred:" + credentials[0].credential_id().substr(0, 8) + " server01 svc.exe", oldCredentialRefMessage, true, "amd64") == -1,
+        "psExec legacy credential reference should be rejected");
+    require(
+        oldCredentialRefMessage.returnvalue().find("Use --vault") != std::string::npos,
+        "psExec legacy credential reference error mismatch");
 
     C2Message uploadMessage;
     require(service.prepareMessage("psExec -n server01 uploadSvc.exe", uploadMessage, true, "amd64") == 0, "psExec upload fallback prepare failed");
@@ -1053,6 +1061,11 @@ void testPrepareCredentialReferencesForDirectModules()
     modules.push_back(std::make_unique<FakeTokenCaptureModule>("makeToken"));
     modules.push_back(std::make_unique<FakeTokenCaptureModule>("spawnAs"));
     modules.push_back(std::make_unique<FakeTokenCaptureModule>("sshExec"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("wmiExec"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("winRm"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("cimExec"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("dcomExec"));
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("taskScheduler"));
 
     TeamServerCommandPreparationService service(
         makeLogger(),
@@ -1063,7 +1076,7 @@ void testPrepareCredentialReferencesForDirectModules()
         credentialVaultService);
 
     C2Message makeTokenMessage;
-    require(service.prepareMessage("makeToken cred:" + credentialId, makeTokenMessage, true, "amd64") == 0, "makeToken credential reference prepare failed");
+    require(service.prepareMessage("makeToken --vault cred:" + credentialId, makeTokenMessage, true, "amd64") == 0, "makeToken vault credential prepare failed");
     std::vector<std::string> makeTokenFields = splitNullFields(makeTokenMessage.cmd());
     require(makeTokenFields.size() == 2, "makeToken credential fields count mismatch");
     require(makeTokenFields[0] == "DOMAIN\\alice", "makeToken credential username mismatch");
@@ -1071,8 +1084,8 @@ void testPrepareCredentialReferencesForDirectModules()
 
     C2Message spawnAsMessage;
     require(
-        service.prepareMessage("spawnAs --no-profile cred:" + credentialId + " -- cmd.exe /c whoami", spawnAsMessage, true, "amd64") == 0,
-        "spawnAs credential reference prepare failed");
+        service.prepareMessage("spawnAs --no-profile --vault cred:" + credentialId + " -- cmd.exe /c whoami", spawnAsMessage, true, "amd64") == 0,
+        "spawnAs vault credential prepare failed");
     std::vector<std::string> spawnAsFields = splitNullFields(spawnAsMessage.cmd());
     require(spawnAsFields.size() == 7, "spawnAs credential fields count mismatch");
     require(spawnAsFields[0] == "--no-profile", "spawnAs option mismatch");
@@ -1081,22 +1094,78 @@ void testPrepareCredentialReferencesForDirectModules()
     require(spawnAsFields[3] == "--", "spawnAs separator mismatch");
 
     C2Message sshExecMessage;
-    require(service.prepareMessage("sshExec -h host -u cred:" + credentialId + " id", sshExecMessage, true, "amd64") == 0, "sshExec credential reference prepare failed");
+    require(service.prepareMessage("sshExec --vault cred:" + credentialId + " -h host -P 2222 -- id", sshExecMessage, true, "amd64") == 0, "sshExec vault credential prepare failed");
     std::vector<std::string> sshExecFields = splitNullFields(sshExecMessage.cmd());
-    require(sshExecFields.size() == 7, "sshExec credential fields count mismatch");
+    require(sshExecFields.size() == 10, "sshExec credential fields count mismatch");
     require(sshExecFields[0] == "-h", "sshExec host flag mismatch");
-    require(sshExecFields[2] == "-u", "sshExec username flag mismatch");
-    require(sshExecFields[3] == "alice", "sshExec credential username should omit domain");
-    require(sshExecFields[4] == "--password", "sshExec password flag mismatch");
-    require(sshExecFields[5] == "secret", "sshExec credential password mismatch");
+    require(sshExecFields[2] == "-P", "sshExec port flag mismatch");
+    require(sshExecFields[4] == "-u", "sshExec username flag mismatch");
+    require(sshExecFields[5] == "alice", "sshExec credential username should omit domain");
+    require(sshExecFields[6] == "--password", "sshExec password flag mismatch");
+    require(sshExecFields[7] == "secret", "sshExec credential password mismatch");
+    require(sshExecFields[8] == "--", "sshExec separator mismatch");
+
+    C2Message wmiExecMessage;
+    require(service.prepareMessage("wmiExec --vault cred:" + credentialId + " server01 whoami.exe", wmiExecMessage, true, "amd64") == 0, "wmiExec vault credential prepare failed");
+    std::vector<std::string> wmiExecFields = splitNullFields(wmiExecMessage.cmd());
+    require(wmiExecFields.size() == 5, "wmiExec credential fields count mismatch");
+    require(wmiExecFields[0] == "-u", "wmiExec auth flag mismatch");
+    require(wmiExecFields[1] == "DOMAIN\\alice", "wmiExec credential username mismatch");
+    require(wmiExecFields[2] == "secret", "wmiExec credential password mismatch");
+    require(wmiExecFields[3] == "server01", "wmiExec target mismatch");
+
+    C2Message winRmMessage;
+    require(service.prepareMessage("winRm --vault cred:" + credentialId + " http://server01:5985/wsman whoami.exe", winRmMessage, true, "amd64") == 0, "winRm vault credential prepare failed");
+    std::vector<std::string> winRmFields = splitNullFields(winRmMessage.cmd());
+    require(winRmFields.size() == 5, "winRm credential fields count mismatch");
+    require(winRmFields[0] == "-u", "winRm auth flag mismatch");
+    require(winRmFields[1] == "DOMAIN\\alice", "winRm credential username mismatch");
+    require(winRmFields[2] == "secret", "winRm credential password mismatch");
+    require(winRmFields[3] == "http://server01:5985/wsman", "winRm target mismatch");
+
+    C2Message cimExecMessage;
+    require(service.prepareMessage("cimExec --vault cred:" + credentialId + " -h server01 -c cmd.exe", cimExecMessage, true, "amd64") == 0, "cimExec vault credential prepare failed");
+    std::vector<std::string> cimExecFields = splitNullFields(cimExecMessage.cmd());
+    require(cimExecFields.size() == 8, "cimExec credential fields count mismatch");
+    require(cimExecFields[0] == "-h", "cimExec host flag mismatch");
+    require(cimExecFields[4] == "-u", "cimExec username flag mismatch");
+    require(cimExecFields[5] == "DOMAIN\\alice", "cimExec credential username mismatch");
+    require(cimExecFields[6] == "-p", "cimExec password flag mismatch");
+    require(cimExecFields[7] == "secret", "cimExec credential password mismatch");
+
+    C2Message dcomExecMessage;
+    require(service.prepareMessage("dcomExec --vault cred:" + credentialId + " -h server01 -c cmd.exe", dcomExecMessage, true, "amd64") == 0, "dcomExec vault credential prepare failed");
+    std::vector<std::string> dcomExecFields = splitNullFields(dcomExecMessage.cmd());
+    require(dcomExecFields.size() == 8, "dcomExec credential fields count mismatch");
+    require(dcomExecFields[4] == "-u", "dcomExec username flag mismatch");
+    require(dcomExecFields[5] == "DOMAIN\\alice", "dcomExec credential username mismatch");
+    require(dcomExecFields[6] == "-p", "dcomExec password flag mismatch");
+    require(dcomExecFields[7] == "secret", "dcomExec credential password mismatch");
+
+    C2Message taskSchedulerMessage;
+    require(service.prepareMessage("taskScheduler --vault cred:" + credentialId + " -c cmd.exe -s server01", taskSchedulerMessage, true, "amd64") == 0, "taskScheduler vault credential prepare failed");
+    std::vector<std::string> taskSchedulerFields = splitNullFields(taskSchedulerMessage.cmd());
+    require(taskSchedulerFields.size() == 8, "taskScheduler credential fields count mismatch");
+    require(taskSchedulerFields[4] == "-u", "taskScheduler username flag mismatch");
+    require(taskSchedulerFields[5] == "DOMAIN\\alice", "taskScheduler credential username mismatch");
+    require(taskSchedulerFields[6] == "-p", "taskScheduler password flag mismatch");
+    require(taskSchedulerFields[7] == "secret", "taskScheduler credential password mismatch");
 
     C2Message invalidMessage;
     require(
-        service.prepareMessage("sshExec -u cred:" + credentialId + " --password manual host", invalidMessage, true, "amd64") == -1,
-        "sshExec credential reference should reject explicit password flag");
+        service.prepareMessage("sshExec --vault cred:" + credentialId + " --password manual host", invalidMessage, true, "amd64") == -1,
+        "sshExec vault credential should reject explicit password flag");
     require(
-        invalidMessage.returnvalue().find("Do not provide a password flag") != std::string::npos,
-        "sshExec credential reference error mismatch");
+        invalidMessage.returnvalue().find("Do not combine --vault") != std::string::npos,
+        "sshExec vault credential error mismatch");
+
+    C2Message oldCredentialMessage;
+    require(
+        service.prepareMessage("makeToken cred:" + credentialId, oldCredentialMessage, true, "amd64") == -1,
+        "legacy positional credential reference should be rejected");
+    require(
+        oldCredentialMessage.returnvalue().find("Use --vault") != std::string::npos,
+        "legacy positional credential reference error mismatch");
 }
 
 void testPrepareCoffLoaderUsesToolArtifact()

@@ -425,7 +425,7 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
 
 
 def _completion_children(entries, text):
-    return next(children for entry_text, children in entries if entry_text == text)
+    return next(entry[1] for entry in entries if entry[0] == text)
 
 
 def test_command_specs_seed_console_completer_from_manifest_examples():
@@ -547,7 +547,7 @@ def test_command_arg_can_use_multiple_artifact_filters():
     assert grpc.queries[1].runtime == "file"
 
 
-def test_credential_arg_uses_vault_completions():
+def test_vault_arg_uses_human_readable_vault_completions():
     class FakeGrpc:
         def __init__(self):
             self.queries = []
@@ -555,7 +555,12 @@ def test_credential_arg_uses_vault_completions():
         def listCredentials(self, query):
             self.queries.append(query)
             return iter([
-                SimpleNamespace(credential_id="abcdef1234567890", username="alice", domain="CORP"),
+                SimpleNamespace(
+                    credential_id="abcdef1234567890",
+                    display_name="Domain Admin",
+                    username="alice",
+                    domain="CORP",
+                ),
             ])
 
     credential_filter = SimpleNamespace(
@@ -574,10 +579,9 @@ def test_credential_arg_uses_vault_completions():
         examples=["psExec -u DOMAIN\\alice secret server svc.exe"],
         args=[
             SimpleNamespace(
-                name="username",
+                name="--vault",
                 type="credential",
                 values=[],
-                completion_parents=["-u"],
                 credential_filter=credential_filter,
             ),
         ],
@@ -586,9 +590,16 @@ def test_credential_arg_uses_vault_completions():
     grpc = FakeGrpc()
     server_data = command_specs_to_completer_data([ps_exec_spec], grpcClient=grpc)
     ps_exec_children = _completion_children(server_data, "psExec")
-    username_children = _completion_children(ps_exec_children, "-u")
+    vault_children = _completion_children(ps_exec_children, "--vault")
+    options = console_completion_options(server_data, "psExec --vault ")
+    contextual_options = console_completion_options(server_data, "psExec server --vault ")
+    flag_options = console_completion_options(server_data, "psExec server --v")
 
-    assert ("cred:abcdef12", []) in username_children
+    assert vault_children == [("Domain Admin - CORP\\alice (abcdef12)", [], "cred:abcdef12")]
+    assert options[0].label == "Domain Admin - CORP\\alice (abcdef12)"
+    assert options[0].full_text == "psExec --vault cred:abcdef12"
+    assert contextual_options[0].full_text == "psExec server --vault cred:abcdef12"
+    assert flag_options[0].full_text == "psExec server --vault"
     assert len(grpc.queries) == 1
     assert grpc.queries[0].type == "password"
     assert grpc.queries[0].domain == "CORP"

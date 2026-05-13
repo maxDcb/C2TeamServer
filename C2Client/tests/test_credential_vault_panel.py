@@ -107,6 +107,8 @@ def test_credential_vault_panel_lists_like_keepass_and_filters(qtbot):
     assert panel.detailTitleLabel.text() == "corp alice"
     assert panel.detailUsernameLabel.text() == "CORP\\alice"
     assert panel.detailTypeLabel.text() == "password"
+    assert panel.detailIdLabel.text() == "abcdef1234567890"
+    assert panel.detailIdLabel.isReadOnly() is True
     assert panel.detailSecretLabel.text() == "••••••••"
     assert panel.detailSecretLabel.isReadOnly() is True
     assert panel.detailNotesLabel.text() == "local admin"
