@@ -107,6 +107,16 @@ TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& 
         jsonString(config, "GeneratedArtifactsDirectoryPath", childPath(runtimeConfig.dataRoot, "GeneratedArtifacts")));
     runtimeConfig.hostedArtifactsDirectoryPath = ensureTrailingSeparator(
         jsonString(config, "HostedArtifactsDirectoryPath", childPath(runtimeConfig.generatedArtifactsDirectoryPath, "hosted")));
+    runtimeConfig.credentialVaultDirectoryPath = ensureTrailingSeparator(
+        jsonString(config, "CredentialVaultDirectoryPath", childPath(runtimeConfig.dataRoot, "CredentialVault")));
+    runtimeConfig.credentialVaultPath = jsonString(
+        config,
+        "CredentialVaultPath",
+        (fs::path(runtimeConfig.credentialVaultDirectoryPath) / "vault.json").string());
+    runtimeConfig.credentialVaultKeyFile = jsonString(
+        config,
+        "CredentialVaultKeyFile",
+        (fs::path(runtimeConfig.credentialVaultDirectoryPath) / "vault.key").string());
 
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());
@@ -225,6 +235,7 @@ void TeamServerRuntimeConfig::validateDirectories(const std::shared_ptr<spdlog::
 
     ensureDirectory(generatedArtifactsDirectoryPath, "Generated artifacts", logger);
     ensureDirectory(hostedArtifactsDirectoryPath, "Hosted artifacts", logger);
+    ensureDirectory(credentialVaultDirectoryPath, "Credential vault", logger);
 
     if (!fs::exists(commandSpecsDirectoryPath))
         logger->error("Command specs directory path don't exist: {0}", commandSpecsDirectoryPath.c_str());

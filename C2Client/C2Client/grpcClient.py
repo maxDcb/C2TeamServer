@@ -266,6 +266,38 @@ class GrpcClient:
 
         return self.deleteArtifact(artifact_id)
 
+    def listCredentials(self, query: Optional[Any] = None) -> Iterable[Any]:
+        """Return credential metadata from the TeamServer vault without secrets."""
+
+        if query is None:
+            query = TeamServerApi_pb2.CredentialQuery()
+        return self._stream_rpc("ListCredentials", lambda: self.stub.ListCredentials(query, metadata=self.metadata))
+
+    def getCredential(self, credential_id: str, reveal_secret: bool = False) -> Any:
+        """Return one credential; secrets are included only when explicitly requested."""
+
+        selector = TeamServerApi_pb2.CredentialSelector(
+            credential_id=credential_id,
+            reveal_secret=reveal_secret,
+        )
+        return self._unary_rpc("GetCredential", lambda: self.stub.GetCredential(selector, metadata=self.metadata))
+
+    def addCredential(self, request: Any) -> Any:
+        """Add a credential to the TeamServer vault."""
+
+        return self._unary_rpc("AddCredential", lambda: self.stub.AddCredential(request, metadata=self.metadata))
+
+    def updateCredential(self, request: Any) -> Any:
+        """Update a credential in the TeamServer vault."""
+
+        return self._unary_rpc("UpdateCredential", lambda: self.stub.UpdateCredential(request, metadata=self.metadata))
+
+    def deleteCredential(self, credential_id: str) -> Any:
+        """Delete a credential from the TeamServer vault."""
+
+        selector = TeamServerApi_pb2.CredentialSelector(credential_id=credential_id)
+        return self._unary_rpc("DeleteCredential", lambda: self.stub.DeleteCredential(selector, metadata=self.metadata))
+
     def listCommands(self, query: Optional[Any] = None) -> Iterable[Any]:
         """Return command specs exposed by the TeamServer catalog."""
 

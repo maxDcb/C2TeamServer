@@ -28,7 +28,7 @@ from .ScriptPanel import Script
 from .AssistantPanel import Assistant
 from .ArtifactPanel import Artifacts, ArtifactTabTitle
 from .CommandPanel import Commands, CommandTabTitle
-from .TerminalModules.Credentials import credentials
+from .CredentialVaultPanel import CredentialVault, CredentialVaultTabTitle
 from .console_style import (
     CONSOLE_COLORS,
     apply_console_output_style,
@@ -70,7 +70,7 @@ if not os.path.exists(logsDir):
 # Constant
 #
 TerminalTabTitle = "Terminal"
-SYSTEM_TAB_COUNT = 5
+SYSTEM_TAB_COUNT = 6
 CmdHistoryFileName = ".cmdHistory"
 
 HelpInstruction = "help"
@@ -117,6 +117,8 @@ def console_completion_options(
 ) -> list[CompletionOption]:
     normalized_text, placeholder_values = normalize_console_completion_text(command_text)
     options = completion_options(completion_data, normalized_text, descend_exact=descend_exact)
+    if not options:
+        options = _console_contextual_completion_options(completion_data, normalized_text)
     return [
         CompletionOption(
             label=option.label,
@@ -126,6 +128,73 @@ def console_completion_options(
         )
         for option in options
     ]
+
+
+def _options_from_entries(entries: list[tuple], prefix_parts: list[str], token: str = "") -> list[CompletionOption]:
+    options: list[CompletionOption] = []
+    seen: set[str] = set()
+    normalized_token = token.strip().lower()
+    for entry in entries:
+        label = _entry_text(entry)
+        insert_text = _entry_insert_text(entry)
+        if not label or not insert_text:
+            continue
+        if normalized_token:
+            normalized_label = label.lower()
+            normalized_insert = insert_text.lower()
+            if not (
+                normalized_label.startswith(normalized_token)
+                or normalized_insert.startswith(normalized_token)
+                or ("(" in normalized_label and normalized_token in normalized_label)
+            ):
+                continue
+        full_text = " ".join([*prefix_parts, insert_text]).strip()
+        if full_text in seen:
+            continue
+        seen.add(full_text)
+        options.append(
+            CompletionOption(
+                label=label,
+                insert_text=insert_text,
+                full_text=full_text,
+                has_children=bool(_entry_children(entry)),
+            )
+        )
+    return options
+
+
+def _console_contextual_completion_options(completion_data: list[tuple], command_text: str) -> list[CompletionOption]:
+    text = str(command_text or "")
+    if not text.strip():
+        return []
+
+    trailing_space = text.endswith(" ")
+    tokens = [token for token in text.split(" ") if token]
+    if not tokens or "--" in tokens[1:]:
+        return []
+
+    command_entry = _find_entry(completion_data, tokens[0])
+    if command_entry is None:
+        return []
+    command_children = _entry_children(command_entry)
+
+    current_token = "" if trailing_space else tokens[-1]
+    prefix_parts = tokens if trailing_space else tokens[:-1]
+    previous_token = tokens[-1] if trailing_space else (tokens[-2] if len(tokens) >= 2 else "")
+    previous_entry = _find_entry(command_children, previous_token)
+    if previous_entry is not None and _entry_children(previous_entry):
+        return _options_from_entries(_entry_children(previous_entry), prefix_parts, current_token)
+
+    if current_token and not current_token.startswith("-"):
+        return []
+
+    used_flags = {token for token in tokens[1:] if token.startswith("-")}
+    flag_entries = [
+        entry
+        for entry in command_children
+        if _entry_insert_text(entry).startswith("-") and _entry_insert_text(entry) not in used_flags
+    ]
+    return _options_from_entries(flag_entries, prefix_parts, current_token)
 
 
 def _completion_suffix(command_name: Any, example: Any):
@@ -141,8 +210,22 @@ def _completion_suffix(command_name: Any, example: Any):
     return example
 
 
-def _entry_text(entry: tuple[str, list]) -> str:
-    return entry[0]
+def _entry_text(entry: tuple) -> str:
+    return str(entry[0]).strip() if entry else ""
+
+
+def _entry_children(entry: tuple) -> list[tuple]:
+    if len(entry) < 2 or entry[1] is None:
+        return []
+    return entry[1]
+
+
+def _entry_insert_text(entry: tuple) -> str:
+    if len(entry) >= 3:
+        insert_text = str(entry[2]).strip()
+        if insert_text:
+            return insert_text
+    return _entry_text(entry)
 
 
 def _find_entry(entries: list[tuple[str, list]], text: str):
@@ -164,7 +247,21 @@ def _add_completion_path(entries: list[tuple[str, list]], parts: list[str]) -> N
     if entry is None:
         entry = (text, [])
         entries.append(entry)
-    _add_completion_path(entry[1], parts[1:])
+    _add_completion_path(_entry_children(entry), parts[1:])
+
+
+def _add_completion_entry(entries: list[tuple], label: Any, insert_text: Any = "", children: list[tuple] | None = None) -> None:
+    text = str(label or "").strip()
+    if not text:
+        return
+    insert = str(insert_text or "").strip()
+    entry_children = list(children or [])
+    if _find_entry(entries, text) is not None:
+        return
+    if insert and insert != text:
+        entries.append((text, entry_children, insert))
+    else:
+        entries.append((text, entry_children))
 
 
 def _add_completion_value(entries: list[tuple[str, list]], value: Any) -> None:
@@ -173,12 +270,14 @@ def _add_completion_value(entries: list[tuple[str, list]], value: Any) -> None:
         _add_completion_path(entries, text.split())
 
 
-def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple[str, list]]) -> None:
-    for text, children in source:
-        _add_completion_path(destination, [text])
+def _merge_completion_entries(destination: list[tuple[str, list]], source: list[tuple]) -> None:
+    for entry in source:
+        text = _entry_text(entry)
+        children = _entry_children(entry)
+        _add_completion_entry(destination, text, _entry_insert_text(entry))
         destination_entry = _find_entry(destination, text)
         if destination_entry is not None and children:
-            _merge_completion_entries(destination_entry[1], children)
+            _merge_completion_entries(_entry_children(destination_entry), children)
 
 
 def _add_example_completions(children: list[tuple[str, list]], command: Any) -> None:
@@ -202,7 +301,10 @@ def _arg_name(arg: Any) -> str:
 
 
 def _command_has_artifact_args(command: Any) -> bool:
-    return any(_arg_has_artifact_filter(arg) for arg in getattr(command, "args", []))
+    return any(
+        _arg_has_artifact_filter(arg) or _arg_has_credential_filter(arg)
+        for arg in getattr(command, "args", [])
+    )
 
 
 def _flag_is_context_only(arg: Any) -> bool:
@@ -297,6 +399,33 @@ def _add_artifact_completions(
                     _add_inject_pid_continuations(artifact_entry[1], arg)
 
 
+def _credential_completion_entries(credential: Any) -> list[tuple]:
+    credential_id = str(getattr(credential, "credential_id", "") or "").strip()
+    if not credential_id:
+        return []
+    short_id = credential_id[:8] if len(credential_id) > 8 else credential_id
+    display_name = str(getattr(credential, "display_name", "") or "").strip()
+    username = str(getattr(credential, "username", "") or "").strip()
+    domain = str(getattr(credential, "domain", "") or "").strip()
+    identity = f"{domain}\\{username}" if domain and username else username
+    title = display_name or identity or short_id
+    if identity and identity.lower() not in title.lower():
+        label = f"{title} - {identity} ({short_id})"
+    else:
+        label = f"{title} ({short_id})"
+    return [(label, [], f"cred:{short_id}")]
+
+
+def _add_credential_completions(
+    children: list[tuple[str, list]],
+    grpcClient: Any,
+    arg: Any,
+) -> None:
+    for credential in _load_credentials_for_arg(grpcClient, arg):
+        for entry in _credential_completion_entries(credential):
+            _add_completion_entry(children, _entry_text(entry), _entry_insert_text(entry), _entry_children(entry))
+
+
 def _build_flag_entries(
     args: list[Any],
     grpcClient: Any = None,
@@ -320,6 +449,7 @@ def _build_flag_entries(
         for value in getattr(arg, "values", []):
             _add_completion_value(flag_entry[1], value)
         _add_artifact_completions(flag_entry[1], grpcClient, arg, session, command_name)
+        _add_credential_completions(flag_entry[1], grpcClient, arg)
 
         if command_name == "inject" and name == "--pid":
             _add_completion_path(flag_entry[1], [PID_COMPLETION_PLACEHOLDER])
@@ -371,9 +501,12 @@ def _add_arg_completions(
 
         if first_positional_done:
             continue
+        if _arg_completion_parents(arg):
+            continue
         for value in getattr(arg, "values", []):
             _add_completion_value(children, value)
         _add_artifact_completions(children, grpcClient, arg, session, command_name)
+        _add_credential_completions(children, grpcClient, arg)
         first_positional_done = True
 
     for arg in args:
@@ -385,6 +518,7 @@ def _add_arg_completions(
             for value in getattr(arg, "values", []):
                 _add_completion_value(parent_entry[1], value)
             _add_artifact_completions(parent_entry[1], grpcClient, arg, session, command_name)
+            _add_credential_completions(parent_entry[1], grpcClient, arg)
 
 
 def _normalized_module_name(value: Any) -> str:
@@ -485,6 +619,35 @@ def _arg_has_artifact_filter(arg: Any) -> bool:
     return bool(_artifact_filters_for_arg(arg))
 
 
+def _credential_filters_for_arg(arg: Any) -> list[Any]:
+    credential_filters = getattr(arg, "credential_filters", None)
+    if credential_filters is not None:
+        try:
+            filters = [credential_filter for credential_filter in credential_filters if credential_filter is not None]
+        except TypeError:
+            filters = []
+        if filters:
+            return filters
+
+    if not hasattr(arg, "credential_filter"):
+        return []
+
+    credential_filter = getattr(arg, "credential_filter", None)
+    if credential_filter is None:
+        return []
+    if hasattr(arg, "HasField"):
+        try:
+            if not arg.HasField("credential_filter"):
+                return []
+        except ValueError:
+            pass
+    return [credential_filter]
+
+
+def _arg_has_credential_filter(arg: Any) -> bool:
+    return bool(_credential_filters_for_arg(arg))
+
+
 def _arg_completion_parents(arg: Any) -> list[str]:
     try:
         parents = getattr(arg, "completion_parents", [])
@@ -502,6 +665,17 @@ def _artifact_query_from_filter(artifact_filter: Any, session: Any | None) -> An
         value = _resolve_filter_value(getattr(artifact_filter, field_name, ""), session)
         if value:
             setattr(query, field_name, value)
+    return query
+
+
+def _credential_query_from_filter(credential_filter: Any) -> Any:
+    query = TeamServerApi_pb2.CredentialQuery()
+    for field_name in ("type", "username", "domain", "target", "protocol", "tag", "name_contains"):
+        value = str(getattr(credential_filter, field_name, "") or "").strip()
+        if value:
+            setattr(query, field_name, value)
+    if bool(getattr(credential_filter, "include_expired", False)):
+        query.include_expired = True
     return query
 
 
@@ -574,6 +748,26 @@ def _load_artifacts_for_arg(grpcClient: Any, arg: Any, session: Any | None) -> l
         except Exception as exc:
             logger.debug("Command autocomplete could not load artifact context: %s", exc)
     return artifacts
+
+
+def _load_credentials_for_arg(grpcClient: Any, arg: Any) -> list[Any]:
+    if grpcClient is None or not hasattr(grpcClient, "listCredentials") or not _arg_has_credential_filter(arg):
+        return []
+
+    credentials: list[Any] = []
+    seen: set[str] = set()
+    for credential_filter in _credential_filters_for_arg(arg):
+        try:
+            query = _credential_query_from_filter(credential_filter)
+            for credential in grpcClient.listCredentials(query):
+                credential_id = str(getattr(credential, "credential_id", "") or "").strip()
+                if not credential_id or credential_id in seen:
+                    continue
+                seen.add(credential_id)
+                credentials.append(credential)
+        except Exception as exc:
+            logger.debug("Command autocomplete could not load credential context: %s", exc)
+    return credentials
 
 
 def _module_command_names(command_specs: list[Any]) -> list[str]:
@@ -864,6 +1058,11 @@ class ConsolesTab(QWidget):
         self.artifacts = Artifacts(self, self.grpcClient)
         tab = self.createConsolePage(self.artifacts)
         self.tabs.addTab(tab, ArtifactTabTitle)
+        self.tabs.setCurrentIndex(self.tabs.count()-1)
+
+        self.credentialVault = CredentialVault(self, self.grpcClient)
+        tab = self.createConsolePage(self.credentialVault)
+        self.tabs.addTab(tab, CredentialVaultTabTitle)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
         self.commands = Commands(self, self.grpcClient)
@@ -1396,9 +1595,6 @@ class Console(QWidget):
         if not response_ok:
             decoded_response = response_message(response) or decoded_response or "Command failed."
         self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
-        # check the response for mimikatz and not the cmd line ???
-        if "-e mimikatz.exe" in command_text:
-            credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
         status = "done" if response_ok else "error"
         self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
         self.printCommandStatusInTerminal(command_id, status, command_text)

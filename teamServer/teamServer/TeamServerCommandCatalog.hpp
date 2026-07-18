@@ -17,6 +17,18 @@ struct TeamServerCommandArtifactFilter
     std::string format;
 };
 
+struct TeamServerCommandCredentialFilter
+{
+    std::string type;
+    std::string username;
+    std::string domain;
+    std::string target;
+    std::string protocol;
+    std::string tag;
+    std::string nameContains;
+    bool includeExpired = false;
+};
+
 struct TeamServerCommandArgSpec
 {
     std::string name;
@@ -27,6 +39,9 @@ struct TeamServerCommandArgSpec
     TeamServerCommandArtifactFilter artifactFilter;
     std::vector<TeamServerCommandArtifactFilter> artifactFilters;
     bool hasArtifactFilter = false;
+    TeamServerCommandCredentialFilter credentialFilter;
+    std::vector<TeamServerCommandCredentialFilter> credentialFilters;
+    bool hasCredentialFilter = false;
     bool variadic = false;
     std::vector<std::string> completionParents;
 };

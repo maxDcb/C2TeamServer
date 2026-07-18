@@ -56,6 +56,9 @@ class StubGrpc:
         self.list_modules_requests.append(session)
         return iter(self.modules)
 
+    def listCredentials(self, query):
+        return iter([])
+
 
 class DummyPanel(QWidget):
     def __init__(self, parent=None, *_args, **_kwargs):
@@ -343,6 +346,7 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Artifacts', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.CredentialVault', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Commands', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
 
@@ -354,8 +358,9 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
     assert consoles.tabs.objectName() == "C2ConsoleTabs"
     assert consoles.tabs.tabText(1) == "Hooks"
     assert consoles.tabs.tabText(2) == "Artifacts"
-    assert consoles.tabs.tabText(3) == "Commands"
-    assert consoles.tabs.tabText(4) == "Data AI"
+    assert consoles.tabs.tabText(3) == "Vault"
+    assert consoles.tabs.tabText(4) == "Commands"
+    assert consoles.tabs.tabText(5) == "Data AI"
     assert "#0b1117" in consoles.styleSheet()
     assert "#070b10" in consoles.styleSheet()
     assert consoles.layout.contentsMargins().left() == 0
@@ -392,6 +397,7 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     monkeypatch.setattr('C2Client.ConsolePanel.Terminal', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Script', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Artifacts', DummyPanel)
+    monkeypatch.setattr('C2Client.ConsolePanel.CredentialVault', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Commands', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Assistant', DummyPanel)
     monkeypatch.setattr('C2Client.ConsolePanel.Console', FakeConsole)
@@ -419,7 +425,7 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
 
 
 def _completion_children(entries, text):
-    return next(children for entry_text, children in entries if entry_text == text)
+    return next(entry[1] for entry in entries if entry[0] == text)
 
 
 def test_command_specs_seed_console_completer_from_manifest_examples():
@@ -539,6 +545,66 @@ def test_command_arg_can_use_multiple_artifact_filters():
     assert grpc.queries[1].target == "beacon"
     assert grpc.queries[1].platform == "windows"
     assert grpc.queries[1].runtime == "file"
+
+
+def test_vault_arg_uses_human_readable_vault_completions():
+    class FakeGrpc:
+        def __init__(self):
+            self.queries = []
+
+        def listCredentials(self, query):
+            self.queries.append(query)
+            return iter([
+                SimpleNamespace(
+                    credential_id="abcdef1234567890",
+                    display_name="Domain Admin",
+                    username="alice",
+                    domain="CORP",
+                ),
+            ])
+
+    credential_filter = SimpleNamespace(
+        type="password",
+        username="",
+        domain="CORP",
+        target="",
+        protocol="smb",
+        tag="admin",
+        name_contains="",
+        include_expired=False,
+    )
+    ps_exec_spec = SimpleNamespace(
+        name="psExec",
+        kind="module",
+        examples=["psExec -u DOMAIN\\alice secret server svc.exe"],
+        args=[
+            SimpleNamespace(
+                name="--vault",
+                type="credential",
+                values=[],
+                credential_filter=credential_filter,
+            ),
+        ],
+    )
+
+    grpc = FakeGrpc()
+    server_data = command_specs_to_completer_data([ps_exec_spec], grpcClient=grpc)
+    ps_exec_children = _completion_children(server_data, "psExec")
+    vault_children = _completion_children(ps_exec_children, "--vault")
+    options = console_completion_options(server_data, "psExec --vault ")
+    contextual_options = console_completion_options(server_data, "psExec server --vault ")
+    flag_options = console_completion_options(server_data, "psExec server --v")
+
+    assert vault_children == [("Domain Admin - CORP\\alice (abcdef12)", [], "cred:abcdef12")]
+    assert options[0].label == "Domain Admin - CORP\\alice (abcdef12)"
+    assert options[0].full_text == "psExec --vault cred:abcdef12"
+    assert contextual_options[0].full_text == "psExec server --vault cred:abcdef12"
+    assert flag_options[0].full_text == "psExec server --vault"
+    assert len(grpc.queries) == 1
+    assert grpc.queries[0].type == "password"
+    assert grpc.queries[0].domain == "CORP"
+    assert grpc.queries[0].protocol == "smb"
+    assert grpc.queries[0].tag == "admin"
 
 
 def test_script_and_powershell_commands_use_script_artifact_completions():

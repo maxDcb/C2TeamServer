@@ -11,6 +11,7 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerCommandCatalog.cpp
     teamServer/TeamServerCommandCatalogService.cpp
     teamServer/TeamServerCommandPreparationService.cpp
+    teamServer/TeamServerCredentialVaultService.cpp
     teamServer/TeamServerFileArtifactService.cpp
     teamServer/TeamServerFileTransferCommandPreparer.cpp
     teamServer/TeamServerGeneratedArtifactStore.cpp
@@ -161,6 +162,11 @@ if(WITH_TESTS)
     teamserver_add_test(testsTeamServerCommandCatalog
         server_core
         tests/TeamServerCommandCatalogTests.cpp
+    )
+
+    teamserver_add_test(testsTeamServerCredentialVaultService
+        server_core
+        tests/TeamServerCredentialVaultServiceTests.cpp
     )
 
     teamserver_add_test(testsTeamServerSocksService

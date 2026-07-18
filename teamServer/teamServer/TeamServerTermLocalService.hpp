@@ -14,6 +14,8 @@
 #include "nlohmann/json.hpp"
 #include "spdlog/logger.h"
 
+class TeamServerCredentialVaultService;
+
 class TeamServerTermLocalService
 {
 public:
@@ -26,7 +28,8 @@ public:
         std::vector<std::shared_ptr<Listener>>& listeners,
         nlohmann::json& credentials,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
-        ModuleLoader moduleLoader = {});
+        ModuleLoader moduleLoader = {},
+        std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService = {});
 
     bool canHandle(const std::string& instruction) const;
     grpc::Status handleCommand(
@@ -54,6 +57,10 @@ private:
         const teamserverapi::TerminalCommandRequest& command,
         teamserverapi::TerminalCommandResponse* response);
     grpc::Status handleGetCredential(teamserverapi::TerminalCommandResponse* response);
+    grpc::Status handleCredentialVault(
+        const std::vector<std::string>& splitedCmd,
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
     grpc::Status handleReloadModules(teamserverapi::TerminalCommandResponse* response);
 
     std::shared_ptr<spdlog::logger> m_logger;
@@ -62,5 +69,6 @@ private:
     std::vector<std::shared_ptr<Listener>>& m_listeners;
     nlohmann::json& m_credentials;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
+    std::shared_ptr<TeamServerCredentialVaultService> m_credentialVaultService;
     ModuleLoader m_moduleLoader;
 };

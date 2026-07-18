@@ -28,6 +28,9 @@ struct TeamServerRuntimeConfig
     std::string uploadedArtifactsDirectoryPath = "../data/UploadedArtifacts/";
     std::string generatedArtifactsDirectoryPath = "../data/GeneratedArtifacts/";
     std::string hostedArtifactsDirectoryPath = "../data/GeneratedArtifacts/hosted/";
+    std::string credentialVaultDirectoryPath = "../data/CredentialVault/";
+    std::string credentialVaultPath = "../data/CredentialVault/vault.json";
+    std::string credentialVaultKeyFile = "../data/CredentialVault/vault.key";
     std::string defaultWindowsArch = "x64";
     std::string defaultLinuxArch = "x64";
     std::vector<std::string> supportedWindowsArchs = {"x86", "x64", "arm64"};
