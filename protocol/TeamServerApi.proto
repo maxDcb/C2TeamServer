@@ -240,6 +240,10 @@ message CredentialUpsertRequest
   string expires_at = 11;
   repeated CredentialSecret secrets = 12;
   bool replace_secrets = 13;
+  // Fields to replace during UpdateCredential. An explicitly listed field may
+  // be set to an empty value, which allows clients to clear optional metadata.
+  // An empty mask preserves the legacy non-empty-field update behavior.
+  repeated string update_fields = 14;
 }
 
 

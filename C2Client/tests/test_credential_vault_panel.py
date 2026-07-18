@@ -204,6 +204,7 @@ def test_credential_vault_panel_edits_without_replacing_secret(qtbot, monkeypatc
     assert grpc.revealed == ("abcdef1234567890", True)
     assert request.credential_id == "abcdef1234567890"
     assert request.display_name == "updated title"
+    assert list(request.update_fields) == ["display_name", "type", "username", "description"]
     assert len(request.secrets) == 0
     assert request.replace_secrets is False
 

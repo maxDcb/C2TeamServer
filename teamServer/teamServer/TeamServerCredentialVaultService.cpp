@@ -66,6 +66,12 @@ bool matchesField(const std::string& requested, const std::string& actual)
     return requested.empty() || toLower(requested) == toLower(actual);
 }
 
+bool updateFieldRequested(const teamserverapi::CredentialUpsertRequest& request, const std::string& field)
+{
+    const auto& fields = request.update_fields();
+    return std::find(fields.begin(), fields.end(), field) != fields.end();
+}
+
 std::string bytesToHex(const std::vector<unsigned char>& bytes)
 {
     std::ostringstream output;
@@ -293,9 +299,21 @@ bool TeamServerCredentialVaultService::writeNewVaultKeyLocked(std::vector<unsign
         message = "could not write credential vault key file";
         return false;
     }
+    if (chmod(m_runtimeConfig.credentialVaultKeyFile.c_str(), S_IRUSR | S_IWUSR) != 0)
+    {
+        output.close();
+        fs::remove(m_runtimeConfig.credentialVaultKeyFile, ec);
+        message = "could not secure credential vault key file permissions";
+        return false;
+    }
     output << bytesToHex(key) << "\n";
     output.close();
-    chmod(m_runtimeConfig.credentialVaultKeyFile.c_str(), S_IRUSR | S_IWUSR);
+    if (!output.good())
+    {
+        fs::remove(m_runtimeConfig.credentialVaultKeyFile, ec);
+        message = "could not flush credential vault key file";
+        return false;
+    }
     return true;
 }
 
@@ -332,6 +350,7 @@ bool TeamServerCredentialVaultService::encryptVaultLocked(const json& plainVault
 bool TeamServerCredentialVaultService::decryptVaultLocked(const json& encryptedVault, json& plainVault, std::string& message) const
 {
     if (!encryptedVault.is_object()
+        || encryptedVault.value("version", 0) != 1
         || encryptedVault.value("cipher", std::string()) != "AES-256-GCM")
     {
         message = "credential vault format is invalid";
@@ -342,10 +361,13 @@ bool TeamServerCredentialVaultService::decryptVaultLocked(const json& encryptedV
     std::vector<unsigned char> nonce;
     std::vector<unsigned char> tag;
     std::vector<unsigned char> ciphertext;
-    if (!ensureVaultKeyLocked(key, message)
-        || !hexToBytes(encryptedVault.value("nonce", std::string()), nonce)
+    if (!readVaultKeyLocked(key, message))
+        return false;
+    if (!hexToBytes(encryptedVault.value("nonce", std::string()), nonce)
         || !hexToBytes(encryptedVault.value("tag", std::string()), tag)
-        || !hexToBytes(encryptedVault.value("ciphertext", std::string()), ciphertext))
+        || !hexToBytes(encryptedVault.value("ciphertext", std::string()), ciphertext)
+        || nonce.size() != VaultNonceSize
+        || tag.size() != VaultTagSize)
     {
         message = "credential vault envelope is invalid";
         return false;
@@ -367,33 +389,39 @@ bool TeamServerCredentialVaultService::decryptVaultLocked(const json& encryptedV
     return true;
 }
 
-void TeamServerCredentialVaultService::loadLocked()
+bool TeamServerCredentialVaultService::loadLocked(std::string& message)
 {
     if (m_loaded)
-        return;
-    m_loaded = true;
+        return true;
 
     std::ifstream input(m_runtimeConfig.credentialVaultPath);
     if (!input.good())
     {
+        if (fs::exists(m_runtimeConfig.credentialVaultPath))
+        {
+            message = "could not read credential vault";
+            m_logger->error("Unable to load credential vault: {0}", message);
+            return false;
+        }
         m_credentials.clear();
         m_audit = json::array();
-        return;
+        m_loaded = true;
+        return true;
     }
 
     json encryptedVault = json::parse(input, nullptr, false);
     if (encryptedVault.is_discarded())
     {
-        m_logger->error("Credential vault file is not valid JSON: {0}", m_runtimeConfig.credentialVaultPath);
-        return;
+        message = "credential vault file is not valid JSON";
+        m_logger->error("{0}: {1}", message, m_runtimeConfig.credentialVaultPath);
+        return false;
     }
 
-    std::string message;
     json plainVault;
     if (!decryptVaultLocked(encryptedVault, plainVault, message))
     {
         m_logger->error("Unable to load credential vault: {0}", message);
-        return;
+        return false;
     }
 
     m_credentials.clear();
@@ -409,6 +437,8 @@ void TeamServerCredentialVaultService::loadLocked()
     m_audit = plainVault.value("audit", json::array());
     if (!m_audit.is_array())
         m_audit = json::array();
+    m_loaded = true;
+    return true;
 }
 
 bool TeamServerCredentialVaultService::saveLocked(std::string& message) const
@@ -440,26 +470,53 @@ bool TeamServerCredentialVaultService::saveLocked(std::string& message) const
         message = "could not write credential vault";
         return false;
     }
+    if (chmod(temporary.c_str(), S_IRUSR | S_IWUSR) != 0)
+    {
+        output.close();
+        fs::remove(temporary, ec);
+        message = "could not secure credential vault file permissions";
+        return false;
+    }
     output << encryptedVault.dump(2) << "\n";
     output.close();
     if (!output.good())
     {
+        fs::remove(temporary, ec);
         message = "could not flush credential vault";
         return false;
     }
     fs::rename(temporary, destination, ec);
     if (ec)
     {
-        fs::remove(destination, ec);
+        const fs::path backup = destination.string() + ".bak";
+        std::error_code cleanupError;
+        fs::remove(backup, cleanupError);
+
+        const bool hadDestination = fs::exists(destination);
         ec.clear();
+        if (hadDestination)
+            fs::rename(destination, backup, ec);
+        if (ec)
+        {
+            fs::remove(temporary, cleanupError);
+            message = "could not preserve existing credential vault before replacement";
+            return false;
+        }
+
         fs::rename(temporary, destination, ec);
+        if (ec)
+        {
+            std::error_code restoreError;
+            if (hadDestination)
+                fs::rename(backup, destination, restoreError);
+            message = restoreError
+                ? "could not replace credential vault and failed to restore the previous file"
+                : "could not replace credential vault";
+            return false;
+        }
+        if (hadDestination)
+            fs::remove(backup, cleanupError);
     }
-    if (ec)
-    {
-        message = "could not replace credential vault";
-        return false;
-    }
-    chmod(destination.c_str(), S_IRUSR | S_IWUSR);
     return true;
 }
 
@@ -651,22 +708,54 @@ bool TeamServerCredentialVaultService::matchesQuery(const TeamServerCredentialRe
             || containsCaseInsensitive(record.credentialId, query.name_contains()));
 }
 
-TeamServerCredentialRecord* TeamServerCredentialVaultService::findRecordLocked(const std::string& credentialId)
+TeamServerCredentialRecord* TeamServerCredentialVaultService::findRecordLocked(const std::string& credentialId, bool* ambiguous)
 {
-    auto it = std::find_if(m_credentials.begin(), m_credentials.end(), [&](const TeamServerCredentialRecord& record)
+    if (ambiguous)
+        *ambiguous = false;
+    if (credentialId.empty())
+        return nullptr;
+
+    TeamServerCredentialRecord* candidate = nullptr;
+    for (TeamServerCredentialRecord& record : m_credentials)
     {
-        return record.credentialId == credentialId || record.credentialId.rfind(credentialId, 0) == 0;
-    });
-    return it == m_credentials.end() ? nullptr : &(*it);
+        if (record.credentialId == credentialId)
+            return &record;
+        if (record.credentialId.rfind(credentialId, 0) != 0)
+            continue;
+        if (candidate)
+        {
+            if (ambiguous)
+                *ambiguous = true;
+            return nullptr;
+        }
+        candidate = &record;
+    }
+    return candidate;
 }
 
-const TeamServerCredentialRecord* TeamServerCredentialVaultService::findRecordLocked(const std::string& credentialId) const
+const TeamServerCredentialRecord* TeamServerCredentialVaultService::findRecordLocked(const std::string& credentialId, bool* ambiguous) const
 {
-    auto it = std::find_if(m_credentials.begin(), m_credentials.end(), [&](const TeamServerCredentialRecord& record)
+    if (ambiguous)
+        *ambiguous = false;
+    if (credentialId.empty())
+        return nullptr;
+
+    const TeamServerCredentialRecord* candidate = nullptr;
+    for (const TeamServerCredentialRecord& record : m_credentials)
     {
-        return record.credentialId == credentialId || record.credentialId.rfind(credentialId, 0) == 0;
-    });
-    return it == m_credentials.end() ? nullptr : &(*it);
+        if (record.credentialId == credentialId)
+            return &record;
+        if (record.credentialId.rfind(credentialId, 0) != 0)
+            continue;
+        if (candidate)
+        {
+            if (ambiguous)
+                *ambiguous = true;
+            return nullptr;
+        }
+        candidate = &record;
+    }
+    return candidate;
 }
 
 void TeamServerCredentialVaultService::appendAuditLocked(const std::string& action, const std::string& credentialId)
@@ -683,7 +772,9 @@ grpc::Status TeamServerCredentialVaultService::listCredentials(
     const CredentialEmitter& emit)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    loadLocked();
+    std::string message;
+    if (!loadLocked(message))
+        return grpc::Status(grpc::StatusCode::FAILED_PRECONDITION, message);
     for (const TeamServerCredentialRecord& record : m_credentials)
     {
         if (matchesQuery(record, query) && !emit(toSummary(record)))
@@ -697,19 +788,38 @@ grpc::Status TeamServerCredentialVaultService::getCredential(
     teamserverapi::CredentialDetail* response)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    loadLocked();
-    const TeamServerCredentialRecord* record = findRecordLocked(selector.credential_id());
+    std::string message;
+    if (!loadLocked(message))
+    {
+        response->set_status(teamserverapi::KO);
+        response->set_message(message);
+        return grpc::Status::OK;
+    }
+    if (selector.credential_id().empty())
+    {
+        response->set_status(teamserverapi::KO);
+        response->set_message("Credential id is required.");
+        return grpc::Status::OK;
+    }
+    bool ambiguous = false;
+    const TeamServerCredentialRecord* record = findRecordLocked(selector.credential_id(), &ambiguous);
     if (!record)
     {
         response->set_status(teamserverapi::KO);
-        response->set_message("Credential not found.");
+        response->set_message(ambiguous ? "Credential id is ambiguous." : "Credential not found.");
         return grpc::Status::OK;
     }
 
-    fillDetail(*record, selector.reveal_secret(), response);
+    const json previousAudit = m_audit;
     appendAuditLocked(selector.reveal_secret() ? "credential_revealed" : "credential_read", record->credentialId);
-    std::string message;
-    saveLocked(message);
+    if (!saveLocked(message))
+    {
+        m_audit = previousAudit;
+        response->set_status(teamserverapi::KO);
+        response->set_message("Could not persist credential audit: " + message);
+        return grpc::Status::OK;
+    }
+    fillDetail(*record, selector.reveal_secret(), response);
     return grpc::Status::OK;
 }
 
@@ -718,7 +828,12 @@ grpc::Status TeamServerCredentialVaultService::addCredential(
     teamserverapi::OperationAck* response)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    loadLocked();
+    std::string message;
+    if (!loadLocked(message))
+    {
+        setAck(response, teamserverapi::KO, message);
+        return grpc::Status::OK;
+    }
 
     TeamServerCredentialRecord record = recordFromRequest(request);
     record.credentialId = record.credentialId.empty() ? generateCredentialId() : record.credentialId;
@@ -730,12 +845,15 @@ grpc::Status TeamServerCredentialVaultService::addCredential(
     const std::string now = currentTimestamp();
     record.createdAt = now;
     record.updatedAt = now;
+    const auto previousCredentials = m_credentials;
+    const json previousAudit = m_audit;
     m_credentials.push_back(std::move(record));
     appendAuditLocked("credential_created", m_credentials.back().credentialId);
 
-    std::string message;
     if (!saveLocked(message))
     {
+        m_credentials = previousCredentials;
+        m_audit = previousAudit;
         setAck(response, teamserverapi::KO, message);
         return grpc::Status::OK;
     }
@@ -748,7 +866,12 @@ grpc::Status TeamServerCredentialVaultService::updateCredential(
     teamserverapi::OperationAck* response)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    loadLocked();
+    std::string message;
+    if (!loadLocked(message))
+    {
+        setAck(response, teamserverapi::KO, message);
+        return grpc::Status::OK;
+    }
 
     if (request.credential_id().empty())
     {
@@ -756,24 +879,32 @@ grpc::Status TeamServerCredentialVaultService::updateCredential(
         return grpc::Status::OK;
     }
 
-    TeamServerCredentialRecord* existing = findRecordLocked(request.credential_id());
+    bool ambiguous = false;
+    TeamServerCredentialRecord* existing = findRecordLocked(request.credential_id(), &ambiguous);
     if (!existing)
     {
-        setAck(response, teamserverapi::KO, "Credential not found.");
+        setAck(response, teamserverapi::KO, ambiguous ? "Credential id is ambiguous." : "Credential not found.");
         return grpc::Status::OK;
     }
 
+    const auto previousCredentials = m_credentials;
+    const json previousAudit = m_audit;
     TeamServerCredentialRecord update = recordFromRequest(request);
-    if (!update.displayName.empty()) existing->displayName = update.displayName;
-    if (!update.type.empty()) existing->type = update.type;
-    if (!update.username.empty()) existing->username = update.username;
-    if (!update.domain.empty()) existing->domain = update.domain;
-    if (!update.realm.empty()) existing->realm = update.realm;
-    if (!update.target.empty()) existing->target = update.target;
-    if (!update.protocol.empty()) existing->protocol = update.protocol;
-    if (!update.tags.empty()) existing->tags = update.tags;
-    if (!update.description.empty()) existing->description = update.description;
-    if (!update.expiresAt.empty()) existing->expiresAt = update.expiresAt;
+    const bool hasUpdateMask = request.update_fields_size() > 0;
+    auto shouldUpdate = [&](const std::string& field, const std::string& value)
+    {
+        return hasUpdateMask ? updateFieldRequested(request, field) : !value.empty();
+    };
+    if (shouldUpdate("display_name", request.display_name())) existing->displayName = request.display_name();
+    if (shouldUpdate("type", request.type())) existing->type = request.type();
+    if (shouldUpdate("username", request.username())) existing->username = request.username();
+    if (shouldUpdate("domain", request.domain())) existing->domain = request.domain();
+    if (shouldUpdate("realm", request.realm())) existing->realm = request.realm();
+    if (shouldUpdate("target", request.target())) existing->target = request.target();
+    if (shouldUpdate("protocol", request.protocol())) existing->protocol = request.protocol();
+    if ((hasUpdateMask && updateFieldRequested(request, "tags")) || (!hasUpdateMask && !update.tags.empty())) existing->tags = update.tags;
+    if (shouldUpdate("description", request.description())) existing->description = request.description();
+    if (shouldUpdate("expires_at", request.expires_at())) existing->expiresAt = request.expires_at();
     if (request.replace_secrets())
         existing->secrets.clear();
     for (const auto& [name, value] : update.secrets)
@@ -781,9 +912,10 @@ grpc::Status TeamServerCredentialVaultService::updateCredential(
     existing->updatedAt = currentTimestamp();
     appendAuditLocked("credential_updated", existing->credentialId);
 
-    std::string message;
     if (!saveLocked(message))
     {
+        m_credentials = previousCredentials;
+        m_audit = previousAudit;
         setAck(response, teamserverapi::KO, message);
         return grpc::Status::OK;
     }
@@ -796,26 +928,41 @@ grpc::Status TeamServerCredentialVaultService::deleteCredential(
     teamserverapi::OperationAck* response)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    loadLocked();
-
-    const std::string credentialId = selector.credential_id();
-    auto it = std::find_if(m_credentials.begin(), m_credentials.end(), [&](const TeamServerCredentialRecord& record)
+    std::string message;
+    if (!loadLocked(message))
     {
-        return record.credentialId == credentialId || record.credentialId.rfind(credentialId, 0) == 0;
-    });
-    if (it == m_credentials.end())
-    {
-        setAck(response, teamserverapi::KO, "Credential not found.");
+        setAck(response, teamserverapi::KO, message);
         return grpc::Status::OK;
     }
 
-    const std::string removedId = it->credentialId;
+    const std::string credentialId = selector.credential_id();
+    if (credentialId.empty())
+    {
+        setAck(response, teamserverapi::KO, "Credential id is required.");
+        return grpc::Status::OK;
+    }
+    bool ambiguous = false;
+    TeamServerCredentialRecord* record = findRecordLocked(credentialId, &ambiguous);
+    if (!record)
+    {
+        setAck(response, teamserverapi::KO, ambiguous ? "Credential id is ambiguous." : "Credential not found.");
+        return grpc::Status::OK;
+    }
+
+    const auto previousCredentials = m_credentials;
+    const json previousAudit = m_audit;
+    const std::string removedId = record->credentialId;
+    auto it = std::find_if(m_credentials.begin(), m_credentials.end(), [&](const TeamServerCredentialRecord& candidate)
+    {
+        return candidate.credentialId == removedId;
+    });
     m_credentials.erase(it);
     appendAuditLocked("credential_deleted", removedId);
 
-    std::string message;
     if (!saveLocked(message))
     {
+        m_credentials = previousCredentials;
+        m_audit = previousAudit;
         setAck(response, teamserverapi::KO, message);
         return grpc::Status::OK;
     }
@@ -909,7 +1056,12 @@ grpc::Status TeamServerCredentialVaultService::handleTerminalCommand(
     if (root == "getcred")
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        loadLocked();
+        std::string message;
+        if (!loadLocked(message))
+        {
+            setTerminalError(response, "Error: " + message);
+            return grpc::Status::OK;
+        }
         teamserverapi::CredentialQuery query;
         setTerminalOk(response, listCredentialsJsonLocked(query));
         return grpc::Status::OK;
@@ -938,7 +1090,12 @@ grpc::Status TeamServerCredentialVaultService::handleTerminalCommand(
     if (action == "list" || action == "search")
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        loadLocked();
+        std::string message;
+        if (!loadLocked(message))
+        {
+            setTerminalError(response, "Error: " + message);
+            return grpc::Status::OK;
+        }
         teamserverapi::CredentialQuery query;
         if (splitedCmd.size() >= 3)
             query.set_name_contains(splitedCmd[2]);
@@ -1006,6 +1163,21 @@ grpc::Status TeamServerCredentialVaultService::handleTerminalCommand(
         request.set_protocol(record.protocol);
         request.set_description(record.description);
         request.set_expires_at(record.expiresAt);
+        auto markUpdatedField = [&](const char* jsonField, const char* requestField)
+        {
+            if (input.contains(jsonField))
+                request.add_update_fields(requestField);
+        };
+        markUpdatedField("display_name", "display_name");
+        markUpdatedField("type", "type");
+        markUpdatedField("username", "username");
+        markUpdatedField("domain", "domain");
+        markUpdatedField("realm", "realm");
+        markUpdatedField("target", "target");
+        markUpdatedField("protocol", "protocol");
+        markUpdatedField("tags", "tags");
+        markUpdatedField("description", "description");
+        markUpdatedField("expires_at", "expires_at");
         for (const std::string& tag : record.tags)
             request.add_tags(tag);
         for (const auto& [name, value] : record.secrets)

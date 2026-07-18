@@ -493,6 +493,7 @@ class CredentialVault(QWidget):
         request = TeamServerApi_pb2.CredentialUpsertRequest()
         if credential_id:
             request.credential_id = credential_id
+            request.update_fields.extend(["display_name", "type", "username", "description"])
         request.display_name = values["title"]
         request.type = values["type"]
         request.username = values["username"]
