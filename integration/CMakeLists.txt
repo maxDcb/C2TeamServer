@@ -12,7 +12,7 @@ add_custom_target(stage_integration_runtime
 )
 
 add_executable(testsTeamServerRuntimeIntegration
-  tests/TeamServerRuntimeIntegrationTests.cpp
+  tests/TeamServerRuntimeSecurityIntegrationTests.cpp
 )
 
 target_compile_definitions(testsTeamServerRuntimeIntegration PRIVATE

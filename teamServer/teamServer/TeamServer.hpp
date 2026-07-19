@@ -21,6 +21,7 @@
 #include "TeamServerApi.pb.h"
 #include "TeamServerApi.grpc.pb.h"
 #include "TeamServerCommandTracking.hpp"
+#include "TeamServerAuthorization.hpp"
 
 #include "spdlog/spdlog.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -29,7 +30,6 @@
 
 #include "nlohmann/json.hpp"
 
-class TeamServerAuthManager;
 class TeamServerArtifactService;
 class TeamServerCommandCatalogService;
 class TeamServerCredentialVaultService;
@@ -88,7 +88,10 @@ protected:
         const std::string& windowsArch = "x64");
 
 private:
-    grpc::Status ensureAuthenticated(grpc::ServerContext* context);
+    grpc::Status ensureAuthenticated(
+        grpc::ServerContext* context,
+        TeamServerAuthorization::Role requiredRole = TeamServerAuthorization::Role::Viewer,
+        TeamServerAuthorization::Principal* principal = nullptr);
 
     nlohmann::json m_config;
 
@@ -107,7 +110,7 @@ private:
 
     std::vector<BeaconCommandContext> m_sentCommands;
 
-    std::unique_ptr<TeamServerAuthManager> m_authManager;
+    std::unique_ptr<TeamServerAuthorization> m_authManager;
     std::unique_ptr<TeamServerArtifactService> m_artifactService;
     std::unique_ptr<TeamServerCommandCatalogService> m_commandCatalogService;
     std::shared_ptr<TeamServerCredentialVaultService> m_credentialVaultService;

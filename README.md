@@ -1,122 +1,90 @@
 # Exploration C2 Framework
 
-<p align="center">
-  <img src="images/Exploration1.png?raw=true" alt="Exploration C2 Logo" />
-</p>
+Exploration is a modular command-and-control framework intended for authorized
+red-team operations. This repository contains the C++ TeamServer, the Python/Qt
+operator client, shared gRPC contracts, modules, and deterministic release tooling.
 
-## Overview
+## 1.0.0-rc.1 security model
 
-**Exploration** is a modular Command and Control framework for red team operations.
+The release archive contains no credential, private key, vault key, or bootstrap
+password. A TeamServer instance owns all mutable state outside the release tree.
+Every gRPC call uses TLS and authentication; roles are `viewer`, `operator`, and
+`admin`. Production can require client certificates.
 
-This repository contains:
+## First run
 
-- C++ TeamServer
-- Python Client
-- Release packaging for Windows assets from [C2Implant](https://github.com/maxDcb/C2Implant)
-- Release packaging for Linux assets from [C2LinuxImplant](https://github.com/maxDcb/C2LinuxImplant)
-
-## Look And Feel
-
-<p align="center">
-  <img src="images/ListenersAndSessions.png" />
-</p>
-
-<p align="center">
-  <img src="images/ListenersAndSessions2.png" />
-</p>
-
-## Architecture
-
-The TeamServer manages listeners and sessions. The Python Client talks to the TeamServer through gRPC.
-
-Supported listener channels:
-
-- `TCP`
-- `SMB`
-- `HTTP`
-- `HTTPS`
-
-<p align="center">
-  <img src="images/architecture.png" />
-</p>
-
-## Repository Layout
-
-```text
-protocol/     .proto source and generated gRPC build rules
-teamServer/   TeamServer runtime and gRPC implementation
-C2Client/     Python client package and UI
-core/         shared C++ components
-packaging/    release bundle assembly and validation
-integration/  runtime staging and integration tests
-docs/         build, release, CI/CD, and integration notes
-```
-
-## Quick Start
-
-Download the latest release:
+Extract `Release.tar.gz`, then initialize and run a local standalone instance:
 
 ```bash
-wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz
-mkdir C2TeamServer
-tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
+cd Release/TeamServer
+./TeamServer init \
+  --profile standalone \
+  --instance-dir "$HOME/.local/share/exploration-teamserver" \
+  --hostname localhost \
+  --listen-address 127.0.0.1
+./TeamServer run --instance-dir "$HOME/.local/share/exploration-teamserver"
 ```
 
-Start the TeamServer:
+The initialization command prints the paths of:
+
+- the public client profile;
+- the one-time bootstrap credential file;
+- the TLS certificate fingerprint.
+
+In another terminal:
 
 ```bash
-cd C2TeamServer/TeamServer
-./TeamServer
-```
-
-Install and run the client:
-
-```bash
-cd C2TeamServer/Client
+cd Release/Client
 python -m venv .venv
 . .venv/bin/activate
-pip install .
-
-export C2_CERT_PATH="$PWD/../TeamServer/server.crt"
-c2client --ip 127.0.0.1 --port 50051
+pip install -r requirements.txt
+export C2_USERNAME=admin
+export C2_PASSWORD='value from instance/secrets/bootstrap.txt'
+./run-client.sh --profile "$HOME/.local/share/exploration-teamserver/client/client-profile.json"
 ```
+
+Delete `bootstrap.txt` after moving the password into your secret manager.
+
+## Production
+
+Production initialization is fail-closed and requires an external certificate and
+private key. mTLS is strongly recommended:
+
+```bash
+C2_BOOTSTRAP_PASSWORD_FILE=/run/secrets/bootstrap-password ./TeamServer init \
+  --profile production \
+  --instance-dir /var/lib/teamserver \
+  --hostname teamserver.example.internal \
+  --listen-address 0.0.0.0 \
+  --tls-cert /run/secrets/server.crt \
+  --tls-key /run/secrets/server.key \
+  --trust-cert /run/secrets/operator-trust.crt \
+  --client-ca /run/secrets/operator-ca.crt \
+  --require-client-cert
+```
+
+See [SECURITY.md](SECURITY.md) and the release's `TeamServer/README-FIRST-RUN.md`.
 
 ## Docker
 
-```bash
-docker build -t exploration-teamserver .
-docker run --rm -it \
-  --name exploration-teamserver \
-  -p 50051:50051 \
-  -p 80:80 \
-  -p 443:443 \
-  -p 8443:8443 \
-  exploration-teamserver
-```
-
-Use a local release bundle:
+Container builds require the checksum published beside the immutable RC archive:
 
 ```bash
-docker run --rm -it \
-  -v "$PWD/Release:/opt/teamserver/Release:ro" \
-  -p 50051:50051 \
-  exploration-teamserver
+docker build \
+  --build-arg C2TEAMSERVER_SHA256="$(cut -d' ' -f1 Release.tar.gz.sha256)" \
+  -t exploration-teamserver:1.0.0-rc.1 .
+docker run --rm -p 50051:50051 \
+  -v exploration-teamserver-data:/var/lib/teamserver \
+  exploration-teamserver:1.0.0-rc.1
 ```
 
-## Build And Release Docs
+The container runs as UID/GID `10001`; its instance state lives only in the mounted
+volume.
+
+## Build and release documentation
 
 - [Build and tests](docs/build.md)
 - [Release packaging](docs/release.md)
 - [Implant asset contract](docs/implants.md)
 - [CI/CD contract](docs/ci-cd.md)
 - [Integration runtime](docs/integration.md)
-
-## Blog Series
-
-[Building a Modern C2](https://maxdcb.github.io/BuildingAModernC2/)
-
-- Part 0: Setup and basic usage
-- Part 1: TeamServer and architecture
-- Part 2: GUI and operator workflows
-- Part 3: Beacons and listeners
-- Part 4: Modules

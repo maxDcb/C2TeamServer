@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterable, List, Tuple, Optional
 
 import grpc
 from .env import env_int, env_path
+from .connection_profile import ConnectionProfile
 from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
 
 
@@ -46,6 +47,7 @@ class GrpcClient:
         token: Optional[str] = None,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        profile_path: Optional[str] = None,
     ) -> None:
         self.ip = ip
         self.port = port
@@ -59,65 +61,64 @@ class GrpcClient:
         self.last_rpc_message = ""
         self._status_callback: Optional[StatusCallback] = None
 
-        configured_cert_path = env_path("C2_CERT_PATH")
-
-        if configured_cert_path:
+        profile = ConnectionProfile.load(profile_path) if profile_path else None
+        if profile:
+            if devMode and profile.deployment_profile == "production":
+                raise ValueError("Developer TLS override is forbidden for production profiles")
+            self.ip = profile.host
+            self.port = profile.port
+            self.endpoint = f"{self.ip}:{self.port}"
+            self.username = username or profile.username
+            self.devMode = profile.deployment_profile == "development"
+            self.ca_cert_path = str(profile.path)
+            root_certs = profile.root_certificates_pem
+        else:
+            configured_cert_path = env_path("C2_CERT_PATH")
+            if not configured_cert_path:
+                raise ValueError("grpcClient: --profile or C2_CERT_PATH is required")
             if not configured_cert_path.is_file():
-                logging.error(
-                    "Configured C2 certificate does not exist: %s",
-                    configured_cert_path,
-                )
-                raise ValueError(f"grpcClient: configured certificate not found: {configured_cert_path}")
-            ca_cert = str(configured_cert_path)
-            logging.info("Using certificate from environment variable: %s", ca_cert)
-        else:
-            try:
-                import pkg_resources
-                ca_cert = pkg_resources.resource_filename('C2Client', 'server.crt')
-            except ImportError:
-                ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
-            logging.info(
-                "Using default certificate: %s. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.",
-                ca_cert,
-            )
-        self.ca_cert_path = ca_cert
+                raise ValueError("grpcClient: configured certificate not found")
+            self.ca_cert_path = str(configured_cert_path)
+            with configured_cert_path.open("rb") as certificate_file:
+                root_certs = certificate_file.read()
 
-        if os.path.exists(ca_cert):
-            with open(ca_cert, 'rb') as fh:
-                root_certs = fh.read()
-        else:
-            logging.error(
-                "%s not found, this file is needed to secure the communication between the client and server.",
-                ca_cert,
-            )
-            raise ValueError("grpcClient: Certificate not found")
+        client_certificate_path = env_path("C2_CLIENT_CERT_PATH")
+        client_key_path = env_path("C2_CLIENT_KEY_PATH")
+        if bool(client_certificate_path) != bool(client_key_path):
+            raise ValueError("Both C2_CLIENT_CERT_PATH and C2_CLIENT_KEY_PATH are required for mTLS")
+        client_certificate = None
+        client_key = None
+        if client_certificate_path and client_key_path:
+            if not client_certificate_path.is_file() or not client_key_path.is_file():
+                raise ValueError("Configured mTLS client certificate or key was not found")
+            client_certificate = client_certificate_path.read_bytes()
+            client_key = client_key_path.read_bytes()
 
-        credentials = grpc.ssl_channel_credentials(root_certs)
-        self.max_message_mb = env_int("C2_GRPC_MAX_MESSAGE_MB", 512, minimum=1)
+        if client_key is not None:
+            credentials = grpc.ssl_channel_credentials(root_certs, client_key, client_certificate)
+        else:
+            credentials = grpc.ssl_channel_credentials(root_certs)
+        self.max_message_mb = env_int("C2_GRPC_MAX_MESSAGE_MB", 64, minimum=1, maximum=256)
         self.max_message_bytes = self.max_message_mb * 1024 * 1024
-        self.connect_timeout_ms = env_int("C2_GRPC_CONNECT_TIMEOUT_MS", 0, minimum=0)
+        self.connect_timeout_ms = env_int("C2_GRPC_CONNECT_TIMEOUT_MS", 10000, minimum=100, maximum=120000)
         channel_options = [
             ('grpc.max_send_message_length', self.max_message_bytes),
             ('grpc.max_receive_message_length', self.max_message_bytes),
         ]
-        if devMode:
-            self.channel = grpc.secure_channel(
-                f"{ip}:{port}",
-                credentials,
-                options=[
-                    ('grpc.ssl_target_name_override', 'localhost'),
-                    *channel_options,
-                ],
-            )
-        else:
-            self.channel = grpc.secure_channel(
-                f"{ip}:{port}",
-                credentials,
-                options=channel_options,
-            )
+        tls_server_name = profile.server_name if profile else ("localhost" if self.devMode else self.ip)
+        if tls_server_name != self.ip:
+            channel_options.extend([
+                ('grpc.ssl_target_name_override', tls_server_name),
+                ('grpc.default_authority', tls_server_name),
+            ])
+        self.channel = grpc.secure_channel(
+            self.endpoint,
+            credentials,
+            options=channel_options,
+        )
 
         try:
-            timeout = self.connect_timeout_ms / 1000 if self.connect_timeout_ms else None
+            timeout = self.connect_timeout_ms / 1000
             grpc.channel_ready_future(self.channel).result(timeout=timeout)
         except grpc.RpcError as exc:
             logging.error("Failed to connect to gRPC server: %s", exc)

@@ -80,11 +80,12 @@ Typical local setup:
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-./run-client.sh --ip 127.0.0.1 --port 50051
+./run-client.sh --profile /path/to/instance/client/client-profile.json
 ```
 
-The launcher adds the bundle root to `PYTHONPATH`, so the generated protocol bindings are
-resolved without relying on build-tree paths.
+Provide `C2_USERNAME` and `C2_PASSWORD` through the environment. The launcher adds the
+bundle root to `PYTHONPATH`, so the generated protocol bindings are resolved without
+relying on build-tree paths.
 """,
     )
 
@@ -120,16 +121,17 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
     shutil.rmtree(output_root / "CommandSpecs", ignore_errors=True)
     shutil.rmtree(output_root / "Modules", ignore_errors=True)
 
-    _copytree(teamserver_root, output_root / "TeamServer")
+    public_teamserver_root = output_root / "TeamServer"
+    public_teamserver_root.mkdir(parents=True, exist_ok=True)
+    for filename in ("TeamServer", "TeamServerConfig.example.json", "README-FIRST-RUN.md"):
+        shutil.copy2(teamserver_root / filename, public_teamserver_root / filename)
     _copytree(modules_root, output_root / "TeamServerModules")
     _copytree(command_specs_root, output_root / "CommandSpecs")
-    shutil.rmtree(output_root / "TeamServer" / "logs", ignore_errors=True)
-    (output_root / "TeamServer" / "logs").mkdir(parents=True, exist_ok=True)
 
     _build_client_bundle(source_root, build_root, output_root)
 
-    _remove_matching(output_root, ".gitignore")
-    _remove_matching(output_root, "__pycache__")
+    for generated_pattern in (".git", ".gitignore", "__pycache__", "*.pyc", "*.log"):
+        _remove_matching(output_root, generated_pattern)
 
 
 def main() -> None:

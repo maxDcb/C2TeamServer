@@ -1,68 +1,40 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 FROM ubuntu:24.04
 
-LABEL org.opencontainers.image.title="Exploration TeamServer"
-LABEL org.opencontainers.image.description="Container image for the Exploration C2 TeamServer."
-LABEL org.opencontainers.image.source="https://github.com/maxDcb/C2TeamServer"
+LABEL org.opencontainers.image.title="Exploration TeamServer" \
+      org.opencontainers.image.version="1.0.0-rc.1" \
+      org.opencontainers.image.source="https://github.com/maxDcb/C2TeamServer"
 
-ENV TEAMSERVER_HOME=/opt/teamserver
-WORKDIR ${TEAMSERVER_HOME}
-ARG C2TEAMSERVER_RELEASE_URL=""
+ARG C2TEAMSERVER_VERSION="1.0.0-rc.1"
+ARG C2TEAMSERVER_RELEASE_URL="https://github.com/maxDcb/C2TeamServer/releases/download/1.0.0-rc.1/Release.tar.gz"
+ARG C2TEAMSERVER_SHA256
 
-# Install minimal dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        libstdc++6 \
-        wget \
-        jq \
-        tar \
+ENV TEAMSERVER_RELEASE_DIR=/opt/teamserver/Release \
+    C2_INSTANCE_DIR=/var/lib/teamserver
+
+RUN test -n "$C2TEAMSERVER_SHA256" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 \
+    && curl --fail --location --proto '=https' --tlsv1.2 \
+        "$C2TEAMSERVER_RELEASE_URL" -o /tmp/Release.tar.gz \
+    && echo "$C2TEAMSERVER_SHA256  /tmp/Release.tar.gz" | sha256sum --check --strict \
+    && mkdir -p "$TEAMSERVER_RELEASE_DIR" \
+    && tar --extract --gzip --file /tmp/Release.tar.gz --strip-components=1 \
+        --directory "$TEAMSERVER_RELEASE_DIR" \
+    && test -x "$TEAMSERVER_RELEASE_DIR/TeamServer/TeamServer" \
+    && groupadd --gid 10001 teamserver \
+    && useradd --uid 10001 --gid 10001 --no-create-home --home-dir /var/lib/teamserver \
+        --shell /usr/sbin/nologin teamserver \
+    && mkdir -p "$C2_INSTANCE_DIR" \
+    && chown teamserver:teamserver "$C2_INSTANCE_DIR" \
+    && rm -f /tmp/Release.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
-# Download and extract the latest Release from GitHub, or use an explicit URL.
-RUN set -eux; \
-    if [ -n "${C2TEAMSERVER_RELEASE_URL}" ]; then \
-        release_url="${C2TEAMSERVER_RELEASE_URL}"; \
-    else \
-        release_url="$(wget -q -O - "https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest" \
-            | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url')"; \
-    fi; \
-    wget -q "${release_url}" -O /tmp/Release.tar.gz; \
-    mkdir -p "${TEAMSERVER_HOME}/Release"; \
-    tar xf /tmp/Release.tar.gz --strip-components=1 -C "${TEAMSERVER_HOME}/Release"; \
-    rm /tmp/Release.tar.gz
+COPY --chmod=0755 docker/teamserver-entrypoint.sh /usr/local/bin/teamserver-entrypoint
 
-# Add the entrypoint script directly
-RUN cat > /usr/local/bin/teamserver-entrypoint.sh <<'EOF'
-#!/bin/sh
-set -e
+USER 10001:10001
+WORKDIR /opt/teamserver/Release/TeamServer
+VOLUME ["/var/lib/teamserver"]
+EXPOSE 50051
 
-RELEASE_DIR="/opt/teamserver/Release"
-TEAMSERVER_DIR="${RELEASE_DIR}/TeamServer"
-TEAMSERVER_BIN="${TEAMSERVER_DIR}/TeamServer"
-
-if [ ! -x "${TEAMSERVER_BIN}" ]; then
-    cat >&2 <<'MSG'
-[TeamServer] TeamServer binary was not found at /opt/teamserver/Release/TeamServer/TeamServer.
-[TeamServer] The image normally ships with a bundled Release directory.
-[TeamServer] If you want to override it, mount your own bundle on /opt/teamserver/Release.
-MSG
-    exit 1
-fi
-
-mkdir -p "${TEAMSERVER_DIR}/logs"
-
-cd "${TEAMSERVER_DIR}"
-
-exec "${TEAMSERVER_BIN}" "$@"
-EOF
-
-# Make entrypoint executable + binary (if present)
-RUN chmod +x /usr/local/bin/teamserver-entrypoint.sh \
-    && if [ -f "${TEAMSERVER_HOME}/Release/TeamServer/TeamServer" ]; then \
-        chmod +x "${TEAMSERVER_HOME}/Release/TeamServer/TeamServer"; \
-    fi
-
-EXPOSE 50051 80 443 8443
-
-ENTRYPOINT ["/usr/local/bin/teamserver-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/teamserver-entrypoint"]

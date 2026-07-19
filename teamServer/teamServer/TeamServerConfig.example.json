@@ -1,0 +1,25 @@
+{
+  "Version": "1.0.0-rc.1",
+  "Profile": "production",
+  "Server": {
+    "listen_address": "0.0.0.0",
+    "hostname": "teamserver.example.internal",
+    "port": 50051,
+    "max_message_mb": 64
+  },
+  "Security": {
+    "authentication": {
+      "credentials_file": "/run/secrets/teamserver-credentials.json",
+      "token_ttl_minutes": 60,
+      "max_failures": 5,
+      "lockout_seconds": 60
+    },
+    "tls": {
+      "certificate_file": "/run/secrets/server.crt",
+      "private_key_file": "/run/secrets/server.key",
+      "client_ca_file": "/run/secrets/operator-ca.crt",
+      "require_client_certificate": true
+    }
+  }
+}
+

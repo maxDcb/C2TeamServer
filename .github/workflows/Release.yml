@@ -8,12 +8,14 @@ on:
         required: false
         type: string
       c2implant_release_tag:
-        description: "C2Implant release tag to import. Leave empty to use latest."
-        required: false
+        description: "Pinned C2Implant release tag to import."
+        required: true
+        default: "0.15.0"
         type: string
       c2linuximplant_release_tag:
-        description: "C2LinuxImplant release tag to import. Leave empty to use latest."
-        required: false
+        description: "Pinned C2LinuxImplant release tag to import."
+        required: true
+        default: "0.14.0"
         type: string
   push:
     tags:
@@ -110,23 +112,17 @@ jobs:
       - name: Import implant release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          C2IMPLANT_RELEASE_TAG: ${{ inputs.c2implant_release_tag || '' }}
-          C2LINUXIMPLANT_RELEASE_TAG: ${{ inputs.c2linuximplant_release_tag || '' }}
+          C2IMPLANT_RELEASE_TAG: ${{ inputs.c2implant_release_tag || '0.15.0' }}
+          C2LINUXIMPLANT_RELEASE_TAG: ${{ inputs.c2linuximplant_release_tag || '0.14.0' }}
         run: |
           set -euo pipefail
 
-          args=()
-          if [ -n "${C2IMPLANT_RELEASE_TAG}" ]; then
-            args+=(--windows-tag "${C2IMPLANT_RELEASE_TAG}")
-          fi
-          if [ -n "${C2LINUXIMPLANT_RELEASE_TAG}" ]; then
-            args+=(--linux-tag "${C2LINUXIMPLANT_RELEASE_TAG}")
-          fi
 
           python "${{ github.workspace }}/packaging/import_implant_releases.py" \
             --stage-root "${{ github.workspace }}/${{ env.BUILD_DIR }}/release-staging/Release" \
             --import-root "${{ github.workspace }}/${{ env.BUILD_DIR }}/release-imports" \
-            "${args[@]}"
+            --windows-tag "${C2IMPLANT_RELEASE_TAG}" \
+            --linux-tag "${C2LINUXIMPLANT_RELEASE_TAG}"
 
       - name: Validate complete release staging
         run: >
@@ -137,11 +133,16 @@ jobs:
       - name: Create release archive
         run: tar -C "${{ env.BUILD_DIR }}/release-staging" -czf "${{ env.RELEASE_TARBALL }}" Release
 
+      - name: Create release checksum
+        run: sha256sum "${{ env.RELEASE_TARBALL }}" > "${{ env.RELEASE_TARBALL }}.sha256"
+
       - name: Upload validated release artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.RELEASE_ARTIFACT }}
-          path: ${{ env.RELEASE_TARBALL }}
+          path: |
+            ${{ env.RELEASE_TARBALL }}
+            ${{ env.RELEASE_TARBALL }}.sha256
           if-no-files-found: error
 
   publish:
@@ -164,6 +165,15 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ env.RELEASE_TARBALL }}
           asset_name: ${{ env.RELEASE_TARBALL }}
-          tag: ${{ inputs.release_tag || github.ref }}
+          tag: ${{ inputs.release_tag || github.ref_name }}
           overwrite: true
           body: "C2TeamServer client, server, TeamServer modules, and validated C2Implant/C2LinuxImplant beacons and modules."
+
+      - name: Upload release checksum
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ env.RELEASE_TARBALL }}.sha256
+          asset_name: ${{ env.RELEASE_TARBALL }}.sha256
+          tag: ${{ inputs.release_tag || github.ref_name }}
+          overwrite: true

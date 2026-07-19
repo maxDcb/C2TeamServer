@@ -51,16 +51,20 @@ public:
         const CredentialEmitter& emit);
     grpc::Status getCredential(
         const teamserverapi::CredentialSelector& selector,
-        teamserverapi::CredentialDetail* response);
+        teamserverapi::CredentialDetail* response,
+        const std::string& actor = "system");
     grpc::Status addCredential(
         const teamserverapi::CredentialUpsertRequest& request,
-        teamserverapi::OperationAck* response);
+        teamserverapi::OperationAck* response,
+        const std::string& actor = "system");
     grpc::Status updateCredential(
         const teamserverapi::CredentialUpsertRequest& request,
-        teamserverapi::OperationAck* response);
+        teamserverapi::OperationAck* response,
+        const std::string& actor = "system");
     grpc::Status deleteCredential(
         const teamserverapi::CredentialSelector& selector,
-        teamserverapi::OperationAck* response);
+        teamserverapi::OperationAck* response,
+        const std::string& actor = "system");
 
     grpc::Status handleTerminalCommand(
         const std::vector<std::string>& splitedCmd,
@@ -88,7 +92,7 @@ private:
     std::string currentTimestamp() const;
     std::string terminalPayloadJson(const std::vector<std::string>& splitedCmd, const teamserverapi::TerminalCommandRequest& command, std::size_t tailIndex) const;
     std::string listCredentialsJsonLocked(const teamserverapi::CredentialQuery& query) const;
-    void appendAuditLocked(const std::string& action, const std::string& credentialId);
+    void appendAuditLocked(const std::string& action, const std::string& credentialId, const std::string& actor);
 
     std::shared_ptr<spdlog::logger> m_logger;
     TeamServerRuntimeConfig m_runtimeConfig;

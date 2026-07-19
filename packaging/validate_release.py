@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
 
 EXPECTED_TEAMSERVER_FILES = (
     "TeamServer",
-    "TeamServerConfig.json",
+    "TeamServerConfig.example.json",
+    "README-FIRST-RUN.md",
+)
+
+FORBIDDEN_SECRET_NAMES = {
     "auth_credentials.json",
-    "localhost.crt",
-    "localhost.key",
-    "rootCA.crt",
-    "server.crt",
-    "server.key",
+    "credentials.json",
+    "bootstrap.txt",
+    "vault.key",
+}
+FORBIDDEN_SECRET_SUFFIXES = {".key", ".p12", ".pfx"}
+PRIVATE_KEY_PATTERN = re.compile(
+    rb"-----BEGIN (?P<kind>(?:RSA |EC |OPENSSH )?PRIVATE KEY)-----\s+"
+    rb"[A-Za-z0-9+\/=\r\n]{64,}-----END (?P=kind)-----"
 )
 
 EXPECTED_TEAMSERVER_MODULES = (
@@ -280,6 +288,30 @@ def validate_base_release(release_root: Path) -> None:
         raise ValidationError(f"Release root does not exist: {release_root}")
 
     teamserver_root = release_root / "TeamServer"
+    forbidden_secrets = [
+        path for path in release_root.rglob("*")
+        if path.is_file()
+        and (path.name in FORBIDDEN_SECRET_NAMES or path.suffix.lower() in FORBIDDEN_SECRET_SUFFIXES)
+    ]
+    if forbidden_secrets:
+        raise ValidationError(
+            "Release staging contains private deployment material: "
+            + ", ".join(str(path) for path in forbidden_secrets)
+        )
+
+    embedded_private_keys = []
+    for path in release_root.rglob("*"):
+        if not path.is_file() or path.stat().st_size > 10 * 1024 * 1024:
+            continue
+        content = path.read_bytes()
+        if PRIVATE_KEY_PATTERN.search(content):
+            embedded_private_keys.append(path)
+    if embedded_private_keys:
+        raise ValidationError(
+            "Release staging contains embedded private-key material: "
+            + ", ".join(str(path) for path in embedded_private_keys)
+        )
+
     modules_root = release_root / "TeamServerModules"
     command_specs_root = release_root / "CommandSpecs"
     client_root = release_root / "Client"
@@ -292,9 +324,6 @@ def validate_base_release(release_root: Path) -> None:
             _require_executable(path)
         else:
             _require_non_empty_file(path)
-
-    if not (teamserver_root / "logs").is_dir():
-        raise ValidationError(f"Missing TeamServer logs directory: {teamserver_root / 'logs'}")
 
     runtime_data_roots = ("data", "Tools", "Scripts", "UploadedArtifacts", "GeneratedArtifacts", "www")
     packaged_data_roots = [name for name in runtime_data_roots if (release_root / name).exists()]
@@ -324,7 +353,7 @@ def validate_base_release(release_root: Path) -> None:
     _require_non_empty_file(client_root / "c2client_protocol" / "TeamServerApi_pb2_grpc.py")
 
     generated_noise = [
-        path for path in release_root.rglob("*") if path.name in {".gitignore", "__pycache__"}
+        path for path in release_root.rglob("*") if path.name in {".git", ".gitignore", "__pycache__"} or path.suffix.lower() in {".pyc", ".log"}
     ]
     if generated_noise:
         raise ValidationError(

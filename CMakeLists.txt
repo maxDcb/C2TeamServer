@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
-project(C2TeamServer VERSION 0.0.0 LANGUAGES CXX C)
-set(CMAKE_BUILD_TYPE Release)
+project(C2TeamServer VERSION 1.0.0 LANGUAGES CXX C)
+set(C2_VERSION_SUFFIX "-rc.1")
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
 set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -84,7 +87,6 @@ if(WITH_TESTS)
   set(BUILD_TESTING ON CACHE BOOL "Enable CTest integration" FORCE)
   add_compile_definitions(C2CORE_BUILD_TESTS)
   set(SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_DEBUG)
-  find_package(Catch2 QUIET)
   enable_testing()
 else()
   set(BUILD_TESTING OFF CACHE BOOL "Enable CTest integration" FORCE)
@@ -138,14 +140,22 @@ include_directories("${C2_CORE_DIR}/modules/ModuleCmd")
 add_subdirectory("${C2_SERVER_DIR}")
 add_subdirectory("${C2_CORE_DIR}/modules")
 
-if(WITH_TESTS AND Catch2_FOUND)
+if(WITH_TESTS)
   add_subdirectory("${C2_CORE_DIR}/listener/tests")
   add_subdirectory("${C2_CORE_DIR}/beacon/tests")
-elseif(WITH_TESTS)
-  message(STATUS "Catch2 not found; skipping core listener/beacon Catch2-based tests")
+  foreach(C2_CORE_TEST_TARGET
+      beacon_unit_tests
+      testBeaconDns
+      testBeaconGithub
+      testBeaconHttp
+      testBeaconSmb
+      testBeaconTcp)
+    if(TARGET "${C2_CORE_TEST_TARGET}")
+      target_link_libraries("${C2_CORE_TEST_TARGET}" spdlog::spdlog)
+    endif()
+  endforeach()
 endif()
 
-add_subdirectory("${C2_CERTS_DIR}")
 add_subdirectory("${C2_PACKAGING_DIR}")
 
 if(WITH_TESTS)

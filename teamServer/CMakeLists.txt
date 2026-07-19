@@ -6,7 +6,9 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerAssemblyExecCommandPreparer.cpp
     teamServer/TeamServerArtifactCatalog.cpp
     teamServer/TeamServerArtifactService.cpp
-    teamServer/TeamServerAuth.cpp
+    teamServer/TeamServerAuthorization.cpp
+    teamServer/TeamServerSecurity.cpp
+    teamServer/TeamServerInstance.cpp
     teamServer/TeamServerChiselCommandPreparer.cpp
     teamServer/TeamServerCommandCatalog.cpp
     teamServer/TeamServerCommandCatalogService.cpp
@@ -93,6 +95,11 @@ target_link_libraries(server_core
 add_executable(TeamServer teamServer/main.cpp)
 target_link_libraries(TeamServer PRIVATE server_core)
 
+if(NOT MSVC)
+    target_compile_options(TeamServer PRIVATE -fstack-protector-strong -D_FORTIFY_SOURCE=3)
+    target_link_options(TeamServer PRIVATE -Wl,-z,noexecstack -Wl,-z,relro -Wl,-z,now)
+endif()
+
 set(C2_COMMON_COMMAND_SPEC_ROOT "${CMAKE_SOURCE_DIR}/core/modules/ModuleCmd/CommandSpecs")
 file(GLOB_RECURSE C2_COMMON_COMMAND_SPEC_FILES CONFIGURE_DEPENDS
     "${C2_COMMON_COMMAND_SPEC_ROOT}/*.json")
@@ -121,9 +128,9 @@ add_dependencies(TeamServer teamserver_copy_command_specs)
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
     $<TARGET_FILE:TeamServer> "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/$<TARGET_FILE_NAME:TeamServer>")
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/TeamServerConfig.json")
+    ${CMAKE_SOURCE_DIR}/teamServer/teamServer/TeamServerConfig.example.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/TeamServerConfig.example.json")
 add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
-    ${CMAKE_SOURCE_DIR}/teamServer/teamServer/auth_credentials.json "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/auth_credentials.json")
+    ${CMAKE_SOURCE_DIR}/teamServer/teamServer/README-FIRST-RUN.md "${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/README-FIRST-RUN.md")
 
 function(teamserver_add_test target_name link_target)
     add_executable(${target_name} ${ARGN})
@@ -136,7 +143,7 @@ endfunction()
 if(WITH_TESTS)
     teamserver_add_test(testsTestServer
         server_core
-        tests/testsTestServer.cpp
+        tests/TeamServerSecurityTests.cpp
     )
 
     teamserver_add_test(testsTeamServerHelpService

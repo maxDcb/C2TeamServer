@@ -117,7 +117,7 @@ class CredentialDialog(QDialog):
 class App(QMainWindow):
     """Main application window for the C2 client."""
 
-    def __init__(self, ip: str, port: int, devMode: bool, credentials: Optional[Tuple[str, str]] = None) -> None:
+    def __init__(self, ip: str, port: int, devMode: bool, credentials: Optional[Tuple[str, str]] = None, profile_path: Optional[str] = None) -> None:
         super().__init__()
 
         self.ip = ip
@@ -136,10 +136,13 @@ class App(QMainWindow):
                 self.devMode,
                 username=username,
                 password=password,
+                profile_path=profile_path,
             )
         except ValueError as e:
             raise e
 
+        self.ip = getattr(self.grpcClient, "ip", self.ip)
+        self.port = getattr(self.grpcClient, "port", self.port)
         self.operatorUsername = username or getattr(self.grpcClient, "username", "") or "unknown"
         self._lastRpcError = ""
         
@@ -289,8 +292,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     default_ip = env_value("C2_IP", "127.0.0.1")
     default_port = env_int("C2_PORT", 50051, minimum=1, maximum=65535)
     default_dev_mode = env_bool("C2_DEV_MODE", False)
+    default_profile = env_value("C2_PROFILE_PATH", "") or None
 
-    parser = argparse.ArgumentParser(description='TeamServer IP and port.')
+    parser = argparse.ArgumentParser(description='Secure TeamServer connection.')
+    parser.add_argument('--profile', default=default_profile, help='Path to a TeamServer client-profile.json')
     parser.add_argument('--ip', default=default_ip, help=f'IP address (default: {default_ip})')
     parser.add_argument('--port', type=int, default=default_port, help=f'Port number (default: {default_port})')
     parser.add_argument(
@@ -334,7 +339,7 @@ def main() -> None:
         credentials = dialog.credentials()
 
     try:
-        window = App(args.ip, args.port, args.dev, credentials)
+        window = App(args.ip, args.port, args.dev, credentials, profile_path=args.profile)
         window.show()
         sys.exit(app.exec())
     except ValueError:

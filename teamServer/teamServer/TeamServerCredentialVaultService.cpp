@@ -758,12 +758,13 @@ const TeamServerCredentialRecord* TeamServerCredentialVaultService::findRecordLo
     return candidate;
 }
 
-void TeamServerCredentialVaultService::appendAuditLocked(const std::string& action, const std::string& credentialId)
+void TeamServerCredentialVaultService::appendAuditLocked(const std::string& action, const std::string& credentialId, const std::string& actor)
 {
     json event = json::object();
     event["timestamp"] = currentTimestamp();
     event["action"] = action;
     event["credential_id"] = credentialId;
+    event["actor"] = actor.empty() ? "unknown" : actor;
     m_audit.push_back(event);
 }
 
@@ -785,7 +786,8 @@ grpc::Status TeamServerCredentialVaultService::listCredentials(
 
 grpc::Status TeamServerCredentialVaultService::getCredential(
     const teamserverapi::CredentialSelector& selector,
-    teamserverapi::CredentialDetail* response)
+    teamserverapi::CredentialDetail* response,
+    const std::string& actor)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::string message;
@@ -811,7 +813,7 @@ grpc::Status TeamServerCredentialVaultService::getCredential(
     }
 
     const json previousAudit = m_audit;
-    appendAuditLocked(selector.reveal_secret() ? "credential_revealed" : "credential_read", record->credentialId);
+    appendAuditLocked(selector.reveal_secret() ? "credential_revealed" : "credential_read", record->credentialId, actor);
     if (!saveLocked(message))
     {
         m_audit = previousAudit;
@@ -825,7 +827,8 @@ grpc::Status TeamServerCredentialVaultService::getCredential(
 
 grpc::Status TeamServerCredentialVaultService::addCredential(
     const teamserverapi::CredentialUpsertRequest& request,
-    teamserverapi::OperationAck* response)
+    teamserverapi::OperationAck* response,
+    const std::string& actor)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::string message;
@@ -848,7 +851,7 @@ grpc::Status TeamServerCredentialVaultService::addCredential(
     const auto previousCredentials = m_credentials;
     const json previousAudit = m_audit;
     m_credentials.push_back(std::move(record));
-    appendAuditLocked("credential_created", m_credentials.back().credentialId);
+    appendAuditLocked("credential_created", m_credentials.back().credentialId, actor);
 
     if (!saveLocked(message))
     {
@@ -863,7 +866,8 @@ grpc::Status TeamServerCredentialVaultService::addCredential(
 
 grpc::Status TeamServerCredentialVaultService::updateCredential(
     const teamserverapi::CredentialUpsertRequest& request,
-    teamserverapi::OperationAck* response)
+    teamserverapi::OperationAck* response,
+    const std::string& actor)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::string message;
@@ -910,7 +914,7 @@ grpc::Status TeamServerCredentialVaultService::updateCredential(
     for (const auto& [name, value] : update.secrets)
         existing->secrets[name] = value;
     existing->updatedAt = currentTimestamp();
-    appendAuditLocked("credential_updated", existing->credentialId);
+    appendAuditLocked("credential_updated", existing->credentialId, actor);
 
     if (!saveLocked(message))
     {
@@ -925,7 +929,8 @@ grpc::Status TeamServerCredentialVaultService::updateCredential(
 
 grpc::Status TeamServerCredentialVaultService::deleteCredential(
     const teamserverapi::CredentialSelector& selector,
-    teamserverapi::OperationAck* response)
+    teamserverapi::OperationAck* response,
+    const std::string& actor)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     std::string message;
@@ -957,7 +962,7 @@ grpc::Status TeamServerCredentialVaultService::deleteCredential(
         return candidate.credentialId == removedId;
     });
     m_credentials.erase(it);
-    appendAuditLocked("credential_deleted", removedId);
+    appendAuditLocked("credential_deleted", removedId, actor);
 
     if (!saveLocked(message))
     {

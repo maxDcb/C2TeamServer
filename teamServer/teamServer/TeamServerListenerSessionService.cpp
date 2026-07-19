@@ -6,7 +6,7 @@
 #include <ctime>
 #include <iomanip>
 #include <memory>
-#include <openssl/md5.h>
+#include <openssl/evp.h>
 #include <random>
 #include <sstream>
 #include <thread>
@@ -34,22 +34,21 @@ std::string generateUUID8()
     return uuid;
 }
 
-std::string computeBufferMd5(const std::string& buffer)
+std::string computeBufferSha256(const std::string& buffer)
 {
     if (buffer.empty())
         return "";
 
-    unsigned char result[MD5_DIGEST_LENGTH];
-    MD5_CTX ctx;
-    MD5_Init(&ctx);
-    MD5_Update(&ctx, buffer.data(), buffer.size());
-    MD5_Final(result, &ctx);
+    unsigned char result[EVP_MAX_MD_SIZE] {};
+    unsigned int resultLength = 0;
+    if (EVP_Digest(buffer.data(), buffer.size(), result, &resultLength, EVP_sha256(), nullptr) != 1)
+        throw std::runtime_error("Could not calculate attachment SHA-256");
 
-    std::ostringstream oss;
-    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i)
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(result[i]);
-
-    return oss.str();
+    std::ostringstream output;
+    output << std::hex << std::setfill('0');
+    for (unsigned int index = 0; index < resultLength; ++index)
+        output << std::setw(2) << static_cast<unsigned int>(result[index]);
+    return output.str();
 }
 
 std::string extractClientId(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata)
@@ -903,8 +902,8 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         const std::string& payload = c2Message.data();
         if (!inputFile.empty() && !payload.empty())
         {
-            std::string md5 = computeBufferMd5(payload);
-            m_logger->info("File attached to task: '{}' | size={} bytes | MD5={}", inputFile, payload.size(), md5);
+            const std::string sha256 = computeBufferSha256(payload);
+            m_logger->info("File attached to task: '{}' | size={} bytes | SHA-256={}", inputFile, payload.size(), sha256);
         }
 
         c2Message.set_uuid(commandId);

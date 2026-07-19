@@ -4,14 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "C2Client"
-version = "0.1.0"
+version = "1.0.0rc1"
 requires-python = ">=3.11"
-dependencies = [
-    "setuptools",
-    "pycryptodome==3.23.0",
+dependencies = [    "pycryptodome==3.23.0",
     "grpcio==1.78.0",
     "PyQt6==6.7.0",
-    "pyqtdarktheme",
+    "pyqtdarktheme==0.1.7",
     "protobuf==6.33.5",
     "gitpython==3.1.50",
     "requests==2.33.0",
@@ -19,8 +17,8 @@ dependencies = [
     "pefile==2024.8.26",
     "openai==1.102.0",
     "agent-core @ git+https://github.com/maxDcb/agent-core.git@v0.1.0",
-    "donut-shellcode @ git+https://github.com/maxDcb/donut.git@master",
-    "markdown"
+    "donut-shellcode @ git+https://github.com/maxDcb/donut.git@728289d80dab68389897a5af1836ee571ed77987",
+    "markdown==3.10.2"
 ]
 
 [project.optional-dependencies]
@@ -35,10 +33,7 @@ include = ["C2Client*"]
 
 [tool.setuptools.package-data]
 C2Client = [
-    "images/*.svg",
-    "logs/*",
-    "Scripts/*.py",
-    "server.crt",
+    "images/*.svg",    "Scripts/*.py",
     "DropperModules.conf",
     "ShellCodeModules.conf",
     "assistant_agent/prompts/system/*.md",

@@ -3,7 +3,7 @@
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerArtifactService.hpp"
 #include "TeamServerAssemblyExecCommandPreparer.hpp"
-#include "TeamServerAuth.hpp"
+#include "TeamServerAuthorization.hpp"
 #include "TeamServerBootstrap.hpp"
 #include "TeamServerChiselCommandPreparer.hpp"
 #include "TeamServerCommandCatalog.hpp"
@@ -70,9 +70,12 @@ void configureHostedDownloadFolders(nlohmann::json& config, const TeamServerRunt
 
 std::string getIPAddress(const std::string& interface);
 
-grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
+grpc::Status TeamServer::ensureAuthenticated(
+    grpc::ServerContext* context,
+    TeamServerAuthorization::Role requiredRole,
+    TeamServerAuthorization::Principal* principal)
 {
-    return m_authManager->ensureAuthenticated(context->client_metadata());
+    return m_authManager->authorize(context->client_metadata(), requiredRole, principal);
 }
 
 TeamServer::TeamServer(const nlohmann::json& config)
@@ -85,7 +88,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
     runtimeConfig.configureCommonCommands(m_commonCommands);
     configureHostedDownloadFolders(m_config, runtimeConfig);
 
-    m_authManager = std::make_unique<TeamServerAuthManager>(m_logger);
+    m_authManager = std::make_unique<TeamServerAuthorization>(m_logger);
     m_authManager->configure(config);
     m_generatedArtifactStore = std::make_shared<TeamServerGeneratedArtifactStore>(runtimeConfig);
     m_fileArtifactService = std::make_shared<TeamServerFileArtifactService>(
@@ -200,7 +203,7 @@ TeamServer::~TeamServer()
 grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response)
 {
     (void)context;
-    return m_authManager->authenticate(*request, *response);
+    return m_authManager->authenticate(*request, *response, context->peer());
 }
 
 // Get the list of liseteners from primary listeners
@@ -219,7 +222,7 @@ grpc::Status TeamServer::ListListeners(grpc::ServerContext* context, const teams
 // To add a listener to a beacon the process it to send a command to the beacon
 grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->addListener(*listenerToCreate, response);
@@ -227,7 +230,7 @@ grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::ListenerSelector* listenerToStop, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->stopListener(*listenerToStop, response);
@@ -252,7 +255,7 @@ grpc::Status TeamServer::ListSessions(grpc::ServerContext* context, const teamse
 
 grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->stopSession(*sessionToStop, response);
@@ -269,7 +272,7 @@ grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teams
 
 grpc::Status TeamServer::DownloadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::ArtifactContent* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_artifactService->downloadArtifact(*selector, response);
@@ -277,7 +280,7 @@ grpc::Status TeamServer::DownloadArtifact(grpc::ServerContext* context, const te
 
 grpc::Status TeamServer::UploadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactUploadRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_artifactService->uploadArtifact(*request, response);
@@ -285,7 +288,7 @@ grpc::Status TeamServer::UploadArtifact(grpc::ServerContext* context, const team
 
 grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_artifactService->deleteGeneratedArtifact(*selector, response);
@@ -293,7 +296,7 @@ grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, c
 
 grpc::Status TeamServer::ListCredentials(grpc::ServerContext* context, const teamserverapi::CredentialQuery* query, grpc::ServerWriter<teamserverapi::CredentialSummary>* writer)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin);
     if (!authStatus.ok())
         return authStatus;
     return m_credentialVaultService->listCredentials(*query, [&](const teamserverapi::CredentialSummary& credential)
@@ -302,34 +305,38 @@ grpc::Status TeamServer::ListCredentials(grpc::ServerContext* context, const tea
 
 grpc::Status TeamServer::GetCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::CredentialDetail* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    TeamServerAuthorization::Principal principal;
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin, &principal);
     if (!authStatus.ok())
         return authStatus;
-    return m_credentialVaultService->getCredential(*selector, response);
+    return m_credentialVaultService->getCredential(*selector, response, principal.username);
 }
 
 grpc::Status TeamServer::AddCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    TeamServerAuthorization::Principal principal;
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin, &principal);
     if (!authStatus.ok())
         return authStatus;
-    return m_credentialVaultService->addCredential(*request, response);
+    return m_credentialVaultService->addCredential(*request, response, principal.username);
 }
 
 grpc::Status TeamServer::UpdateCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    TeamServerAuthorization::Principal principal;
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin, &principal);
     if (!authStatus.ok())
         return authStatus;
-    return m_credentialVaultService->updateCredential(*request, response);
+    return m_credentialVaultService->updateCredential(*request, response, principal.username);
 }
 
 grpc::Status TeamServer::DeleteCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    TeamServerAuthorization::Principal principal;
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin, &principal);
     if (!authStatus.ok())
         return authStatus;
-    return m_credentialVaultService->deleteCredential(*selector, response);
+    return m_credentialVaultService->deleteCredential(*selector, response, principal.username);
 }
 
 grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)
@@ -352,7 +359,7 @@ grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator);
     if (!authStatus.ok())
         return authStatus;
     return m_listenerSessionService->sendSessionCommand(*command, response);
@@ -451,7 +458,8 @@ const std::string SocksInstruction_ = "socks";
 
 grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    TeamServerAuthorization::Principal principal;
+    auto authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Operator, &principal);
     if (!authStatus.ok())
         return authStatus;
 
@@ -479,6 +487,12 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
     }
 
     string instruction = splitedCmd[0];
+    if (instruction == "cred" || instruction == "addCred" || instruction == "getCred")
+    {
+        authStatus = ensureAuthenticated(context, TeamServerAuthorization::Role::Admin, &principal);
+        if (!authStatus.ok())
+            return authStatus;
+    }
     if (m_listenerArtifactService->canHandle(instruction))
     {
         return m_listenerArtifactService->handleCommand(instruction, splitedCmd, *command, response);

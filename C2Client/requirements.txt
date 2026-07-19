@@ -1,7 +1,7 @@
 pycryptodome==3.23.0
 grpcio==1.78.0
 PyQt6==6.7.0
-pyqtdarktheme
+pyqtdarktheme==0.1.7
 protobuf==6.33.5
 gitpython==3.1.50
 requests==2.33.0
@@ -11,5 +11,5 @@ openai==1.102.0
 agent-core @ git+https://github.com/maxDcb/agent-core.git@v0.1.0
 pytest==9.0.3
 pytest-qt==4.5.0
-git+https://github.com/maxDcb/donut.git@master#egg=donut-shellcode
-markdown
+donut-shellcode @ git+https://github.com/maxDcb/donut.git@728289d80dab68389897a5af1836ee571ed77987
+markdown==3.10.2
