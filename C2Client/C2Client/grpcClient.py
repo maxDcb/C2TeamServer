@@ -327,7 +327,7 @@ class GrpcClient:
 
         return self._stream_rpc(
             "StreamSessionCommandResults",
-            lambda: self.stub.StreamSessionCommandResults(session, metadata=self.metadata),
+            lambda: self.stub.StreamSessionCommandResults(session, metadata=self.metadata, timeout=2.0),
         )
 
     def getCommandHelp(self, command: Any) -> Any:

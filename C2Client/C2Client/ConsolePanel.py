@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from PyQt6.QtCore import QObject, Qt, QEvent, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QTextCursor, QTextDocument, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
@@ -26,7 +26,7 @@ from .grpcClient import TeamServerApi_pb2
 from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
-from .assistant_agent.domain.command_outcome import CommandOutcome
+from .command_event_hub import CommandEventHub, CommandResultEvent
 from .ArtifactPanel import Artifacts, ArtifactTabTitle
 from .CommandPanel import Commands, CommandTabTitle
 from .TerminalModules.Credentials import credentials
@@ -810,7 +810,7 @@ def ansi_to_html(text: str) -> str:
 #
 class ConsolesTab(QWidget):
     
-    def __init__(self, parent, grpcClient):
+    def __init__(self, parent, grpcClient, *, result_hub: CommandEventHub | None = None):
         super(QWidget, self).__init__(parent)
         self.setObjectName("C2ConsolesTab")
         self.setStyleSheet(
@@ -851,6 +851,8 @@ class ConsolesTab(QWidget):
         self.layout.addWidget(self.tabs)
 
         self.grpcClient = grpcClient
+        # App owns the production hub; standalone panels can own one for tests.
+        self.command_result_hub = result_hub or CommandEventHub(grpcClient, self)
 
         self.terminal = Terminal(self, self.grpcClient)
         tab = self.createConsolePage(self.terminal)
@@ -872,7 +874,7 @@ class ConsolesTab(QWidget):
         self.tabs.addTab(tab, CommandTabTitle)
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
-        self.assistant = Assistant(self, self.grpcClient)
+        self.assistant = Assistant(self, self.grpcClient, command_event_hub=self.command_result_hub)
         tab = self.createConsolePage(self.assistant)
         self.tabs.addTab(tab, "Data AI")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -924,10 +926,14 @@ class ConsolesTab(QWidget):
                 tabAlreadyOpen=True
 
         if tabAlreadyOpen==False:
-            console = Console(self, self.grpcClient, beaconHash, listenerHash, hostname, username)
+            if hasattr(self.assistant, "watchSession"):
+                self.assistant.watchSession(beaconHash, listenerHash)
+            console = Console(
+                self, self.grpcClient, beaconHash, listenerHash, hostname, username,
+                result_hub=self.command_result_hub,
+            )
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
-            console.consoleScriptSignal.connect(self.assistant.consoleAssistantMethod)
-            console.commandOutcomeSignal.connect(self.assistant.receiveCommandOutcome)
+            console.consoleScriptSignal.connect(self._forward_console_send)
             tab = self.createConsolePage(console)
             self.tabs.addTab(tab, beaconHash[0:8])
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -938,8 +944,26 @@ class ConsolesTab(QWidget):
         currentQWidget = self.tabs.widget(currentIndex)
         if currentIndex < SYSTEM_TAB_COUNT:
             return
+        console = self.consoleFromTab(currentIndex)
+        if console is not None:
+            console.closeResultSubscription()
         currentQWidget.deleteLater()
         self.tabs.removeTab(currentIndex)
+
+    def _forward_console_send(self, action, beacon_hash, listener_hash, context, command, output, command_id):
+        if action == "send":
+            self.assistant.consoleAssistantMethod(
+                action, beacon_hash, listener_hash, context, command, output, command_id,
+            )
+
+    def shutdown(self):
+        if hasattr(self.assistant, "closeResultSubscriptions"):
+            self.assistant.closeResultSubscriptions()
+        self.command_result_hub.shutdown()
+
+    def closeEvent(self, event):
+        self.shutdown()
+        super().closeEvent(event)
 
 
 class Console(QWidget):
@@ -954,7 +978,7 @@ class Console(QWidget):
     logFileName=""
     listenerHash=""
 
-    def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):
+    def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub: CommandEventHub):
         super(QWidget, self).__init__(parent)
         apply_dark_panel_style(self)
         self.layout = QVBoxLayout(self)
@@ -962,6 +986,7 @@ class Console(QWidget):
         self.layout.setSpacing(6)
 
         self.grpcClient = grpcClient
+        self.result_hub = result_hub
 
         self.beaconHash=beaconHash
         self.listenerHash=listenerHash
@@ -1029,21 +1054,21 @@ class Console(QWidget):
         self.commandEditor.returnPressed.connect(self.runCommand)
         self.consoleActive = True
 
-        # Thread to get session responses. Response collection must stay
-        # independent from the visible tab because the assistant resumes
-        # pending tool calls from these events while the Data AI tab is focused.
-        # https://realpython.com/python-pyqt-qthread/
-        self.thread = QThread()
-        self.getSessionResponse = GetSessionResponse(self.grpcClient, self.beaconHash, self.listenerHash)
-        self.getSessionResponse.moveToThread(self.thread)
-        self.thread.started.connect(self.getSessionResponse.run)
-        self.getSessionResponse.responseReady.connect(self.displayResponse)
-        self.thread.start()
+        self._result_subscription = self.result_hub.subscribe(
+            self.beaconHash, self.listenerHash, self.displayResponse,
+        )
+        for event in self.result_hub.recent_events(self.beaconHash, self.listenerHash):
+            self.displayResponse(event)
 
-    def __del__(self):
-        self.getSessionResponse.quit()
-        self.thread.quit()
-        self.thread.wait()
+    def closeResultSubscription(self):
+        subscription = getattr(self, "_result_subscription", None)
+        if subscription is not None:
+            self._result_subscription = None
+            subscription.close()
+
+    def closeEvent(self, event):
+        self.closeResultSubscription()
+        super().closeEvent(event)
 
     def nextCompletion(self):
         index = self._compl.currentIndex()
@@ -1380,41 +1405,21 @@ class Console(QWidget):
 
         self.setCursorEditorAtEnd()
 
-    def displayResponse(self, response=None):
-        session = TeamServerApi_pb2.SessionSelector(beacon_hash=self.beaconHash, listener_hash=self.listenerHash)
-        if response is None:
-            responses = self.grpcClient.streamSessionCommandResults(session)
-            for session_response in responses:
-                self.displayResponse(session_response)
-            return
-
+    def displayResponse(self, event: CommandResultEvent):
         context = "Host " + self.hostname + " - Username " + self.username
-        command_id = getattr(response, "command_id", "")
+        outcome = event.outcome
+        command_id = outcome.command_id
         if command_id and command_id in self.renderedResponseIds:
             return
-        listener_hash = response.session.listener_hash or self.listenerHash
-        command_text = response.command or response.instruction
-        decoded_response = response.output.decode('utf-8', 'replace')
-        response_ok = is_response_ok(response)
-        raw_output = decoded_response
-        if not response_ok:
-            decoded_response = response_message(response) or decoded_response or "Command failed."
-        self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
-        self.commandOutcomeSignal.emit(CommandOutcome(
-            state="succeeded" if response_ok else "failed",
-            command_id=command_id,
-            beacon_hash=self.beaconHash,
-            listener_hash=listener_hash,
-            command_line=command_text,
-            output=raw_output,
-            error_code="" if response_ok else "teamserver_command_failed",
-            error_message="" if response_ok else response_message(response, "Command failed."),
-        ))
+        command_text = outcome.command_line
+        decoded_response = event.display_output
+        self.consoleScriptSignal.emit("receive", self.beaconHash, outcome.listener_hash, context, command_text, decoded_response, command_id)
+        self.commandOutcomeSignal.emit(outcome)
         # check the response for mimikatz and not the cmd line ???
         if "-e mimikatz.exe" in command_text:
             credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
-        status = "done" if response_ok else "error"
-        self.setCommandStatus(command_id, status, command_text, decoded_response if not response_ok else "")
+        status = "done" if outcome.ok else "error"
+        self.setCommandStatus(command_id, status, command_text, decoded_response if not outcome.ok else "")
         self.printCommandStatusInTerminal(command_id, status, command_text)
         self.printInTerminal("", "", decoded_response)
         if command_id:
@@ -1438,37 +1443,6 @@ class Console(QWidget):
             return
         move_editor_to_end(self.editorOutput)
     
-
-class GetSessionResponse(QObject):
-    """Background worker collecting session responses off the UI thread."""
-
-    responseReady = pyqtSignal(object)
-
-    def __init__(self, grpcClient, beaconHash, listenerHash) -> None:
-        super().__init__()
-        self.grpcClient = grpcClient
-        self.beaconHash = beaconHash
-        self.listenerHash = listenerHash
-        self.exit = False
-
-    def run(self) -> None:
-        while not self.exit:
-            session = TeamServerApi_pb2.SessionSelector(
-                beacon_hash=self.beaconHash,
-                listener_hash=self.listenerHash,
-            )
-            try:
-                for response in self.grpcClient.streamSessionCommandResults(session):
-                    if self.exit:
-                        break
-                    self.responseReady.emit(response)
-            except Exception as exc:
-                logger.debug("Session response polling failed for %s: %s", self.beaconHash[:8], exc)
-            time.sleep(1)
-
-    def quit(self) -> None:
-        self.exit = True
-
 
 class CommandEditor(CompletionInput):
     def __init__(

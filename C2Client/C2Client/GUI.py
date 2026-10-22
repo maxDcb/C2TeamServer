@@ -25,6 +25,7 @@ from .grpcClient import GrpcClient
 from .ListenerPanel import Listeners
 from .SessionPanel import Sessions
 from .ConsolePanel import ConsolesTab
+from .command_event_hub import CommandEventHub
 from .GraphPanel import Graph
 from .env import env_bool, env_int, env_value, load_c2_env
 from .panel_style import apply_main_window_style
@@ -142,6 +143,7 @@ class App(QMainWindow):
 
         self.operatorUsername = username or getattr(self.grpcClient, "username", "") or "unknown"
         self._lastRpcError = ""
+        self.command_result_hub = CommandEventHub(self.grpcClient, self)
         
         self.title = 'Exploration C2'
         self.left = 0
@@ -269,7 +271,7 @@ class App(QMainWindow):
     def botLayout(self) -> None:
         """Initialise the bottom console area."""
 
-        self.consoleWidget = ConsolesTab(self, self.grpcClient)
+        self.consoleWidget = ConsolesTab(self, self.grpcClient, result_hub=self.command_result_hub)
         self.mainLayout.addWidget(self.consoleWidget, 1, 0, 1, 1)
 
 
@@ -277,6 +279,12 @@ class App(QMainWindow):
         """Ensure scripts are stopped when the window is destroyed."""
         if hasattr(self, 'consoleWidget'):
             self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
+
+    def closeEvent(self, event) -> None:
+        if hasattr(self, "consoleWidget") and hasattr(self.consoleWidget, "shutdown"):
+            self.consoleWidget.shutdown()
+        self.command_result_hub.shutdown()
+        super().closeEvent(event)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -335,6 +343,7 @@ def main() -> None:
 
     try:
         window = App(args.ip, args.port, args.dev, credentials)
+        app.aboutToQuit.connect(window.command_result_hub.shutdown)
         window.show()
         sys.exit(app.exec())
     except ValueError:

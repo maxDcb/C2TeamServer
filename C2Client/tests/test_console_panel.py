@@ -21,6 +21,7 @@ from C2Client.ConsolePanel import (
     normalize_console_completion_text,
 )
 from C2Client.grpcClient import TeamServerApi_pb2
+from C2Client.command_event_hub import CommandEventHub
 
 
 class StubGrpc:
@@ -57,6 +58,13 @@ class StubGrpc:
         return iter(self.modules)
 
 
+def console_with_hub(grpc, beacon_hash, listener_hash, hostname, username):
+    return Console(
+        None, grpc, beacon_hash, listener_hash, hostname, username,
+        result_hub=CommandEventHub(grpc),
+    )
+
+
 class DummyPanel(QWidget):
     def __init__(self, parent=None, *_args, **_kwargs):
         super().__init__(parent)
@@ -74,10 +82,9 @@ class DummyPanel(QWidget):
 def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
-    parent = QWidget()
-    console = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(StubGrpc(), 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     assert "#0b1117" in console.styleSheet()
@@ -105,12 +112,11 @@ def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
 def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
     grpc.reject_commands = True
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     emitted = []
@@ -132,15 +138,14 @@ def test_command_ack_error_is_displayed_without_pending_emit(tmp_path, qtbot, mo
 def test_list_module_command_uses_local_status_without_session_queueing(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
     grpc.modules = [
         SimpleNamespace(name="pwd", state="loaded"),
         SimpleNamespace(name="shell", state="loading", load_count=7, command_id="cmd-1"),
     ]
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
     grpc.list_modules_requests.clear()
 
@@ -167,7 +172,7 @@ def test_list_module_command_uses_local_status_without_session_queueing(tmp_path
 def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
     grpc.responses = [
@@ -181,8 +186,7 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
             message="Command failed.",
         )
     ]
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     emitted = []
@@ -190,7 +194,7 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
     outcomes = []
     console.commandOutcomeSignal.connect(outcomes.append)
 
-    console.displayResponse()
+    console.result_hub.ingest_response('beacon', 'listener', grpc.responses[0])
 
     assert "Command failed." in console.editorOutput.toPlainText()
     assert "raw failure" not in console.editorOutput.toPlainText()
@@ -204,7 +208,7 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
 def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
     grpc.responses = [
@@ -218,8 +222,7 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
             message="",
         )
     ]
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
     emitted = []
     console.consoleScriptSignal.connect(lambda *args: emitted.append(args))
@@ -227,7 +230,7 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
     console.commandOutcomeSignal.connect(outcomes.append)
 
     console.setResponsePollingActive(False)
-    console.displayResponse()
+    console.result_hub.ingest_response('beacon', 'listener', grpc.responses[0])
 
     assert console.consoleActive is False
     assert console.commandStatusById["cmd-1"]["status"] == "done"
@@ -241,11 +244,10 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
 def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     console.commandEditor.setText('whoami')
@@ -275,7 +277,7 @@ def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
         )
     ]
 
-    console.displayResponse()
+    console.result_hub.ingest_response('beacon', 'listener', grpc.responses[0])
 
     assert console.commandStatusById[first_command_id]["status"] == "done"
     output = console.editorOutput.toPlainText()
@@ -287,10 +289,9 @@ def test_console_tracks_command_status_and_resend(tmp_path, qtbot, monkeypatch):
 def test_console_search_clear_and_export_controls(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
-    parent = QWidget()
-    console = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(StubGrpc(), 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     console.printInTerminal("whoami", "", "")
@@ -312,11 +313,10 @@ def test_console_search_clear_and_export_controls(tmp_path, qtbot, monkeypatch):
 def test_console_replays_structured_log_on_reopen(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
-    monkeypatch.setattr('C2Client.ConsolePanel.QThread.start', lambda self: None)
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
 
     grpc = StubGrpc()
-    parent = QWidget()
-    console = Console(parent, grpc, 'beacon', 'listener', 'host', 'user')
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(console)
 
     console.commandEditor.setText('whoami')
@@ -333,12 +333,12 @@ def test_console_replays_structured_log_on_reopen(tmp_path, qtbot, monkeypatch):
             message="",
         )
     ]
-    console.displayResponse()
+    console.result_hub.ingest_response('beacon', 'listener', grpc.responses[0])
 
     log_text = (tmp_path / 'host_user_beacon.log').read_text()
     assert '[console]' in log_text
 
-    reopened = Console(parent, StubGrpc(), 'beacon', 'listener', 'host', 'user')
+    reopened = console_with_hub(StubGrpc(), 'beacon', 'listener', 'host', 'user')
     qtbot.addWidget(reopened)
 
     output = reopened.editorOutput.toPlainText()
@@ -391,7 +391,7 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
         commandOutcomeSignal = pyqtSignal(object)
         instances = []
 
-        def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):
+        def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub=None):
             super().__init__(parent)
             self.beaconHash = beaconHash
             self.pollingActive = None

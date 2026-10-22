@@ -170,6 +170,26 @@ def test_grpc_client_lists_commands(tmp_path, monkeypatch):
     assert events == [("ListCommands", True, "")]
 
 
+def test_command_result_stream_has_deadline_for_worker_shutdown(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.StreamSessionCommandResults.return_value = iter([])
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    selector = TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener")
+
+    assert list(client.streamSessionCommandResults(selector)) == []
+
+    stub.StreamSessionCommandResults.assert_called_once_with(
+        selector, metadata=client.metadata, timeout=2.0,
+    )
+
+
 def test_grpc_client_credential_vault_rpcs(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

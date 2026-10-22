@@ -38,10 +38,11 @@ class DummyScript:
 
 
 class DummyConsole(QWidget):
-    def __init__(self, parent=None, *_args, **_kwargs):
+    def __init__(self, parent=None, *_args, **kwargs):
         super().__init__(parent)
         self.script = DummyScript()
         self.assistant = SimpleNamespace(sessionAssistantMethod=lambda *a, **k: None)
+        self.result_hub = kwargs.get("result_hub")
 
     def addConsole(self, *args, **kwargs):
         pass
@@ -92,6 +93,7 @@ def test_gui_shell_uses_dark_single_column_layout(qtbot, monkeypatch):
     assert "#263241" in app.styleSheet()
     assert app.mainLayout.itemAtPosition(0, 0).widget() is app.topWidget
     assert app.mainLayout.itemAtPosition(1, 0).widget() is app.consoleWidget
+    assert app.consoleWidget.result_hub is app.command_result_hub
     assert app.mainLayout.itemAtPosition(1, 1) is None
 
 
@@ -116,6 +118,22 @@ def test_gui_status_bar_updates_rpc_status(qtbot, monkeypatch):
     assert "RPC error" in app.connectionStatusLabel.text()
     assert "Last RPC: ListSessions" in app.rpcStatusLabel.text()
     assert "ListSessions: deadline exceeded" in app.errorStatusLabel.text()
+
+
+def test_app_close_shuts_down_command_result_collection(qtbot, monkeypatch):
+    monkeypatch.setattr(GUI, 'GrpcClient', lambda *args, **kwargs: object())
+    monkeypatch.setattr(GUI, 'Sessions', DummyWidget)
+    monkeypatch.setattr(GUI, 'Listeners', DummyWidget)
+    monkeypatch.setattr(GUI, 'Graph', DummyWidget)
+    monkeypatch.setattr(GUI, 'ConsolesTab', DummyConsole)
+    stopped = []
+    monkeypatch.setattr(DummyConsole, 'shutdown', lambda self: stopped.append(True), raising=False)
+    app = GUI.App('127.0.0.1', 50051, False)
+    qtbot.addWidget(app)
+
+    app.close()
+
+    assert stopped == [True]
 
 
 def test_parse_client_args_uses_env_defaults(monkeypatch):

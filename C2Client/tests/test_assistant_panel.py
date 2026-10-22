@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 from C2Client.AssistantPanel import Assistant
 from C2Client.assistant_agent.domain.command_outcome import CommandOutcome
+from C2Client.command_event_hub import CommandEventHub, CommandResultWorker
+from C2Client.grpcClient import TeamServerApi_pb2
 
 
 class FakeDomainHooks:
@@ -376,3 +378,36 @@ def test_result_waits_for_active_worker_then_resumes(qtbot, monkeypatch):
     assistant._drain_deferred_resume()
     assert calls[0][0] == "pending-1"
     assert assistant._deferred_resume is None
+
+
+def test_cached_hub_result_resumes_when_pending_state_arrives_late(qtbot, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("C2Client.AssistantPanel.C2AssistantAgent", FakeAssistantAgent)
+    monkeypatch.setattr(CommandResultWorker, "start", lambda self: None)
+    hub = CommandEventHub(object())
+    assistant = Assistant(None, object(), command_event_hub=hub)
+    qtbot.addWidget(assistant)
+    assistant.setActiveSession("beacon-12345678", "listener-1")
+    hub.ingest_response(
+        "beacon-12345678", "listener-1",
+        SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            session=SimpleNamespace(beacon_hash="beacon-12345678", listener_hash="listener-1"),
+            command="whoami", instruction="", command_id="4078543f88cc4403aa587856afdfbfea",
+            output=b"user", message="",
+        ),
+    )
+    assert assistant.agent.domain_hooks.active_sessions == [
+        {"beacon_hash": "beacon-12345678", "listener_hash": "listener-1"}
+    ]
+    calls = []
+    monkeypatch.setattr(assistant, "_start_agent_resume", lambda *args: calls.append(args))
+
+    assistant._process_assistant_response(pending_message())
+
+    assert len(calls) == 1
+    assert calls[0][0] == "pending-1"
+    assert json.loads(calls[0][1])["output"] == "user"
+    assert assistant.awaiting_tool_result is False
+    assistant.close()
+    hub.shutdown()

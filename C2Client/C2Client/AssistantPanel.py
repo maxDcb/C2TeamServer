@@ -14,6 +14,7 @@ import markdown
 
 from .assistant_agent import C2AssistantAgent
 from .assistant_agent.domain.command_outcome import CommandOutcome
+from .command_event_hub import CommandEventHub, CommandResultEvent
 from .console_style import (
     apply_console_output_style,
     append_console_block,
@@ -48,12 +49,14 @@ class Assistant(QWidget):
     logFileName=""
     sem = Semaphore()
 
-    def __init__(self, parent, grpcClient):
+    def __init__(self, parent, grpcClient, *, command_event_hub: CommandEventHub | None = None):
         super().__init__(parent) 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.agent = C2AssistantAgent(grpcClient)
+        self.command_event_hub = command_event_hub
+        self._result_subscriptions = {}
 
         # self.logFileName=LogFileName
 
@@ -109,10 +112,40 @@ class Assistant(QWidget):
 
 
     def setActiveSession(self, beaconHash, listenerHash):
+        self.watchSession(beaconHash, listenerHash)
         self.agent.domain_hooks.record_active_session(
             beacon_hash=beaconHash,
             listener_hash=listenerHash,
         )
+
+    def watchSession(self, beacon_hash, listener_hash):
+        if self.command_event_hub is None or not beacon_hash or not listener_hash:
+            return
+        key = (listener_hash, beacon_hash)
+        if key not in self._result_subscriptions:
+            self._result_subscriptions[key] = self.command_event_hub.subscribe(
+                beacon_hash, listener_hash, self.receiveCommandEvent,
+            )
+
+    def closeResultSubscriptions(self):
+        for subscription in self._result_subscriptions.values():
+            subscription.close()
+        self._result_subscriptions.clear()
+
+    def closeEvent(self, event):
+        self.closeResultSubscriptions()
+        super().closeEvent(event)
+
+    def receiveCommandEvent(self, event: CommandResultEvent):
+        outcome = event.outcome
+        if not self._matches_pending_command(outcome.command_id, outcome.beacon_hash, outcome.listener_hash):
+            self.agent.domain_hooks.record_console_observation(
+                beacon_hash=outcome.beacon_hash,
+                listener_hash=outcome.listener_hash,
+                command=outcome.command_line,
+                output=event.display_output,
+            )
+        self.receiveCommandOutcome(outcome)
                     
     
     def listenerAssistantMethod(self, action, hash, str3, str4):
@@ -421,6 +454,14 @@ class Assistant(QWidget):
                 "command_line": metadata.get("command_line") or arguments.get("command_line"),
             }
             self.printInTerminal("Analysis:", self._format_pending_status("Waiting for beacon command result."))
+            pending = self.pending_tool_context
+            self.watchSession(pending.get("beacon_hash"), pending.get("listener_hash"))
+            if self.command_event_hub is not None:
+                recent = self.command_event_hub.recent_event(
+                    pending.get("beacon_hash"), pending.get("listener_hash"), pending.get("command_id"),
+                )
+                if recent is not None:
+                    self.receiveCommandEvent(recent)
 
     def _clear_pending_tool_state(self):
         self.awaiting_tool_result = False
