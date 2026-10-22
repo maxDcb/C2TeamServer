@@ -6,10 +6,34 @@ from pathlib import Path
 from ...env import load_c2_env
 from ..storage.paths import default_storage_dir, prompts_dir
 
-from agent_core import CoreSettings
+from agent_core import CoreSettings, ToolArtifactPolicy
 from agent_core.spi import load_prompt
 
 DEFAULT_MEMORY_MODEL = "gpt-4.1-mini"
+
+_ARTIFACT_POLICY_ENV = {
+    "hot_context_bytes": "C2_ASSISTANT_ARTIFACT_HOT_CONTEXT_BYTES",
+    "max_complete_result_bytes": "C2_ASSISTANT_ARTIFACT_MAX_COMPLETE_RESULT_BYTES",
+    "preview_bytes": "C2_ASSISTANT_ARTIFACT_PREVIEW_BYTES",
+    "max_read_bytes": "C2_ASSISTANT_ARTIFACT_MAX_READ_BYTES",
+    "max_reads_per_run": "C2_ASSISTANT_ARTIFACT_MAX_READS_PER_RUN",
+    "max_total_read_bytes": "C2_ASSISTANT_ARTIFACT_MAX_TOTAL_READ_BYTES",
+    "max_navigation_source_bytes": "C2_ASSISTANT_ARTIFACT_MAX_NAVIGATION_SOURCE_BYTES",
+    "max_navigation_cache_bytes": "C2_ASSISTANT_ARTIFACT_MAX_NAVIGATION_CACHE_BYTES",
+}
+
+
+def build_tool_artifact_policy() -> ToolArtifactPolicy:
+    values = ToolArtifactPolicy().to_dict()
+    for field_name, env_name in _ARTIFACT_POLICY_ENV.items():
+        raw = os.getenv(env_name)
+        if raw is None:
+            continue
+        try:
+            values[field_name] = int(raw)
+        except ValueError as exc:
+            raise ValueError(f"{env_name} must be a positive integer") from exc
+    return ToolArtifactPolicy.from_any(values)
 
 
 def build_c2_agent_settings(*, storage_dir: Path | None = None) -> CoreSettings:
@@ -38,6 +62,7 @@ def build_c2_agent_settings(*, storage_dir: Path | None = None) -> CoreSettings:
         session_file=storage_dir / "session.json",
         reports_directory=storage_dir / "reports",
         artifacts_directory=storage_dir / "artifacts",
+        tool_artifact_policy=build_tool_artifact_policy(),
         prompts_dir=prompt_root,
         knowledge_base_dir=storage_dir / "knowledge",
         allowed_read_roots=[Path.cwd()],
