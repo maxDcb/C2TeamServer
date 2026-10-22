@@ -64,3 +64,17 @@ def test_service_passes_run_context_for_new_and_resumed_turns(tmp_path):
         assert kwargs["thread_id"] == "operator-thread"
         assert kwargs["context"].thread_id == "operator-thread"
         assert kwargs["context"].namespace_id == "c2client"
+
+
+def test_manual_stop_discards_only_matching_wait_checkpoint(tmp_path):
+    service = C2AssistantAgent(None, storage_dir=tmp_path)
+    key = service.orchestrator.PENDING_TURN_META_KEY
+    service.session_manager.set_meta_value(key, {"pending_id": "pending-1"})
+    service.session_manager.append_tool_history({"status": "pending", "tool_name": "demo"})
+
+    assert service.stop_pending_tool_wait(pending_id="other") is False
+    assert service.session_manager.get_state()["meta"][key]["pending_id"] == "pending-1"
+    assert service.stop_pending_tool_wait(pending_id="pending-1") is True
+    state = service.session_manager.get_state()
+    assert key not in state["meta"]
+    assert state["tool_history"][-1]["status"] == "pending"

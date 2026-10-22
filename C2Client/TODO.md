@@ -84,7 +84,7 @@ C2_ASSISTANT_MEMORY_MODEL=gpt-4.1-mini
 C2_ASSISTANT_TEMPERATURE=0.05
 C2_ASSISTANT_MEMORY_TEMPERATURE=0.05
 C2_ASSISTANT_MAX_TOOL_CALLS=10
-C2_ASSISTANT_PENDING_TIMEOUT_MS=120000
+# L'attente d'une commande accepte est sans timeout automatique; /stop arrete seulement l'attente du dialogue.
 
 # Local modules
 C2_DROPPER_MODULES_DIR=

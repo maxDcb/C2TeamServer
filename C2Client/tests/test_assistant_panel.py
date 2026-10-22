@@ -28,6 +28,7 @@ class FakeAssistantAgent:
         self.domain_hooks = FakeDomainHooks()
         self.turns = []
         self.resumes = []
+        self.stopped_waits = []
 
     def run_user_turn(self, user_input):
         self.turns.append(user_input)
@@ -37,20 +38,13 @@ class FakeAssistantAgent:
         self.resumes.append(kwargs)
         return SimpleNamespace(content="resumed", is_pending=False)
 
+    def stop_pending_tool_wait(self, **kwargs):
+        self.stopped_waits.append(kwargs)
+        return True
 
-def build_assistant(qtbot, monkeypatch, *, timeout_ms=300000):
+
+def build_assistant(qtbot, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("C2_ASSISTANT_PENDING_TIMEOUT_MS", str(timeout_ms))
-    monkeypatch.setattr("C2Client.AssistantPanel.C2AssistantAgent", FakeAssistantAgent)
-
-    assistant = Assistant(None, object())
-    qtbot.addWidget(assistant)
-    return assistant
-
-
-def build_assistant_with_default_timeout(qtbot, monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.delenv("C2_ASSISTANT_PENDING_TIMEOUT_MS", raising=False)
     monkeypatch.setattr("C2Client.AssistantPanel.C2AssistantAgent", FakeAssistantAgent)
 
     assistant = Assistant(None, object())
@@ -83,8 +77,9 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     assert "Assistant commands:" in output
     assert "/help - Show AssistantPanel local commands." in output
     assert "/status - Show the current assistant pending command state." in output
-    assert "/cancel - Cancel the current pending beacon result wait." in output
-    assert "/reset - Alias for /cancel." in output
+    assert "/stop - Stop this assistant wait; the remote command continues." in output
+    assert "/cancel and /reset - Aliases for /stop." in output
+    assert "no automatic assistant wait timeout" in output
 
 
 def test_assistant_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
@@ -115,13 +110,7 @@ def test_unknown_slash_command_redirects_to_help_without_calling_assistant(qtbot
     assert assistant.agent.turns == []
 
 
-def test_default_pending_timeout_is_two_minutes(qtbot, monkeypatch):
-    assistant = build_assistant_with_default_timeout(qtbot, monkeypatch)
-
-    assert assistant.pending_tool_timeout_ms == 120000
-
-
-def test_cancel_command_clears_pending_state(qtbot, monkeypatch):
+def test_stop_command_clears_only_assistant_wait(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
     assistant.awaiting_tool_result = True
     assistant.pending_tool_id = "pending-1"
@@ -131,14 +120,20 @@ def test_cancel_command_clears_pending_state(qtbot, monkeypatch):
         "listener_hash": "listener-1",
     }
 
-    assistant.commandEditor.setText("/cancel")
+    assistant.commandEditor.setText("/stop")
     assistant.runCommand()
 
     assert assistant.awaiting_tool_result is False
     assert assistant.pending_tool_id is None
     assert assistant.pending_tool_context is None
-    assert assistant.pending_tool_timer.isActive() is False
-    assert "Pending command wait cancelled." in assistant.editorOutput.toPlainText()
+    assert ("cmd-1", "beacon-1", "listener-1") in assistant._stopped_command_keys
+    assert assistant.agent.stopped_waits == [{"pending_id": "pending-1"}]
+    assert "remote command was not cancelled or marked failed" in assistant.editorOutput.toPlainText()
+    starts = []
+    monkeypatch.setattr(assistant, "_start_agent_turn", starts.append)
+    assistant.commandEditor.setText("new request")
+    assistant.runCommand()
+    assert starts == ["new request"]
 
 
 def test_cancel_command_reports_when_nothing_is_pending(qtbot, monkeypatch):
@@ -147,7 +142,7 @@ def test_cancel_command_reports_when_nothing_is_pending(qtbot, monkeypatch):
     assistant.commandEditor.setText("/cancel")
     assistant.runCommand()
 
-    assert "No pending command wait to cancel." in assistant.editorOutput.toPlainText()
+    assert "No pending assistant wait to stop." in assistant.editorOutput.toPlainText()
 
 
 def test_help_command_is_available_while_pending(qtbot, monkeypatch):
@@ -185,7 +180,7 @@ def test_status_command_reports_pending_context(qtbot, monkeypatch):
     assistant.runCommand()
 
     output = assistant.editorOutput.toPlainText()
-    assert "Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, timeout 300s)." in output
+    assert "Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, no automatic timeout)." in output
     assert "listener-1" not in output
 
 
@@ -231,7 +226,6 @@ def test_console_receive_resumes_matching_pending_command_id(qtbot, monkeypatch)
     assert assistant.awaiting_tool_result is False
     assert assistant.pending_tool_id is None
     assert assistant.pending_tool_context is None
-    assert assistant.pending_tool_timer.isActive() is False
 
 
 def test_console_receive_ignores_mismatched_pending_command_id(qtbot, monkeypatch):
@@ -323,8 +317,8 @@ def test_command_result_requires_exact_id_and_target(qtbot, monkeypatch):
     assert assistant.awaiting_tool_result is True
 
 
-def test_pending_response_starts_timeout_timer(qtbot, monkeypatch):
-    assistant = build_assistant(qtbot, monkeypatch, timeout_ms=1000)
+def test_pending_response_has_no_automatic_timeout(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
 
     assistant._process_assistant_response(pending_message())
 
@@ -332,30 +326,53 @@ def test_pending_response_starts_timeout_timer(qtbot, monkeypatch):
     assert assistant.pending_tool_id == "pending-1"
     assert assistant.pending_tool_context["command_id"] == "4078543f88cc4403aa587856afdfbfea"
     assert assistant.pending_tool_context["command_line"] == "run touch /tmp/hello"
-    assert assistant.pending_tool_timer.isActive() is True
+    assert not hasattr(assistant, "pending_tool_timer")
     output = assistant.editorOutput.toPlainText()
-    assert "Waiting for beacon command result. Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, timeout 1s)." in output
+    assert "Waiting for beacon command result. Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, no automatic timeout)." in output
     assert "4078543f88cc4403aa587856afdfbfea" not in output
 
 
-def test_pending_timeout_clears_state_and_reports(qtbot, monkeypatch):
-    assistant = build_assistant(qtbot, monkeypatch, timeout_ms=1000)
+def test_late_result_after_manual_stop_does_not_resume_new_wait(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
     assistant._process_assistant_response(pending_message())
-
-    assistant._handle_pending_tool_timeout()
-
-    output = assistant.editorOutput.toPlainText()
-    assert assistant.awaiting_tool_result is False
-    assert assistant.pending_tool_id is None
-    assert assistant.pending_tool_context is None
-    assert assistant.pending_tool_timer.isActive() is False
-    assert "Timed out waiting for result of `run touch /tmp/hello` on beacon beacon-1." in output
-
-
-def test_pending_timeout_can_be_disabled(qtbot, monkeypatch):
-    assistant = build_assistant(qtbot, monkeypatch, timeout_ms=0)
-
-    assistant._process_assistant_response(pending_message())
-
+    assistant.commandEditor.setText("/stop")
+    assistant.runCommand()
+    assistant.awaiting_tool_result = True
+    assistant.pending_tool_id = "pending-2"
+    assistant.pending_tool_context = {
+        "command_id": "cmd-2", "beacon_hash": "beacon-2", "listener_hash": "listener-2",
+    }
+    calls = []
+    monkeypatch.setattr(assistant, "_start_agent_resume", lambda *args: calls.append(args))
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="4078543f88cc4403aa587856afdfbfea",
+        beacon_hash="beacon-12345678", listener_hash="listener-1",
+        command_line="old", output="late",
+    ))
+    assert calls == []
     assert assistant.awaiting_tool_result is True
-    assert assistant.pending_tool_timer.isActive() is False
+    assert assistant.pending_tool_id == "pending-2"
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="cmd-2", beacon_hash="beacon-2",
+        listener_hash="listener-2", command_line="new", output="new result",
+    ))
+    assert calls[0][0] == "pending-2"
+
+
+def test_result_waits_for_active_worker_then_resumes(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant._process_assistant_response(pending_message())
+    assistant._response_thread = SimpleNamespace(is_alive=lambda: True)
+    calls = []
+    monkeypatch.setattr(assistant, "_start_agent_resume", lambda *args: calls.append(args))
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="4078543f88cc4403aa587856afdfbfea",
+        beacon_hash="beacon-12345678", listener_hash="listener-1",
+        command_line="whoami", output="result",
+    ))
+    assert calls == []
+    assert assistant._deferred_resume is not None
+    assistant._response_thread = None
+    assistant._drain_deferred_resume()
+    assert calls[0][0] == "pending-1"
+    assert assistant._deferred_resume is None

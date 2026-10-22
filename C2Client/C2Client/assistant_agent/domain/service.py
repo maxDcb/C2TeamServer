@@ -52,3 +52,15 @@ class C2AssistantAgent:
             thread_id=session_id,
             context=RunContext(namespace_id="c2client", thread_id=session_id),
         )
+
+    def stop_pending_tool_wait(self, *, pending_id: str, session_id: str = "default") -> bool:
+        """Discard only the agent wait checkpoint, without changing the remote command."""
+        with self.session_manager.session_scope(session_id):
+            key = self.orchestrator.PENDING_TURN_META_KEY
+            pending = self.session_manager.get_state().get("meta", {}).get(key)
+            if pending is None:
+                return True
+            if not isinstance(pending, dict) or pending.get("pending_id") != pending_id:
+                return False
+            self.session_manager.set_meta_value(key, None)
+            return True
