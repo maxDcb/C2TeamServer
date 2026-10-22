@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent_core import CoreSettings, RunContext
 from agent_core.conversation import AgentOrchestrator, SessionManager, SessionRepository
 from agent_core.spi import LLMCompletionResult, LLMToolCall, PolicyEngine, ToolRegistry, ToolResult, build_tool_definition
@@ -75,7 +77,8 @@ def build_orchestrator(tmp_path):
     )
 
 
-def test_agent_core_can_resume_pending_tool_result(tmp_path):
+@pytest.mark.parametrize("ok", [True, False])
+def test_agent_core_can_resume_pending_tool_result(tmp_path, ok):
     orchestrator = build_orchestrator(tmp_path)
 
     context = RunContext(namespace_id="c2client-test", thread_id="default")
@@ -90,6 +93,7 @@ def test_agent_core_can_resume_pending_tool_result(tmp_path):
     completed = orchestrator.resume_turn(
         pending_id=pending.pending_id,
         tool_content="tool output",
+        ok=ok,
         thread_id="default",
         context=context,
     )
@@ -100,3 +104,6 @@ def test_agent_core_can_resume_pending_tool_result(tmp_path):
         "tool_exchange",
         "conversation_turn",
     ]
+    assert orchestrator.session_manager.get_state()["tool_history"][-1]["status"] == (
+        "ok" if ok else "tool_error"
+    )

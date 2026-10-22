@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from C2Client.assistant_agent.tools.command_tool import C2CommandTool
@@ -13,6 +14,7 @@ class StubGrpc:
     def __init__(self):
         self.commands = []
         self.reject = False
+        self.rpc_error = None
         self.modules = [
             SimpleNamespace(name="ls", state="loaded"),
             SimpleNamespace(name="whoami", state="loaded"),
@@ -20,6 +22,8 @@ class StubGrpc:
 
     def sendSessionCommand(self, command):
         self.commands.append(command)
+        if self.rpc_error is not None:
+            raise self.rpc_error
         if self.reject:
             return SimpleNamespace(status=TeamServerApi_pb2.KO, message="Session not found.")
         return SimpleNamespace(status=TeamServerApi_pb2.OK, message=b"", command_id=command.command_id)
@@ -50,6 +54,7 @@ def test_c2_command_tool_sends_command_and_returns_pending():
     )
 
     assert result.pending is True
+    assert json.loads(result.content)["status"] == "pending"
     assert result.metadata["command_line"] == "ls 'C:\\Program Files'"
     assert result.metadata["command_id"]
     assert grpc.commands[0].session.beacon_hash == "beacon-12345678"
@@ -73,7 +78,22 @@ def test_c2_command_tool_returns_error_when_command_is_rejected():
 
     assert result.ok is False
     assert result.pending is False
-    assert result.content == "Session not found."
+    assert result.metadata["error"] == {"code": "teamserver_rejected", "message": "Session not found."}
+    assert json.loads(result.content)["error"] == result.metadata["error"]
+    assert result.metadata["command_id"] == grpc.commands[0].command_id
+
+
+def test_c2_command_tool_reports_rpc_exception_as_failed_outcome():
+    grpc = StubGrpc()
+    grpc.rpc_error = RuntimeError("transport unavailable")
+    result = C2CommandTool(spec_by_name("whoami"), grpc).execute(
+        {"beacon_hash": "beacon-12345678", "listener_hash": "listener-12345678"},
+        context=None,
+    )
+    assert result.ok is False
+    assert result.pending is False
+    assert result.metadata["error"] == {"code": "rpc_error", "message": "transport unavailable"}
+    assert result.metadata["command_id"] == grpc.commands[0].command_id
 
 
 def test_c2_command_tool_rejects_unloaded_module_before_sending():
@@ -93,4 +113,16 @@ def test_c2_command_tool_rejects_unloaded_module_before_sending():
     assert result.ok is False
     assert result.pending is False
     assert "loadModule ls" in result.content
+    assert result.metadata["error"]["code"] == "module_not_loaded"
+    assert grpc.commands == []
+
+
+def test_c2_command_tool_does_not_send_when_module_state_is_unavailable():
+    grpc = StubGrpc()
+    grpc.listModules = lambda session: (_ for _ in ()).throw(RuntimeError("unavailable"))
+    result = C2CommandTool(spec_by_name("ls"), grpc).execute(
+        {"beacon_hash": "beacon-12345678", "listener_hash": "listener-12345678"},
+        context=None,
+    )
+    assert result.metadata["error"]["code"] == "module_state_unavailable"
     assert grpc.commands == []

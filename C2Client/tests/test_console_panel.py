@@ -67,6 +67,9 @@ class DummyPanel(QWidget):
     def consoleAssistantMethod(self, *args, **kwargs):
         pass
 
+    def receiveCommandOutcome(self, *args, **kwargs):
+        pass
+
 
 def test_command_history_and_logging(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -184,6 +187,8 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
 
     emitted = []
     console.consoleScriptSignal.connect(lambda *args: emitted.append(args))
+    outcomes = []
+    console.commandOutcomeSignal.connect(outcomes.append)
 
     console.displayResponse()
 
@@ -191,6 +196,9 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
     assert "raw failure" not in console.editorOutput.toPlainText()
     assert console.commandStatusById["cmd-1"]["status"] == "error"
     assert emitted[0][-2] == "Command failed."
+    assert outcomes[0].state == "failed"
+    assert outcomes[0].output == "raw failure"
+    assert outcomes[0].error_message == "Command failed."
 
 
 def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monkeypatch):
@@ -215,6 +223,8 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
     qtbot.addWidget(console)
     emitted = []
     console.consoleScriptSignal.connect(lambda *args: emitted.append(args))
+    outcomes = []
+    console.commandOutcomeSignal.connect(outcomes.append)
 
     console.setResponsePollingActive(False)
     console.displayResponse()
@@ -223,6 +233,8 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
     assert console.commandStatusById["cmd-1"]["status"] == "done"
     assert emitted[0][0] == "receive"
     assert emitted[0][-1] == "cmd-1"
+    assert outcomes[0].state == "succeeded"
+    assert outcomes[0].output == "user"
     assert "user" in console.editorOutput.toPlainText()
 
 
@@ -376,6 +388,7 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
 def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     class FakeConsole(QWidget):
         consoleScriptSignal = pyqtSignal(str, str, str, str, str, str, str)
+        commandOutcomeSignal = pyqtSignal(object)
         instances = []
 
         def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username):

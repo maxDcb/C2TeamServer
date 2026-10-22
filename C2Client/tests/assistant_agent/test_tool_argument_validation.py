@@ -17,6 +17,7 @@ from helpers import arg, command_spec
 class StubGrpc:
     def __init__(self):
         self.commands = []
+        self.module_calls = 0
 
     def sendSessionCommand(self, request):
         self.commands.append(request)
@@ -26,7 +27,8 @@ class StubGrpc:
         raise AssertionError("invalid arguments reached listSessions")
 
     def listModules(self, request):
-        raise AssertionError("invalid arguments reached listModules")
+        self.module_calls += 1
+        return iter([SimpleNamespace(name="demo", state="loaded")])
 
     def getCommandHelp(self, request):
         raise AssertionError("invalid arguments reached getCommandHelp")
@@ -122,5 +124,7 @@ def test_required_flag_must_be_true_before_rpc():
     ],
 )
 def test_static_tools_reject_invalid_arguments_before_rpc(tool_type, arguments):
-    result = tool_type(StubGrpc()).execute(arguments, context=None)
+    grpc = StubGrpc()
+    result = tool_type(grpc).execute(arguments, context=None)
     assert result.metadata["status"] == "invalid_arguments"
+    assert grpc.module_calls == 0

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from C2Client.AssistantPanel import Assistant
+from C2Client.assistant_agent.domain.command_outcome import CommandOutcome
 
 
 class FakeDomainHooks:
@@ -25,10 +27,15 @@ class FakeAssistantAgent:
         self.grpc_client = grpc_client
         self.domain_hooks = FakeDomainHooks()
         self.turns = []
+        self.resumes = []
 
     def run_user_turn(self, user_input):
         self.turns.append(user_input)
         return SimpleNamespace(content="ok", is_pending=False)
+
+    def resume_pending_tool(self, **kwargs):
+        self.resumes.append(kwargs)
+        return SimpleNamespace(content="resumed", is_pending=False)
 
 
 def build_assistant(qtbot, monkeypatch, *, timeout_ms=300000):
@@ -188,7 +195,7 @@ def test_console_receive_resumes_matching_pending_command_id(qtbot, monkeypatch)
     monkeypatch.setattr(
         assistant,
         "_start_agent_resume",
-        lambda pending_id, tool_output: resume_calls.append((pending_id, tool_output)),
+        lambda pending_id, tool_output, ok: resume_calls.append((pending_id, tool_output, ok)),
     )
     assistant.awaiting_tool_result = True
     assistant.pending_tool_id = "pending-1"
@@ -207,14 +214,20 @@ def test_console_receive_resumes_matching_pending_command_id(qtbot, monkeypatch)
         "",
         "cmd-1",
     )
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="cmd-1", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="run touch /tmp/hello", output="",
+    ))
 
     assert len(resume_calls) == 1
     assert resume_calls[0][0] == "pending-1"
-    assert "command_id: cmd-1" in resume_calls[0][1]
-    assert "beacon_hash: beacon-1" in resume_calls[0][1]
-    assert "listener_hash: listener-1" in resume_calls[0][1]
-    assert "command: run touch /tmp/hello" in resume_calls[0][1]
-    assert "[no output]" in resume_calls[0][1]
+    content = json.loads(resume_calls[0][1])
+    assert content["command_id"] == "cmd-1"
+    assert content["beacon_hash"] == "beacon-1"
+    assert content["listener_hash"] == "listener-1"
+    assert content["command_line"] == "run touch /tmp/hello"
+    assert content["output"] == ""
+    assert resume_calls[0][2] is True
     assert assistant.awaiting_tool_result is False
     assert assistant.pending_tool_id is None
     assert assistant.pending_tool_context is None
@@ -227,7 +240,7 @@ def test_console_receive_ignores_mismatched_pending_command_id(qtbot, monkeypatc
     monkeypatch.setattr(
         assistant,
         "_start_agent_resume",
-        lambda pending_id, tool_output: resume_calls.append((pending_id, tool_output)),
+        lambda pending_id, tool_output, ok: resume_calls.append((pending_id, tool_output, ok)),
     )
     assistant.awaiting_tool_result = True
     assistant.pending_tool_id = "pending-1"
@@ -246,6 +259,10 @@ def test_console_receive_ignores_mismatched_pending_command_id(qtbot, monkeypatc
         "user",
         "cmd-2",
     )
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="cmd-2", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="whoami", output="user",
+    ))
 
     assert resume_calls == []
     assert assistant.awaiting_tool_result is True
@@ -257,6 +274,53 @@ def test_console_receive_ignores_mismatched_pending_command_id(qtbot, monkeypatc
             "output": "user",
         }
     ]
+
+
+def test_failed_command_resumes_with_failed_status_and_full_output(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant.awaiting_tool_result = True
+    assistant.pending_tool_id = "pending-1"
+    assistant.pending_tool_context = {
+        "command_id": "cmd-1", "beacon_hash": "beacon-1", "listener_hash": "listener-1",
+    }
+    calls = []
+    monkeypatch.setattr(assistant, "_start_agent_resume", lambda *args: calls.append(args))
+
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="failed", command_id="cmd-1", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="whoami", output="raw failure",
+        error_code="teamserver_command_failed", error_message="Command failed.",
+    ))
+
+    assert calls[0][0] == "pending-1"
+    assert calls[0][2] is False
+    assert json.loads(calls[0][1])["output"] == "raw failure"
+    assert "failed: Command failed." in assistant.editorOutput.toPlainText()
+    assistant._agent_resume_worker(*calls[0])
+    assert assistant.agent.resumes[0]["ok"] is False
+
+
+def test_command_result_requires_exact_id_and_target(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant.awaiting_tool_result = True
+    assistant.pending_tool_id = "pending-1"
+    assistant.pending_tool_context = {
+        "command_id": "cmd-1", "beacon_hash": "beacon-1", "listener_hash": "listener-1",
+    }
+    calls = []
+    monkeypatch.setattr(assistant, "_start_agent_resume", lambda *args: calls.append(args))
+
+    for command_id, beacon_hash, listener_hash in (
+        ("", "beacon-1", "listener-1"),
+        ("cmd-1", "beacon-2", "listener-1"),
+        ("cmd-1", "beacon-1", "listener-2"),
+    ):
+        assistant.receiveCommandOutcome(CommandOutcome(
+            state="succeeded", command_id=command_id, beacon_hash=beacon_hash,
+            listener_hash=listener_hash, command_line="whoami", output="user",
+        ))
+    assert calls == []
+    assert assistant.awaiting_tool_result is True
 
 
 def test_pending_response_starts_timeout_timer(qtbot, monkeypatch):

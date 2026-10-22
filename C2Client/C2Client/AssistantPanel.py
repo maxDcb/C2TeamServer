@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 import markdown
 
 from .assistant_agent import C2AssistantAgent
+from .assistant_agent.domain.command_outcome import CommandOutcome
 from .console_style import (
     apply_console_output_style,
     append_console_block,
@@ -152,60 +153,43 @@ class Assistant(QWidget):
         if isinstance(output_text, bytes):
             output_text = output_text.decode("latin1", errors="ignore")
         output_text = output_text.replace(chr(0), "")
-        display_output = output_text if output_text else "[no output]"
+        if self._matches_pending_command(commandId, beaconHash, listenerHash):
+            return
 
-        awaiting_result = False
-        if self.awaiting_tool_result:
-            if self.pending_tool_context:
-                pending_command_id = self.pending_tool_context.get("command_id")
-                awaiting_result = (
-                    (not pending_command_id or pending_command_id == commandId)
-                    and self.pending_tool_context.get("beacon_hash") == beaconHash
-                    and self.pending_tool_context.get("listener_hash") == listenerHash
-                )
-            else:
-                awaiting_result = True
-
-        if awaiting_result:
-            pending_id = self.pending_tool_id
-            tool_output = self._format_tool_result_for_resume(
+        combined = command_text
+        if output_text:
+            combined = f"{command_text}\n{output_text}" if command_text else output_text
+        if combined.strip():
+            self.agent.domain_hooks.record_console_observation(
                 beacon_hash=beaconHash,
                 listener_hash=listenerHash,
-                command_id=commandId,
                 command=command_text,
-                output=display_output,
+                output=output_text,
             )
-            self.printInTerminal("Analysis:", f"Received result for command `{commandId or command_text}`. Resuming assistant.")
-            self._clear_pending_tool_state()
 
-            if pending_id:
-                self._start_agent_resume(pending_id, tool_output)
-        else:
-            combined = command_text
-            if output_text:
-                combined = f"{command_text}\n{output_text}" if command_text else output_text
-
-            if combined.strip():
-                self.agent.domain_hooks.record_console_observation(
-                    beacon_hash=beaconHash,
-                    listener_hash=listenerHash,
-                    command=command_text,
-                    output=output_text,
-                )
-
-
-    def _format_tool_result_for_resume(self, *, beacon_hash, listener_hash, command_id, command, output):
-        return "\n".join(
-            [
-                "Command result received from TeamServer.",
-                f"command_id: {command_id or 'unknown'}",
-                f"beacon_hash: {beacon_hash or 'unknown'}",
-                f"listener_hash: {listener_hash or 'unknown'}",
-                f"command: {command or 'unknown'}",
-                "output:",
-                output or "[no output]",
-            ]
+    def _matches_pending_command(self, command_id, beacon_hash, listener_hash):
+        pending = self.pending_tool_context or {}
+        return bool(
+            self.awaiting_tool_result
+            and self.pending_tool_id
+            and command_id
+            and pending.get("command_id") == command_id
+            and pending.get("beacon_hash") == beacon_hash
+            and pending.get("listener_hash") == listener_hash
         )
+
+    def receiveCommandOutcome(self, outcome: CommandOutcome):
+        if not self._matches_pending_command(outcome.command_id, outcome.beacon_hash, outcome.listener_hash):
+            return
+
+        pending_id = self.pending_tool_id
+        if outcome.ok:
+            notice = f"Received result for command `{outcome.command_id}`. Resuming assistant."
+        else:
+            notice = f"Command `{outcome.command_id}` failed: {outcome.error_message or 'TeamServer reported an error'}. Resuming assistant."
+        self.printInTerminal("Analysis:", notice)
+        self._clear_pending_tool_state()
+        self._start_agent_resume(pending_id, outcome.tool_content(), outcome.ok)
 
     def event(self, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
@@ -365,14 +349,14 @@ class Assistant(QWidget):
             self._response_thread.start()
 
 
-    def _start_agent_resume(self, pending_id, tool_output):
+    def _start_agent_resume(self, pending_id, tool_output, ok):
         with self._response_lock:
             if self._response_thread and self._response_thread.is_alive():
                 self.printInTerminal("Analysis:", "Assistant is still processing the previous request.")
                 return
             self._response_thread = Thread(
                 target=self._agent_resume_worker,
-                args=(pending_id, tool_output),
+                args=(pending_id, tool_output, ok),
                 daemon=True,
             )
             self._response_thread.start()
@@ -389,12 +373,12 @@ class Assistant(QWidget):
                 self._response_thread = None
 
 
-    def _agent_resume_worker(self, pending_id, tool_output):
+    def _agent_resume_worker(self, pending_id, tool_output, ok):
         try:
             result = self.agent.resume_pending_tool(
                 pending_id=pending_id,
                 tool_content=tool_output,
-                ok=True,
+                ok=ok,
             )
             self.responseReady.emit(result)
         except Exception as e:

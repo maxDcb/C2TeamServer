@@ -26,6 +26,7 @@ from .grpcClient import TeamServerApi_pb2
 from .TerminalPanel import Terminal
 from .ScriptPanel import Script
 from .AssistantPanel import Assistant
+from .assistant_agent.domain.command_outcome import CommandOutcome
 from .ArtifactPanel import Artifacts, ArtifactTabTitle
 from .CommandPanel import Commands, CommandTabTitle
 from .TerminalModules.Credentials import credentials
@@ -926,6 +927,7 @@ class ConsolesTab(QWidget):
             console = Console(self, self.grpcClient, beaconHash, listenerHash, hostname, username)
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self.assistant.consoleAssistantMethod)
+            console.commandOutcomeSignal.connect(self.assistant.receiveCommandOutcome)
             tab = self.createConsolePage(console)
             self.tabs.addTab(tab, beaconHash[0:8])
             self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -943,6 +945,7 @@ class ConsolesTab(QWidget):
 class Console(QWidget):
 
     consoleScriptSignal = pyqtSignal(str, str, str, str, str, str, str)
+    commandOutcomeSignal = pyqtSignal(object)
 
     tabPressed = pyqtSignal()
     beaconHash=""
@@ -1393,9 +1396,20 @@ class Console(QWidget):
         command_text = response.command or response.instruction
         decoded_response = response.output.decode('utf-8', 'replace')
         response_ok = is_response_ok(response)
+        raw_output = decoded_response
         if not response_ok:
             decoded_response = response_message(response) or decoded_response or "Command failed."
         self.consoleScriptSignal.emit("receive", self.beaconHash, listener_hash, context, command_text, decoded_response, command_id)
+        self.commandOutcomeSignal.emit(CommandOutcome(
+            state="succeeded" if response_ok else "failed",
+            command_id=command_id,
+            beacon_hash=self.beaconHash,
+            listener_hash=listener_hash,
+            command_line=command_text,
+            output=raw_output,
+            error_code="" if response_ok else "teamserver_command_failed",
+            error_message="" if response_ok else response_message(response, "Command failed."),
+        ))
         # check the response for mimikatz and not the cmd line ???
         if "-e mimikatz.exe" in command_text:
             credentials.handleMimikatzCredentials(decoded_response, self.grpcClient, TeamServerApi_pb2)
