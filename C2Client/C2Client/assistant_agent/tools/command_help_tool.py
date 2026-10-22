@@ -7,6 +7,7 @@ from agent_core import ExecutionContext
 from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
 
 from ...grpcClient import TeamServerApi_pb2
+from .validation import validate_tool_arguments
 
 
 @dataclass(slots=True)
@@ -42,6 +43,9 @@ class C2CommandHelpTool:
         )
 
     def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
+        invalid = validate_tool_arguments(self.name, self.schema().parameters, arguments)
+        if invalid is not None:
+            return invalid
         command = _help_command(arguments["command"])
         request = TeamServerApi_pb2.CommandHelpRequest(
             session=TeamServerApi_pb2.SessionSelector(

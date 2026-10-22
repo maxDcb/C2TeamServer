@@ -145,6 +145,8 @@ def _tool_parameters(command: Any, command_template: str) -> dict[str, Any]:
 def _property_schema(placeholder: "_TemplatePlaceholder", arg: Any | None) -> dict[str, Any]:
     if placeholder.modifier == "flag":
         schema: dict[str, Any] = {"type": "boolean"}
+        if not placeholder.optional:
+            schema["enum"] = [True]
     else:
         arg_type = str(getattr(arg, "type", "") or "").lower()
         if arg_type == "number":

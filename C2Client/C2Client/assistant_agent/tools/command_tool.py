@@ -7,6 +7,7 @@ from typing import Any
 from .command_builder import build_command_line
 from .command_specs import C2CommandSpecToolSpec
 from .module_state_tool import has_loaded_module
+from .validation import validate_tool_arguments
 
 from agent_core import ExecutionContext
 from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
@@ -35,6 +36,9 @@ class C2CommandTool:
         )
 
     def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
+        invalid = validate_tool_arguments(self.name, self.spec.parameters, arguments)
+        if invalid is not None:
+            return invalid
         beacon_hash = arguments["beacon_hash"]
         listener_hash = arguments["listener_hash"]
         module_loaded = self._module_loaded(beacon_hash=beacon_hash, listener_hash=listener_hash)

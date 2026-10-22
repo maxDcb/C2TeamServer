@@ -7,6 +7,7 @@ from agent_core import ExecutionContext
 from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
 
 from ...grpcClient import TeamServerApi_pb2
+from .validation import validate_tool_arguments
 
 
 @dataclass(slots=True)
@@ -38,6 +39,9 @@ class C2LoadedModulesTool:
         )
 
     def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
+        invalid = validate_tool_arguments(self.name, self.schema().parameters, arguments)
+        if invalid is not None:
+            return invalid
         modules = list_loaded_modules(
             self.grpc_client,
             beacon_hash=arguments["beacon_hash"],
