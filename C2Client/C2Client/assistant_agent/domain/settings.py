@@ -7,7 +7,7 @@ from ...env import load_c2_env
 from ..storage.paths import default_storage_dir, prompts_dir
 
 from agent_core import CoreSettings
-from agent_core.prompt_repository import load_prompt
+from agent_core.spi import load_prompt
 
 DEFAULT_MEMORY_MODEL = "gpt-4.1-mini"
 
@@ -37,13 +37,12 @@ def build_c2_agent_settings(*, storage_dir: Path | None = None) -> CoreSettings:
         log_synthesis_payloads=os.getenv("C2_ASSISTANT_LOG_SYNTHESIS_PAYLOADS", "").lower() in {"1", "true", "yes", "y"},
         session_file=storage_dir / "session.json",
         reports_directory=storage_dir / "reports",
+        artifacts_directory=storage_dir / "artifacts",
         prompts_dir=prompt_root,
         knowledge_base_dir=storage_dir / "knowledge",
         allowed_read_roots=[Path.cwd()],
         allowed_http_hosts=[],
         allowed_http_methods=[],
         base_system_prompt=load_prompt(prompt_root, "system/main_agent.md"),
-        task_state_synthesis_prompt=load_prompt(prompt_root, "memory/task_state.md"),
-        session_summary_synthesis_prompt=load_prompt(prompt_root, "memory/session_summary.md"),
-        session_summary_merge_prompt=load_prompt(prompt_root, "memory/session_summary_merge.md"),
+        turn_memory_synthesis_prompt=load_prompt(prompt_root, "memory/turn_memory.md"),
     )

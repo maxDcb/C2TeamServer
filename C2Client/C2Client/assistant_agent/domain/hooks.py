@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_core import DomainHooks
+from agent_core.spi import DomainHooks
 
 
 class C2DomainHooks(DomainHooks):

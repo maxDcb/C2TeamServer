@@ -8,7 +8,7 @@ from .command_specs import load_command_tool_specs
 from .module_state_tool import C2LoadedModulesTool
 from .session_state_tool import C2LiveSessionsTool
 
-from agent_core import ToolRegistry
+from agent_core.spi import ToolRegistry
 
 
 def build_c2_tool_registry(grpc_client: Any) -> ToolRegistry:

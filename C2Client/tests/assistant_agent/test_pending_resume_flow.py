@@ -2,15 +2,9 @@ from __future__ import annotations
 
 import json
 
-from agent_core.llm.base import LLMCompletionResult, LLMToolCall
-from agent_core.orchestrator import AgentOrchestrator
-from agent_core.policy_engine import PolicyEngine
-from agent_core.session_manager import SessionManager
-from agent_core.session_repo import SessionRepository
-from agent_core.settings import CoreSettings
-from agent_core.tool_registry import ToolRegistry
-from agent_core.tools import build_tool_definition
-from agent_core.types import ToolResult
+from agent_core import CoreSettings, RunContext
+from agent_core.conversation import AgentOrchestrator, SessionManager, SessionRepository
+from agent_core.spi import LLMCompletionResult, LLMToolCall, PolicyEngine, ToolRegistry, ToolResult, build_tool_definition
 
 
 class FakeProvider:
@@ -33,20 +27,11 @@ class FakeProvider:
         return self.responses.pop(0)
 
     def complete_text(self, *, messages, model, temperature):
-        return json.dumps(
-            {
-                "run_id": "run-0000",
-                "objective": "Use delayed tool",
-                "scope": [],
-                "source_code_locations": [],
-                "domain_extensions": {},
-                "open_questions": [],
-                "next_action": None,
-                "stop_conditions": [],
-                "constraints": [],
-                "relevant_artifacts": [],
-                "status": "active",
-            }
+        return LLMCompletionResult(
+            content=json.dumps({
+                "turn_summary": "The delayed tool returned its output.",
+                "next_handoff": "The delayed tool completed; no command remains pending.",
+            })
         )
 
 
@@ -75,10 +60,9 @@ def build_orchestrator(tmp_path):
         model="test-model",
         memory_model="test-model",
         session_file=tmp_path / "session.json",
+        artifacts_directory=tmp_path / "artifacts",
         base_system_prompt="system",
-        task_state_synthesis_prompt="task",
-        session_summary_synthesis_prompt="summary",
-        session_summary_merge_prompt="merge",
+        turn_memory_synthesis_prompt="Create a bounded turn summary and handoff.",
     )
     registry = ToolRegistry()
     registry.register(DelayedTool())
@@ -94,7 +78,10 @@ def build_orchestrator(tmp_path):
 def test_agent_core_can_resume_pending_tool_result(tmp_path):
     orchestrator = build_orchestrator(tmp_path)
 
-    pending = orchestrator.run_turn_result("call the delayed tool")
+    context = RunContext(namespace_id="c2client-test", thread_id="default")
+    pending = orchestrator.run_turn_result(
+        user_input="call the delayed tool", thread_id="default", context=context
+    )
 
     assert pending.status == "pending_tool_result"
     assert pending.pending_id
@@ -103,6 +90,8 @@ def test_agent_core_can_resume_pending_tool_result(tmp_path):
     completed = orchestrator.resume_turn(
         pending_id=pending.pending_id,
         tool_content="tool output",
+        thread_id="default",
+        context=context,
     )
 
     assert completed.status == "completed"

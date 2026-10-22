@@ -11,9 +11,8 @@ def test_prompt_files_are_loaded_into_settings(tmp_path, monkeypatch):
 
     assert "Exploration C2" in settings.base_system_prompt
     assert "local release-side module" in settings.base_system_prompt
-    assert "operational state" in settings.task_state_synthesis_prompt
-    assert "durable operational memory" in settings.session_summary_synthesis_prompt
-    assert "Merge the previous session summary" in settings.session_summary_merge_prompt
+    assert "compact handoff" in settings.turn_memory_synthesis_prompt
+    assert settings.artifacts_directory == tmp_path / "artifacts"
     assert settings.memory_model == DEFAULT_MEMORY_MODEL
     assert settings.max_active_context_tokens == 64000
 

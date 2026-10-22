@@ -3,10 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from agent_core.execution_context import ExecutionContext
-from agent_core.llm.base import LLMToolDefinition
-from agent_core.tools import build_tool_definition
-from agent_core.types import ToolResult
+from agent_core import ExecutionContext
+from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
 
 from ...grpcClient import TeamServerApi_pb2
 

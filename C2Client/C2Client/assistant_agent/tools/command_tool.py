@@ -8,10 +8,8 @@ from .command_builder import build_command_line
 from .command_specs import C2CommandSpecToolSpec
 from .module_state_tool import has_loaded_module
 
-from agent_core.execution_context import ExecutionContext
-from agent_core.llm.base import LLMToolDefinition
-from agent_core.tools import build_tool_definition
-from agent_core.types import ToolResult
+from agent_core import ExecutionContext
+from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
 
 from ...grpcClient import TeamServerApi_pb2
 

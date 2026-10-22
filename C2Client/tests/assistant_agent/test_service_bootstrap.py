@@ -29,3 +29,38 @@ def test_service_bootstrap_registers_only_c2_tools(tmp_path):
         "whoami",
     ]
     assert service.session_manager.session_id == "default"
+
+
+def test_service_passes_run_context_for_new_and_resumed_turns(tmp_path):
+    service = C2AssistantAgent(None, storage_dir=tmp_path)
+    calls = []
+    expected = object()
+
+    def run_turn_result(**kwargs):
+        calls.append(("run", kwargs))
+        return expected
+
+    def resume_turn(**kwargs):
+        calls.append(("resume", kwargs))
+        return expected
+
+    service.orchestrator = SimpleNamespace(
+        run_turn_result=run_turn_result,
+        resume_turn=resume_turn,
+    )
+
+    assert service.run_user_turn("inspect", session_id="operator-thread") is expected
+    assert service.resume_pending_tool(
+        pending_id="pending-1",
+        tool_content="command failed",
+        ok=False,
+        session_id="operator-thread",
+    ) is expected
+
+    assert calls[0][1]["user_input"] == "inspect"
+    assert calls[1][1]["pending_id"] == "pending-1"
+    assert calls[1][1]["ok"] is False
+    for _kind, kwargs in calls:
+        assert kwargs["thread_id"] == "operator-thread"
+        assert kwargs["context"].thread_id == "operator-thread"
+        assert kwargs["context"].namespace_id == "c2client"
