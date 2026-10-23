@@ -97,16 +97,15 @@ build CMake (voir [build.md](build.md)) :
 ```bash
 python3 -m venv C2Client/.venv
 C2Client/.venv/bin/python -m pip install -e './C2Client[test]'
-C2Client/.venv/bin/python -m pip install -e /home/mdecaumiabaillenx/Challenges/agent-core --no-deps --no-build-isolation
 C2_PROTOCOL_PYTHON_ROOT="$PWD/build/generated/python_protocol" \
   QT_QPA_PLATFORM=offscreen \
   C2Client/.venv/bin/python -m pytest C2Client/tests -q
 ```
 
-La dépendance `agent-core` du `pyproject.toml` pointe encore sur la version
-publiée précédente. Le second `pip install -e` est donc requis pour utiliser
-le commit local non poussé. Ne pas supprimer le checkout local tant qu'il est
-utilisé par cet environnement virtuel.
+La dépendance `agent-core` est figée sur le commit qui fournit la suspension et
+la reprise des tâches structurées. Pour développer les deux dépôts ensemble,
+il est possible d'installer le checkout local après le client avec
+`C2Client/.venv/bin/python -m pip install -e /home/mdecaumiabaillenx/Challenges/agent-core --no-deps --no-build-isolation`.
 
 Pour démarrer l'interface avec la configuration locale actuelle (le fichier
 `C2Client/.env` sélectionne Azure et `gpt-5.5`) :

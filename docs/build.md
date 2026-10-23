@@ -123,5 +123,5 @@ received the task. A late beacon result with its job ID can still complete it.
 
 ## Client LLM skills
 
-See [assistant-skills.md](assistant-skills.md) for the fixed inventory skill,
-client-side recovery, local `agent-core` installation, and GUI startup.
+See [assistant-skills.md](assistant-skills.md) for fixed and agentic skills,
+client-side recovery, the pinned `agent-core` dependency, and GUI startup.
