@@ -130,6 +130,7 @@ TeamServerSocksService::~TeamServerSocksService()
 
 grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string>& splitedCmd, teamserverapi::TerminalCommandResponse* response)
 {
+    std::lock_guard<std::mutex> lock(m_controlMutex);
     response->set_status(teamserverapi::OK);
     response->set_command(joinCommand(splitedCmd));
     response->set_result("");
@@ -206,12 +207,17 @@ grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string
             setTerminalError(response, "Error: Socks server not running");
             return grpc::Status::OK;
         }
-        if (m_isSocksServerBinded)
+        if (m_isSocksServerBinded.load())
         {
             m_logger->warn("Error: Socks server already bind");
             setTerminalError(response, "Error: Socks server already bind");
             return grpc::Status::OK;
         }
+        // A finished worker remains joinable until its owner joins it.
+        // Reap it before replacing the thread or changing its session pointers.
+        if (m_socksThread)
+            unbindThread();
+
         if (splitedCmd.size() == 3)
         {
             std::shared_ptr<Listener> listener;
@@ -220,8 +226,8 @@ grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string
             {
                 m_socksListener = std::move(listener);
                 m_socksSession = std::move(session);
+                m_isSocksServerBinded.store(true);
                 m_socksThread = std::make_unique<std::thread>(&TeamServerSocksService::run, this);
-                m_isSocksServerBinded = true;
                 m_logger->info("Socks server sucessfully binded");
                 setTerminalOk(response, "Socks server sucessfully binded\nThink about setting the sleep time of the beacon to 0.001 to force a good throughput");
                 return grpc::Status::OK;
@@ -248,6 +254,7 @@ grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string
 
 void TeamServerSocksService::shutdown()
 {
+    std::lock_guard<std::mutex> lock(m_controlMutex);
     stopServer();
 }
 
@@ -255,12 +262,11 @@ void TeamServerSocksService::run()
 {
     std::string dataIn;
     std::string dataOut;
-    m_isSocksServerBinded = true;
-    while (m_isSocksServerBinded)
+    while (m_isSocksServerBinded.load())
     {
         if (m_socksSession->isSessionKilled())
         {
-            m_isSocksServerBinded = false;
+            m_isSocksServerBinded.store(false);
             for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
                 m_socksServer->resetTunnel(i);
         }
@@ -269,7 +275,7 @@ void TeamServerSocksService::run()
         if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopSocksCmd)
         {
             m_socksServer->stop();
-            m_isSocksServerBinded = false;
+            m_isSocksServerBinded.store(false);
             for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
                 m_socksServer->resetTunnel(i);
         }
@@ -407,12 +413,13 @@ void TeamServerSocksService::run()
 
 bool TeamServerSocksService::isRunning() const
 {
+    std::lock_guard<std::mutex> lock(m_controlMutex);
     return m_isSocksServerRunning;
 }
 
 bool TeamServerSocksService::isBound() const
 {
-    return m_isSocksServerBinded;
+    return m_isSocksServerBinded.load();
 }
 
 std::shared_ptr<Session> TeamServerSocksService::findSessionByPrefix(const std::string& beaconHashPrefix, std::shared_ptr<Listener>& listener) const
@@ -453,7 +460,7 @@ bool TeamServerSocksService::portInUse(unsigned short port) const
 
 void TeamServerSocksService::unbindThread()
 {
-    m_isSocksServerBinded = false;
+    m_isSocksServerBinded.store(false);
     if (m_socksThread)
         m_socksThread->join();
     m_socksThread.reset();

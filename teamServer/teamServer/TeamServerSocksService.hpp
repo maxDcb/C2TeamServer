@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -60,8 +62,9 @@ private:
     PortInUseCallback m_portInUse;
     ServerFactory m_serverFactory;
 
+    mutable std::mutex m_controlMutex;
     bool m_isSocksServerRunning;
-    bool m_isSocksServerBinded;
+    std::atomic_bool m_isSocksServerBinded;
     std::unique_ptr<ISocksServer> m_socksServer;
     std::unique_ptr<std::thread> m_socksThread;
     std::shared_ptr<Listener> m_socksListener;

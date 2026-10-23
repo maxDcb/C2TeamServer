@@ -1,13 +1,13 @@
 # SOCKS5 Audit
 
-Date: 2026-05-10
+Updated: 2026-10-23
 
 Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel integration.
 
 ## Current Contract
 
 - SOCKS version: SOCKS5.
-- Method negotiation: no-auth is accepted; username/password code exists.
+- The local proxy listens on `127.0.0.1` only. No-auth is accepted; username/password code exists.
 - Command support: `CONNECT` only.
 - Address support: IPv4 and domain-name (`ATYP=0x03`).
 - IPv6 targets are intentionally not supported yet and return a typed SOCKS failure.
@@ -24,6 +24,8 @@ Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel
 - Success replies now encode the bind port in network byte order.
 - Library stdout/stderr noise was removed from the normal SOCKS path and SIGPIPE handler.
 - `SocksServer` cross-thread state flags are atomic.
+- The TeamServer binding flag is atomic, terminal lifecycle commands are serialized, and a completed binding thread is joined before rebinding.
+- The TeamServer SOCKS listener is restricted to loopback by default.
 - `TestsSocksServer` is now an automated protocol test instead of a manual harness.
 
 ## Automated Coverage
@@ -38,8 +40,9 @@ Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel
   - rejects IPv6 `CONNECT` with `0x08`
   - rejects non-`CONNECT` commands with `0x07`
   - validates beacon-side hostname resolution with `SocksTunnelClient::initHostname`
+  - checks that a non-loopback local address cannot connect when one is available
 - `testsTeamServerSocksService`
-  - covers terminal lifecycle: `start`, `bind`, `unbind`, `stop`, duplicate/error paths.
+  - covers terminal lifecycle: `start`, `bind`, `unbind`, `stop`, duplicate/error paths, immediate unbind, and rebinding after a killed session.
 - `scripts/socks5_stress_test.py`
   - remains the live stress tool for bound beacon routes.
   - default mode resolves hostnames locally to IPv4.
