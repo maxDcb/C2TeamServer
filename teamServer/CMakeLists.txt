@@ -61,7 +61,18 @@ set(TEAMSERVER_CORE_LINK_LIBS
     ${aplib64}
     dl
     rt
+    job_application
+    job_sqlite
 )
+
+find_library(C2_SQLITE3_LIBRARY NAMES sqlite3 sqlite3.so.0 libsqlite3.so.0 REQUIRED)
+add_library(job_application STATIC teamServer/JobApplicationService.cpp)
+target_include_directories(job_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/teamServer)
+target_link_libraries(job_application PUBLIC openssl::openssl nlohmann_json::nlohmann_json)
+
+add_library(job_sqlite STATIC teamServer/SqliteJobRepository.cpp)
+target_include_directories(job_sqlite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/teamServer)
+target_link_libraries(job_sqlite PUBLIC ${C2_SQLITE3_LIBRARY})
 
 add_library(server_listener_transport STATIC ${SERVER_LISTENER_TRANSPORT_SOURCES})
 target_include_directories(server_listener_transport
@@ -134,6 +145,11 @@ function(teamserver_add_test target_name link_target)
 endfunction()
 
 if(WITH_TESTS)
+    teamserver_add_test(testsJobRepository job_application
+        tests/JobRepositoryTests.cpp
+    )
+    target_link_libraries(testsJobRepository PRIVATE job_sqlite)
+
     teamserver_add_test(testsTestServer
         server_core
         tests/testsTestServer.cpp
