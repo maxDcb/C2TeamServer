@@ -8,7 +8,7 @@ from typing import Literal
 
 from agent_core.spi import ToolResult
 
-CommandState = Literal["pending", "succeeded", "failed", "stopped"]
+CommandState = Literal["pending", "succeeded", "failed", "outcome_unknown", "stopped"]
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,7 +10,8 @@ from C2Client.ConsolePanel import ConsolesTab, SYSTEM_TAB_COUNT
 from C2Client.grpcClient import TeamServerApi_pb2
 
 
-def result(command_id="cmd-1", *, beacon="beacon", listener="listener", output=b"user", status=None):
+def result(command_id="cmd-1", *, beacon="beacon", listener="listener", output=b"user", status=None,
+           event_id=0, job_state=""):
     return SimpleNamespace(
         status=TeamServerApi_pb2.OK if status is None else status,
         session=SimpleNamespace(beacon_hash=beacon, listener_hash=listener),
@@ -19,6 +20,8 @@ def result(command_id="cmd-1", *, beacon="beacon", listener="listener", output=b
         command_id=command_id,
         output=output,
         message="Command failed." if status == TeamServerApi_pb2.KO else "",
+        event_id=event_id,
+        job_state=job_state,
     )
 
 
@@ -67,6 +70,20 @@ def test_one_worker_fans_out_once_to_two_subscribers_and_deduplicates(qtbot, mon
     assert len(hub._streams) == 1
     sub2.close()
     assert hub._streams == {}
+
+
+def test_late_result_updates_outcome_unknown_with_new_event_id(monkeypatch):
+    monkeypatch.setattr(CommandResultWorker, "start", lambda self: None)
+    hub = CommandEventHub(StubGrpc())
+    received = []
+    hub.subscribe("beacon", "listener", received.append)
+    hub.ingest_response("beacon", "listener", result(
+        status=TeamServerApi_pb2.KO, output=b"", event_id=10, job_state="outcome_unknown"))
+    hub.ingest_response("beacon", "listener", result(event_id=11, job_state="succeeded"))
+    hub.ingest_response("beacon", "listener", result(event_id=11, job_state="succeeded"))
+    assert [event.outcome.state for event in received] == ["outcome_unknown", "succeeded"]
+    assert [event.event_id for event in received] == [10, 11]
+    hub.shutdown()
 
 
 def test_session_keys_are_isolated_and_mismatched_responses_are_rejected(monkeypatch):

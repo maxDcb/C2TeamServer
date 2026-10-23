@@ -47,3 +47,4 @@ C2Client = [
 
 [project.scripts]
 c2client = "C2Client.GUI:main"  # Entry point for CLI tool
+c2jobs = "C2Client.jobs_cli:main"

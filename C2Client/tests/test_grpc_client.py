@@ -178,16 +178,68 @@ def test_command_result_stream_has_deadline_for_worker_shutdown(tmp_path, monkey
     monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
     monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
     stub = mock.MagicMock()
-    stub.StreamSessionCommandResults.return_value = iter([])
+    stub.SubscribeJobEvents.return_value = iter([])
     monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
     client = GrpcClient("127.0.0.1", 50051, False, token="tok")
     selector = TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener")
 
     assert list(client.streamSessionCommandResults(selector)) == []
 
-    stub.StreamSessionCommandResults.assert_called_once_with(
-        selector, metadata=client.metadata, timeout=2.0,
+    stub.SubscribeJobEvents.assert_called_once()
+    request = stub.SubscribeJobEvents.call_args.args[0]
+    assert isinstance(request, TeamServerApi_pb2.SubscribeJobEventsRequest)
+    assert request.after_event_id == 0
+    assert request.follow is False
+    assert stub.SubscribeJobEvents.call_args.kwargs["metadata"] == client.metadata
+
+
+def test_v2_job_submit_get_and_cursor(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    expected = TeamServerApi_pb2.JobExecutionRecord(job_id="id-1", state="succeeded")
+    stub.SubmitJob.return_value = expected
+    stub.GetJobExecution.return_value = expected
+    stub.SubscribeJobEvents.return_value = iter([
+        TeamServerApi_pb2.JobEventRecord(event_id=9, job_id="id-1", event_type="succeeded")])
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+
+    assert client.submitJob("id-1", "echo", "hello") is expected
+    assert stub.SubmitJob.call_args.args[0].job_id == "id-1"
+    assert client.getJobExecution("id-1") is expected
+    assert [event.event_id for event in client.subscribeJobEvents(8)] == [9]
+    assert stub.SubscribeJobEvents.call_args.args[0].after_event_id == 8
+
+
+def test_session_result_uses_event_state_when_late_result_already_arrived(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.SubscribeJobEvents.return_value = iter([
+        TeamServerApi_pb2.JobEventRecord(event_id=10, job_id="job", event_type="outcome_unknown"),
+        TeamServerApi_pb2.JobEventRecord(event_id=11, job_id="job", event_type="succeeded"),
+    ])
+    stub.GetJobExecution.return_value = TeamServerApi_pb2.JobExecutionRecord(
+        job_id="job", operation="session_command", state="succeeded",
+        normalized_input='{"beacon_hash":"beacon","listener_hash":"listener","command":"whoami"}',
+        output_inline=b"ok",
     )
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+    selector = TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener")
+    results = list(client.streamSessionCommandResults(selector))
+    assert [result.job_state for result in results] == ["outcome_unknown", "succeeded"]
+    assert [result.status for result in results] == [TeamServerApi_pb2.KO, TeamServerApi_pb2.OK]
+    assert [result.output for result in results] == [b"", b"ok"]
 
 
 def test_grpc_client_credential_vault_rpcs(tmp_path, monkeypatch):

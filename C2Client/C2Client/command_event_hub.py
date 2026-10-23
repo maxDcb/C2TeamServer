@@ -24,6 +24,7 @@ class CommandResultEvent:
     outcome: CommandOutcome
     raw_output: bytes
     display_output: str
+    event_id: int = 0
 
 
 class CommandResultWorker(QThread):
@@ -67,6 +68,7 @@ class _SessionStream:
     worker: CommandResultWorker
     subscribers: dict[int, Callable[[CommandResultEvent], None]] = field(default_factory=dict)
     seen_command_ids: set[str] = field(default_factory=set)
+    last_event_id: int = 0
     recent: OrderedDict[str, CommandResultEvent] = field(default_factory=OrderedDict)
 
 
@@ -170,7 +172,10 @@ class CommandEventHub(QObject):
             return
 
         command_id = getattr(response, "command_id", "") or ""
-        if command_id and command_id in stream.seen_command_ids:
+        event_id = int(getattr(response, "event_id", 0) or 0)
+        if event_id and event_id <= stream.last_event_id:
+            return
+        if not event_id and command_id and command_id in stream.seen_command_ids:
             return
         output = getattr(response, "output", b"") or b""
         raw_output = output if isinstance(output, bytes) else str(output).encode("utf-8", "replace")
@@ -179,18 +184,22 @@ class CommandEventHub(QObject):
         display_output = text_output if ok else response_message(response) or text_output or "Command failed."
         command_line = getattr(response, "command", "") or getattr(response, "instruction", "") or ""
         outcome = CommandOutcome(
-            state="succeeded" if ok else "failed",
+            state=(getattr(response, "job_state", "") or ("succeeded" if ok else "failed")),
             command_id=command_id,
             beacon_hash=beacon_hash,
             listener_hash=listener_hash,
             command_line=command_line,
             output=text_output,
-            error_code="" if ok else "teamserver_command_failed",
+            error_code="" if ok else ("outcome_unknown" if getattr(response, "job_state", "") == "outcome_unknown"
+                else "teamserver_command_failed"),
             error_message="" if ok else response_message(response, "Command failed."),
         )
-        event = CommandResultEvent(key, outcome, raw_output, display_output)
+        event = CommandResultEvent(key, outcome, raw_output, display_output, event_id)
+        if event_id:
+            stream.last_event_id = event_id
         if command_id:
-            stream.seen_command_ids.add(command_id)
+            if not event_id:
+                stream.seen_command_ids.add(command_id)
             stream.recent[command_id] = event
             while len(stream.recent) > 256:
                 stream.recent.popitem(last=False)

@@ -6,6 +6,7 @@ metadata injection and basic error reporting.
 """
 
 import logging
+import json
 import os
 import uuid
 from typing import Any, Callable, Iterable, List, Tuple, Optional
@@ -54,6 +55,7 @@ class GrpcClient:
         self.username = username or ""
         self.ca_cert_path = ""
         self.client_id = str(uuid.uuid4())[:16]
+        self._session_cursors: dict[tuple[str, str], int] = {}
         self.last_rpc_operation = ""
         self.last_rpc_ok = True
         self.last_rpc_message = ""
@@ -318,17 +320,73 @@ class GrpcClient:
         return self._unary_rpc("StopSession", lambda: self.stub.StopSession(session, metadata=self.metadata))
 
     def sendSessionCommand(self, command: Any) -> Any:
-        """Send a command to the specified session."""
+        """Submit a session command through the durable V2 job API."""
 
-        return self._unary_rpc("SendSessionCommand", lambda: self.stub.SendSessionCommand(command, metadata=self.metadata))
+        job = self.submitJob(
+            command.command_id or uuid.uuid4().hex,
+            "session_command",
+            json.dumps({
+                "beacon_hash": command.session.beacon_hash,
+                "listener_hash": command.session.listener_hash,
+                "command": command.command,
+            }, separators=(",", ":")),
+        )
+        return TeamServerApi_pb2.CommandAck(
+            status=TeamServerApi_pb2.KO if job.state == "failed" else TeamServerApi_pb2.OK,
+            command_id=job.job_id,
+            message=job.error_message,
+        )
 
     def streamSessionCommandResults(self, session: Any) -> Iterable[Any]:
-        """Yield responses for a given session."""
+        """Yield completed V2 jobs for a session, advancing the local event cursor."""
+        key = (session.listener_hash, session.beacon_hash)
+        cursor = self._session_cursors.get(key, 0)
+        for event in self.subscribeJobEvents(after_event_id=cursor, follow=False):
+            if event.event_id <= cursor:
+                continue
+            cursor = event.event_id
+            self._session_cursors[key] = cursor
+            if event.event_type not in {"succeeded", "failed", "outcome_unknown"}:
+                continue
+            job = self.getJobExecution(event.job_id)
+            if job.operation != "session_command":
+                continue
+            job_input = json.loads(job.normalized_input)
+            if (job_input["listener_hash"], job_input["beacon_hash"]) != key:
+                continue
+            event_state = event.event_type
+            yield TeamServerApi_pb2.CommandResult(
+                status=TeamServerApi_pb2.OK if event_state == "succeeded" else TeamServerApi_pb2.KO,
+                session=session,
+                command_id=job.job_id,
+                command=job_input["command"],
+                output=job.output_inline if event_state == "succeeded" else b"",
+                message=(job.error_message if job.state == event_state else
+                    "Delivery or completion could not be established after restart."),
+                event_id=event.event_id,
+                job_state=event_state,
+            )
 
-        return self._stream_rpc(
-            "StreamSessionCommandResults",
-            lambda: self.stub.StreamSessionCommandResults(session, metadata=self.metadata, timeout=2.0),
-        )
+    def submitJob(self, job_id: str, operation: str, input: str) -> Any:
+        request = TeamServerApi_pb2.SubmitJobRequest(job_id=job_id, operation=operation, input=input)
+        return self._unary_rpc("SubmitJob", lambda: self.stub.SubmitJob(request, metadata=self.metadata))
+
+    def getJobExecution(self, job_id: str) -> Any:
+        request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)
+        return self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(request, metadata=self.metadata))
+
+    def listJobExecutions(self, after_created_at: int = 0, after_job_id: str = "", page_size: int = 100) -> Any:
+        request = TeamServerApi_pb2.ListJobExecutionsRequest(
+            after_created_at=after_created_at, after_job_id=after_job_id, page_size=page_size)
+        return self._unary_rpc("ListJobExecutions", lambda: self.stub.ListJobExecutions(request, metadata=self.metadata))
+
+    def subscribeJobEvents(self, after_event_id: int = 0, *, job_id: str = "",
+                           state: str = "", page_size: int = 100, follow: bool = False) -> Iterable[Any]:
+        request = TeamServerApi_pb2.SubscribeJobEventsRequest(
+            after_event_id=after_event_id, job_id=job_id, state=state,
+            page_size=page_size, follow=follow)
+        return self._stream_rpc("SubscribeJobEvents", lambda: self.stub.SubscribeJobEvents(
+            request, metadata=self.metadata, timeout=3.0 if follow else 5.0))
 
     def getCommandHelp(self, command: Any) -> Any:
         """Return help information for a command."""

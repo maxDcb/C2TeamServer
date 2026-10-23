@@ -42,3 +42,16 @@ add_custom_command(TARGET testsTeamServerRuntimeIntegration POST_BUILD COMMAND $
   $<TARGET_FILE:testsTeamServerRuntimeIntegration> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerRuntimeIntegration>")
 
 add_test(NAME testsTeamServerRuntimeIntegration COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:testsTeamServerRuntimeIntegration>")
+
+set(C2_JOB_TEST_PYTHON "" CACHE FILEPATH "Python interpreter with grpcio for the job end-to-end test")
+if(NOT C2_JOB_TEST_PYTHON)
+  if(EXISTS "${CMAKE_SOURCE_DIR}/C2Client/.venv/bin/python")
+    set(C2_JOB_TEST_PYTHON "${CMAKE_SOURCE_DIR}/C2Client/.venv/bin/python")
+  else()
+    set(C2_JOB_TEST_PYTHON "${Python3_EXECUTABLE}")
+  endif()
+endif()
+add_test(NAME testsJobRuntimeE2E
+  COMMAND "${C2_JOB_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/JobRuntimeE2E.py"
+    --runtime "${C2_INTEGRATION_RUNTIME_RELEASE_DIR}" --client-python "${C2_JOB_TEST_PYTHON}")
+set_tests_properties(testsJobRuntimeE2E PROPERTIES DEPENDS testsTeamServerRuntimeIntegration TIMEOUT 120)

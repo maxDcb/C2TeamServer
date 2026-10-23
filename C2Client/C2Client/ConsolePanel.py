@@ -996,6 +996,7 @@ class Console(QWidget):
         self.lastCommandLine = ""
         self.commandStatusById = {}
         self.renderedResponseIds = set()
+        self.renderedResponseEventIds = set()
 
         self.searchInput = QLineEdit()
         self.searchInput.setPlaceholderText("Search output")
@@ -1201,6 +1202,7 @@ class Console(QWidget):
         command = eventPayload.get("command", "")
         output = eventPayload.get("output", "")
         source = eventPayload.get("source", "")
+        event_id = int(eventPayload.get("event_id", 0) or 0)
         timestamp = eventPayload.get("timestamp", "")
 
         self.setCommandStatus(command_id, status, command, output if status == "error" else "")
@@ -1208,7 +1210,10 @@ class Console(QWidget):
         if status in {"done", "error"} and output:
             self.printInTerminal("", "", output)
             if command_id and source != "ack":
-                self.renderedResponseIds.add(command_id)
+                if event_id:
+                    self.renderedResponseEventIds.add(event_id)
+                else:
+                    self.renderedResponseIds.add(command_id)
         return True
 
     def setCommandStatus(self, command_id, status, command_line="", message=""):
@@ -1409,7 +1414,9 @@ class Console(QWidget):
         context = "Host " + self.hostname + " - Username " + self.username
         outcome = event.outcome
         command_id = outcome.command_id
-        if command_id and command_id in self.renderedResponseIds:
+        if event.event_id and event.event_id in self.renderedResponseEventIds:
+            return
+        if not event.event_id and command_id and command_id in self.renderedResponseIds:
             return
         command_text = outcome.command_line
         decoded_response = event.display_output
@@ -1423,13 +1430,17 @@ class Console(QWidget):
         self.printCommandStatusInTerminal(command_id, status, command_text)
         self.printInTerminal("", "", decoded_response)
         if command_id:
-            self.renderedResponseIds.add(command_id)
+            if event.event_id:
+                self.renderedResponseEventIds.add(event.event_id)
+            else:
+                self.renderedResponseIds.add(command_id)
         self.appendConsoleEvent(
             status,
             command_id=command_id,
             command=command_text,
             output=decoded_response,
             source="response",
+            event_id=event.event_id,
         )
         self.setCursorEditorAtEnd()
 
