@@ -798,16 +798,23 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
                     std::string hint = c2Message.returnvalue();
                     response->set_message(hint);
                     response->set_status(teamserverapi::KO);
+                    return grpc::Status::OK;
                 }
 
-                if (!c2Message.instruction().empty())
+                if (c2Message.instruction().empty())
                 {
-                    m_listeners[i]->queueTask(beaconHash, c2Message);
-                    m_listeners[i]->markSessionKilled(beaconHash);
-                    response->set_status(teamserverapi::OK);
-                    response->set_message("Session stop command queued.");
-                    m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
+                    response->set_message("Stop command did not produce a beacon task.");
+                    return grpc::Status::OK;
                 }
+                if (!m_listeners[i]->queueStopTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
+                {
+                    response->set_message("Session is stopped.");
+                    return grpc::Status::OK;
+                }
+
+                response->set_status(teamserverapi::OK);
+                response->set_message("Session stop command queued.");
+                m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
 
                 m_logger->trace("StopSession end");
                 return grpc::Status::OK;
@@ -846,8 +853,15 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             continue;
 
         std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
-        bool isWindows = session && session->getOs() == "Windows";
-        std::string windowsArch = session ? session->getArch() : "x64";
+        if (!session)
+            continue;
+        if (session->isSessionKilled())
+        {
+            response->set_message("Session is stopped.");
+            return grpc::Status::OK;
+        }
+        bool isWindows = session->getOs() == "Windows";
+        std::string windowsArch = session->getArch();
 
         C2Message c2Message;
         int res = m_prepMsg(input, c2Message, isWindows, windowsArch);
@@ -889,8 +903,6 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             moduleName = moduleNameFromUnloadTask(input, c2Message);
         }
 
-        m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
-
         const std::string& inputFile = c2Message.inputfile();
         const std::string& payload = c2Message.data();
         if (!inputFile.empty() && !payload.empty())
@@ -900,7 +912,12 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         }
 
         c2Message.set_uuid(commandId);
-        m_listeners[i]->queueTask(beaconHash, c2Message);
+        if (!m_listeners[i]->queueTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
+        {
+            response->set_message("Session is stopped.");
+            return grpc::Status::OK;
+        }
+        m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
 
         if (instruction == LoadC2ModuleCmd)
             markModuleLoading(beaconHash, listenerHash, moduleName, commandId, c2Message.inputfile());

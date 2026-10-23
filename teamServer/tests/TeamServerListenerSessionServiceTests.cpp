@@ -521,7 +521,7 @@ void testDurableSessionCommandBridge()
     nlohmann::json config = {{"LogLevel", "off"}};
     std::vector<std::shared_ptr<Listener>> listeners;
     auto listener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    listener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    listener->addSession("listener-primary", "ABCDEFGH12345678ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
     listeners.push_back(listener);
     std::vector<std::unique_ptr<ModuleCmd>> modules;
     CommonCommands commonCommands;
@@ -530,7 +530,7 @@ void testDurableSessionCommandBridge()
         sentCommands, nullptr,
         [](const std::string& input, C2Message& message, bool, const std::string&)
         {
-            message.set_instruction("whoami");
+            message.set_instruction(input == EndInstruction ? EndCmd : "whoami");
             message.set_cmd(input);
             return 0;
         });
@@ -540,7 +540,7 @@ void testDurableSessionCommandBridge()
             teamserverapi::SessionCommandRequest request;
             request.set_command_id(job.jobId);
             request.set_command("whoami");
-            request.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+            request.mutable_session()->set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
             request.mutable_session()->set_listener_hash("listener-primary");
             teamserverapi::CommandAck ack;
             service.sendSessionCommand(request, &ack);
@@ -553,12 +553,12 @@ void testDurableSessionCommandBridge()
     });
 
     const auto queued = application->submit("job-bridge-1", "session_command",
-        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678ABCDEFGH12345678","listener_hash":"listener-primary"})");
     requireBridge(queued.state == "queued", "Session job was not queued");
-    auto task = listener->getTask("ABCDEFGH12345678");
+    auto task = listener->getTask("ABCDEFGH12345678ABCDEFGH12345678");
     requireBridge(task.uuid() == "job-bridge-1", "Beacon task lost its job ID");
     task.set_returnvalue(std::string("A\0\xff", 3));
-    requireBridge(listener->addTaskResult(task, "ABCDEFGH12345678"), "Could not enqueue beacon result");
+    requireBridge(listener->addTaskResult(task, "ABCDEFGH12345678ABCDEFGH12345678"), "Could not enqueue beacon result");
     service.handleCmdResponse();
     const auto completed = application->get("job-bridge-1");
     requireBridge(completed.state == "succeeded", "Session job did not complete");
@@ -572,12 +572,12 @@ void testDurableSessionCommandBridge()
         "Reopen lost beacon result");
 
     const auto queuedMissingModule = application->submit("job-bridge-missing-module", "session_command",
-        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678ABCDEFGH12345678","listener_hash":"listener-primary"})");
     requireBridge(queuedMissingModule.state == "queued", "Missing-module job was not queued");
-    auto missingModuleTask = listener->getTask("ABCDEFGH12345678");
+    auto missingModuleTask = listener->getTask("ABCDEFGH12345678ABCDEFGH12345678");
     requireBridge(missingModuleTask.uuid() == "job-bridge-missing-module", "Missing-module task lost its job ID");
     missingModuleTask.set_returnvalue(CmdModuleNotFound);
-    requireBridge(listener->addTaskResult(missingModuleTask, "ABCDEFGH12345678"),
+    requireBridge(listener->addTaskResult(missingModuleTask, "ABCDEFGH12345678ABCDEFGH12345678"),
         "Could not enqueue missing-module result");
     service.handleCmdResponse();
     const auto failed = application->get("job-bridge-missing-module");
@@ -588,16 +588,95 @@ void testDurableSessionCommandBridge()
         "Missing-module failure event was not persisted");
 
     const auto queuedCodedFailure = application->submit("job-bridge-missing-module-code", "session_command",
-        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678ABCDEFGH12345678","listener_hash":"listener-primary"})");
     requireBridge(queuedCodedFailure.state == "queued", "Coded missing-module job was not queued");
-    auto codedFailureTask = listener->getTask("ABCDEFGH12345678");
+    auto codedFailureTask = listener->getTask("ABCDEFGH12345678ABCDEFGH12345678");
     codedFailureTask.set_errorCode(ERROR_MODULE_NOT_FOUND);
     codedFailureTask.set_returnvalue("");
-    requireBridge(listener->addTaskResult(codedFailureTask, "ABCDEFGH12345678"),
+    requireBridge(listener->addTaskResult(codedFailureTask, "ABCDEFGH12345678ABCDEFGH12345678"),
         "Could not enqueue coded missing-module result");
     service.handleCmdResponse();
     requireBridge(application->get("job-bridge-missing-module-code").state == "failed",
         "Coded missing-module result was classified as success");
+
+    teamserverapi::SessionSelector stopSelector;
+    stopSelector.set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
+    stopSelector.set_listener_hash("listener-primary");
+    teamserverapi::OperationAck stopAck;
+    requireBridge(service.stopSession(stopSelector, &stopAck).ok() && stopAck.status() == teamserverapi::OK,
+        "Stop command was not accepted");
+    requireBridge(listener->getTask("ABCDEFGH12345678ABCDEFGH12345678").instruction() == EndCmd,
+        "Stop task was not queued");
+
+    const auto afterStop = application->submit("job-bridge-after-stop", "session_command",
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678ABCDEFGH12345678","listener_hash":"listener-primary"})");
+    requireBridge(afterStop.state == "failed" && afterStop.errorCode == "dispatch_failed",
+        "Command after stop should fail during dispatch");
+    requireBridge(afterStop.errorMessage == "Session is stopped.",
+        "Command after stop should explain why it was rejected");
+    requireBridge(listener->getTask("ABCDEFGH12345678ABCDEFGH12345678").instruction().empty(),
+        "Command after stop must not be queued");
+    const auto afterStopEvents = application->events(0, {}, 20);
+    requireBridge(afterStopEvents.back().eventType == "failed",
+        "Rejected command should emit a failed event");
+
+    teamserverapi::OperationAck secondStopAck;
+    requireBridge(service.stopSession(stopSelector, &secondStopAck).ok()
+        && secondStopAck.status() == teamserverapi::KO,
+        "Duplicate stop command should be rejected");
+    requireBridge(listener->getTask("ABCDEFGH12345678ABCDEFGH12345678").instruction().empty(),
+        "Duplicate stop task must not be queued");
+}
+
+void testStopDuringPreparationRejectsCommand()
+{
+    const auto requireStop = [](bool condition, const char* message)
+    {
+        if (!condition) throw std::runtime_error(message);
+    };
+    const std::string beaconHash = "ABCDEFGH12345678ABCDEFGH12345678";
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto listener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    listener->addSession("listener-primary", beaconHash, "host", "user", "x64", "admin", "Linux");
+    listeners.push_back(listener);
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService* servicePtr = nullptr;
+    teamserverapi::OperationAck stopAck;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commonCommands,
+        sentCommands, nullptr,
+        [&](const std::string& input, C2Message& message, bool, const std::string&)
+        {
+            if (input == EndInstruction)
+            {
+                message.set_instruction(EndCmd);
+                return 0;
+            }
+            teamserverapi::SessionSelector selector;
+            selector.set_beacon_hash(beaconHash);
+            selector.set_listener_hash("listener-primary");
+            servicePtr->stopSession(selector, &stopAck);
+            message.set_instruction("whoami");
+            return 0;
+        });
+    servicePtr = &service;
+
+    teamserverapi::SessionCommandRequest request;
+    request.mutable_session()->set_beacon_hash(beaconHash);
+    request.mutable_session()->set_listener_hash("listener-primary");
+    request.set_command("whoami");
+    request.set_command_id("command-during-stop");
+    teamserverapi::CommandAck ack;
+    requireStop(service.sendSessionCommand(request, &ack).ok(), "Session command RPC failed");
+    requireStop(stopAck.status() == teamserverapi::OK, "Stop during preparation was not accepted");
+    requireStop(ack.status() == teamserverapi::KO && ack.message() == "Session is stopped.",
+        "Command prepared before stop should be rejected at enqueue");
+    requireStop(listener->getTask(beaconHash).instruction() == EndCmd,
+        "Stop task should be the only queued task");
+    requireStop(listener->getTask(beaconHash).instruction().empty(),
+        "Command must not be queued after stop");
 }
 } // namespace
 
@@ -609,5 +688,6 @@ int main()
     testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
     testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     testDurableSessionCommandBridge();
+    testStopDuringPreparationRejectsCommand();
     return 0;
 }
