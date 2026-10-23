@@ -67,6 +67,19 @@ def test_task_auto_selects_only_live_session_and_starts_without_console(qtbot, m
     panel.shutdown()
 
 
+def test_agentic_skill_appears_and_uses_selected_session(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    skill_index = panel.skillSelector.findData("identify-user")
+    assert skill_index >= 0
+    panel.skillSelector.setCurrentIndex(skill_index)
+    assert "SKILL.md" in panel.planView.toPlainText()
+    assert "whoami" in panel.planView.toPlainText()
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1")]
+    panel.shutdown()
+
+
 def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeypatch):
     panel, grpc_client = make_panel(qtbot, monkeypatch, [
         session("beacon-1", "listener-1"),

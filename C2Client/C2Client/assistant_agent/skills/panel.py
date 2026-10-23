@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
 from ...panel_style import apply_dark_panel_style
-from .catalog import SKILLS
+from .catalog import SKILLS, AgenticSkillDefinition
 from .service import C2SkillService, FINISHED_RUN_STATES
 
 
@@ -22,6 +22,8 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
     if report:
         if report.get("outcome") == "partial":
             lines.extend(["", "This report is partial."])
+        if report.get("verified_identity"):
+            lines.extend(["", f"Observed account: {report['verified_identity']}"])
         lines.extend(["", str(report.get("summary", ""))])
         findings = [str(item.get("finding", "")) for item in report.get("observations", [])]
         if findings:
@@ -229,6 +231,13 @@ class SkillsPanel(QWidget):
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
+        if isinstance(skill, AgenticSkillDefinition):
+            self.planView.setPlainText(
+                f"{skill.description}\n\nThe assistant chooses when to call the permitted "
+                f"tool: {', '.join(skill.allowed_tools)}. Its instructions come from SKILL.md. "
+                "The selected session is fixed by the operator."
+            )
+            return
         lines = [skill.description, "", "Fixed plan:"]
         lines.extend(f"{index}. {step.command_name} — {step.description}" for index, step in enumerate(skill.steps, 1))
         lines.append("Missing modules are loaded first. Uncertain commands are never resent with a new ID.")

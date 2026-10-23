@@ -1,5 +1,30 @@
 # Tâches LLM du client C2
 
+## Premier skill agentique : identify-user
+
+Le dossier `C2Client/C2Client/assistant_agent/skills/identify-user/` contient un
+`SKILL.md` au format [Agent Skills](https://agentskills.io/specification) :
+frontmatter YAML `name` et `description`, puis instructions Markdown. Le client
+charge ces instructions dans un `StructuredTaskSpec` d'agent-core. Le modèle
+choisit d'appeler le tool `whoami` ; le client fixe la session choisie par
+l'opérateur et n'expose aucun autre tool à ce run.
+
+L'appel au tool crée un job V2 avec un identifiant stable et retourne `pending`
+à agent-core. Le client attend le résultat, y compris après redémarrage, puis
+appelle `resume_pending_tool` avec la sortie observée. Si `whoami` nécessite un
+module, son chargement est un prérequis technique suivi par le client ; le
+modèle reçoit la sortie de `whoami`, jamais le résultat du chargement comme
+preuve d'identité. **No result** peut terminer l'attente avec un rapport
+partiel. Le rapport et les octets exacts des jobs restent dans le journal local.
+
+Le format `SKILL.md` apporte les instructions portables. La permission effective
+du tool et le périmètre de session sont imposés par le code du client ; les
+instructions Markdown ne peuvent pas les élargir. Le premier skill reste
+volontairement limité à un seul appel. `inventory_local` ci-dessous conserve son
+ancien plan fixe pour les runs déjà enregistrés.
+
+## Inventaire local à plan fixe
+
 La vue **Data AI → Tasks** propose directement les sessions actives du
 TeamServer. Elle sélectionne automatiquement la seule session disponible ;
 sinon, choisir une session dans la liste puis cliquer sur **Start**. Le bouton
@@ -76,20 +101,16 @@ publiée précédente. Le second `pip install -e` est donc requis pour utiliser
 le commit local non poussé. Ne pas supprimer le checkout local tant qu'il est
 utilisé par cet environnement virtuel.
 
-Pour démarrer l'interface avec les identifiants Azure déjà présents dans le
-fichier `.env` de PentestAssistant, définir le chemin du fichier et le nom du
-déploiement Azure utilisé par ce compte :
+Pour démarrer l'interface avec la configuration locale actuelle (le fichier
+`C2Client/.env` sélectionne Azure et `gpt-5.5`) :
 
 ```bash
-export C2_ENV_FILE=/home/mdecaumiabaillenx/Challenges/PentestAssistant/.env
-export C2_ASSISTANT_MODEL='<nom-du-déploiement-Azure>'
 export C2_PROTOCOL_PYTHON_ROOT="$PWD/build/generated/python_protocol"
 C2Client/.venv/bin/python -m C2Client.GUI
 ```
 
-`C2_ENV_FILE` charge `LLM_PROVIDER`, `AZURE_OPENAI_ENDPOINT` et
-`AZURE_OPENAI_API_KEY` sans copier le secret dans ce dépôt. Le modèle peut
-également être configuré avec `C2_ASSISTANT_PROVIDER`, `OPENAI_API_KEY` et
-`C2_ASSISTANT_MODEL` pour OpenAI. Les tâches n'avancent que lorsque le client
-est ouvert ; le TeamServer peut continuer à recevoir une réponse beacon pendant
-son absence.
+Le lien local `.env` à la racine lit les identifiants de PentestAssistant et
+`C2Client/.env` choisit le modèle, sans copier la clé dans ce dépôt. Le modèle peut également être configuré avec
+`C2_ASSISTANT_PROVIDER`, `OPENAI_API_KEY` et `C2_ASSISTANT_MODEL` pour OpenAI.
+Les tâches n'avancent que lorsque le client est ouvert ; le TeamServer peut
+continuer à recevoir une réponse beacon pendant son absence.

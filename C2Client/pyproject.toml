@@ -20,7 +20,8 @@ dependencies = [
     "openai==3.36.1",
     "agent-core @ git+https://github.com/maxDcb/agent-core.git@cdb3232449f517f8f7db67fbab561e7845a41365",
     "donut-shellcode @ git+https://github.com/maxDcb/donut.git@master",
-    "markdown"
+    "markdown",
+    "PyYAML>=6,<7"
 ]
 
 [project.optional-dependencies]
@@ -42,7 +43,8 @@ C2Client = [
     "DropperModules.conf",
     "ShellCodeModules.conf",
     "assistant_agent/prompts/system/*.md",
-    "assistant_agent/prompts/memory/*.md"
+    "assistant_agent/prompts/memory/*.md",
+    "assistant_agent/skills/*/SKILL.md"
 ]
 
 [project.scripts]
