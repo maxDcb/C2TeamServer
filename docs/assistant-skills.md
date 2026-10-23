@@ -8,15 +8,23 @@ sinon, choisir une session dans la liste puis cliquer sur **Start**. Le bouton
 `ipConfig`. Si un module manque, le client exécute d'abord `loadModule` et
 attend sa réponse ; ce chargement possède son propre job et reprend après
 redémarrage du client. Un module déjà en cours de chargement est suivi par son
-identifiant existant, sans nouvelle soumission. Le LLM interprète les résultats
-observés dans un rapport structuré en anglais ;
+identifiant existant, sans nouvelle soumission. La réponse précise
+`Module already loaded` du beacon valide également ce prérequis : le job de
+chargement conserve son état brut d'échec dans les preuves, puis la commande
+demandée est envoyée. Les autres échecs de chargement restent des échecs.
+Le LLM interprète les résultats observés dans un rapport structuré en anglais ;
 il ne choisit ni ne modifie les commandes du plan.
+
+La vue Tasks présente le rapport sous forme de phrases et garde les identifiants
+de jobs, états bruts et sorties dans **Show execution details**. Le stockage
+conserve le rapport structuré et les preuves exactes pour la reprise et l'audit.
 
 La conversation applique la même précondition : un appel à un outil de module
 charge automatiquement ce module s'il manque, attend le résultat du chargement,
 puis envoie la commande demandée. `outcome_unknown` maintient l'attente jusqu'à
 un résultat tardif ou `/stop`. Le chargement réussi seul n'est jamais présenté
-comme le résultat de la commande demandée.
+comme le résultat de la commande demandée. Une réponse `Module already loaded`
+enchaîne également sur la commande demandée.
 
 ## Propriété et reprise
 

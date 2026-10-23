@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from C2Client.assistant_agent.skills.panel import SkillsPanel
+from C2Client.assistant_agent.skills.panel import SkillsPanel, format_run_details
 
 
 def session(beacon: str, listener: str, *, killed: bool = False):
@@ -35,9 +35,13 @@ class FakeGrpc:
 class FakeService:
     def __init__(self, grpc_client, on_change):
         self.calls = []
+        self.runs = []
 
     def list_runs(self):
-        return []
+        return self.runs
+
+    def get(self, run_id):
+        return next(run for run in self.runs if run["run_id"] == run_id)
 
     def start(self, skill_id, beacon_hash, listener_hash):
         self.calls.append((skill_id, beacon_hash, listener_hash))
@@ -95,4 +99,44 @@ def test_task_clears_stopped_session_and_accepts_console_selection(qtbot, monkey
     qtbot.waitUntil(lambda: "sessions" not in panel._inflight)
     assert panel.sessionSelector.currentData() is None
     assert not panel.startButton.isEnabled()
+    panel.shutdown()
+
+
+def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    run = {
+        "run_id": "run-12345678", "status": "completed", "skill_id": "inventory_local",
+        "beacon_hash": "beacon-1", "manual_failure": "",
+        "steps": [{
+            "step_id": "load-identity", "command": "loadModule whoami",
+            "state": "already_loaded", "job_state": "failed", "job_id": "load-job",
+            "purpose": "module_load", "error_message": "Error: Module already loaded",
+            "manual_reason": "",
+        }, {
+            "step_id": "identity", "command": "whoami", "state": "succeeded",
+            "job_state": "succeeded", "job_id": "identity-job", "purpose": "command",
+            "error_message": "", "manual_reason": "",
+        }],
+        "report": {
+            "outcome": "complete", "summary": "The beacon ran as operator.",
+            "observations": [{"job_id": "identity-job", "finding": "The account is operator."}],
+            "limitations": [],
+            "evidence": [{"step_id": "identity", "output_preview": "operator"}],
+        },
+    }
+    panel.service.runs = [run]
+    panel._refresh()
+
+    visible = panel.details.toPlainText()
+    assert "The beacon ran as operator." in visible
+    assert "The account is operator." in visible
+    assert "load-job" not in visible
+    assert '"evidence"' not in visible
+
+    panel.showEvidence.setChecked(True)
+    technical = panel.details.toPlainText()
+    assert "load-job" in technical
+    assert "Server job state: failed" in technical
+    assert "Output:\noperator" in technical
+    assert format_run_details(run) == visible
     panel.shutdown()

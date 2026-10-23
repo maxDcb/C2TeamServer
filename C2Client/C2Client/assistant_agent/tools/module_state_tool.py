@@ -72,6 +72,13 @@ def has_loaded_module(grpc_client: Any, *, beacon_hash: str, listener_hash: str,
     return module is not None and str(getattr(module, "state", "") or "").lower() == "loaded"
 
 
+def is_module_already_loaded_response(error_message: str) -> bool:
+    """The beacon's duplicate-load error confirms this module is already usable."""
+    return str(error_message or "").strip().casefold() in {
+        "module already loaded", "error: module already loaded",
+    }
+
+
 def find_module_record(modules: list[Any], module_name: str) -> Any | None:
     expected = _normalize_module_name(module_name)
     return next(

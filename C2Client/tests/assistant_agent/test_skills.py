@@ -299,6 +299,57 @@ def test_failed_module_load_never_dispatches_dependent_command(tmp_path):
     ]
 
 
+def test_duplicate_module_load_continues_to_command_and_keeps_server_failure(tmp_path):
+    grpc_client = FakeGrpc()
+    grpc_client.loaded_modules.clear()
+    tasks = service(tmp_path, grpc_client, ReportProvider())
+    run = tasks.start("inventory_local", "beacon-1", "listener-1")
+    load_id = run["steps"][0]["job_id"]
+    grpc_client.jobs[load_id] = SimpleNamespace(
+        job_id=load_id, state="failed", output_inline=b"Error: Module already loaded",
+        output_size=28, error_code="command_failed",
+        error_message="Error: Module already loaded",
+    )
+
+    run = tasks.reconcile(run["run_id"])
+    assert run["steps"][0]["state"] == "already_loaded"
+    assert run["steps"][0]["job_state"] == "failed"
+    assert run["steps"][1]["state"] == "waiting_for_job"
+    assert [item[1]["command"] for item in grpc_client.submissions] == [
+        "loadModule whoami", "whoami",
+    ]
+
+    grpc_client.complete(run["steps"][1]["job_id"], b"operator")
+    run = tasks.reconcile(run["run_id"])
+    grpc_client.complete(run["steps"][2]["job_id"], b"Success")
+    run = tasks.reconcile(run["run_id"])
+    grpc_client.complete(run["steps"][3]["job_id"], b"eth0 192.0.2.4")
+    run = tasks.reconcile(run["run_id"])
+
+    assert run["report"]["outcome"] == "complete"
+    assert run["report"]["evidence"][0]["state"] == "already_loaded"
+    assert run["report"]["evidence"][0]["job_state"] == "failed"
+    assert run["report"]["evidence"][0]["error_message"] == "Error: Module already loaded"
+    assert [item["job_id"] for item in run["report"]["observations"]] == [
+        run["steps"][1]["job_id"], run["steps"][3]["job_id"],
+    ]
+
+
+def test_unrelated_module_load_failure_is_not_treated_as_available(tmp_path):
+    grpc_client = FakeGrpc()
+    grpc_client.loaded_modules = {"ipConfig"}
+    tasks = service(tmp_path, grpc_client, ReportProvider())
+    run = tasks.start("inventory_local", "beacon-1", "listener-1")
+    load_id = run["steps"][0]["job_id"]
+    grpc_client.jobs[load_id] = SimpleNamespace(
+        job_id=load_id, state="failed", output_inline=b"Error: Module already loaded",
+        output_size=28, error_code="command_failed", error_message="Unexpected load failure",
+    )
+    run = tasks.reconcile(run["run_id"])
+    assert run["steps"][0]["state"] == "failed"
+    assert run["steps"][1]["state"] == "skipped"
+
+
 def test_concurrent_reconciliation_advances_step_only_once(tmp_path):
     grpc_client = FakeGrpc()
     tasks = service(tmp_path, grpc_client, ReportProvider())

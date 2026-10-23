@@ -469,6 +469,44 @@ def test_module_load_result_dispatches_requested_command_before_resuming(qtbot, 
     assert json.loads(assistant.agent.resumes[0]["tool_content"])["output"] == "operator"
 
 
+def test_module_already_loaded_result_continues_conversation(qtbot, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("C2Client.AssistantPanel.C2AssistantAgent", FakeAssistantAgent)
+    sent = []
+
+    def send(command):
+        sent.append(command)
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, command_id=command.command_id)
+
+    grpc_client = SimpleNamespace(listModules=lambda session: [], sendSessionCommand=send)
+    assistant = Assistant(None, grpc_client)
+    qtbot.addWidget(assistant)
+    assistant._process_assistant_response(SimpleNamespace(
+        content="", is_pending=True, pending_id="pending-load",
+        metadata={
+            "command_id": "load-1", "beacon_hash": "beacon-1", "listener_hash": "listener-1",
+            "command_line": "loadModule whoami", "continuation_command_line": "whoami",
+        },
+        tool_arguments={},
+    ))
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="failed", command_id="load-1", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="loadModule whoami",
+        error_code="command_failed", error_message="Error: Module already loaded",
+    ))
+    qtbot.waitUntil(lambda: len(sent) == 1)
+    qtbot.waitUntil(lambda: assistant.pending_tool_context["command_id"] != "load-1")
+    assert sent[0].command == "whoami"
+    assert assistant.agent.resumes == []
+
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id=sent[0].command_id, beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="whoami", output="operator",
+    ))
+    qtbot.waitUntil(lambda: len(assistant.agent.resumes) == 1)
+    assert json.loads(assistant.agent.resumes[0]["tool_content"])["output"] == "operator"
+
+
 def test_uncertain_beacon_result_keeps_conversation_pending(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
     assistant._process_assistant_response(pending_message())

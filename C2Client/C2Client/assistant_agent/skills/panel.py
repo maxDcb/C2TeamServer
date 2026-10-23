@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from threading import Thread
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QPushButton, QTextBrowser, QVBoxLayout, QWidget,
 )
 
@@ -15,6 +14,61 @@ from ...console_style import CONSOLE_COLORS, apply_console_output_style
 from ...panel_style import apply_dark_panel_style
 from .catalog import SKILLS
 from .service import C2SkillService, FINISHED_RUN_STATES
+
+
+def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
+    lines = [f"Task {run['run_id'][:8]} · {run['status']}"]
+    report = run.get("report")
+    if report:
+        if report.get("outcome") == "partial":
+            lines.extend(["", "This report is partial."])
+        lines.extend(["", str(report.get("summary", ""))])
+        findings = [str(item.get("finding", "")) for item in report.get("observations", [])]
+        if findings:
+            lines.extend(["", "What I found", ""])
+            lines.extend(f"{finding}\n" for finding in findings)
+        limitations = [str(item) for item in report.get("limitations", [])]
+        if limitations:
+            lines.extend(["What remains uncertain", ""])
+            lines.extend(f"{limitation}\n" for limitation in limitations)
+    elif run.get("manual_failure"):
+        lines.extend(["", f"Stopped by the operator: {run['manual_failure']}"])
+    else:
+        active = next((step for step in run["steps"] if step["state"] not in {
+            "succeeded", "already_loaded", "failed", "no_result_confirmed", "skipped",
+        }), None)
+        if active:
+            lines.extend(["", f"Waiting for {active['command']}."])
+
+    if show_evidence:
+        lines.extend(["", "Execution details", ""])
+        evidence = {
+            item["step_id"]: item for item in (report or {}).get("evidence", [])
+        }
+        findings_by_job = {
+            item["job_id"]: item["finding"] for item in (report or {}).get("observations", [])
+        }
+        for step in run["steps"]:
+            state = "already available" if step["state"] == "already_loaded" else step["state"]
+            lines.append(f"{step['command']} · {state}")
+            lines.append(f"  Job: {step['job_id']}")
+            if step.get("job_state") and step["job_state"] != step["state"]:
+                lines.append(f"  Server job state: {step['job_state']}")
+            if step.get("error_message"):
+                lines.append(f"  Server response: {step['error_message']}")
+            if step.get("manual_reason"):
+                lines.append(f"  Manual closure: {step['manual_reason']}")
+            if step.get("late_server_state"):
+                lines.append(f"  Late server state: {step['late_server_state']}")
+            if step["job_id"] in findings_by_job:
+                lines.append(f"  Finding: {findings_by_job[step['job_id']]}")
+            proof = evidence.get(step["step_id"], {})
+            if proof.get("output_sha256"):
+                lines.append(f"  Output: {proof['output_size']} bytes · SHA-256 {proof['output_sha256']}")
+            if proof.get("output_preview") and step.get("purpose", "command") == "command":
+                lines.append(f"  Output:\n{proof['output_preview']}")
+            lines.append("")
+    return "\n".join(lines).strip()
 
 
 class SkillsPanel(QWidget):
@@ -73,6 +127,9 @@ class SkillsPanel(QWidget):
             QListWidget::item:selected {{ background-color: {CONSOLE_COLORS['selection']}; }}
         """)
         layout.addWidget(self.runList, 1)
+        self.showEvidence = QCheckBox("Show execution details")
+        self.showEvidence.setStyleSheet(f"QCheckBox {{ color: {CONSOLE_COLORS['text']}; spacing: 6px; }}")
+        layout.addWidget(self.showEvidence)
         self.details = QTextBrowser()
         apply_console_output_style(self.details)
         layout.addWidget(self.details, 3)
@@ -91,6 +148,7 @@ class SkillsPanel(QWidget):
         self.refreshSessionsButton.clicked.connect(self._refresh_sessions)
         self.startButton.clicked.connect(self._start)
         self.runList.currentRowChanged.connect(self._show_selected)
+        self.showEvidence.toggled.connect(lambda _checked: self._show_selected(self.runList.currentRow()))
         self.noResultButton.clicked.connect(self._confirm_no_result)
         self.failButton.clicked.connect(self._fail)
         self.runChanged.connect(self._on_run_changed)
@@ -300,20 +358,7 @@ class SkillsPanel(QWidget):
         if not run_id:
             return
         run = self.service.get(run_id)
-        lines = [f"Task {run_id}", f"State: {run['status']}", ""]
-        for step in run["steps"]:
-            lines.append(f"{step['command']} : {step['state']} (job {step['job_id']})")
-            if step["error_message"]:
-                lines.append(f"  {step['error_message']}")
-            if step["manual_reason"]:
-                lines.append(f"  Manual closure: {step['manual_reason']}")
-            if step.get("late_server_state"):
-                lines.append(f"  Late server state: {step['late_server_state']}")
-        if run["manual_failure"]:
-            lines.append(f"Marked failed: {run['manual_failure']}")
-        if run["report"] is not None:
-            lines.extend(["", "Report:", json.dumps(run["report"], ensure_ascii=False, indent=2)])
-        self.details.setPlainText("\n".join(lines))
+        self.details.setPlainText(format_run_details(run, show_evidence=self.showEvidence.isChecked()))
 
     def shutdown(self) -> None:
         self._closed = True

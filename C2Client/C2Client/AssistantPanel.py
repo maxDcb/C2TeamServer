@@ -17,7 +17,7 @@ import markdown
 from .assistant_agent import C2AssistantAgent
 from .assistant_agent.domain.command_outcome import CommandOutcome
 from .assistant_agent.skills.panel import SkillsPanel
-from .assistant_agent.tools.module_state_tool import has_loaded_module
+from .assistant_agent.tools.module_state_tool import has_loaded_module, is_module_already_loaded_response
 from .command_event_hub import CommandEventHub, CommandResultEvent
 from .grpcClient import TeamServerApi_pb2
 from .console_style import (
@@ -240,11 +240,19 @@ class Assistant(QWidget):
         pending_id = self.pending_tool_id
         pending = self.pending_tool_context or {}
         continuation = pending.get("continuation_command_line")
-        if outcome.ok and continuation:
+        already_loaded = bool(
+            continuation and outcome.state == "failed"
+            and is_module_already_loaded_response(outcome.error_message)
+        )
+        if (outcome.ok or already_loaded) and continuation:
             if not pending.get("continuation_dispatching"):
                 pending["continuation_dispatching"] = True
-                self.printInTerminal("Analysis:", f"Module loaded. Running `{continuation}`.")
-                self._start_module_continuation(pending_id, outcome.command_id, outcome.beacon_hash, outcome.listener_hash, continuation)
+                status = "Module already loaded" if already_loaded else "Module loaded"
+                self.printInTerminal("Analysis:", f"{status}. Running `{continuation}`.")
+                self._start_module_continuation(
+                    pending_id, outcome.command_id, outcome.beacon_hash, outcome.listener_hash,
+                    continuation, already_loaded,
+                )
             return
         if outcome.ok:
             notice = f"Received result for command `{outcome.command_id}`. Resuming assistant."
@@ -255,10 +263,13 @@ class Assistant(QWidget):
         self._deferred_resume = (pending_id, outcome.tool_content(), outcome.ok)
         self._drain_deferred_resume()
 
-    def _start_module_continuation(self, pending_id, load_command_id, beacon_hash, listener_hash, command_line):
+    def _start_module_continuation(
+        self, pending_id, load_command_id, beacon_hash, listener_hash, command_line,
+        already_loaded=False,
+    ):
         def work():
             module_name = command_line.split(maxsplit=1)[0]
-            loaded = has_loaded_module(
+            loaded = already_loaded or has_loaded_module(
                 self.grpcClient, beacon_hash=beacon_hash,
                 listener_hash=listener_hash, module_name=module_name,
             )
