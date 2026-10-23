@@ -31,6 +31,12 @@ class StubGrpc:
     def listModules(self, session):
         return iter(self.modules)
 
+    def listCommands(self, query):
+        _ = query
+        loader = command_spec("loadModule", "loadModule {module:q}", [arg("module", required=True)])
+        loader.kind = "common"
+        return [loader]
+
 
 def spec_by_name(name):
     commands = {
@@ -96,7 +102,7 @@ def test_c2_command_tool_reports_rpc_exception_as_failed_outcome():
     assert result.metadata["command_id"] == grpc.commands[0].command_id
 
 
-def test_c2_command_tool_rejects_unloaded_module_before_sending():
+def test_c2_command_tool_loads_missing_module_before_requested_command():
     grpc = StubGrpc()
     grpc.modules = []
     tool = C2CommandTool(spec_by_name("ls"), grpc)
@@ -110,10 +116,22 @@ def test_c2_command_tool_rejects_unloaded_module_before_sending():
         context=None,
     )
 
-    assert result.ok is False
-    assert result.pending is False
-    assert "loadModule ls" in result.content
-    assert result.metadata["error"]["code"] == "module_not_loaded"
+    assert result.pending is True
+    assert result.metadata["command_line"] == "loadModule ls"
+    assert result.metadata["continuation_command_line"] == "ls 'C:\\Program Files'"
+    assert [command.command for command in grpc.commands] == ["loadModule ls"]
+
+
+def test_c2_command_tool_waits_for_existing_module_load_without_duplicate():
+    grpc = StubGrpc()
+    grpc.modules = [SimpleNamespace(name="ls", state="loading", command_id="load-123")]
+    result = C2CommandTool(spec_by_name("ls"), grpc).execute(
+        {"beacon_hash": "beacon-12345678", "listener_hash": "listener-12345678", "path": "C:\\"},
+        context=None,
+    )
+    assert result.pending is True
+    assert result.metadata["command_id"] == "load-123"
+    assert result.metadata["continuation_command_line"] == "ls C:\\"
     assert grpc.commands == []
 
 

@@ -21,12 +21,12 @@ class SkillDefinition:
 
 INVENTORY_LOCAL = SkillDefinition(
     skill_id="inventory_local",
-    version=1,
-    title="Inventaire local",
-    description="Collecte l'identité et la configuration réseau d'une session.",
+    version=2,
+    title="Local inventory",
+    description="Collects identity and network configuration from one beacon session.",
     steps=(
-        SkillStep("identity", "whoami", "Identité et groupes du beacon"),
-        SkillStep("network", "ipConfig", "Interfaces et adresses réseau"),
+        SkillStep("identity", "whoami", "Beacon identity and groups"),
+        SkillStep("network", "ipConfig", "Network interfaces and addresses"),
     ),
 )
 

@@ -1,10 +1,19 @@
 # Tâches LLM du client C2
 
-La vue **Data AI → Tâches** lance un skill `inventory_local` sur la session
+La vue **Data AI → Tasks** lance un skill `inventory_local` sur la session
 sélectionnée. Son plan, versionné dans le client, exécute `whoami` puis
-`ipConfig`. Les deux modules doivent être chargés sur la session avant le
-lancement. Le LLM interprète les résultats observés dans un rapport structuré ;
+`ipConfig`. Si un module manque, le client exécute d'abord `loadModule` et
+attend sa réponse ; ce chargement possède son propre job et reprend après
+redémarrage du client. Un module déjà en cours de chargement est suivi par son
+identifiant existant, sans nouvelle soumission. Le LLM interprète les résultats
+observés dans un rapport structuré en anglais ;
 il ne choisit ni ne modifie les commandes du plan.
+
+La conversation applique la même précondition : un appel à un outil de module
+charge automatiquement ce module s'il manque, attend le résultat du chargement,
+puis envoie la commande demandée. `outcome_unknown` maintient l'attente jusqu'à
+un résultat tardif ou `/stop`. Le chargement réussi seul n'est jamais présenté
+comme le résultat de la commande demandée.
 
 ## Propriété et reprise
 
@@ -17,14 +26,16 @@ relues, les jobs sont interrogés avec `GetJobExecution`, puis le suivi des
 par son `job_id` avant d'être retentée avec **le même identifiant**.
 
 Une commande peut rester en attente sans délai automatique, y compris lorsque
-le serveur indique `outcome_unknown`. L'opérateur peut déclarer **Résultat
-absent** avec une raison ; l'étape devient incertaine et le rapport est partiel.
-**Mettre en échec** clôt la tâche entière. Aucune de ces actions n'annule une
+le serveur indique `outcome_unknown`. L'opérateur peut déclarer **No result**
+avec une raison ; l'étape devient incertaine et le rapport est partiel.
+**Mark failed** clôt la tâche entière. Aucune de ces actions n'annule une
 commande déjà envoyée au beacon. Un résultat tardif est enregistré comme état
 tardif et ne réécrit pas un rapport déjà terminé.
 
 Les sorties exactes de jobs réussis sont encodées en base64 dans le journal de
 tâche. Le rapport donne un aperçu de 16 000 octets, une taille et un SHA-256.
+Les résultats de `loadModule` restent dans les preuves mais ne sont pas cités
+comme des observations de l'inventaire.
 Une sortie rejetée par la limite du serveur apparaît comme échec du job ; elle
 n'est pas présentée comme preuve complète. Si le LLM échoue, les preuves restent
 consultables et le rapport est marqué partiel, avec analyse indisponible.

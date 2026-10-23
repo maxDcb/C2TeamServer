@@ -68,13 +68,16 @@ def has_loaded_module(grpc_client: Any, *, beacon_hash: str, listener_hash: str,
     except Exception:
         return None
 
+    module = find_module_record(modules, module_name)
+    return module is not None and str(getattr(module, "state", "") or "").lower() == "loaded"
+
+
+def find_module_record(modules: list[Any], module_name: str) -> Any | None:
     expected = _normalize_module_name(module_name)
-    for module in modules:
-        name = _normalize_module_name(getattr(module, "name", ""))
-        state = str(getattr(module, "state", "") or "").lower()
-        if name == expected and state == "loaded":
-            return True
-    return False
+    return next(
+        (module for module in modules if _normalize_module_name(getattr(module, "name", "")) == expected),
+        None,
+    )
 
 
 def format_loaded_modules(modules: list[Any]) -> str:

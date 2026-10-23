@@ -1,4 +1,5 @@
 import os
+import uuid
 
 from threading import Thread, Lock, Semaphore
 
@@ -16,7 +17,9 @@ import markdown
 from .assistant_agent import C2AssistantAgent
 from .assistant_agent.domain.command_outcome import CommandOutcome
 from .assistant_agent.skills.panel import SkillsPanel
+from .assistant_agent.tools.module_state_tool import has_loaded_module
 from .command_event_hub import CommandEventHub, CommandResultEvent
+from .grpcClient import TeamServerApi_pb2
 from .console_style import (
     apply_console_output_style,
     append_console_block,
@@ -48,6 +51,7 @@ class Assistant(QWidget):
     responseReady = pyqtSignal(object)
     responseError = pyqtSignal(str)
     workerFinished = pyqtSignal()
+    continuationReady = pyqtSignal(object)
     logFileName=""
     sem = Semaphore()
 
@@ -57,6 +61,7 @@ class Assistant(QWidget):
         self.layout.setContentsMargins(0, 0, 0, 0)
 
         self.agent = C2AssistantAgent(grpcClient)
+        self.grpcClient = grpcClient
         self.command_event_hub = command_event_hub
         self._result_subscriptions = {}
 
@@ -83,11 +88,12 @@ class Assistant(QWidget):
         self.commandEditor.returnPressed.connect(self.runCommand)
 
         self.skillsPanel = SkillsPanel(self.modeTabs, grpcClient, command_event_hub)
-        self.modeTabs.addTab(self.skillsPanel, "Tâches")
+        self.modeTabs.addTab(self.skillsPanel, "Tasks")
 
         self.responseReady.connect(self._process_assistant_response)
         self.responseError.connect(self._handle_assistant_error)
         self.workerFinished.connect(self._drain_deferred_resume)
+        self.continuationReady.connect(self._on_continuation_ready)
 
         # Track pending tool execution state
         self.awaiting_tool_result = False
@@ -227,7 +233,19 @@ class Assistant(QWidget):
         if not self._matches_pending_command(outcome.command_id, outcome.beacon_hash, outcome.listener_hash):
             return
 
+        if outcome.state == "outcome_unknown":
+            self.printInTerminal("Analysis:", f"Delivery of command `{outcome.command_id}` is uncertain. Waiting for a result or /stop.")
+            return
+
         pending_id = self.pending_tool_id
+        pending = self.pending_tool_context or {}
+        continuation = pending.get("continuation_command_line")
+        if outcome.ok and continuation:
+            if not pending.get("continuation_dispatching"):
+                pending["continuation_dispatching"] = True
+                self.printInTerminal("Analysis:", f"Module loaded. Running `{continuation}`.")
+                self._start_module_continuation(pending_id, outcome.command_id, outcome.beacon_hash, outcome.listener_hash, continuation)
+            return
         if outcome.ok:
             notice = f"Received result for command `{outcome.command_id}`. Resuming assistant."
         else:
@@ -236,6 +254,72 @@ class Assistant(QWidget):
         self._clear_pending_tool_state()
         self._deferred_resume = (pending_id, outcome.tool_content(), outcome.ok)
         self._drain_deferred_resume()
+
+    def _start_module_continuation(self, pending_id, load_command_id, beacon_hash, listener_hash, command_line):
+        def work():
+            module_name = command_line.split(maxsplit=1)[0]
+            loaded = has_loaded_module(
+                self.grpcClient, beacon_hash=beacon_hash,
+                listener_hash=listener_hash, module_name=module_name,
+            )
+            command_id = uuid.uuid4().hex
+            if loaded is not True:
+                outcome = CommandOutcome(
+                    state="failed", command_id=command_id,
+                    beacon_hash=beacon_hash, listener_hash=listener_hash,
+                    command_line=command_line, error_code="module_not_loaded",
+                    error_message=f"Module `{module_name}` did not become ready after loading.",
+                )
+            else:
+                request = TeamServerApi_pb2.SessionCommandRequest(
+                    session=TeamServerApi_pb2.SessionSelector(
+                        beacon_hash=beacon_hash, listener_hash=listener_hash,
+                    ),
+                    command=command_line, command_id=command_id,
+                )
+                try:
+                    ack = self.grpcClient.sendSessionCommand(request)
+                    accepted = ack.status == TeamServerApi_pb2.OK
+                    outcome = CommandOutcome(
+                        state="pending" if accepted else "failed",
+                        command_id=ack.command_id or command_id,
+                        beacon_hash=beacon_hash, listener_hash=listener_hash,
+                        command_line=command_line,
+                        error_code="" if accepted else "teamserver_rejected",
+                        error_message="" if accepted else str(ack.message or "Command was rejected by TeamServer."),
+                    )
+                except Exception as error:
+                    outcome = CommandOutcome(
+                        state="failed", command_id=command_id,
+                        beacon_hash=beacon_hash, listener_hash=listener_hash,
+                        command_line=command_line, error_code="rpc_error",
+                        error_message=str(error) or type(error).__name__,
+                    )
+            self.continuationReady.emit((pending_id, load_command_id, outcome))
+
+        Thread(target=work, daemon=True).start()
+
+    def _on_continuation_ready(self, payload):
+        pending_id, load_command_id, outcome = payload
+        pending = self.pending_tool_context or {}
+        if not self.awaiting_tool_result or self.pending_tool_id != pending_id or pending.get("command_id") != load_command_id:
+            return
+        pending["continuation_dispatching"] = False
+        if outcome.state != "pending":
+            self._clear_pending_tool_state()
+            self._deferred_resume = (pending_id, outcome.tool_content(), False)
+            self._drain_deferred_resume()
+            return
+        pending["command_id"] = outcome.command_id
+        pending["command_line"] = outcome.command_line
+        pending.pop("continuation_command_line", None)
+        self.printInTerminal("Analysis:", self._format_pending_status("Waiting for beacon command result."))
+        if self.command_event_hub is not None:
+            recent = self.command_event_hub.recent_event(
+                pending.get("beacon_hash"), pending.get("listener_hash"), outcome.command_id,
+            )
+            if recent is not None:
+                self.receiveCommandEvent(recent)
 
     def event(self, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Tab:
@@ -453,14 +537,15 @@ class Assistant(QWidget):
 
     def _process_assistant_response(self, message):
         assistant_reply = getattr(message, "content", "") or ""
-        if assistant_reply:
+        is_pending = bool(getattr(message, "is_pending", False))
+        if assistant_reply and not is_pending:
             self.printInTerminal(
                 "Analysis:",
                 markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]),
                 rich_message=True,
             )
 
-        if getattr(message, "is_pending", False):
+        if is_pending:
             metadata = getattr(message, "metadata", {}) or {}
             arguments = getattr(message, "tool_arguments", {}) or {}
             self.awaiting_tool_result = True
@@ -470,6 +555,7 @@ class Assistant(QWidget):
                 "beacon_hash": metadata.get("beacon_hash") or arguments.get("beacon_hash"),
                 "listener_hash": metadata.get("listener_hash") or arguments.get("listener_hash"),
                 "command_line": metadata.get("command_line") or arguments.get("command_line"),
+                "continuation_command_line": metadata.get("continuation_command_line") or "",
             }
             self.printInTerminal("Analysis:", self._format_pending_status("Waiting for beacon command result."))
             pending = self.pending_tool_context

@@ -109,7 +109,7 @@ def _tool_description(command: Any, command_template: str) -> str:
     if details:
         lines.append("; ".join(details))
     if kind.lower() == "module":
-        lines.append("Module command: call listLoadedModules first; load it with loadModule unless recent context confirms it is already loaded.")
+        lines.append("Module command: the client loads a missing module before running this command and waits for both beacon results.")
     lines.append(f"Template: {command_template}")
     examples = [str(example).strip() for example in getattr(command, "examples", []) if str(example).strip()]
     if examples:

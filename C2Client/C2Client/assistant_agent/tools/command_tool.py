@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from .command_builder import build_command_line
-from .command_specs import C2CommandSpecToolSpec
-from .module_state_tool import has_loaded_module
+from .command_specs import C2CommandSpecToolSpec, load_command_tool_specs
+from .module_state_tool import find_module_record, list_loaded_modules
 from .validation import validate_tool_arguments
 from ..domain.command_outcome import CommandOutcome
 
@@ -43,18 +43,51 @@ class C2CommandTool:
         beacon_hash = arguments["beacon_hash"]
         listener_hash = arguments["listener_hash"]
         command_line = build_command_line(self.spec, arguments)
-        module_loaded = self._module_loaded(beacon_hash=beacon_hash, listener_hash=listener_hash)
-        if module_loaded is not True:
+        module_state, loading_command_id = self._module_state(
+            beacon_hash=beacon_hash, listener_hash=listener_hash,
+        )
+        if module_state == "missing":
+            loader = next(
+                (spec for spec in load_command_tool_specs(self.grpc_client) if spec.name == "loadModule"),
+                None,
+            )
+            if loader is None:
+                return self._failure(
+                    beacon_hash, listener_hash, command_line,
+                    "module_loader_unavailable", "TeamServer does not offer loadModule.",
+                )
+            load_command = build_command_line(loader, {
+                "beacon_hash": beacon_hash, "listener_hash": listener_hash,
+                "module": self.spec.name,
+            })
+            return self._send_command(
+                load_command, beacon_hash, listener_hash,
+                continuation_command_line=command_line,
+            )
+        if module_state == "loading" and loading_command_id:
+            outcome = CommandOutcome(
+                state="pending", command_id=loading_command_id,
+                beacon_hash=beacon_hash, listener_hash=listener_hash,
+                command_line=f"loadModule {self.spec.name}",
+            )
+            return ToolResult.pending_result(
+                outcome.tool_content(),
+                metadata={**outcome.metadata(), "continuation_command_line": command_line},
+            )
+        if module_state != "loaded":
             return CommandOutcome(
                 state="failed", command_id="", beacon_hash=beacon_hash,
                 listener_hash=listener_hash, command_line=command_line,
-                error_code="module_not_loaded" if module_loaded is False else "module_state_unavailable",
-                error_message=(
-                    f"Module `{self.spec.name}` is not loaded on this beacon. Use `loadModule {self.spec.name}` first, then retry the command."
-                    if module_loaded is False else f"Could not verify that module `{self.spec.name}` is loaded."
-                ),
+                error_code="module_state_unavailable",
+                error_message=f"Could not establish that module `{self.spec.name}` is ready (state: {module_state}).",
             ).to_tool_result()
 
+        return self._send_command(command_line, beacon_hash, listener_hash)
+
+    def _send_command(
+        self, command_line: str, beacon_hash: str, listener_hash: str,
+        *, continuation_command_line: str = "",
+    ) -> ToolResult:
         command_id = uuid.uuid4().hex
         command = TeamServerApi_pb2.SessionCommandRequest(
             session=TeamServerApi_pb2.SessionSelector(
@@ -85,18 +118,40 @@ class C2CommandTool:
                 error_message=message or "Command was rejected by TeamServer.",
             ).to_tool_result()
 
-        return CommandOutcome(
+        outcome = CommandOutcome(
             state="pending", command_id=command_id, beacon_hash=beacon_hash,
             listener_hash=listener_hash, command_line=command_line,
-        ).to_tool_result()
+        )
+        if continuation_command_line:
+            return ToolResult.pending_result(
+                outcome.tool_content(),
+                metadata={**outcome.metadata(), "continuation_command_line": continuation_command_line},
+            )
+        return outcome.to_tool_result()
 
-    def _module_loaded(self, *, beacon_hash: str, listener_hash: str) -> bool | None:
+    def _module_state(self, *, beacon_hash: str, listener_hash: str) -> tuple[str, str]:
         command_spec = self.spec.command_spec
         if str(getattr(command_spec, "kind", "") or "").lower() != "module":
-            return True
-        return has_loaded_module(
-            self.grpc_client,
-            beacon_hash=beacon_hash,
-            listener_hash=listener_hash,
-            module_name=self.spec.name,
-        )
+            return "loaded", ""
+        if not hasattr(self.grpc_client, "listModules"):
+            return "unavailable", ""
+        try:
+            modules = list_loaded_modules(
+                self.grpc_client, beacon_hash=beacon_hash, listener_hash=listener_hash,
+            )
+        except Exception:
+            return "unavailable", ""
+        module = find_module_record(modules, self.spec.name)
+        if module is None:
+            return "missing", ""
+        return str(getattr(module, "state", "") or "").lower(), str(getattr(module, "command_id", "") or "")
+
+    def _failure(
+        self, beacon_hash: str, listener_hash: str, command_line: str,
+        code: str, message: str,
+    ) -> ToolResult:
+        return CommandOutcome(
+            state="failed", command_id="", beacon_hash=beacon_hash,
+            listener_hash=listener_hash, command_line=command_line,
+            error_code=code, error_message=message,
+        ).to_tool_result()

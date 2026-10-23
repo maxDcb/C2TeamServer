@@ -11,6 +11,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QTextBrowser, QVBoxLayout, QWidget,
 )
 
+from ...console_style import CONSOLE_COLORS, apply_console_output_style
+from ...panel_style import apply_dark_panel_style
 from .catalog import SKILLS
 from .service import C2SkillService, FINISHED_RUN_STATES
 
@@ -22,6 +24,8 @@ class SkillsPanel(QWidget):
 
     def __init__(self, parent, grpc_client, command_event_hub=None):
         super().__init__(parent)
+        self.setObjectName("C2SkillsPanel")
+        apply_dark_panel_style(self)
         self.command_event_hub = command_event_hub
         self.available = all(hasattr(grpc_client, name) for name in (
             "submitJob", "getJobExecution", "listSessions", "listCommands", "listModules",
@@ -39,26 +43,39 @@ class SkillsPanel(QWidget):
         for skill in SKILLS.values():
             self.skillSelector.addItem(f"{skill.title} v{skill.version}", skill.skill_id)
         controls.addWidget(self.skillSelector)
-        self.sessionLabel = QLabel("Session : aucune")
+        self.sessionLabel = QLabel("Session: none")
         controls.addWidget(self.sessionLabel, 1)
-        self.startButton = QPushButton("Lancer")
+        self.startButton = QPushButton("Start")
         controls.addWidget(self.startButton)
         layout.addLayout(controls)
 
         self.planView = QTextBrowser()
+        apply_console_output_style(self.planView)
         self.planView.setMaximumHeight(130)
         layout.addWidget(self.planView)
-        layout.addWidget(QLabel("Exécutions"))
+        layout.addWidget(QLabel("Runs"))
         self.runList = QListWidget()
+        self.runList.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {CONSOLE_COLORS['background']};
+                color: {CONSOLE_COLORS['text']};
+                border: 1px solid {CONSOLE_COLORS['border']};
+                selection-background-color: {CONSOLE_COLORS['selection']};
+                selection-color: {CONSOLE_COLORS['text']};
+            }}
+            QListWidget::item {{ padding: 4px 6px; }}
+            QListWidget::item:selected {{ background-color: {CONSOLE_COLORS['selection']}; }}
+        """)
         layout.addWidget(self.runList, 1)
         self.details = QTextBrowser()
+        apply_console_output_style(self.details)
         layout.addWidget(self.details, 3)
         manual = QHBoxLayout()
         self.reasonInput = QLineEdit()
-        self.reasonInput.setPlaceholderText("Raison de la clôture manuelle")
+        self.reasonInput.setPlaceholderText("Reason for manual closure")
         manual.addWidget(self.reasonInput, 1)
-        self.noResultButton = QPushButton("Résultat absent")
-        self.failButton = QPushButton("Mettre en échec")
+        self.noResultButton = QPushButton("No result")
+        self.failButton = QPushButton("Mark failed")
         manual.addWidget(self.noResultButton)
         manual.addWidget(self.failButton)
         layout.addLayout(manual)
@@ -83,13 +100,13 @@ class SkillsPanel(QWidget):
     def set_active_session(self, beacon_hash: str, listener_hash: str) -> None:
         self.active_beacon = beacon_hash
         self.active_listener = listener_hash
-        self.sessionLabel.setText(f"Session : {beacon_hash[:8]}" if beacon_hash else "Session : aucune")
+        self.sessionLabel.setText(f"Session: {beacon_hash[:8]}" if beacon_hash else "Session: none")
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
-        lines = [skill.description, "", "Plan fixe :"]
+        lines = [skill.description, "", "Fixed plan:"]
         lines.extend(f"{index}. {step.command_name} — {step.description}" for index, step in enumerate(skill.steps, 1))
-        lines.append("Les modules doivent être chargés. Aucune relance automatique d'une commande incertaine.")
+        lines.append("Missing modules are loaded first. Uncertain commands are never resent with a new ID.")
         self.planView.setPlainText("\n".join(lines))
 
     def _run_async(self, action, *args, key: str = "") -> None:
@@ -110,7 +127,7 @@ class SkillsPanel(QWidget):
 
     def _start(self) -> None:
         if not self.active_beacon or not self.active_listener:
-            self._on_error("Sélectionne d'abord une session.")
+            self._on_error("Select a session first.")
             return
         self._run_async(
             self.service.start, self.skillSelector.currentData(),
@@ -180,12 +197,12 @@ class SkillsPanel(QWidget):
             self._refresh()
 
     def _on_error(self, message: str) -> None:
-        self.details.setPlainText(f"Erreur : {message}")
+        self.details.setPlainText(f"Error: {message}")
 
     def _refresh(self, select_id: str = "") -> None:
         if not self.available:
             self.startButton.setEnabled(False)
-            self.details.setPlainText("API des jobs indisponible.")
+            self.details.setPlainText("Job API unavailable.")
             return
         try:
             runs = self.service.list_runs()
@@ -215,19 +232,19 @@ class SkillsPanel(QWidget):
         if not run_id:
             return
         run = self.service.get(run_id)
-        lines = [f"Tâche {run_id}", f"État : {run['status']}", ""]
+        lines = [f"Task {run_id}", f"State: {run['status']}", ""]
         for step in run["steps"]:
-            lines.append(f"{step['command_name']} : {step['state']} (job {step['job_id']})")
+            lines.append(f"{step['command']} : {step['state']} (job {step['job_id']})")
             if step["error_message"]:
                 lines.append(f"  {step['error_message']}")
             if step["manual_reason"]:
-                lines.append(f"  Clôture manuelle : {step['manual_reason']}")
+                lines.append(f"  Manual closure: {step['manual_reason']}")
             if step.get("late_server_state"):
-                lines.append(f"  État serveur tardif : {step['late_server_state']}")
+                lines.append(f"  Late server state: {step['late_server_state']}")
         if run["manual_failure"]:
-            lines.append(f"Échec déclaré : {run['manual_failure']}")
+            lines.append(f"Marked failed: {run['manual_failure']}")
         if run["report"] is not None:
-            lines.extend(["", "Rapport :", json.dumps(run["report"], ensure_ascii=False, indent=2)])
+            lines.extend(["", "Report:", json.dumps(run["report"], ensure_ascii=False, indent=2)])
         self.details.setPlainText("\n".join(lines))
 
     def shutdown(self) -> None:

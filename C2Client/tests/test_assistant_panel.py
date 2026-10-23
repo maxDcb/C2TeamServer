@@ -87,8 +87,11 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
 def test_skills_share_active_session_without_changing_conversation(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
     assert [assistant.modeTabs.tabText(index) for index in range(assistant.modeTabs.count())] == [
-        "Conversation", "Tâches",
+        "Conversation", "Tasks",
     ]
+    assert assistant.skillsPanel.startButton.text() == "Start"
+    assert "Missing modules are loaded first" in assistant.skillsPanel.planView.toPlainText()
+    assert "#0b1117" in assistant.skillsPanel.runList.styleSheet()
     assistant.setActiveSession("beacon-12345678", "listener-1")
     assert assistant.skillsPanel.active_beacon == "beacon-12345678"
     assert assistant.skillsPanel.active_listener == "listener-1"
@@ -333,7 +336,9 @@ def test_command_result_requires_exact_id_and_target(qtbot, monkeypatch):
 def test_pending_response_has_no_automatic_timeout(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
 
-    assistant._process_assistant_response(pending_message())
+    message = pending_message()
+    message.content = '{"status":"pending"}'
+    assistant._process_assistant_response(message)
 
     assert assistant.awaiting_tool_result is True
     assert assistant.pending_tool_id == "pending-1"
@@ -343,6 +348,7 @@ def test_pending_response_has_no_automatic_timeout(qtbot, monkeypatch):
     output = assistant.editorOutput.toPlainText()
     assert "Waiting for beacon command result. Command `run touch /tmp/hello` on beacon `beacon-1` (cmd `4078543f`, no automatic timeout)." in output
     assert "4078543f88cc4403aa587856afdfbfea" not in output
+    assert '{"status":"pending"}' not in output
 
 
 def test_late_result_after_manual_stop_does_not_resume_new_wait(qtbot, monkeypatch):
@@ -422,3 +428,76 @@ def test_cached_hub_result_resumes_when_pending_state_arrives_late(qtbot, monkey
     assert assistant.awaiting_tool_result is False
     assistant.close()
     hub.shutdown()
+
+
+def test_module_load_result_dispatches_requested_command_before_resuming(qtbot, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setattr("C2Client.AssistantPanel.C2AssistantAgent", FakeAssistantAgent)
+    sent = []
+
+    def send(command):
+        sent.append(command)
+        return SimpleNamespace(status=TeamServerApi_pb2.OK, command_id=command.command_id)
+
+    grpc_client = SimpleNamespace(
+        listModules=lambda session: [SimpleNamespace(name="whoami", state="loaded")],
+        sendSessionCommand=send,
+    )
+    assistant = Assistant(None, grpc_client)
+    qtbot.addWidget(assistant)
+    assistant._process_assistant_response(SimpleNamespace(
+        content="", is_pending=True, pending_id="pending-load",
+        metadata={
+            "command_id": "load-1", "beacon_hash": "beacon-1", "listener_hash": "listener-1",
+            "command_line": "loadModule whoami", "continuation_command_line": "whoami",
+        },
+        tool_arguments={},
+    ))
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="load-1", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="loadModule whoami", output="loaded",
+    ))
+    qtbot.waitUntil(lambda: assistant.pending_tool_context["command_id"] != "load-1")
+    assert [request.command for request in sent] == ["whoami"]
+    assert assistant.agent.resumes == []
+
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id=sent[0].command_id, beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="whoami", output="operator",
+    ))
+    qtbot.waitUntil(lambda: len(assistant.agent.resumes) == 1)
+    assert json.loads(assistant.agent.resumes[0]["tool_content"])["output"] == "operator"
+
+
+def test_uncertain_beacon_result_keeps_conversation_pending(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant._process_assistant_response(pending_message())
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="outcome_unknown", command_id="4078543f88cc4403aa587856afdfbfea",
+        beacon_hash="beacon-12345678", listener_hash="listener-1",
+        command_line="whoami", error_code="outcome_unknown",
+    ))
+    assert assistant.awaiting_tool_result is True
+    assert assistant.agent.resumes == []
+
+
+def test_stop_during_module_load_prevents_follow_up_command(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant._process_assistant_response(SimpleNamespace(
+        content="", is_pending=True, pending_id="pending-load",
+        metadata={
+            "command_id": "load-1", "beacon_hash": "beacon-1", "listener_hash": "listener-1",
+            "command_line": "loadModule whoami", "continuation_command_line": "whoami",
+        },
+        tool_arguments={},
+    ))
+    dispatched = []
+    monkeypatch.setattr(assistant, "_start_module_continuation", lambda *args: dispatched.append(args))
+    assistant.commandEditor.setText("/stop")
+    assistant.runCommand()
+    assistant.receiveCommandOutcome(CommandOutcome(
+        state="succeeded", command_id="load-1", beacon_hash="beacon-1",
+        listener_hash="listener-1", command_line="loadModule whoami", output="loaded",
+    ))
+    assert dispatched == []
+    assert assistant.agent.resumes == []
