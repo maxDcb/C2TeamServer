@@ -52,16 +52,6 @@ std::string computeBufferMd5(const std::string& buffer)
     return oss.str();
 }
 
-std::string extractClientId(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata)
-{
-    for (const auto& meta : metadata)
-    {
-        if (std::string(meta.first.data(), meta.first.length()) == "clientid")
-            return std::string(meta.second.data(), meta.second.length());
-    }
-    return "";
-}
-
 std::string toLower(std::string value)
 {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
@@ -171,8 +161,6 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
     std::vector<std::shared_ptr<Listener>>& listeners,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
     CommonCommands& commonCommands,
-    std::vector<teamserverapi::CommandResult>& cmdResponses,
-    std::unordered_map<std::string, std::vector<int>>& sentResponses,
     std::vector<BeaconCommandContext>& sentCommands,
     std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
     PrepMsgCallback prepMsg)
@@ -181,12 +169,16 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
       m_listeners(listeners),
       m_moduleCmd(moduleCmd),
       m_commonCommands(commonCommands),
-      m_cmdResponses(cmdResponses),
-      m_sentResponses(sentResponses),
       m_sentCommands(sentCommands),
       m_fileArtifactService(std::move(fileArtifactService)),
       m_prepMsg(std::move(prepMsg))
 {
+}
+
+void TeamServerListenerSessionService::setJobResultHandler(
+    std::function<void(const teamserverapi::CommandResult&)> handler)
+{
+    m_jobResultHandler = std::move(handler);
 }
 
 grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerListenerSessionService::ListenerEmitter& emit)
@@ -915,14 +907,11 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         else if (instruction == UnloadC2ModuleCmd)
             markModuleUnloading(beaconHash, moduleName, commandId);
 
-        m_sentCommands.push_back(BeaconCommandContext{
-            commandId,
-            beaconHash,
-            listenerHash,
-            input,
-            instruction,
-            c2Message.outputfile(),
-        });
+        {
+            std::lock_guard<std::mutex> lock(m_sentCommandsMutex);
+            m_sentCommands.push_back(BeaconCommandContext{
+                commandId, beaconHash, listenerHash, input, instruction, c2Message.outputfile()});
+        }
 
         response->set_status(teamserverapi::OK);
         m_logger->trace("SendSessionCommand end");
@@ -991,31 +980,29 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 if (!translatedInstruction.empty())
                     responseInstruction = translatedInstruction;
 
-                auto sentCommand = std::find_if(
-                    m_sentCommands.begin(),
-                    m_sentCommands.end(),
-                    [&commandId, &c2Message](const BeaconCommandContext& context)
-                    {
-                        if (!commandId.empty() && context.commandId == commandId)
-                            return true;
-                        return !c2Message.outputfile().empty()
-                            && !context.outputFile.empty()
-                            && context.outputFile == c2Message.outputfile();
-                    });
                 bool trackedCommand = false;
                 bool keepCommandContext = false;
-                if (sentCommand != m_sentCommands.end())
                 {
-                    trackedCommand = true;
-                    commandId = sentCommand->commandId;
-                    listenerHash = sentCommand->listenerHash;
-                    commandLine = sentCommand->commandLine;
-                    if (!sentCommand->instruction.empty())
-                        responseInstruction = sentCommand->instruction;
-                    keepCommandContext = m_fileArtifactService
-                        && m_fileArtifactService->shouldKeepCommandContext(c2Message);
-                    if (!keepCommandContext)
-                        m_sentCommands.erase(sentCommand);
+                    std::lock_guard<std::mutex> lock(m_sentCommandsMutex);
+                    auto sentCommand = std::find_if(
+                        m_sentCommands.begin(), m_sentCommands.end(),
+                        [&commandId, &c2Message](const BeaconCommandContext& context)
+                        {
+                            if (!commandId.empty() && context.commandId == commandId) return true;
+                            return !c2Message.outputfile().empty() && !context.outputFile.empty()
+                                && context.outputFile == c2Message.outputfile();
+                        });
+                    if (sentCommand != m_sentCommands.end())
+                    {
+                        trackedCommand = true;
+                        commandId = sentCommand->commandId;
+                        listenerHash = sentCommand->listenerHash;
+                        commandLine = sentCommand->commandLine;
+                        if (!sentCommand->instruction.empty()) responseInstruction = sentCommand->instruction;
+                        keepCommandContext = m_fileArtifactService
+                            && m_fileArtifactService->shouldKeepCommandContext(c2Message);
+                        if (!keepCommandContext) m_sentCommands.erase(sentCommand);
+                    }
                 }
 
                 if (trackedCommand)
@@ -1038,17 +1025,20 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 {
                     commandResponseTmp.set_message(errorMsg);
                     commandResponseTmp.set_output(errorMsg);
-                    m_cmdResponses.push_back(commandResponseTmp);
+                    if (!m_jobResultHandler) throw std::runtime_error("Job result handler is not configured.");
+                    m_jobResultHandler(commandResponseTmp);
                 }
                 else if (!c2Message.returnvalue().empty())
                 {
                     commandResponseTmp.set_output(fileArtifactMessage.empty() ? c2Message.returnvalue() : fileArtifactMessage);
-                    m_cmdResponses.push_back(commandResponseTmp);
+                    if (!m_jobResultHandler) throw std::runtime_error("Job result handler is not configured.");
+                    m_jobResultHandler(commandResponseTmp);
                 }
-                else if (trackedCommand)
+                else if (trackedCommand || !commandId.empty())
                 {
                     commandResponseTmp.set_output("");
-                    m_cmdResponses.push_back(commandResponseTmp);
+                    if (!m_jobResultHandler) throw std::runtime_error("Job result handler is not configured.");
+                    m_jobResultHandler(commandResponseTmp);
                 }
                 else
                 {
@@ -1062,38 +1052,4 @@ int TeamServerListenerSessionService::handleCmdResponse()
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     return 0;
-}
-
-grpc::Status TeamServerListenerSessionService::streamResponsesForSession(
-    const teamserverapi::SessionSelector& targetSession,
-    const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
-    const TeamServerListenerSessionService::CommandResultEmitter& emit)
-{
-    m_logger->trace("StreamSessionCommandResults");
-
-    const std::string targetBeaconHash = targetSession.beacon_hash();
-    const std::string targetListenerHash = targetSession.listener_hash();
-    const std::string clientId = extractClientId(metadata);
-    if (clientId.empty())
-        return grpc::Status::OK;
-
-    if (m_sentResponses.find(clientId) == m_sentResponses.end())
-        m_sentResponses[clientId] = {};
-
-    std::vector<int>& sentIndices = m_sentResponses[clientId];
-    for (size_t i = 0; i < m_cmdResponses.size(); ++i)
-    {
-        if (targetBeaconHash == m_cmdResponses[i].session().beacon_hash()
-            && targetListenerHash == m_cmdResponses[i].session().listener_hash())
-        {
-            if (std::find(sentIndices.begin(), sentIndices.end(), static_cast<int>(i)) == sentIndices.end())
-            {
-                if (!emit(m_cmdResponses[i]))
-                    return grpc::Status::OK;
-                sentIndices.push_back(static_cast<int>(i));
-            }
-        }
-    }
-
-    return grpc::Status::OK;
 }

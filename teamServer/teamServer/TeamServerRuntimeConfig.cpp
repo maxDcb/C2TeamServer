@@ -117,6 +117,15 @@ TeamServerRuntimeConfig TeamServerRuntimeConfig::fromJson(const nlohmann::json& 
         config,
         "CredentialVaultKeyFile",
         (fs::path(runtimeConfig.credentialVaultDirectoryPath) / "vault.key").string());
+    runtimeConfig.jobDatabasePath = jsonString(config, "JobDatabasePath",
+        (fs::path(runtimeConfig.dataRoot) / "jobs.sqlite").string());
+    if (auto it = config.find("MaxJobOutputBytes"); it != config.end())
+    {
+        if (!it->is_number_unsigned() || it->get<std::uint64_t>() == 0
+            || it->get<std::uint64_t>() > 512ULL * 1024 * 1024)
+            throw std::runtime_error("MaxJobOutputBytes must be between 1 and 536870912.");
+        runtimeConfig.maxJobOutputBytes = it->get<std::size_t>();
+    }
 
     if (auto it = config.find("DefaultWindowsArch"); it != config.end() && it->is_string())
         runtimeConfig.defaultWindowsArch = normalizeWindowsArch(it->get<std::string>());

@@ -43,6 +43,8 @@ class TeamServerSocksService;
 class TeamServerCommandPreparationService;
 class TeamServerShellcodeService;
 class TeamServerTermLocalService;
+class JobApplicationService;
+class SqliteJobRepository;
 
 class TeamServer final : public teamserverapi::TeamServerApi::Service
 {
@@ -71,8 +73,10 @@ public:
     grpc::Status ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer) override;
     grpc::Status ListModules(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::LoadedModule>* writer) override;
 
-    grpc::Status SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response) override;
-    grpc::Status StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer) override;
+    grpc::Status SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status GetJobExecution(grpc::ServerContext* context, const teamserverapi::GetJobExecutionRequest* request, teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status ListJobExecutions(grpc::ServerContext* context, const teamserverapi::ListJobExecutionsRequest* request, teamserverapi::ListJobExecutionsResponse* response) override;
+    grpc::Status SubscribeJobEvents(grpc::ServerContext* context, const teamserverapi::SubscribeJobEventsRequest* request, grpc::ServerWriter<teamserverapi::JobEventRecord>* writer) override;
 
     grpc::Status GetCommandHelp(grpc::ServerContext* context, const teamserverapi::CommandHelpRequest* command, teamserverapi::CommandHelpResponse* commandResponse) override;
 
@@ -102,9 +106,6 @@ private:
 
     bool m_handleCmdResponseThreadRuning;
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
-    std::vector<teamserverapi::CommandResult> m_cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> m_sentResponses;
-
     std::vector<BeaconCommandContext> m_sentCommands;
 
     std::unique_ptr<TeamServerAuthManager> m_authManager;
@@ -121,4 +122,6 @@ private:
     std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
     std::shared_ptr<TeamServerShellcodeService> m_shellcodeService;
     std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
+    std::shared_ptr<SqliteJobRepository> m_jobRepository;
+    std::shared_ptr<JobApplicationService> m_jobApplication;
 };

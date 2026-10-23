@@ -23,6 +23,8 @@
     "ServKeyFile": "server.key",
     "RootCA": "rootCA.crt",
     "AuthCredentialsFile": "auth_credentials.json",
+    "JobDatabasePath": "../data/jobs.sqlite",
+    "MaxJobOutputBytes": 65536,
     "xorKey": "dfsdgferhzdzxczevre5595485sdg",
     "ListenerHttpConfig": {
         "uri": [

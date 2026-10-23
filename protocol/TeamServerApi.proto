@@ -27,8 +27,10 @@ service TeamServerApi
   rpc ListModules(SessionSelector) returns (stream LoadedModule) {}
 
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
-  rpc SendSessionCommand(SessionCommandRequest) returns (CommandAck) {}
-  rpc StreamSessionCommandResults(SessionSelector) returns (stream CommandResult) {}
+  rpc SubmitJob(SubmitJobRequest) returns (JobExecutionRecord) {}
+  rpc GetJobExecution(GetJobExecutionRequest) returns (JobExecutionRecord) {}
+  rpc ListJobExecutions(ListJobExecutionsRequest) returns (ListJobExecutionsResponse) {}
+  rpc SubscribeJobEvents(SubscribeJobEventsRequest) returns (stream JobEventRecord) {}
 
   rpc ExecuteTerminalCommand(TerminalCommandRequest) returns (TerminalCommandResponse) {}
 }
@@ -338,6 +340,68 @@ message CommandResult
   string command = 5;
   bytes output = 6;
   string message = 7;
+  int64 event_id = 8;
+  string job_state = 9;
+}
+
+message SubmitJobRequest
+{
+  string job_id = 1;
+  string operation = 2;
+  string input = 3;
+}
+
+message GetJobExecutionRequest
+{
+  string job_id = 1;
+}
+
+message JobExecutionRecord
+{
+  string job_id = 1;
+  string operation = 2;
+  string normalized_input = 3;
+  string request_hash = 4;
+  string state = 5;
+  int64 created_at = 6;
+  int64 queued_at = 7;
+  int64 completed_at = 8;
+  string error_code = 9;
+  string error_message = 10;
+  bytes output_inline = 11;
+  int64 output_size = 12;
+}
+
+message ListJobExecutionsRequest
+{
+  int64 after_created_at = 1;
+  string after_job_id = 2;
+  uint32 page_size = 3;
+}
+
+message ListJobExecutionsResponse
+{
+  repeated JobExecutionRecord jobs = 1;
+  int64 next_created_at = 2;
+  string next_job_id = 3;
+}
+
+message SubscribeJobEventsRequest
+{
+  int64 after_event_id = 1;
+  string job_id = 2;
+  string state = 3;
+  uint32 page_size = 4;
+  bool follow = 5;
+}
+
+message JobEventRecord
+{
+  int64 event_id = 1;
+  string job_id = 2;
+  string event_type = 3;
+  int64 created_at = 4;
+  string payload_json = 5;
 }
 
 

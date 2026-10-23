@@ -125,8 +125,9 @@ JobExecution JobApplicationService::complete(const std::string& jobId, bool succ
     const std::string state = success && !tooLarge ? "succeeded" : "failed";
     const std::string code = tooLarge ? "output_too_large" : errorCode;
     const std::string message = tooLarge ? "Output exceeds the configured inline limit." : errorMessage;
-    JobExecution execution = m_repository->transition(jobId, "queued", state, code, message,
-        tooLarge ? std::string{} : output);
+    const std::string currentState = m_repository->get(jobId).state;
+    JobExecution execution = m_repository->transition(jobId, currentState, state, code, message,
+        tooLarge ? std::string{} : output, static_cast<std::int64_t>(output.size()));
     notifyCommitted();
     return execution;
 }

@@ -300,7 +300,7 @@ std::vector<JobEvent> SqliteJobRepository::events(std::int64_t afterEventId, con
 
 JobExecution SqliteJobRepository::transition(const std::string& jobId, const std::string& fromState,
     const std::string& toState, const std::string& errorCode, const std::string& errorMessage,
-    const std::string& output)
+    const std::string& output, std::int64_t observedOutputSize)
 {
     if (!allowed(fromState, toState))
         throw JobError(JobErrorCode::invalid_transition, "Illegal job state transition.");
@@ -315,7 +315,7 @@ JobExecution SqliteJobRepository::transition(const std::string& jobId, const std
     update.text(6, errorCode);
     update.text(7, errorMessage);
     update.blob(8, output);
-    update.integer(9, static_cast<std::int64_t>(output.size()));
+    update.integer(9, observedOutputSize >= 0 ? observedOutputSize : static_cast<std::int64_t>(output.size()));
     update.text(10, jobId);
     update.text(11, fromState);
     update.step();

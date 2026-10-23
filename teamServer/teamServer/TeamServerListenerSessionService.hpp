@@ -9,7 +9,6 @@
 #include <vector>
 
 #include <grpcpp/support/status.h>
-#include <grpcpp/support/string_ref.h>
 
 #include "TeamServerApi.pb.h"
 #include "TeamServerCommandTracking.hpp"
@@ -26,7 +25,6 @@ public:
     using PrepMsgCallback = std::function<int(const std::string&, C2Message&, bool, const std::string&)>;
     using ListenerEmitter = std::function<bool(const teamserverapi::Listener&)>;
     using SessionEmitter = std::function<bool(const teamserverapi::Session&)>;
-    using CommandResultEmitter = std::function<bool(const teamserverapi::CommandResult&)>;
     using ModuleEmitter = std::function<bool(const teamserverapi::LoadedModule&)>;
 
     TeamServerListenerSessionService(
@@ -35,8 +33,6 @@ public:
         std::vector<std::shared_ptr<Listener>>& listeners,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         CommonCommands& commonCommands,
-        std::vector<teamserverapi::CommandResult>& cmdResponses,
-        std::unordered_map<std::string, std::vector<int>>& sentResponses,
         std::vector<BeaconCommandContext>& sentCommands,
         std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
         PrepMsgCallback prepMsg);
@@ -49,13 +45,10 @@ public:
     grpc::Status stopSession(const teamserverapi::SessionSelector& sessionToStop, teamserverapi::OperationAck* response);
     grpc::Status streamModulesForSession(const teamserverapi::SessionSelector& targetSession, const ModuleEmitter& emit) const;
     grpc::Status sendSessionCommand(const teamserverapi::SessionCommandRequest& command, teamserverapi::CommandAck* response);
-    grpc::Status streamResponsesForSession(
-        const teamserverapi::SessionSelector& targetSession,
-        const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
-        const CommandResultEmitter& emit);
 
     int handleCmdResponse();
     bool isListenerAlive(const std::string& listenerHash) const;
+    void setJobResultHandler(std::function<void(const teamserverapi::CommandResult&)> handler);
 
 private:
     std::shared_ptr<spdlog::logger> m_logger;
@@ -63,11 +56,11 @@ private:
     std::vector<std::shared_ptr<Listener>>& m_listeners;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
-    std::vector<teamserverapi::CommandResult>& m_cmdResponses;
-    std::unordered_map<std::string, std::vector<int>>& m_sentResponses;
     std::vector<BeaconCommandContext>& m_sentCommands;
     std::shared_ptr<TeamServerFileArtifactService> m_fileArtifactService;
     PrepMsgCallback m_prepMsg;
+    std::function<void(const teamserverapi::CommandResult&)> m_jobResultHandler;
+    mutable std::mutex m_sentCommandsMutex;
 
     struct BeaconModuleRecord
     {

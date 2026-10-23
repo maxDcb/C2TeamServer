@@ -31,6 +31,8 @@ struct TeamServerRuntimeConfig
     std::string credentialVaultDirectoryPath = "../data/CredentialVault/";
     std::string credentialVaultPath = "../data/CredentialVault/vault.json";
     std::string credentialVaultKeyFile = "../data/CredentialVault/vault.key";
+    std::string jobDatabasePath = "../data/jobs.sqlite";
+    std::size_t maxJobOutputBytes = 64 * 1024;
     std::string defaultWindowsArch = "x64";
     std::string defaultLinuxArch = "x64";
     std::vector<std::string> supportedWindowsArchs = {"x86", "x64", "arm64"};

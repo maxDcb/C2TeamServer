@@ -1,4 +1,5 @@
 #include <chrono>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -90,6 +91,11 @@ void testTransitionsAndCursor()
     require(repository.events(0, filter, 10).size() == 1, "Historical state filter incorrect");
     require(repository.recoverInFlight() == 1, "Unfinished job was not recovered");
     require(repository.get("two").state == "outcome_unknown", "Recovery state incorrect");
+    auto shared = std::shared_ptr<IJobRepository>(&repository, [](IJobRepository*) {});
+    JobApplicationService application(shared, 65536, {});
+    auto late = application.complete("two", true, std::string("late\0result", 11));
+    require(late.state == "succeeded" && late.outputInline == std::string("late\0result", 11),
+        "Late result did not resolve outcome_unknown");
 }
 
 void testOutputLimitAndConcurrency()
@@ -100,6 +106,7 @@ void testOutputLimitAndConcurrency()
     auto large = application.submit("large", "echo", "1234");
     require(large.state == "failed" && large.errorCode == "output_too_large", "Output limit not enforced");
     require(large.outputInline.empty(), "Oversize output was stored");
+    require(large.outputSize == 4, "Oversize output length was not recorded");
     std::thread writer([&] {
         for (int i = 0; i < 30; ++i)
             application.submit("concurrent-" + std::to_string(i), "echo", "ok");
@@ -119,6 +126,17 @@ void testOutputLimitAndConcurrency()
     }
     writer.join();
     require(application.events(0, {}, 500).size() == 93, "Concurrent events missing");
+
+    std::atomic<int> dispatches{0};
+    JobApplicationService sessions(repository, 65536, [&](const JobExecution&) {
+        ++dispatches;
+        return std::string{};
+    });
+    const std::string request = R"({"command":"whoami","beacon_hash":"beacon","listener_hash":"listener"})";
+    std::thread first([&] { sessions.submit("same-job", "session_command", request); });
+    std::thread second([&] { sessions.submit("same-job", "session_command", request); });
+    first.join(); second.join();
+    require(dispatches == 1, "Concurrent duplicate dispatched twice");
 }
 
 void testAtomicityAndStartupFailures()
@@ -142,6 +160,20 @@ void testAtomicityAndStartupFailures()
     auto corrupt = temp.root / "corrupt.sqlite";
     std::ofstream file(corrupt, std::ios::binary); file << "not a database"; file.close();
     expectError([&] { SqliteJobRepository invalid(corrupt.string()); }, JobErrorCode::storage);
+    auto directory = temp.root / "directory";
+    fs::create_directory(directory);
+    expectError([&] { SqliteJobRepository invalid(directory.string()); }, JobErrorCode::storage);
+
+    auto future = temp.root / "future.sqlite";
+    sqlite3* futureDb = nullptr;
+    require(sqlite3_open_v2(future.string().c_str(), &futureDb,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK, "Open future SQLite failed");
+    require(sqlite3_exec(futureDb,
+        "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);"
+        "INSERT INTO schema_migrations(version,applied_at) VALUES(2,1);",
+        nullptr, nullptr, &error) == SQLITE_OK, "Create future schema failed");
+    sqlite3_close_v2(futureDb);
+    expectError([&] { SqliteJobRepository invalid(future.string()); }, JobErrorCode::storage);
 }
 } // namespace
 

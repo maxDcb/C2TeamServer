@@ -25,6 +25,8 @@
 #include "TeamServerSocksService.hpp"
 #include "TeamServerTermLocalService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
+#include "JobApplicationService.hpp"
+#include "SqliteJobRepository.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -32,6 +34,7 @@
 #include <unordered_map>
 #include <sstream>
 #include <iomanip>
+#include <chrono>
 
 using namespace std;
 using namespace std::placeholders;
@@ -65,6 +68,35 @@ void configureHostedDownloadFolders(nlohmann::json& config, const TeamServerRunt
             config[section] = nlohmann::json::object();
         config[section]["downloadFolder"] = hostedPath;
     }
+}
+
+void copyJob(const JobExecution& job, teamserverapi::JobExecutionRecord* response)
+{
+    response->set_job_id(job.jobId);
+    response->set_operation(job.operation);
+    response->set_normalized_input(job.normalizedInput);
+    response->set_request_hash(job.requestHash);
+    response->set_state(job.state);
+    response->set_created_at(job.createdAt);
+    response->set_queued_at(job.queuedAt);
+    response->set_completed_at(job.completedAt);
+    response->set_error_code(job.errorCode);
+    response->set_error_message(job.errorMessage);
+    response->set_output_inline(job.outputInline);
+    response->set_output_size(job.outputSize);
+}
+
+grpc::Status jobStatus(const JobError& error)
+{
+    switch (error.code())
+    {
+    case JobErrorCode::invalid_argument: return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
+    case JobErrorCode::conflict: return {grpc::StatusCode::ALREADY_EXISTS, error.what()};
+    case JobErrorCode::not_found: return {grpc::StatusCode::NOT_FOUND, error.what()};
+    case JobErrorCode::invalid_transition: return {grpc::StatusCode::FAILED_PRECONDITION, error.what()};
+    case JobErrorCode::storage: return {grpc::StatusCode::INTERNAL, error.what()};
+    }
+    return {grpc::StatusCode::INTERNAL, error.what()};
 }
 } // namespace
 
@@ -114,12 +146,44 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_listeners,
         m_moduleCmd,
         m_commonCommands,
-        m_cmdResponses,
-        m_sentResponses,
         m_sentCommands,
         m_fileArtifactService,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
+    m_jobRepository = std::make_shared<SqliteJobRepository>(runtimeConfig.jobDatabasePath);
+    const std::size_t recovered = m_jobRepository->recoverInFlight();
+    if (recovered)
+        m_logger->warn("Marked {} unfinished jobs as outcome_unknown after restart", recovered);
+    m_jobApplication = std::make_shared<JobApplicationService>(m_jobRepository,
+        runtimeConfig.maxJobOutputBytes,
+        [this](const JobExecution& job) -> std::string
+        {
+            const auto input = json::parse(job.normalizedInput);
+            teamserverapi::SessionCommandRequest command;
+            command.set_command_id(job.jobId);
+            command.set_command(input.at("command").get<std::string>());
+            command.mutable_session()->set_beacon_hash(input.at("beacon_hash").get<std::string>());
+            command.mutable_session()->set_listener_hash(input.at("listener_hash").get<std::string>());
+            teamserverapi::CommandAck ack;
+            const auto status = m_listenerSessionService->sendSessionCommand(command, &ack);
+            if (!status.ok()) return status.error_message();
+            return ack.status() == teamserverapi::OK ? std::string{} : ack.message();
+        });
+    m_listenerSessionService->setJobResultHandler([this](const teamserverapi::CommandResult& result)
+    {
+        if (result.command_id().empty()) return;
+        try
+        {
+            m_jobApplication->complete(result.command_id(), result.status() == teamserverapi::OK,
+                result.output(), result.status() == teamserverapi::OK ? "" : "command_failed", result.message());
+        }
+        catch (const JobError& error)
+        {
+            if (error.code() != JobErrorCode::not_found && error.code() != JobErrorCode::invalid_transition)
+                throw;
+            m_logger->warn("Ignored late or untracked command result {}: {}", result.command_id(), error.what());
+        }
+    });
     m_listenerArtifactService = std::make_unique<TeamServerListenerArtifactService>(
         m_logger,
         m_config,
@@ -349,12 +413,14 @@ grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamser
         { return writer->Write(module); });
 }
 
-grpc::Status TeamServer::SendSessionCommand(grpc::ServerContext* context, const teamserverapi::SessionCommandRequest* command, teamserverapi::CommandAck* response)
+grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-    return m_listenerSessionService->sendSessionCommand(*command, response);
+    try { copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input()), response); }
+    catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
 }
 
 int TeamServer::handleCmdResponse()
@@ -364,16 +430,63 @@ int TeamServer::handleCmdResponse()
     return 0;
 }
 
-grpc::Status TeamServer::StreamSessionCommandResults(grpc::ServerContext* context, const teamserverapi::SessionSelector* session, grpc::ServerWriter<teamserverapi::CommandResult>* writer)
+grpc::Status TeamServer::GetJobExecution(grpc::ServerContext* context, const teamserverapi::GetJobExecutionRequest* request, teamserverapi::JobExecutionRecord* response)
 {
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-    return m_listenerSessionService->streamResponsesForSession(
-        *session,
-        context->client_metadata(),
-        [&](const teamserverapi::CommandResult& commandResponse)
-        { return writer->Write(commandResponse); });
+    try { copyJob(m_jobApplication->get(request->job_id()), response); }
+    catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::ListJobExecutions(grpc::ServerContext* context, const teamserverapi::ListJobExecutionsRequest* request, teamserverapi::ListJobExecutionsResponse* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok()) return authStatus;
+    try
+    {
+        auto page = m_jobApplication->list(request->after_created_at(), request->after_job_id(),
+            request->page_size() ? request->page_size() : 100);
+        for (const auto& job : page.jobs) copyJob(job, response->add_jobs());
+        response->set_next_created_at(page.nextCreatedAt);
+        response->set_next_job_id(page.nextJobId);
+    }
+    catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::SubscribeJobEvents(grpc::ServerContext* context, const teamserverapi::SubscribeJobEventsRequest* request, grpc::ServerWriter<teamserverapi::JobEventRecord>* writer)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok()) return authStatus;
+    const JobEventFilter filter{request->job_id(), request->state()};
+    std::int64_t cursor = request->after_event_id();
+    const std::size_t pageSize = request->page_size() ? request->page_size() : 100;
+    try
+    {
+        while (!context->IsCancelled())
+        {
+            const auto page = m_jobApplication->events(cursor, filter, pageSize);
+            for (const auto& event : page)
+            {
+                teamserverapi::JobEventRecord response;
+                response.set_event_id(event.eventId);
+                response.set_job_id(event.jobId);
+                response.set_event_type(event.eventType);
+                response.set_created_at(event.createdAt);
+                response.set_payload_json(event.payloadJson);
+                if (!writer->Write(response)) return grpc::Status::OK;
+                cursor = event.eventId;
+            }
+            if (!request->follow()) return grpc::Status::OK;
+            if (page.size() == pageSize) continue;
+            m_jobApplication->waitForEvents(cursor, filter,
+                [context] { return context->IsCancelled(); }, std::chrono::milliseconds(1000));
+        }
+    }
+    catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
 }
 
 grpc::Status TeamServer::GetCommandHelp(grpc::ServerContext* context, const teamserverapi::CommandHelpRequest* command, teamserverapi::CommandHelpResponse* commandResponse)

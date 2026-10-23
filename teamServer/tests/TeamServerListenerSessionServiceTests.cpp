@@ -4,6 +4,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -14,6 +15,8 @@
 
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerGeneratedArtifactStore.hpp"
+#include "JobApplicationService.hpp"
+#include "SqliteJobRepository.hpp"
 #include "TeamServerListenerSessionService.hpp"
 
 namespace fs = std::filesystem;
@@ -74,15 +77,6 @@ std::shared_ptr<spdlog::logger> makeLogger()
     return logger;
 }
 
-std::multimap<grpc::string_ref, grpc::string_ref> makeMetadata(std::string& clientIdKey, std::string& clientIdValue)
-{
-    std::multimap<grpc::string_ref, grpc::string_ref> metadata;
-    metadata.emplace(
-        grpc::string_ref(clientIdKey.data(), clientIdKey.size()),
-        grpc::string_ref(clientIdValue.data(), clientIdValue.size()));
-    return metadata;
-}
-
 fs::path makeTempDirectory(const std::string& name)
 {
     fs::path root = fs::temp_directory_path() / ("c2teamserver-listener-session-" + name + "-" + std::to_string(::getpid()));
@@ -124,7 +118,6 @@ void testCollectListenersAndSessions()
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResult> cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
     TeamServerListenerSessionService service(
@@ -133,8 +126,6 @@ void testCollectListenersAndSessions()
         listeners,
         moduleCmd,
         commonCommands,
-        cmdResponses,
-        sentResponses,
         sentCommands,
         nullptr,
         [](const std::string&, C2Message& c2Message, bool, const std::string&)
@@ -165,7 +156,7 @@ void testCollectListenersAndSessions()
     assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678");
 }
 
-void testQueueStopAndResponseDeduplication()
+void testQueueStopAndResponseDelivery()
 {
     nlohmann::json config = {{"LogLevel", "off"}};
     auto logger = makeLogger();
@@ -178,7 +169,6 @@ void testQueueStopAndResponseDeduplication()
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResult> cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
     std::string preparedArch;
@@ -188,8 +178,6 @@ void testQueueStopAndResponseDeduplication()
         listeners,
         moduleCmd,
         commonCommands,
-        cmdResponses,
-        sentResponses,
         sentCommands,
         nullptr,
         [&preparedArch](const std::string& input, C2Message& c2Message, bool, const std::string& windowsArch)
@@ -222,6 +210,7 @@ void testQueueStopAndResponseDeduplication()
     emptyResult.set_cmd("internal command payload");
     emptyResult.set_returnvalue("");
     assert(primaryListener->addTaskResult(emptyResult, "ABCDEFGH12345678"));
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
     assert(cmdResponses.size() == 1);
     assert(cmdResponses[0].session().listener_hash() == "listener-primary");
@@ -238,47 +227,7 @@ void testQueueStopAndResponseDeduplication()
     C2Message stopTask = primaryListener->getTask("ABCDEFGH12345678");
     assert(stopTask.instruction() == "instruction");
 
-    std::string clientIdKey = "clientid";
-    std::string firstClientId = "client-a";
-    auto firstMetadata = makeMetadata(clientIdKey, firstClientId);
 
-    std::vector<teamserverapi::CommandResult> streamedResponses;
-    assert(service.streamResponsesForSession(
-               sessionToStop,
-               firstMetadata,
-               [&](const teamserverapi::CommandResult& responseInfo)
-               {
-                   streamedResponses.push_back(responseInfo);
-                   return true;
-               })
-               .ok());
-    assert(streamedResponses.size() == 1);
-    assert(streamedResponses[0].session().listener_hash() == "listener-primary");
-    assert(streamedResponses[0].command_id() == "cmd-0001");
-    assert(streamedResponses[0].command() == "whoami");
-
-    assert(service.streamResponsesForSession(
-               sessionToStop,
-               firstMetadata,
-               [&](const teamserverapi::CommandResult&)
-               {
-                   return false;
-               })
-               .ok());
-
-    std::string secondClientId = "client-b";
-    auto secondMetadata = makeMetadata(clientIdKey, secondClientId);
-    std::vector<teamserverapi::CommandResult> secondClientResponses;
-    assert(service.streamResponsesForSession(
-               sessionToStop,
-               secondMetadata,
-               [&](const teamserverapi::CommandResult& responseInfo)
-               {
-                   secondClientResponses.push_back(responseInfo);
-                   return true;
-               })
-               .ok());
-    assert(secondClientResponses.size() == 1);
 }
 
 void testAddListenerRejectsTcpBoundPortConflicts()
@@ -292,7 +241,6 @@ void testAddListenerRejectsTcpBoundPortConflicts()
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResult> cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
     TeamServerListenerSessionService service(
@@ -301,8 +249,6 @@ void testAddListenerRejectsTcpBoundPortConflicts()
         listeners,
         moduleCmd,
         commonCommands,
-        cmdResponses,
-        sentResponses,
         sentCommands,
         nullptr,
         [](const std::string&, C2Message&, bool, const std::string&)
@@ -335,7 +281,6 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResult> cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
     TeamServerListenerSessionService service(
@@ -344,8 +289,6 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
         listeners,
         moduleCmd,
         commonCommands,
-        cmdResponses,
-        sentResponses,
         sentCommands,
         nullptr,
         [](const std::string& input, C2Message& c2Message, bool, const std::string&)
@@ -405,6 +348,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     loadResult.set_uuid("load-0001");
     loadResult.set_returnvalue(CmdStatusSuccess);
     assert(primaryListener->addTaskResult(loadResult, "ABCDEFGH12345678"));
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
 
     modules.clear();
@@ -448,6 +392,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     unloadResult.set_uuid("unload-0001");
     unloadResult.set_returnvalue(CmdStatusSuccess);
     assert(primaryListener->addTaskResult(unloadResult, "ABCDEFGH12345678"));
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
 
     modules.clear();
@@ -483,7 +428,6 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
     CommonCommands commonCommands;
     std::vector<teamserverapi::CommandResult> cmdResponses;
-    std::unordered_map<std::string, std::vector<int>> sentResponses;
     std::vector<BeaconCommandContext> sentCommands;
 
     std::string preparedOutputFile;
@@ -493,8 +437,6 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
         listeners,
         moduleCmd,
         commonCommands,
-        cmdResponses,
-        sentResponses,
         sentCommands,
         fileArtifactService,
         [&](const std::string& input, C2Message& c2Message, bool, const std::string&)
@@ -542,6 +484,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     firstChunk.set_data("AA");
     firstChunk.set_returnvalue("2/4");
     assert(primaryListener->addTaskResult(firstChunk, "ABCDEFGH12345678"));
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
     assert(cmdResponses.empty());
     assert(sentCommands.size() == 1);
@@ -565,14 +508,77 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     assert(fs::exists(preparedOutputFile + ".artifact.json"));
     assert(!fs::exists(preparedOutputFile + ".artifact.pending.json"));
 }
+
+void testDurableSessionCommandBridge()
+{
+    const auto requireBridge = [](bool condition, const char* message)
+    {
+        if (!condition) throw std::runtime_error(message);
+    };
+    ScopedPath temp(makeTempDirectory("job-bridge"));
+    auto repository = std::make_shared<SqliteJobRepository>((temp.path() / "jobs.sqlite").string());
+    auto logger = makeLogger();
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto listener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
+    listener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    listeners.push_back(listener);
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(logger, config, listeners, modules, commonCommands,
+        sentCommands, nullptr,
+        [](const std::string& input, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction("whoami");
+            message.set_cmd(input);
+            return 0;
+        });
+    auto application = std::make_shared<JobApplicationService>(repository, 65536,
+        [&](const JobExecution& job) -> std::string
+        {
+            teamserverapi::SessionCommandRequest request;
+            request.set_command_id(job.jobId);
+            request.set_command("whoami");
+            request.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+            request.mutable_session()->set_listener_hash("listener-primary");
+            teamserverapi::CommandAck ack;
+            service.sendSessionCommand(request, &ack);
+            return ack.status() == teamserverapi::OK ? std::string{} : ack.message();
+        });
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result)
+    {
+        application->complete(result.command_id(), result.status() == teamserverapi::OK, result.output());
+    });
+
+    const auto queued = application->submit("job-bridge-1", "session_command",
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+    requireBridge(queued.state == "queued", "Session job was not queued");
+    auto task = listener->getTask("ABCDEFGH12345678");
+    requireBridge(task.uuid() == "job-bridge-1", "Beacon task lost its job ID");
+    task.set_returnvalue(std::string("A\0\xff", 3));
+    requireBridge(listener->addTaskResult(task, "ABCDEFGH12345678"), "Could not enqueue beacon result");
+    service.handleCmdResponse();
+    const auto completed = application->get("job-bridge-1");
+    requireBridge(completed.state == "succeeded", "Session job did not complete");
+    requireBridge(completed.outputInline == std::string("A\0\xff", 3), "Beacon result bytes changed");
+    const auto events = application->events(0, {}, 10);
+    requireBridge(events.size() == 3, "Session job event count incorrect");
+    requireBridge(events[0].eventType == "accepted" && events[1].eventType == "queued"
+        && events[2].eventType == "succeeded", "Session job event order incorrect");
+    auto reopened = std::make_shared<SqliteJobRepository>((temp.path() / "jobs.sqlite").string());
+    requireBridge(reopened->get("job-bridge-1").outputInline == std::string("A\0\xff", 3),
+        "Reopen lost beacon result");
+}
 } // namespace
 
 int main()
 {
     testCollectListenersAndSessions();
-    testQueueStopAndResponseDeduplication();
+    testQueueStopAndResponseDelivery();
     testAddListenerRejectsTcpBoundPortConflicts();
     testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
     testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
+    testDurableSessionCommandBridge();
     return 0;
 }

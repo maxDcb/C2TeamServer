@@ -20,7 +20,7 @@ public:
     std::vector<JobEvent> events(std::int64_t afterEventId, const JobEventFilter& filter, std::size_t limit) override;
     JobExecution transition(const std::string& jobId, const std::string& fromState,
         const std::string& toState, const std::string& errorCode, const std::string& errorMessage,
-        const std::string& output) override;
+        const std::string& output, std::int64_t observedOutputSize = -1) override;
     std::size_t recoverInFlight() override;
 
 private:

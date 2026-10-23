@@ -65,6 +65,6 @@ public:
     virtual std::vector<JobEvent> events(std::int64_t afterEventId, const JobEventFilter& filter, std::size_t limit) = 0;
     virtual JobExecution transition(const std::string& jobId, const std::string& fromState,
         const std::string& toState, const std::string& errorCode, const std::string& errorMessage,
-        const std::string& output) = 0;
+        const std::string& output, std::int64_t observedOutputSize = -1) = 0;
     virtual std::size_t recoverInFlight() = 0;
 };

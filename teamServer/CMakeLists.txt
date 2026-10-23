@@ -84,6 +84,7 @@ target_include_directories(server_listener_transport
 target_link_libraries(server_listener_transport
     PUBLIC
         ${SERVER_LISTENER_TRANSPORT_LINK_LIBS}
+        nlohmann_json::nlohmann_json
     PRIVATE
         c2_base64
 )
