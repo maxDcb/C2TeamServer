@@ -48,10 +48,20 @@ ctest --test-dir build \
 Current validated root suite:
 
 ```text
-75 CTest tests
+78 CTest tests
 ```
 
 `libs/libDns/tests/fonctionalTest` is built but not registered in CTest. It is a manual server/client harness.
+
+For the TCP listener, socket lifecycle, framing, and concurrent session checks:
+
+```bash
+ctest --test-dir build -R '^(TestsSockerHandler|listener_unit_tests|listener_tcp_transport_tests)$' \
+  --output-on-failure --timeout 30
+```
+
+TCP keeps the existing `<TCP-666>` wire delimiter. Each incomplete frame is
+buffered until the delimiter arrives; frames larger than 64 MiB are rejected.
 
 ## Client Pytest
 
