@@ -344,28 +344,25 @@ class GrpcClient:
         for event in self.subscribeJobEvents(after_event_id=cursor, follow=False):
             if event.event_id <= cursor:
                 continue
+            if event.event_type in {"succeeded", "failed", "outcome_unknown"}:
+                job = self.getJobExecution(event.job_id)
+                if job.operation == "session_command":
+                    job_input = json.loads(job.normalized_input)
+                    if (job_input["listener_hash"], job_input["beacon_hash"]) == key:
+                        event_state = event.event_type
+                        yield TeamServerApi_pb2.CommandResult(
+                            status=TeamServerApi_pb2.OK if event_state == "succeeded" else TeamServerApi_pb2.KO,
+                            session=session,
+                            command_id=job.job_id,
+                            command=job_input["command"],
+                            output=job.output_inline if event_state == "succeeded" else b"",
+                            message=(job.error_message if job.state == event_state else
+                                "Delivery or completion could not be established after restart."),
+                            event_id=event.event_id,
+                            job_state=event_state,
+                        )
             cursor = event.event_id
             self._session_cursors[key] = cursor
-            if event.event_type not in {"succeeded", "failed", "outcome_unknown"}:
-                continue
-            job = self.getJobExecution(event.job_id)
-            if job.operation != "session_command":
-                continue
-            job_input = json.loads(job.normalized_input)
-            if (job_input["listener_hash"], job_input["beacon_hash"]) != key:
-                continue
-            event_state = event.event_type
-            yield TeamServerApi_pb2.CommandResult(
-                status=TeamServerApi_pb2.OK if event_state == "succeeded" else TeamServerApi_pb2.KO,
-                session=session,
-                command_id=job.job_id,
-                command=job_input["command"],
-                output=job.output_inline if event_state == "succeeded" else b"",
-                message=(job.error_message if job.state == event_state else
-                    "Delivery or completion could not be established after restart."),
-                event_id=event.event_id,
-                job_state=event_state,
-            )
 
     def submitJob(self, job_id: str, operation: str, input: str) -> Any:
         request = TeamServerApi_pb2.SubmitJobRequest(job_id=job_id, operation=operation, input=input)

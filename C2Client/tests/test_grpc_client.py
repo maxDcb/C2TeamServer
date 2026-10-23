@@ -242,6 +242,68 @@ def test_session_result_uses_event_state_when_late_result_already_arrived(tmp_pa
     assert [result.output for result in results] == [b"", b"ok"]
 
 
+def test_session_result_cursor_retries_after_job_lookup_failure():
+    client = object.__new__(GrpcClient)
+    client._session_cursors = {}
+    selector = TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener")
+    events = [
+        TeamServerApi_pb2.JobEventRecord(event_id=5, job_id="job", event_type="queued"),
+        TeamServerApi_pb2.JobEventRecord(event_id=6, job_id="job", event_type="succeeded"),
+    ]
+    requested_cursors = []
+
+    def subscribe(*, after_event_id, follow):
+        requested_cursors.append(after_event_id)
+        return (event for event in events if event.event_id > after_event_id)
+
+    client.subscribeJobEvents = subscribe
+    job = TeamServerApi_pb2.JobExecutionRecord(
+        job_id="job", operation="session_command", state="succeeded",
+        normalized_input='{"beacon_hash":"beacon","listener_hash":"listener","command":"whoami"}',
+        output_inline=b"user",
+    )
+    attempts = 0
+
+    def get_job(_job_id):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("transient lookup failure")
+        return job
+
+    client.getJobExecution = get_job
+    with pytest.raises(RuntimeError, match="transient lookup failure"):
+        list(client.streamSessionCommandResults(selector))
+    assert client._session_cursors[("listener", "beacon")] == 5
+
+    results = list(client.streamSessionCommandResults(selector))
+    assert [result.event_id for result in results] == [6]
+    assert results[0].output == b"user"
+    assert requested_cursors == [0, 5]
+    assert client._session_cursors[("listener", "beacon")] == 6
+
+
+def test_session_result_cursor_replays_if_consumer_stops_before_acknowledging():
+    client = object.__new__(GrpcClient)
+    client._session_cursors = {}
+    selector = TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener")
+    event = TeamServerApi_pb2.JobEventRecord(event_id=7, job_id="job", event_type="succeeded")
+    client.subscribeJobEvents = lambda *, after_event_id, follow: (
+        item for item in [event] if item.event_id > after_event_id)
+    client.getJobExecution = lambda _job_id: TeamServerApi_pb2.JobExecutionRecord(
+        job_id="job", operation="session_command", state="succeeded",
+        normalized_input='{"beacon_hash":"beacon","listener_hash":"listener","command":"whoami"}',
+        output_inline=b"user",
+    )
+
+    stream = client.streamSessionCommandResults(selector)
+    assert next(stream).event_id == 7
+    stream.close()
+    assert client._session_cursors == {}
+    assert [result.event_id for result in client.streamSessionCommandResults(selector)] == [7]
+    assert client._session_cursors[("listener", "beacon")] == 7
+
+
 def test_grpc_client_credential_vault_rpcs(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")
