@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from C2Client.assistant_agent.skills.catalog import SKILLS, SkillDefinition
 from C2Client.assistant_agent.skills.panel import SkillsPanel, format_run_details
 
 
@@ -72,8 +73,9 @@ def test_agentic_skill_appears_and_uses_selected_session(qtbot, monkeypatch):
     skill_index = panel.skillSelector.findData("identify-user")
     assert skill_index >= 0
     panel.skillSelector.setCurrentIndex(skill_index)
-    assert "SKILL.md" in panel.planView.toPlainText()
-    assert "whoami" in panel.planView.toPlainText()
+    assert "Agent ·" in panel.skillSelector.currentText()
+    assert "SKILL.md" in panel.skillHelpButton.toolTip()
+    assert "whoami" in panel.skillHelpButton.toolTip()
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
     assert panel.service.calls == [("identify-user", "beacon-1", "listener-1")]
@@ -87,9 +89,9 @@ def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeyp
         session("beacon-3", "listener-3", killed=True),
     ])
 
-    assert panel.sessionSelector.count() == 3
+    assert panel.sessionSelector.count() == 4
     assert not panel.startButton.isEnabled()
-    panel.sessionSelector.setCurrentIndex(2)
+    panel.sessionSelector.setCurrentIndex(3)
     assert (panel.active_beacon, panel.active_listener) == ("beacon-2", "listener-2")
     assert panel.startButton.isEnabled()
     grpc_client.sessions = list(reversed(grpc_client.sessions))
@@ -99,6 +101,38 @@ def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeyp
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
     assert panel.service.calls == [("inventory_local", "beacon-2", "listener-2")]
+    panel.shutdown()
+
+
+def test_any_session_is_visible_but_unavailable_for_single_session_skills(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [
+        session("beacon-1", "listener-1"), session("beacon-2", "listener-2"),
+    ])
+    assert panel.sessionSelector.itemData(1) == ("*", "*")
+    assert not panel.sessionSelector.model().item(1).isEnabled()
+    panel.sessionSelector.setCurrentIndex(1)
+    assert not panel.startButton.isEnabled()
+    panel.shutdown()
+
+
+def test_any_session_is_available_to_a_multi_session_skill(qtbot, monkeypatch):
+    monkeypatch.setitem(SKILLS, "multi-test", SkillDefinition(
+        skill_id="multi-test", version=1, title="Multi test", description="Test scope",
+        steps=(), supports_any_session=True,
+    ))
+    panel, grpc_client = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("multi-test"))
+    assert panel.sessionSelector.model().item(1).isEnabled()
+    panel.sessionSelector.setCurrentIndex(1)
+    assert panel.startButton.isEnabled()
+
+    grpc_client.sessions.append(session("beacon-2", "listener-2"))
+    panel.refreshSessionsButton.click()
+    qtbot.waitUntil(lambda: "sessions" not in panel._inflight)
+    assert panel.sessionSelector.currentData() == ("*", "*")
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("multi-test", "*", "*")]
     panel.shutdown()
 
 
@@ -152,4 +186,50 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     assert "Server job state: failed" in technical
     assert "Output:\noperator" in technical
     assert format_run_details(run) == visible
+    panel.shutdown()
+
+
+def test_run_dropdown_preserves_selection_and_report_scroll(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    panel.resize(680, 330)
+    panel.show()
+
+    def completed_run(run_id, summary):
+        return {
+            "run_id": run_id, "status": "completed", "skill_id": "identify-user",
+            "beacon_hash": "beacon-1", "listener_hash": "listener-1", "steps": [],
+            "report": {"outcome": "complete", "summary": summary,
+                       "observations": [], "limitations": [], "evidence": []},
+        }
+
+    first = completed_run("run-1", "\n".join(f"Line {index}" for index in range(120)))
+    second = completed_run("run-2", "Another report")
+    panel.service.runs = [first, second]
+    panel._refresh()
+    assert panel.runSelector.count() == 2
+    assert panel.runSelector.itemText(0).startswith("Agent ·")
+    panel.runSelector.setCurrentIndex(1)
+    assert "Another report" in panel.details.toPlainText()
+    panel._on_run_changed(first)
+    assert panel.runSelector.currentData() == "run-2"
+    panel.runSelector.setCurrentIndex(0)
+
+    scroll = panel.details.verticalScrollBar()
+    qtbot.waitUntil(lambda: scroll.maximum() > 10)
+    position = scroll.maximum() // 2
+    scroll.setValue(position)
+    first["report"]["summary"] += "\nOne more line"
+    panel._refresh()
+    assert panel.runSelector.currentData() == "run-1"
+    assert scroll.value() == position
+
+    scroll.setValue(scroll.maximum())
+    first["report"]["summary"] += "\nLatest result"
+    panel._refresh()
+    assert scroll.value() == scroll.maximum()
+
+    third = completed_run("run-3", "New run")
+    panel.service.runs.insert(0, third)
+    panel._on_run_changed(third)
+    assert panel.runSelector.currentData() == "run-3"
     panel.shutdown()

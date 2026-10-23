@@ -23,6 +23,13 @@ instructions Markdown ne peuvent pas les élargir. Le premier skill reste
 volontairement limité à un seul appel. `inventory_local` ci-dessous conserve son
 ancien plan fixe pour les runs déjà enregistrés.
 
+La liste des tâches indique **Agent** pour `identify-user` et **Fixed** pour
+`inventory_local`. Le bouton **?** donne la description et la méthode de la
+tâche au survol ou au clic. Les runs sont dans un menu déroulant ; le rapport
+conserve sa position de lecture lors des rafraîchissements. L'entrée **Any
+session** est visible pour préparer les futurs skills multi sessions, mais
+reste désactivée : les deux skills présents exigent une session précise.
+
 ## Inventaire local à plan fixe
 
 La vue **Data AI → Tasks** propose directement les sessions actives du

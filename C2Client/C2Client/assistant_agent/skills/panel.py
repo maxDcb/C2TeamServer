@@ -6,14 +6,33 @@ from threading import Thread
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QPushButton, QTextBrowser, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QTextBrowser, QToolTip, QVBoxLayout, QWidget,
 )
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
 from ...panel_style import apply_dark_panel_style
 from .catalog import SKILLS, AgenticSkillDefinition
-from .service import C2SkillService, FINISHED_RUN_STATES
+from .service import C2SkillService, FINISHED_RUN_STATES, WAITING_STATES
+
+
+ANY_SESSION = ("*", "*")
+
+
+def skill_help(skill) -> str:
+    if isinstance(skill, AgenticSkillDefinition):
+        return (
+            f"{skill.description}\n\nAgent skill: the assistant follows SKILL.md and may call "
+            f"{', '.join(skill.allowed_tools)}. The selected session is fixed by the operator."
+        )
+    steps = "\n".join(
+        f"{index}. {step.command_name} — {step.description}"
+        for index, step in enumerate(skill.steps, 1)
+    )
+    return (
+        f"{skill.description}\n\nFixed sequence:\n{steps}\n\n"
+        "Missing modules are loaded first. Uncertain commands are never resent with a new ID."
+    )
 
 
 def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
@@ -93,14 +112,23 @@ class SkillsPanel(QWidget):
         self._subscriptions = {}
         self._inflight: set[str] = set()
         self._closed = False
+        self._displayed_run_id = ""
         self.service = C2SkillService(grpc_client, on_change=self.runChanged.emit) if self.available else None
 
         layout = QVBoxLayout(self)
         controls = QHBoxLayout()
         self.skillSelector = QComboBox()
         for skill in SKILLS.values():
-            self.skillSelector.addItem(f"{skill.title} v{skill.version}", skill.skill_id)
-        controls.addWidget(self.skillSelector)
+            kind = "Agent" if isinstance(skill, AgenticSkillDefinition) else "Fixed"
+            self.skillSelector.addItem(f"{kind} · {skill.title} v{skill.version}", skill.skill_id)
+            self.skillSelector.setItemData(
+                self.skillSelector.count() - 1, skill_help(skill), Qt.ItemDataRole.ToolTipRole,
+            )
+        controls.addWidget(self.skillSelector, 1)
+        self.skillHelpButton = QPushButton("?")
+        self.skillHelpButton.setAccessibleName("Task help")
+        self.skillHelpButton.setFixedWidth(28)
+        controls.addWidget(self.skillHelpButton)
         controls.addWidget(QLabel("Session"))
         self.sessionSelector = QComboBox()
         self.sessionSelector.addItem("Loading sessions...", None)
@@ -111,24 +139,13 @@ class SkillsPanel(QWidget):
         controls.addWidget(self.startButton)
         layout.addLayout(controls)
 
-        self.planView = QTextBrowser()
-        apply_console_output_style(self.planView)
-        self.planView.setMaximumHeight(130)
-        layout.addWidget(self.planView)
-        layout.addWidget(QLabel("Runs"))
-        self.runList = QListWidget()
-        self.runList.setStyleSheet(f"""
-            QListWidget {{
-                background-color: {CONSOLE_COLORS['background']};
-                color: {CONSOLE_COLORS['text']};
-                border: 1px solid {CONSOLE_COLORS['border']};
-                selection-background-color: {CONSOLE_COLORS['selection']};
-                selection-color: {CONSOLE_COLORS['text']};
-            }}
-            QListWidget::item {{ padding: 4px 6px; }}
-            QListWidget::item:selected {{ background-color: {CONSOLE_COLORS['selection']}; }}
-        """)
-        layout.addWidget(self.runList, 1)
+        runs = QHBoxLayout()
+        runs.addWidget(QLabel("Runs"))
+        self.runSelector = QComboBox()
+        self.runSelector.addItem("No runs yet", None)
+        self.runSelector.setEnabled(False)
+        runs.addWidget(self.runSelector, 1)
+        layout.addLayout(runs)
         self.showEvidence = QCheckBox("Show execution details")
         self.showEvidence.setStyleSheet(f"QCheckBox {{ color: {CONSOLE_COLORS['text']}; spacing: 6px; }}")
         layout.addWidget(self.showEvidence)
@@ -146,11 +163,12 @@ class SkillsPanel(QWidget):
         layout.addLayout(manual)
 
         self.skillSelector.currentIndexChanged.connect(self._show_plan)
+        self.skillHelpButton.clicked.connect(self._show_skill_help)
         self.sessionSelector.currentIndexChanged.connect(self._session_selected)
         self.refreshSessionsButton.clicked.connect(self._refresh_sessions)
         self.startButton.clicked.connect(self._start)
-        self.runList.currentRowChanged.connect(self._show_selected)
-        self.showEvidence.toggled.connect(lambda _checked: self._show_selected(self.runList.currentRow()))
+        self.runSelector.currentIndexChanged.connect(self._show_selected)
+        self.showEvidence.toggled.connect(lambda _checked: self._show_selected(self.runSelector.currentIndex()))
         self.noResultButton.clicked.connect(self._confirm_no_result)
         self.failButton.clicked.connect(self._fail)
         self.runChanged.connect(self._on_run_changed)
@@ -184,11 +202,16 @@ class SkillsPanel(QWidget):
 
     def _session_selected(self) -> None:
         selected = self.sessionSelector.currentData()
-        self.active_beacon, self.active_listener = selected if selected else ("", "")
+        self.active_beacon, self.active_listener = (
+            selected if selected and selected != ANY_SESSION else ("", "")
+        )
         self._update_start_button()
 
     def _update_start_button(self) -> None:
-        self.startButton.setEnabled(self.available and bool(self.active_beacon and self.active_listener))
+        skill = SKILLS[self.skillSelector.currentData()]
+        session_selected = bool(self.active_beacon and self.active_listener)
+        any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
+        self.startButton.setEnabled(self.available and (session_selected or any_selected))
 
     def _refresh_sessions(self) -> None:
         self._run_async(self._load_sessions, key="sessions")
@@ -210,11 +233,21 @@ class SkillsPanel(QWidget):
     def _show_sessions(self, sessions: list[tuple[str, str, str]]) -> None:
         if self._closed:
             return
-        selected = (self.active_beacon, self.active_listener)
+        selected = self.sessionSelector.currentData()
+        if selected != ANY_SESSION:
+            selected = (self.active_beacon, self.active_listener)
+        skill = SKILLS[self.skillSelector.currentData()]
         self.sessionSelector.blockSignals(True)
         self.sessionSelector.clear()
         self.sessionSelector.addItem("Select a session" if sessions else "No live sessions", None)
-        target_index = 0
+        self.sessionSelector.addItem("Any session · multi-session skills", ANY_SESSION)
+        any_index = self.sessionSelector.count() - 1
+        self.sessionSelector.setItemData(
+            any_index, "Available when a multi-session skill supports this scope.",
+            Qt.ItemDataRole.ToolTipRole,
+        )
+        self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
+        target_index = any_index if selected == ANY_SESSION and skill.supports_any_session else 0
         for label, beacon, listener in sessions:
             self.sessionSelector.addItem(label, (beacon, listener))
             index = self.sessionSelector.count() - 1
@@ -224,24 +257,28 @@ class SkillsPanel(QWidget):
             if (beacon, listener) == selected:
                 target_index = index
         if target_index == 0 and len(sessions) == 1:
-            target_index = 1
+            target_index = 2
         self.sessionSelector.setCurrentIndex(target_index)
         self.sessionSelector.blockSignals(False)
         self._session_selected()
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
-        if isinstance(skill, AgenticSkillDefinition):
-            self.planView.setPlainText(
-                f"{skill.description}\n\nThe assistant chooses when to call the permitted "
-                f"tool: {', '.join(skill.allowed_tools)}. Its instructions come from SKILL.md. "
-                "The selected session is fixed by the operator."
-            )
-            return
-        lines = [skill.description, "", "Fixed plan:"]
-        lines.extend(f"{index}. {step.command_name} — {step.description}" for index, step in enumerate(skill.steps, 1))
-        lines.append("Missing modules are loaded first. Uncertain commands are never resent with a new ID.")
-        self.planView.setPlainText("\n".join(lines))
+        help_text = skill_help(skill)
+        self.skillHelpButton.setToolTip(help_text)
+        self.skillSelector.setToolTip(help_text)
+        any_index = self.sessionSelector.findData(ANY_SESSION)
+        if any_index >= 0:
+            self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
+            if not skill.supports_any_session and self.sessionSelector.currentData() == ANY_SESSION:
+                self.sessionSelector.setCurrentIndex(0)
+        self._update_start_button()
+
+    def _show_skill_help(self) -> None:
+        QToolTip.showText(
+            self.skillHelpButton.mapToGlobal(self.skillHelpButton.rect().bottomLeft()),
+            self.skillHelpButton.toolTip(), self.skillHelpButton,
+        )
 
     def _run_async(self, action, *args, key: str = "") -> None:
         if self._closed or not self.available or (key and key in self._inflight):
@@ -260,18 +297,20 @@ class SkillsPanel(QWidget):
         Thread(target=work, daemon=True).start()
 
     def _start(self) -> None:
-        if not self.active_beacon or not self.active_listener:
+        skill = SKILLS[self.skillSelector.currentData()]
+        any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
+        if not any_selected and (not self.active_beacon or not self.active_listener):
             self._on_error("Select a session first.")
             return
         self._run_async(
-            self.service.start, self.skillSelector.currentData(),
-            self.active_beacon, self.active_listener,
+            self.service.start, skill.skill_id,
+            "*" if any_selected else self.active_beacon,
+            "*" if any_selected else self.active_listener,
             key="start",
         )
 
     def _selected_id(self) -> str:
-        item = self.runList.currentItem()
-        return str(item.data(0x0100) or "") if item is not None else ""
+        return str(self.runSelector.currentData() or "")
 
     def _confirm_no_result(self) -> None:
         run_id = self._selected_id()
@@ -323,7 +362,10 @@ class SkillsPanel(QWidget):
     def _on_run_changed(self, run: dict) -> None:
         if not self._closed:
             self._watch(run)
-            self._refresh(run["run_id"])
+            selected_id = self._selected_id()
+            if self.runSelector.findData(run["run_id"]) < 0:
+                selected_id = run["run_id"]
+            self._refresh(selected_id)
 
     def _on_finished(self, key: str) -> None:
         if key:
@@ -345,29 +387,60 @@ class SkillsPanel(QWidget):
             self._on_error(str(error))
             return
         select_id = select_id or self._selected_id()
-        self.runList.blockSignals(True)
-        self.runList.clear()
-        target_row = -1
+        self.runSelector.blockSignals(True)
+        self.runSelector.clear()
+        target_index = -1
+        if not runs:
+            self.runSelector.addItem("No runs yet", None)
         for index, run in enumerate(runs):
-            self.runList.addItem(f"{run['skill_id']} · {run['beacon_hash'][:8]} · {run['status']} · {run['run_id'][:8]}")
-            self.runList.item(index).setData(0x0100, run["run_id"])
+            run_skill = SKILLS.get(run["skill_id"])
+            agentic = run.get("mode") == "agentic_identity" or isinstance(run_skill, AgenticSkillDefinition)
+            kind = "Agent" if agentic else "Fixed" if run_skill is not None else "Task"
+            self.runSelector.addItem(
+                f"{kind} · {run['skill_id']} · {run['beacon_hash'][:8]} · "
+                f"{run['status']} · {run['run_id'][:8]}",
+                run["run_id"],
+            )
             self._watch(run)
             if run["run_id"] == select_id:
-                target_row = index
-        if target_row < 0 and runs:
-            target_row = 0
-        self.runList.setCurrentRow(target_row)
-        self.runList.blockSignals(False)
-        self._show_selected(target_row)
+                target_index = index
+        if target_index < 0 and runs:
+            target_index = 0
+        elif not runs:
+            target_index = 0
+        self.runSelector.setCurrentIndex(target_index)
+        self.runSelector.setEnabled(bool(runs))
+        self.runSelector.blockSignals(False)
+        self._show_selected(target_index)
 
     def _show_selected(self, row: int) -> None:
+        self.noResultButton.setEnabled(False)
+        self.failButton.setEnabled(False)
         if not self.available or row < 0:
+            self._displayed_run_id = ""
+            self.details.clear()
             return
         run_id = self._selected_id()
         if not run_id:
+            self._displayed_run_id = ""
+            self.details.clear()
             return
         run = self.service.get(run_id)
-        self.details.setPlainText(format_run_details(run, show_evidence=self.showEvidence.isChecked()))
+        self.noResultButton.setEnabled(
+            run["status"] == "running" and any(step["state"] in WAITING_STATES for step in run["steps"])
+        )
+        self.failButton.setEnabled(run["status"] not in FINISHED_RUN_STATES)
+        content = format_run_details(run, show_evidence=self.showEvidence.isChecked())
+        if self._displayed_run_id == run_id and self.details.toPlainText() == content:
+            return
+        scroll = self.details.verticalScrollBar()
+        same_run = self._displayed_run_id == run_id
+        old_position = scroll.value()
+        was_at_bottom = same_run and old_position >= scroll.maximum() - 2
+        self.details.setPlainText(content)
+        self._displayed_run_id = run_id
+        if same_run:
+            scroll.setValue(scroll.maximum() if was_at_bottom else min(old_position, scroll.maximum()))
 
     def shutdown(self) -> None:
         self._closed = True

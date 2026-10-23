@@ -21,6 +21,7 @@ class SkillDefinition:
     title: str
     description: str
     steps: tuple[SkillStep, ...]
+    supports_any_session: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +32,7 @@ class AgenticSkillDefinition:
     description: str
     instructions: str
     allowed_tools: tuple[str, ...]
+    supports_any_session: bool = False
 
 
 def load_agentic_skill(path: Path, *, allowed_tools: tuple[str, ...]) -> AgenticSkillDefinition:
