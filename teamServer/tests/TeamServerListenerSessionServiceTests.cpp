@@ -548,7 +548,8 @@ void testDurableSessionCommandBridge()
         });
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result)
     {
-        application->complete(result.command_id(), result.status() == teamserverapi::OK, result.output());
+        application->complete(result.command_id(), result.status() == teamserverapi::OK, result.output(),
+            result.status() == teamserverapi::OK ? "" : "command_failed", result.message());
     });
 
     const auto queued = application->submit("job-bridge-1", "session_command",
@@ -569,6 +570,34 @@ void testDurableSessionCommandBridge()
     auto reopened = std::make_shared<SqliteJobRepository>((temp.path() / "jobs.sqlite").string());
     requireBridge(reopened->get("job-bridge-1").outputInline == std::string("A\0\xff", 3),
         "Reopen lost beacon result");
+
+    const auto queuedMissingModule = application->submit("job-bridge-missing-module", "session_command",
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+    requireBridge(queuedMissingModule.state == "queued", "Missing-module job was not queued");
+    auto missingModuleTask = listener->getTask("ABCDEFGH12345678");
+    requireBridge(missingModuleTask.uuid() == "job-bridge-missing-module", "Missing-module task lost its job ID");
+    missingModuleTask.set_returnvalue(CmdModuleNotFound);
+    requireBridge(listener->addTaskResult(missingModuleTask, "ABCDEFGH12345678"),
+        "Could not enqueue missing-module result");
+    service.handleCmdResponse();
+    const auto failed = application->get("job-bridge-missing-module");
+    requireBridge(failed.state == "failed", "Old beacon missing-module result was classified as success");
+    requireBridge(failed.errorMessage == "Error: Module not loaded", "Missing-module error message was lost");
+    const auto failureEvents = application->events(0, {}, 10);
+    requireBridge(failureEvents.size() == 6 && failureEvents.back().eventType == "failed",
+        "Missing-module failure event was not persisted");
+
+    const auto queuedCodedFailure = application->submit("job-bridge-missing-module-code", "session_command",
+        R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678","listener_hash":"listener-primary"})");
+    requireBridge(queuedCodedFailure.state == "queued", "Coded missing-module job was not queued");
+    auto codedFailureTask = listener->getTask("ABCDEFGH12345678");
+    codedFailureTask.set_errorCode(ERROR_MODULE_NOT_FOUND);
+    codedFailureTask.set_returnvalue("");
+    requireBridge(listener->addTaskResult(codedFailureTask, "ABCDEFGH12345678"),
+        "Could not enqueue coded missing-module result");
+    service.handleCmdResponse();
+    requireBridge(application->get("job-bridge-missing-module-code").state == "failed",
+        "Coded missing-module result was classified as success");
 }
 } // namespace
 

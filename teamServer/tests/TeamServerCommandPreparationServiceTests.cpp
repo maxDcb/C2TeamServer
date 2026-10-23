@@ -10,6 +10,7 @@
 #include "TeamServerAssemblyExecCommandPreparer.hpp"
 #include "TeamServerArtifactCatalog.hpp"
 #include "TeamServerChiselCommandPreparer.hpp"
+#include "TeamServerCommandLine.hpp"
 #include "TeamServerCommandPreparationService.hpp"
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerFileTransferCommandPreparer.hpp"
@@ -265,6 +266,22 @@ void testPrepareCommonCommand()
     C2Message highPortMessage;
     assert(service.prepareMessage("listener start tcp 0.0.0.0 65536", highPortMessage, true) == -1);
     assert(highPortMessage.instruction().empty());
+
+    std::vector<std::string> quotedTokens;
+    require(TeamServerCommandLine::splitInput("fake 'two words' tail", quotedTokens),
+        "Quoted command should parse");
+    require(quotedTokens == std::vector<std::string>({"fake", "two words", "tail"}),
+        "Quoted argument changed");
+    require(!TeamServerCommandLine::splitInput("fake 'unterminated", quotedTokens),
+        "Unclosed quote should be rejected");
+    require(quotedTokens.empty(), "Invalid command should not leave partial tokens");
+
+    C2Message unclosedQuoteMessage;
+    require(service.prepareMessage("whoami '", unclosedQuoteMessage, true) == -1,
+        "Session command with unclosed quote should be rejected");
+    require(unclosedQuoteMessage.instruction().empty(), "Invalid command should not create a beacon task");
+    require(unclosedQuoteMessage.returnvalue() == "Error: Unclosed single quote.",
+        "Unclosed quote error message changed");
 }
 
 void testPrepareModuleCommandCaseInsensitive()

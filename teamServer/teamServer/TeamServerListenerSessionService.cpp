@@ -971,6 +971,9 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     if (ccInstructionString == m_commonCommands.getCommand(ii))
                         m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
                 }
+                if (c2Message.errorCode() == ERROR_MODULE_NOT_FOUND
+                    || c2Message.returnvalue() == CmdModuleNotFound)
+                    errorMsg = "Error: Module not loaded";
 
                 std::string commandId = c2Message.uuid();
                 std::string listenerHash = session->getListenerHash();

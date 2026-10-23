@@ -9,6 +9,7 @@
 #include "TeamServerCommandCatalog.hpp"
 #include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
+#include "TeamServerCommandLine.hpp"
 #include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerFileTransferCommandPreparer.hpp"
@@ -497,40 +498,6 @@ grpc::Status TeamServer::GetCommandHelp(grpc::ServerContext* context, const team
     return m_helpService->getHelp(*command, commandResponse);
 }
 
-// Split input based on spaces and single quotes
-// Use single quote to passe aguments as a single parameters even if it's contain spaces
-// Singles quotes are removed
-void static inline splitInputCmd(const std::string& input, std::vector<std::string>& splitedList)
-{
-    std::string tmp = "";
-    for (size_t i = 0; i < input.size(); i++)
-    {
-        char c = input[i];
-        if (c == ' ')
-        {
-            if (!tmp.empty())
-                splitedList.push_back(tmp);
-            tmp = "";
-        }
-        else if (c == '\'')
-        {
-            i++;
-            while (input[i] != '\'')
-            {
-                tmp += input[i];
-                i++;
-            }
-        }
-        else
-        {
-            tmp += c;
-        }
-    }
-
-    if (!tmp.empty())
-        splitedList.push_back(tmp);
-}
-
 std::string getIPAddress(const std::string& interface)
 {
     string ipAddress = "";
@@ -573,7 +540,7 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
     m_logger->debug("ExecuteTerminalCommand {0}", cmd);
 
     std::vector<std::string> splitedCmd;
-    splitInputCmd(cmd, splitedCmd);
+    const bool validCommand = TeamServerCommandLine::splitInput(cmd, splitedCmd);
 
     teamserverapi::TerminalCommandResponse responseTmp;
     std::string none = "";
@@ -581,6 +548,14 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
     responseTmp.set_command(cmd);
     responseTmp.set_result(none);
     responseTmp.set_data(none);
+
+    if (!validCommand)
+    {
+        responseTmp.set_result("Error: Unclosed single quote.");
+        responseTmp.set_message("Invalid terminal command.");
+        *response = responseTmp;
+        return grpc::Status::OK;
+    }
 
     if (splitedCmd.empty())
     {

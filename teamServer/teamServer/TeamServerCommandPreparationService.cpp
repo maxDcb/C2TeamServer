@@ -6,6 +6,7 @@
 #include <utility>
 
 #include "TeamServerRuntimeConfig.hpp"
+#include "TeamServerCommandLine.hpp"
 
 namespace fs = std::filesystem;
 
@@ -21,37 +22,6 @@ TeamServerCommandPreparationService::TeamServerCommandPreparationService(
       m_moduleCmd(moduleCmd),
       m_preparers(std::move(preparers))
 {
-}
-
-void TeamServerCommandPreparationService::splitInputCmd(const std::string& input, std::vector<std::string>& splitedList) const
-{
-    std::string tmp;
-    for (size_t i = 0; i < input.size(); i++)
-    {
-        const char c = input[i];
-        if (c == ' ')
-        {
-            if (!tmp.empty())
-                splitedList.push_back(tmp);
-            tmp.clear();
-        }
-        else if (c == '\'')
-        {
-            i++;
-            while (input[i] != '\'')
-            {
-                tmp += input[i];
-                i++;
-            }
-        }
-        else
-        {
-            tmp += c;
-        }
-    }
-
-    if (!tmp.empty())
-        splitedList.push_back(tmp);
 }
 
 std::string TeamServerCommandPreparationService::toLower(const std::string& str)
@@ -72,7 +42,11 @@ int TeamServerCommandPreparationService::prepareMessage(
     m_logger->trace("prepMsg");
 
     std::vector<std::string> splitedCmd;
-    splitInputCmd(input, splitedCmd);
+    if (!TeamServerCommandLine::splitInput(input, splitedCmd))
+    {
+        c2Message.set_returnvalue("Error: Unclosed single quote.");
+        return -1;
+    }
     if (splitedCmd.empty())
         return 0;
 

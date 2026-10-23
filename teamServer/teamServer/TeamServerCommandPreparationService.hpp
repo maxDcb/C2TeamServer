@@ -28,7 +28,6 @@ public:
 
 private:
     static std::string toLower(const std::string& str);
-    void splitInputCmd(const std::string& input, std::vector<std::string>& splitedList) const;
 
     std::shared_ptr<spdlog::logger> m_logger;
     TeamServerRuntimeConfig m_runtimeConfig;
