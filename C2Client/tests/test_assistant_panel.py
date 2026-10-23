@@ -84,6 +84,17 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     assert "no automatic assistant wait timeout" in output
 
 
+def test_skills_share_active_session_without_changing_conversation(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assert [assistant.modeTabs.tabText(index) for index in range(assistant.modeTabs.count())] == [
+        "Conversation", "Tâches",
+    ]
+    assistant.setActiveSession("beacon-12345678", "listener-1")
+    assert assistant.skillsPanel.active_beacon == "beacon-12345678"
+    assert assistant.skillsPanel.active_listener == "listener-1"
+    assert assistant.agent.domain_hooks.active_sessions[-1]["beacon_hash"] == "beacon-12345678"
+
+
 def test_assistant_console_uses_role_badges_without_default_marker(qtbot, monkeypatch):
     assistant = build_assistant(qtbot, monkeypatch)
     assistant.editorOutput.clear()

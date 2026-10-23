@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QShortcut
 from PyQt6.QtWidgets import (
     QTextBrowser,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
     QTextEdit
@@ -14,6 +15,7 @@ import markdown
 
 from .assistant_agent import C2AssistantAgent
 from .assistant_agent.domain.command_outcome import CommandOutcome
+from .assistant_agent.skills.panel import SkillsPanel
 from .command_event_hub import CommandEventHub, CommandResultEvent
 from .console_style import (
     apply_console_output_style,
@@ -58,6 +60,13 @@ class Assistant(QWidget):
         self.command_event_hub = command_event_hub
         self._result_subscriptions = {}
 
+        self.modeTabs = QTabWidget(self)
+        self.layout.addWidget(self.modeTabs)
+        conversation = QWidget(self.modeTabs)
+        conversationLayout = QVBoxLayout(conversation)
+        conversationLayout.setContentsMargins(0, 0, 0, 0)
+        self.modeTabs.addTab(conversation, "Conversation")
+
         # self.logFileName=LogFileName
 
         self.editorOutput = QTextBrowser()
@@ -66,12 +75,15 @@ class Assistant(QWidget):
         # Force word wrapping
         self.editorOutput.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.editorOutput.setLineWrapColumnOrWidth(0)
-        self.layout.addWidget(self.editorOutput, 8)
+        conversationLayout.addWidget(self.editorOutput, 8)
 
         self.commandEditor = CommandEditor()
         self.commandEditor.setPlaceholderText("Ask assistant or /help")
-        self.layout.addWidget(self.commandEditor, 0)
+        conversationLayout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
+
+        self.skillsPanel = SkillsPanel(self.modeTabs, grpcClient, command_event_hub)
+        self.modeTabs.addTab(self.skillsPanel, "Tâches")
 
         self.responseReady.connect(self._process_assistant_response)
         self.responseError.connect(self._handle_assistant_error)
@@ -87,9 +99,13 @@ class Assistant(QWidget):
         self._response_thread = None
         self._response_lock = Lock()
 
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            self.printInTerminal("System", "OPENAI_API_KEY is not set, functionality deactivated.")
+        provider = os.environ.get("C2_ASSISTANT_PROVIDER", os.environ.get("LLM_PROVIDER", "openai"))
+        configured = (
+            bool(os.environ.get("AZURE_OPENAI_API_KEY") and os.environ.get("AZURE_OPENAI_ENDPOINT"))
+            if provider == "azure_openai" else bool(os.environ.get("OPENAI_API_KEY"))
+        )
+        if not configured:
+            self.printInTerminal("System", f"Credentials for {provider} are not configured.")
         else:
             self.printInTerminal(
                 "System",
@@ -113,6 +129,7 @@ class Assistant(QWidget):
 
     def setActiveSession(self, beaconHash, listenerHash):
         self.watchSession(beaconHash, listenerHash)
+        self.skillsPanel.set_active_session(beaconHash, listenerHash)
         self.agent.domain_hooks.record_active_session(
             beacon_hash=beaconHash,
             listener_hash=listenerHash,
@@ -128,6 +145,7 @@ class Assistant(QWidget):
             )
 
     def closeResultSubscriptions(self):
+        self.skillsPanel.shutdown()
         for subscription in self._result_subscriptions.values():
             subscription.close()
         self._result_subscriptions.clear()

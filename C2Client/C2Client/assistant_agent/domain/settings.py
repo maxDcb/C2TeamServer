@@ -44,14 +44,19 @@ def build_c2_agent_settings(*, storage_dir: Path | None = None) -> CoreSettings:
     storage_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_root = prompts_dir()
-    model = os.getenv("C2_ASSISTANT_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
+    provider = os.getenv("C2_ASSISTANT_PROVIDER", os.getenv("LLM_PROVIDER", "openai"))
+    model = os.getenv("C2_ASSISTANT_MODEL", os.getenv("OPENAI_MODEL", os.getenv("AGENT_CORE_MODEL", "gpt-4o")))
     memory_model = os.getenv(
         "C2_ASSISTANT_MEMORY_MODEL",
-        os.getenv("OPENAI_MEMORY_MODEL", DEFAULT_MEMORY_MODEL),
+        os.getenv("OPENAI_MEMORY_MODEL", model if provider == "azure_openai" else DEFAULT_MEMORY_MODEL),
     )
 
     return CoreSettings(
+        llm_provider=provider,
         openai_api_key=os.getenv("OPENAI_API_KEY"),
+        azure_openai_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
+        azure_openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
+        azure_openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2025-01-01-preview"),
         model=model,
         memory_model=memory_model,
         temperature=float(os.getenv("C2_ASSISTANT_TEMPERATURE", "0.05")),
