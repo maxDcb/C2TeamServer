@@ -1,7 +1,10 @@
 # Tâches LLM du client C2
 
-La vue **Data AI → Tasks** lance un skill `inventory_local` sur la session
-sélectionnée. Son plan, versionné dans le client, exécute `whoami` puis
+La vue **Data AI → Tasks** propose directement les sessions actives du
+TeamServer. Elle sélectionne automatiquement la seule session disponible ;
+sinon, choisir une session dans la liste puis cliquer sur **Start**. Le bouton
+**Refresh** recharge les sessions sans ouvrir de console. Le skill
+`inventory_local`, versionné dans le client, exécute `whoami` puis
 `ipConfig`. Si un module manque, le client exécute d'abord `loadModule` et
 attend sa réponse ; ce chargement possède son propre job et reprend après
 redémarrage du client. Un module déjà en cours de chargement est suivi par son

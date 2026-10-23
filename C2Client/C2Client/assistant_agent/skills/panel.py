@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from threading import Thread
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QPushButton, QTextBrowser, QVBoxLayout, QWidget,
@@ -19,6 +19,7 @@ from .service import C2SkillService, FINISHED_RUN_STATES
 
 class SkillsPanel(QWidget):
     runChanged = pyqtSignal(object)
+    sessionsLoaded = pyqtSignal(object)
     operationFinished = pyqtSignal(object)
     operationError = pyqtSignal(str)
 
@@ -26,6 +27,7 @@ class SkillsPanel(QWidget):
         super().__init__(parent)
         self.setObjectName("C2SkillsPanel")
         apply_dark_panel_style(self)
+        self.grpc_client = grpc_client
         self.command_event_hub = command_event_hub
         self.available = all(hasattr(grpc_client, name) for name in (
             "submitJob", "getJobExecution", "listSessions", "listCommands", "listModules",
@@ -43,8 +45,12 @@ class SkillsPanel(QWidget):
         for skill in SKILLS.values():
             self.skillSelector.addItem(f"{skill.title} v{skill.version}", skill.skill_id)
         controls.addWidget(self.skillSelector)
-        self.sessionLabel = QLabel("Session: none")
-        controls.addWidget(self.sessionLabel, 1)
+        controls.addWidget(QLabel("Session"))
+        self.sessionSelector = QComboBox()
+        self.sessionSelector.addItem("Loading sessions...", None)
+        controls.addWidget(self.sessionSelector, 1)
+        self.refreshSessionsButton = QPushButton("Refresh")
+        controls.addWidget(self.refreshSessionsButton)
         self.startButton = QPushButton("Start")
         controls.addWidget(self.startButton)
         layout.addLayout(controls)
@@ -81,15 +87,20 @@ class SkillsPanel(QWidget):
         layout.addLayout(manual)
 
         self.skillSelector.currentIndexChanged.connect(self._show_plan)
+        self.sessionSelector.currentIndexChanged.connect(self._session_selected)
+        self.refreshSessionsButton.clicked.connect(self._refresh_sessions)
         self.startButton.clicked.connect(self._start)
         self.runList.currentRowChanged.connect(self._show_selected)
         self.noResultButton.clicked.connect(self._confirm_no_result)
         self.failButton.clicked.connect(self._fail)
         self.runChanged.connect(self._on_run_changed)
+        self.sessionsLoaded.connect(self._show_sessions)
         self.operationFinished.connect(self._on_finished)
         self.operationError.connect(self._on_error)
         self._show_plan()
         self._refresh()
+        self._update_start_button()
+        self.refreshSessionsButton.setEnabled(self.available)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._poll)
@@ -100,7 +111,63 @@ class SkillsPanel(QWidget):
     def set_active_session(self, beacon_hash: str, listener_hash: str) -> None:
         self.active_beacon = beacon_hash
         self.active_listener = listener_hash
-        self.sessionLabel.setText(f"Session: {beacon_hash[:8]}" if beacon_hash else "Session: none")
+        target = (beacon_hash, listener_hash)
+        index = next(
+            (i for i in range(self.sessionSelector.count()) if self.sessionSelector.itemData(i) == target),
+            -1,
+        )
+        if index < 0 and all(target):
+            self.sessionSelector.addItem(f"{beacon_hash[:8]} · selected", target)
+            index = self.sessionSelector.count() - 1
+        self.sessionSelector.setCurrentIndex(index if index >= 0 else 0)
+        self._update_start_button()
+
+    def _session_selected(self) -> None:
+        selected = self.sessionSelector.currentData()
+        self.active_beacon, self.active_listener = selected if selected else ("", "")
+        self._update_start_button()
+
+    def _update_start_button(self) -> None:
+        self.startButton.setEnabled(self.available and bool(self.active_beacon and self.active_listener))
+
+    def _refresh_sessions(self) -> None:
+        self._run_async(self._load_sessions, key="sessions")
+
+    def _load_sessions(self) -> None:
+        sessions = []
+        for session in self.grpc_client.listSessions():
+            if getattr(session, "killed", False):
+                continue
+            beacon = str(session.beacon_hash)
+            listener = str(session.listener_hash)
+            host = str(getattr(session, "hostname", "") or "").strip()
+            user = str(getattr(session, "username", "") or "").strip()
+            context = " · ".join(part for part in (host, user) if part)
+            label = f"{beacon[:8]} · {context}" if context else beacon[:8]
+            sessions.append((label, beacon, listener))
+        self.sessionsLoaded.emit(sessions)
+
+    def _show_sessions(self, sessions: list[tuple[str, str, str]]) -> None:
+        if self._closed:
+            return
+        selected = (self.active_beacon, self.active_listener)
+        self.sessionSelector.blockSignals(True)
+        self.sessionSelector.clear()
+        self.sessionSelector.addItem("Select a session" if sessions else "No live sessions", None)
+        target_index = 0
+        for label, beacon, listener in sessions:
+            self.sessionSelector.addItem(label, (beacon, listener))
+            index = self.sessionSelector.count() - 1
+            self.sessionSelector.setItemData(
+                index, f"Beacon: {beacon}\nListener: {listener}", Qt.ItemDataRole.ToolTipRole,
+            )
+            if (beacon, listener) == selected:
+                target_index = index
+        if target_index == 0 and len(sessions) == 1:
+            target_index = 1
+        self.sessionSelector.setCurrentIndex(target_index)
+        self.sessionSelector.blockSignals(False)
+        self._session_selected()
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
@@ -152,6 +219,7 @@ class SkillsPanel(QWidget):
     def _poll(self) -> None:
         if not self.available or self._closed:
             return
+        self._refresh_sessions()
         try:
             runs = self.service.list_runs()
         except Exception as error:
