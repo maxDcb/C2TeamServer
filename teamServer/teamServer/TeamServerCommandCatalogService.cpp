@@ -90,6 +90,32 @@ teamserverapi::CommandSpec TeamServerCommandCatalogService::toProto(const TeamSe
             filter->set_name_contains(artifactFilter.nameContains);
             filter->set_format(artifactFilter.format);
         }
+
+        if (arg.hasCredentialFilter)
+        {
+            teamserverapi::CredentialQuery* filter = argSpec->mutable_credential_filter();
+            filter->set_type(arg.credentialFilter.type);
+            filter->set_username(arg.credentialFilter.username);
+            filter->set_domain(arg.credentialFilter.domain);
+            filter->set_target(arg.credentialFilter.target);
+            filter->set_protocol(arg.credentialFilter.protocol);
+            filter->set_tag(arg.credentialFilter.tag);
+            filter->set_name_contains(arg.credentialFilter.nameContains);
+            filter->set_include_expired(arg.credentialFilter.includeExpired);
+        }
+
+        for (const TeamServerCommandCredentialFilter& credentialFilter : arg.credentialFilters)
+        {
+            teamserverapi::CredentialQuery* filter = argSpec->add_credential_filters();
+            filter->set_type(credentialFilter.type);
+            filter->set_username(credentialFilter.username);
+            filter->set_domain(credentialFilter.domain);
+            filter->set_target(credentialFilter.target);
+            filter->set_protocol(credentialFilter.protocol);
+            filter->set_tag(credentialFilter.tag);
+            filter->set_name_contains(credentialFilter.nameContains);
+            filter->set_include_expired(credentialFilter.includeExpired);
+        }
     }
 
     return spec;

@@ -125,12 +125,23 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
   "name": "psExec",
   "kind": "module",
   "description": "Copy and run a service executable.",
-  "command_template": "psExec {auth_mode} {username:q?} {password:q?} {target:q} {service_artifact:q}",
+  "command_template": "psExec [--vault {vault:q}] {target:q} {service_artifact:q}",
   "target": "beacon",
   "requires_session": true,
   "platforms": ["windows"],
   "archs": ["x86", "x64"],
   "args": [
+    {
+      "name": "--vault",
+      "type": "credential",
+      "required": false,
+      "description": "Credential reference used by --vault.",
+      "credential_filter": {
+        "type": "password",
+        "protocol": "smb",
+        "tag": "admin"
+      }
+    },
     {
       "name": "service_artifact",
       "type": "artifact",
@@ -217,13 +228,20 @@ void testCommandCatalogLoadsManifestSpecs()
 
     const TeamServerCommandSpecRecord* psExec = findCommand(commands, "psExec");
     assert(psExec != nullptr);
-    assert(psExec->args.size() == 1);
-    assert(psExec->args[0].hasArtifactFilter);
-    assert(psExec->args[0].artifactFilters.size() == 2);
-    assert(psExec->args[0].artifactFilters[0].category == "tool");
-    assert(psExec->args[0].artifactFilters[0].arch == "session.arch");
-    assert(psExec->args[0].artifactFilters[1].category == "upload");
-    assert(psExec->args[0].artifactFilters[1].scope == "operator");
+    assert(psExec->args.size() == 2);
+    assert(psExec->args[0].type == "credential");
+    assert(psExec->args[0].hasCredentialFilter);
+    assert(psExec->args[0].credentialFilter.type == "password");
+    assert(psExec->args[0].credentialFilter.protocol == "smb");
+    assert(psExec->args[0].credentialFilter.tag == "admin");
+    assert(psExec->args[0].completionParents.size() == 1);
+    assert(psExec->args[0].completionParents[0] == "-u");
+    assert(psExec->args[1].hasArtifactFilter);
+    assert(psExec->args[1].artifactFilters.size() == 2);
+    assert(psExec->args[1].artifactFilters[0].category == "tool");
+    assert(psExec->args[1].artifactFilters[0].arch == "session.arch");
+    assert(psExec->args[1].artifactFilters[1].category == "upload");
+    assert(psExec->args[1].artifactFilters[1].scope == "operator");
 }
 
 void testCommandCatalogFiltersSpecs()
@@ -296,13 +314,20 @@ void testCommandCatalogServiceStreamsProto()
 
     assert(commands.size() == 1);
     assert(commands[0].name() == "psExec");
-    assert(commands[0].args_size() == 1);
-    assert(commands[0].args(0).artifact_filter().category() == "tool");
-    assert(commands[0].args(0).artifact_filters_size() == 2);
-    assert(commands[0].args(0).artifact_filters(0).category() == "tool");
-    assert(commands[0].args(0).artifact_filters(1).category() == "upload");
-    assert(commands[0].args(0).artifact_filters(1).scope() == "operator");
-    assert(commands[0].args(0).artifact_filters(1).runtime() == "file");
+    assert(commands[0].args_size() == 2);
+    assert(commands[0].args(0).type() == "credential");
+    assert(commands[0].args(0).credential_filter().type() == "password");
+    assert(commands[0].args(0).credential_filter().protocol() == "smb");
+    assert(commands[0].args(0).credential_filter().tag() == "admin");
+    assert(commands[0].args(0).credential_filters_size() == 1);
+    assert(commands[0].args(0).credential_filters(0).type() == "password");
+    assert(commands[0].args(0).name() == "--vault");
+    assert(commands[0].args(1).artifact_filter().category() == "tool");
+    assert(commands[0].args(1).artifact_filters_size() == 2);
+    assert(commands[0].args(1).artifact_filters(0).category() == "tool");
+    assert(commands[0].args(1).artifact_filters(1).category() == "upload");
+    assert(commands[0].args(1).artifact_filters(1).scope() == "operator");
+    assert(commands[0].args(1).artifact_filters(1).runtime() == "file");
 }
 } // namespace
 

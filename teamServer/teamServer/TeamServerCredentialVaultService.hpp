@@ -68,7 +68,7 @@ public:
         teamserverapi::TerminalCommandResponse* response);
 
 private:
-    void loadLocked();
+    bool loadLocked(std::string& message);
     bool saveLocked(std::string& message) const;
     bool ensureVaultKeyLocked(std::vector<unsigned char>& key, std::string& message) const;
     bool readVaultKeyLocked(std::vector<unsigned char>& key, std::string& message) const;
@@ -82,8 +82,8 @@ private:
     teamserverapi::CredentialSummary toSummary(const TeamServerCredentialRecord& record) const;
     void fillDetail(const TeamServerCredentialRecord& record, bool revealSecret, teamserverapi::CredentialDetail* response) const;
     bool matchesQuery(const TeamServerCredentialRecord& record, const teamserverapi::CredentialQuery& query) const;
-    TeamServerCredentialRecord* findRecordLocked(const std::string& credentialId);
-    const TeamServerCredentialRecord* findRecordLocked(const std::string& credentialId) const;
+    TeamServerCredentialRecord* findRecordLocked(const std::string& credentialId, bool* ambiguous = nullptr);
+    const TeamServerCredentialRecord* findRecordLocked(const std::string& credentialId, bool* ambiguous = nullptr) const;
     std::string generateCredentialId() const;
     std::string currentTimestamp() const;
     std::string terminalPayloadJson(const std::vector<std::string>& splitedCmd, const teamserverapi::TerminalCommandRequest& command, std::size_t tailIndex) const;

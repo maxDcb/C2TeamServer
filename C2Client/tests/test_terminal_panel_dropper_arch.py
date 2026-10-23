@@ -287,6 +287,7 @@ def test_terminal_completer_uses_artifacts_listeners_sessions_and_dropper_module
     help_children = _completion_children(completions, terminal_panel.HelpInstruction)
     assert (terminal_panel.HostInstruction, []) in help_children
     assert (terminal_panel.SocksInstruction, []) in help_children
+    assert all(entry[0] != "credentialVault" for entry in help_children)
 
     host_children = _completion_children(completions, terminal_panel.HostInstruction)
     host_labels = [entry[0] for entry in host_children]

@@ -1,6 +1,5 @@
 import sys
 import os
-import json
 import logging
 import re
 import subprocess
@@ -32,7 +31,6 @@ from .env import env_path
 from .grpc_status import is_response_ok, terminal_response_text
 from .panel_style import apply_dark_panel_style
 from .TerminalModules.Batcave import batcave
-from .TerminalModules.Credentials import credentials
 
 from git import Repo 
 
@@ -210,7 +208,6 @@ GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
 GrpcSocksInstruction = "socks"
 GrpcReloadModulesInstruction = "reloadModules";
-GrpcCredentialVaultInstruction = "cred"
 
 BeaconFileWindowsPattern = "Beacon-{}.exe"
 BeaconFileLinuxGenerated = "Beacon-linux"
@@ -334,33 +331,6 @@ Examples:
   host text.txt listenerHash
   host artifactShortHash listenerHash hostedName.exe"""
 
-CredentialStoreInstruction = "credentialStore"
-CredentialStoreHelp = """credentialStore
-Read and update the encrypted TeamServer credential vault.
-
-Usage: credentialStore <get|set|search|reveal|delete> [arguments]
-
-Kind: terminal
-Target: teamserver
-Requires session: no
-
-Arguments:
-    <action> (text, required) - One of get, set, search, reveal, or delete.
-  [arguments] (text, optional) - Action-specific values.
-
-Examples:
-  credentialStore get
-  credentialStore set domain username credential
-    credentialStore search username
-    credentialStore reveal credential_id
-    credentialStore delete credential_id"""
-
-GetSubInstruction = "get"
-SetSubInstruction = "set"
-SearchSubInstruction = "search"
-RevealSubInstruction = "reveal"
-DeleteSubInstruction = "delete"
-
 ReloadModulesInstruction = "reloadModules";
 ReloadModulesHelp = """reloadModules
 Reload TeamServer module libraries without restarting the TeamServer.
@@ -383,16 +353,12 @@ Use help <command> for command-specific details.
   host - Host a TeamServer artifact through an HTTP/HTTPS listener.
   dropper - Generate and host a beacon dropper.
   batcave - Install or search Batcave tools.
-  credentialStore - Read and update TeamServer credentials.
   socks - Manage local SOCKS bridge bindings.
   reloadModules - Reload TeamServer module libraries."""
 
 
 def redactTerminalCommand(commandLine: str) -> str:
-        parts = commandLine.split()
-        if len(parts) >= 5 and parts[0].lower() == CredentialStoreInstruction.lower() and parts[1].lower() == SetSubInstruction.lower():
-                return " ".join([*parts[:4], "<redacted>"])
-        return commandLine
+    return commandLine
 
 
 def normalizeWindowsArch(arch):
@@ -692,7 +658,6 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
         HostInstruction,
         DropperInstruction,
         BatcaveInstruction,
-        CredentialStoreInstruction,
         SocksInstruction,
         ReloadModulesInstruction,
     ]
@@ -730,7 +695,6 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
         (HostInstruction, _host_artifact_entries(artifacts, listener_with_optional_filename)),
         (DropperInstruction, dropper_children),
         (BatcaveInstruction, [("install", []), ("bundleInstall", []), ("search", [])]),
-        (CredentialStoreInstruction, [(GetSubInstruction, []), (SetSubInstruction, []), (SearchSubInstruction, []), (RevealSubInstruction, []), (DeleteSubInstruction, [])]),
         (SocksInstruction, [("start", []), ("stop", []), ("unbind", []), ("bind", _session_entries(sessions))]),
         (ReloadModulesInstruction, []),
     ]
@@ -919,8 +883,6 @@ class Terminal(QWidget):
                         self.printInTerminal(commandLine, BatcaveHelp)
                     elif instructions[1].lower() == HostInstruction.lower():
                         self.printInTerminal(commandLine, HostHelp)
-                    elif instructions[1].lower() == CredentialStoreInstruction.lower():
-                        self.printInTerminal(commandLine, CredentialStoreHelp)
                     elif instructions[1].lower() == ReloadModulesInstruction.lower():
                         self.printInTerminal(commandLine, ReloadModulesHelp)
                     elif instructions[1].lower() == DropperInstruction.lower():
@@ -939,8 +901,6 @@ class Terminal(QWidget):
                 self.runBatcave(commandLine, instructions)
             elif instructions[0].lower()==HostInstruction.lower():
                 self.runHost(commandLine, instructions)
-            elif instructions[0].lower()==CredentialStoreInstruction.lower():
-                self.runCredentialStore(commandLine, instructions)
             elif instructions[0].lower()==DropperInstruction.lower():
                 self.runDropper(commandLine, instructions)
             elif instructions[0].lower()==SocksInstruction.lower():
@@ -1072,79 +1032,6 @@ class Terminal(QWidget):
         else:
             self.printInTerminal(commandLine, ErrorCmdUnknow)
             return     
-
-    #
-    # CredentialStore
-    # 
-    def runCredentialStore(self, commandLine, instructions):
-        if len(instructions) < 2:
-            self.printInTerminal(commandLine, CredentialStoreHelp)
-            return;
-
-        cmd = instructions[1].lower()
-
-        if cmd == GetSubInstruction.lower():
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " list")
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
-            
-            return    
-
-        elif cmd == SetSubInstruction.lower():
-            if len(instructions) < 5:
-                self.printInTerminal(commandLine, CredentialStoreHelp)
-                return
-            
-            domain = instructions[2]
-            username = instructions[3]
-            credential = instructions[4]
-
-            cred = {}
-            cred["domain"] = domain
-            cred["username"] = username
-            cred["password"] = credential
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(
-                command=GrpcCredentialVaultInstruction + " add",
-                data=json.dumps(cred).encode(),
-            )
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
-            return
-
-        elif cmd == SearchSubInstruction.lower():
-            if len(instructions) < 3:
-                self.printInTerminal(commandLine, CredentialStoreHelp)
-                return
-            
-            searchPatern = instructions[2]
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " list " + searchPatern)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
-            return    
-
-        elif cmd == RevealSubInstruction.lower():
-            if len(instructions) < 3:
-                self.printInTerminal(commandLine, CredentialStoreHelp)
-                return
-            credentialId = instructions[2]
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " get " + credentialId + " --reveal")
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
-            return    
-
-        elif cmd == DeleteSubInstruction.lower():
-            if len(instructions) < 3:
-                self.printInTerminal(commandLine, CredentialStoreHelp)
-                return
-            credentialId = instructions[2]
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=GrpcCredentialVaultInstruction + " delete " + credentialId)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            self.printInTerminal(commandLine, terminal_response_text(resultTermCommand))
-            return    
-
-        else:
-            self.printInTerminal(commandLine, ErrorCmdUnknow)
-            return    
 
     #
     # Host

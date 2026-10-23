@@ -103,11 +103,32 @@ TeamServerCommandArtifactFilter parseArtifactFilter(const json& input)
     return filter;
 }
 
+TeamServerCommandCredentialFilter parseCredentialFilter(const json& input)
+{
+    TeamServerCommandCredentialFilter filter;
+    filter.type = jsonString(input, "type");
+    filter.username = jsonString(input, "username");
+    filter.domain = jsonString(input, "domain");
+    filter.target = jsonString(input, "target");
+    filter.protocol = jsonString(input, "protocol");
+    filter.tag = jsonString(input, "tag");
+    filter.nameContains = jsonString(input, "name_contains");
+    filter.includeExpired = jsonBool(input, "include_expired", false);
+    return filter;
+}
+
 void addArtifactFilter(TeamServerCommandArgSpec& arg, TeamServerCommandArtifactFilter filter)
 {
     arg.artifactFilters.push_back(std::move(filter));
     arg.artifactFilter = arg.artifactFilters.front();
     arg.hasArtifactFilter = true;
+}
+
+void addCredentialFilter(TeamServerCommandArgSpec& arg, TeamServerCommandCredentialFilter filter)
+{
+    arg.credentialFilters.push_back(std::move(filter));
+    arg.credentialFilter = arg.credentialFilters.front();
+    arg.hasCredentialFilter = true;
 }
 
 TeamServerCommandArgSpec parseArgSpec(const json& input)
@@ -134,6 +155,22 @@ TeamServerCommandArgSpec parseArgSpec(const json& input)
         {
             if (artifactFilter.is_object())
                 addArtifactFilter(arg, parseArtifactFilter(artifactFilter));
+        }
+    }
+
+    auto credentialFilterIt = input.find("credential_filter");
+    if (credentialFilterIt != input.end() && credentialFilterIt->is_object())
+    {
+        addCredentialFilter(arg, parseCredentialFilter(*credentialFilterIt));
+    }
+
+    auto credentialFiltersIt = input.find("credential_filters");
+    if (credentialFiltersIt != input.end() && credentialFiltersIt->is_array())
+    {
+        for (const auto& credentialFilter : *credentialFiltersIt)
+        {
+            if (credentialFilter.is_object())
+                addCredentialFilter(arg, parseCredentialFilter(credentialFilter));
         }
     }
     return arg;
