@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtWidgets import QToolTip
+
 from .console_style import CONSOLE_COLORS
 
 
@@ -70,6 +73,12 @@ def apply_main_window_style(window) -> None:
 
 
 def apply_dark_panel_style(widget) -> None:
+    tooltip_palette = QToolTip.palette()
+    tooltip_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#101820"))
+    tooltip_palette.setColor(QPalette.ColorRole.ToolTipText, QColor(CONSOLE_COLORS["text"]))
+    tooltip_palette.setColor(QPalette.ColorRole.Window, QColor("#101820"))
+    tooltip_palette.setColor(QPalette.ColorRole.WindowText, QColor(CONSOLE_COLORS["text"]))
+    QToolTip.setPalette(tooltip_palette)
     widget.setStyleSheet(
         f"""
         QWidget {{
