@@ -1,6 +1,6 @@
 # SOCKS5 Audit
 
-Updated: 2026-10-23
+Updated: 2026-10-24
 
 Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel integration.
 
@@ -27,6 +27,13 @@ Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel
 - The TeamServer binding flag is atomic, terminal lifecycle commands are serialized, and a completed binding thread is joined before rebinding.
 - The TeamServer SOCKS listener is restricted to loopback by default.
 - `TestsSocksServer` is now an automated protocol test instead of a manual harness.
+- Every binding has a route generation carried end-to-end; stale results from an earlier bind cannot attach to a reused tunnel id.
+- SOCKS result queues are isolated by `(beaconHash, listenerHash)`, excluded from the general command-result queue, and purged on unbind.
+- Handshake and run states expire when their beacon response does not arrive; cleanup propagates to both endpoints.
+- Local SOCKS handshakes run concurrently with bounded concurrency, and listener shutdown interrupts pending handshakes.
+- Tunnel writes use bounded non-blocking buffers, preventing one slow socket from blocking every tunnel.
+- Target connection work uses a fixed-size worker pool with a bounded queue instead of one detached resolver thread per request.
+- Active tunnels, pending handshakes, pending target connections, and per-tunnel buffered bytes all have explicit limits.
 
 ## Automated Coverage
 
@@ -43,6 +50,9 @@ Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel
   - checks that a non-loopback local address cannot connect when one is available
 - `testsTeamServerSocksService`
   - covers terminal lifecycle: `start`, `bind`, `unbind`, `stop`, duplicate/error paths, immediate unbind, and rebinding after a killed session.
+- `testsTeamServerSocksContract`
+  - exercises the real TeamServer, Listener serialization, Beacon command handling, SOCKS library, and TCP target together.
+  - covers typed target failure, missing-beacon-response expiry, hostname connect, 32 KiB binary transfer, two simultaneous 64 KiB transfers, independent tunnel close, and route-wide unbind cleanup.
 - `scripts/socks5_stress_test.py`
   - remains the live stress tool for bound beacon routes.
   - default mode resolves hostnames locally to IPv4.
@@ -53,7 +63,6 @@ Scope: `libs/libSocks5`, `TeamServerSocksService`, and the current beacon tunnel
 - IPv6 targets are not implemented.
 - The TeamServer-to-beacon tunnel is still polling-driven. Throughput and latency depend heavily on beacon sleep and task/result cadence.
 - There is no per-tunnel throughput metric, byte counter, queue depth, or timeout surfaced to the operator.
-- Buffering is bounded per drain call, but there is no end-to-end backpressure model across local client, TeamServer queue, and beacon socket.
 - The TeamServer SOCKS service is single-route today: one local port and one bound beacon at a time.
 - Error details are still mostly textual at the terminal layer; typed command/error status would be cleaner once the broader error proto work lands.
 

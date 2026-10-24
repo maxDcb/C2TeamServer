@@ -411,12 +411,41 @@ int main()
     require(service.isBound(), "local client disconnect stopped the SOCKS service");
 
     EchoServer unbindEcho;
+    EchoServer parallelEcho;
     SocketHandle unbindClient(connectLocal(socksPort));
     negotiateNoAuth(unbindClient.get(), beacon, *listener);
     const std::string unbindReply =
         connectByHostname(unbindClient.get(), unbindEcho.port(), beacon, *listener);
     require(static_cast<uint8_t>(unbindReply[1]) == 0,
             "second SOCKS CONNECT handshake failed");
+
+    SocketHandle parallelClient(connectLocal(socksPort));
+    negotiateNoAuth(parallelClient.get(), beacon, *listener);
+    const std::string parallelReply =
+        connectByHostname(parallelClient.get(), parallelEcho.port(), beacon, *listener);
+    require(static_cast<uint8_t>(parallelReply[1]) == 0,
+            "parallel SOCKS CONNECT handshake failed");
+
+    const std::string firstParallelPayload(65536, 'A');
+    const std::string secondParallelPayload(65536, 'B');
+    sendBytes(unbindClient.get(), firstParallelPayload);
+    sendBytes(parallelClient.get(), secondParallelPayload);
+    std::string firstParallelEcho;
+    std::string secondParallelEcho;
+    pumpUntil(beacon, *listener, [&] {
+        firstParallelEcho += takeAvailable(unbindClient.get());
+        secondParallelEcho += takeAvailable(parallelClient.get());
+        return firstParallelEcho.size() >= firstParallelPayload.size() &&
+               secondParallelEcho.size() >= secondParallelPayload.size();
+    }, "parallel SOCKS payloads timed out");
+    require(firstParallelEcho == firstParallelPayload &&
+                secondParallelEcho == secondParallelPayload,
+            "parallel SOCKS payloads were corrupted");
+
+    parallelClient.reset();
+    pumpUntil(beacon, *listener, [&] { return parallelEcho.disconnected(); },
+              "closing one parallel tunnel did not reach its target");
+    require(service.isBound(), "closing one parallel tunnel stopped the SOCKS route");
 
     require(service.handleCommand({"socks", "unbind"}, &response).ok() &&
                 response.status() == teamserverapi::OK,
