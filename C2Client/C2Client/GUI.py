@@ -28,7 +28,7 @@ from .ConsolePanel import ConsolesTab
 from .command_event_hub import CommandEventHub
 from .GraphPanel import Graph
 from .env import env_bool, env_int, env_value, load_c2_env
-from .panel_style import apply_main_window_style
+from .panel_style import apply_dark_panel_style, apply_main_window_style
 from .ui_status import (
     DEFAULT_LAST_ERROR_TEXT,
     DEFAULT_LAST_RPC_TEXT,
@@ -78,15 +78,20 @@ class CredentialDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Login")
         self.setModal(True)
+        self.setMinimumWidth(320)
+        apply_dark_panel_style(self)
         apply_dark_window_chrome(self)
 
         layout = QVBoxLayout(self)
-        description = QLabel("Login:")
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
+        description = QLabel("TeamServer login")
         description.setWordWrap(True)
         layout.addWidget(description)
 
         self.username_input = QLineEdit(self)
         self.username_input.setPlaceholderText("Username")
+        self.username_input.setMinimumHeight(34)
         if default_username:
             self.username_input.setText(default_username)
         layout.addWidget(self.username_input)
@@ -94,6 +99,7 @@ class CredentialDialog(QDialog):
         self.password_input = QLineEdit(self)
         self.password_input.setPlaceholderText("Password")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.setMinimumHeight(34)
         layout.addWidget(self.password_input)
 
         self.error_label = QLabel()
@@ -102,6 +108,7 @@ class CredentialDialog(QDialog):
         layout.addWidget(self.error_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Connect")
         buttons.accepted.connect(self._handle_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

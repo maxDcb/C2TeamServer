@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QComboBox, QMenu, QToolTip
+from PyQt6.QtWidgets import QComboBox, QMenu, QStyle, QStyledItemDelegate, QToolTip
 
 from .console_style import CONSOLE_COLORS
 
@@ -104,9 +105,31 @@ def create_dark_context_menu(parent=None) -> QMenu:
     return menu
 
 
+class DarkComboItemDelegate(QStyledItemDelegate):
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        size.setHeight(24)
+        return size
+
+    def paint(self, painter, option, index):
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hovered = bool(option.state & QStyle.StateFlag.State_MouseOver)
+        background = "selection" if selected else "hover" if hovered else "background"
+        painter.save()
+        painter.fillRect(option.rect, QColor(CONSOLE_COLORS[background]))
+        painter.setPen(QColor(CONSOLE_COLORS["header" if selected else "text"]))
+        painter.drawText(
+            option.rect.adjusted(10, 0, -8, 0),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            str(index.data(Qt.ItemDataRole.DisplayRole) or ""),
+        )
+        painter.restore()
+
+
 def style_dark_combo_popup(combo: QComboBox) -> None:
     """Style the popup itself; it is a separate window on some Qt platforms."""
     view = combo.view()
+    view.setMinimumWidth(140)
     popup = view.window()
     popup.setObjectName("C2ComboPopup")
     popup.setStyleSheet(
@@ -119,6 +142,7 @@ def style_dark_combo_popup(combo: QComboBox) -> None:
     palette.setColor(QPalette.ColorRole.Highlight, QColor(CONSOLE_COLORS["selection"]))
     palette.setColor(QPalette.ColorRole.HighlightedText, QColor(CONSOLE_COLORS["header"]))
     view.setPalette(palette)
+    view.setItemDelegate(DarkComboItemDelegate(view))
     view.setStyleSheet(
         f"""
         QAbstractItemView {{
@@ -129,6 +153,7 @@ def style_dark_combo_popup(combo: QComboBox) -> None:
             selection-background-color: {CONSOLE_COLORS['selection']};
             selection-color: {CONSOLE_COLORS['header']};
         }}
+        QAbstractItemView::item {{ padding: 0; margin: 0; }}
         QAbstractItemView::item:selected {{
             background-color: {CONSOLE_COLORS['selection']};
             color: {CONSOLE_COLORS['header']};
