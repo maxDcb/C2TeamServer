@@ -5,16 +5,17 @@ from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
-    QComboBox,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMenu,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
     QWidget,
     QHeaderView,
     QAbstractItemView,
@@ -24,6 +25,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
+from .console_style import CONSOLE_COLORS
 from .panel_style import apply_dark_panel_style
 from .refresh_worker import RefreshWorker
 from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
@@ -586,21 +588,123 @@ class Listeners(QWidget):
         self.updateActionButtons()
 
 
-class ListenerTypeComboBox(QComboBox):
+class ListenerTypePicker(QWidget):
+    currentTextChanged = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.view().viewport().installEventFilter(self)
+        self._currentIndex = -1
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self.button = QPushButton(self)
+        self.button.setAccessibleName("Listener type")
+        self.button.setFixedHeight(32)
+        self.button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #101820;
+                border: 1px solid {CONSOLE_COLORS['border']};
+                border-radius: 4px;
+            }}
+            QPushButton:focus {{ border-color: {CONSOLE_COLORS['focus_border']}; }}
+        """)
+        buttonLayout = QHBoxLayout(self.button)
+        buttonLayout.setContentsMargins(10, 0, 10, 0)
+        self.currentLabel = QLabel("")
+        self.arrowLabel = QLabel("▾")
+        self.arrowLabel.setStyleSheet(f"color: {CONSOLE_COLORS['muted']};")
+        buttonLayout.addWidget(self.currentLabel)
+        buttonLayout.addStretch(1)
+        buttonLayout.addWidget(self.arrowLabel)
+        self.button.clicked.connect(self.toggleOptions)
+        layout.addWidget(self.button)
+
+        self.options = QListWidget(self)
+        self.options.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.options.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.options.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {CONSOLE_COLORS['background']};
+                color: {CONSOLE_COLORS['text']};
+                border: 1px solid {CONSOLE_COLORS['border']};
+            }}
+            QListWidget::item {{ padding: 6px 8px; }}
+            QListWidget::item:hover {{ background-color: {CONSOLE_COLORS['hover']}; }}
+            QListWidget::item:selected {{
+                background-color: {CONSOLE_COLORS['selection']};
+                color: {CONSOLE_COLORS['header']};
+            }}
+        """)
+        self.options.itemClicked.connect(self.acceptItem)
+        self.options.itemActivated.connect(self.acceptItem)
+        self.options.installEventFilter(self)
+        self.options.hide()
+        layout.addWidget(self.options)
 
     def eventFilter(self, watched, event):
-        if (watched is self.view().viewport()
-                and event.type() == QEvent.Type.MouseButtonRelease
-                and event.button() == Qt.MouseButton.LeftButton):
-            index = self.view().indexAt(event.position().toPoint())
-            if index.isValid() and index.flags() & Qt.ItemFlag.ItemIsEnabled:
-                self.setCurrentIndex(index.row())
-                self.hidePopup()
-                return True
+        if (watched is self.options and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Escape):
+            self.hideOptions()
+            return True
         return super().eventFilter(watched, event)
+
+    def addItems(self, values):
+        self.options.addItems(values)
+        self.options.setFixedHeight(self.options.sizeHintForRow(0) * self.options.count() + 2)
+
+    def findText(self, value):
+        for index in range(self.options.count()):
+            if self.options.item(index).text() == value:
+                return index
+        return -1
+
+    def currentText(self):
+        item = self.options.item(self._currentIndex)
+        return item.text() if item is not None else ""
+
+    def setCurrentText(self, value):
+        self.setCurrentIndex(self.findText(value))
+
+    def setCurrentIndex(self, index):
+        if index < 0 or index >= self.options.count():
+            return
+        changed = index != self._currentIndex
+        self._currentIndex = index
+        self.currentLabel.setText(self.currentText())
+        self.options.setCurrentRow(index)
+        self.hideOptions()
+        if changed:
+            self.currentTextChanged.emit(self.currentText())
+
+    def fitWindowHeight(self):
+        window = self.window()
+        if not window.isVisible() or window.layout() is None:
+            return
+        self.layout().invalidate()
+        window.layout().invalidate()
+        window.layout().activate()
+        window.resize(window.width(), window.sizeHint().height())
+
+    def toggleOptions(self):
+        if self.options.isVisible():
+            self.hideOptions()
+        else:
+            self.options.show()
+            self.options.setCurrentRow(self._currentIndex)
+            self.arrowLabel.setText("▴")
+            self.fitWindowHeight()
+            self.options.setFocus()
+
+    def hideOptions(self):
+        self.options.hide()
+        self.arrowLabel.setText("▾")
+        self.fitWindowHeight()
+        QTimer.singleShot(0, self.fitWindowHeight)
+        self.button.setFocus()
+
+    def acceptItem(self, item):
+        self.setCurrentIndex(self.options.row(item))
 
 
 class CreateListner(QWidget):
@@ -617,11 +721,10 @@ class CreateListner(QWidget):
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(8)
         self.labelType = QLabel(TypeLabel)
-        self.qcombo = ListenerTypeComboBox(self)
+        self.qcombo = ListenerTypePicker(self)
         self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
         self.qcombo.setCurrentIndex(1)
-        self.qcombo.currentTextChanged.connect(self.onTypeChanged)
-        self.qcombo.activated.connect(lambda _index: self.qcombo.hidePopup())
+        self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
@@ -673,17 +776,6 @@ class CreateListner(QWidget):
         self.existingListenersProvider = existingListenersProvider or (lambda: [])
         self.updateFormState()
 
-    def onTypeChanged(self, _text):
-        if self.qcombo.view().isVisible():
-            QTimer.singleShot(0, self.finishTypeSelection)
-        else:
-            self.changeLabels()
-
-    def finishTypeSelection(self):
-        self.qcombo.hidePopup()
-        self.changeLabels()
-
-
     def changeLabels(self):
         self.clearValidationError()
         listenerType = self.qcombo.currentText()
@@ -709,6 +801,7 @@ class CreateListner(QWidget):
         self.applyParam1Default(listenerType, config["default_param1"])
         self.applyParam2Default(listenerType, config["default_param2"])
         self.updateFormState()
+        self.qcombo.fitWindowHeight()
 
     def applyParam1Default(self, listenerType, defaultValue):
         current = self.param1.text().strip()

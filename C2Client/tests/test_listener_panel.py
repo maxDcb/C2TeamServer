@@ -172,32 +172,47 @@ def test_add_listener_type_popup_closes_after_click(qtbot, listener_type):
     form = CreateListner()
     qtbot.addWidget(form)
     form.show()
+    collapsed_height = form.height()
 
-    qtbot.mouseClick(form.qcombo, Qt.MouseButton.LeftButton)
-    assert form.qcombo.view().isVisible()
-    qtbot.wait(50)
-    target = form.qcombo.model().index(form.qcombo.findText(listener_type), 0)
+    qtbot.mouseClick(form.qcombo.button, Qt.MouseButton.LeftButton)
+    assert form.qcombo.options.isVisible()
+    assert form.qcombo.options.window() is form
+    assert form.height() > collapsed_height
+    item = form.qcombo.options.item(form.qcombo.findText(listener_type))
     qtbot.mouseClick(
-        form.qcombo.view().viewport(), Qt.MouseButton.LeftButton,
-        pos=form.qcombo.view().visualRect(target).center(),
+        form.qcombo.options.viewport(), Qt.MouseButton.LeftButton,
+        pos=form.qcombo.options.visualItemRect(item).center(),
     )
 
     assert form.qcombo.currentText() == listener_type
-    qtbot.waitUntil(lambda: not form.qcombo.view().isVisible(), timeout=1000)
+    assert not form.qcombo.options.isVisible()
+    qtbot.waitUntil(lambda: form.height() <= collapsed_height + 30, timeout=1000)
 
 
 def test_add_listener_type_change_closes_visible_popup_before_relayout(qtbot):
     form = CreateListner()
     qtbot.addWidget(form)
     form.show()
-    form.qcombo.showPopup()
-    assert form.qcombo.view().isVisible()
+    form.qcombo.toggleOptions()
+    assert form.qcombo.options.isVisible()
 
     form.qcombo.setCurrentText("tcp")
 
-    qtbot.waitUntil(lambda: not form.qcombo.view().isVisible(), timeout=1000)
+    assert not form.qcombo.options.isVisible()
     assert form.labelIP.text() == "IP"
     assert form.param2.text() == "4444"
+
+
+def test_add_listener_type_list_closes_with_escape(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+    form.show()
+    form.qcombo.toggleOptions()
+
+    qtbot.keyClick(form.qcombo.options, Qt.Key.Key_Escape)
+
+    assert not form.qcombo.options.isVisible()
+    assert form.qcombo.currentText() == HttpsType
 
 
 def test_add_listener_form_masks_github_token_and_requires_values(qtbot):
