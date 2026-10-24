@@ -189,6 +189,8 @@ class App(QMainWindow):
         self.listenersWidget.listenerScriptSignal.connect(self.consoleWidget.script.listenerScriptMethod)
 
         self.sessionsWidget.interactWithSession.connect(self.consoleWidget.addConsole)
+        if hasattr(self.sessionsWidget, "sessionsRefreshed") and hasattr(self.consoleWidget, "reconcileRoutes"):
+            self.sessionsWidget.sessionsRefreshed.connect(self.consoleWidget.reconcileRoutes)
 
         if hasattr(self.consoleWidget.script, "setClientStateProvider"):
             self.consoleWidget.script.setClientStateProvider(

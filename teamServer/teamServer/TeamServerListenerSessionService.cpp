@@ -185,6 +185,49 @@ std::vector<std::shared_ptr<Listener>> TeamServerListenerSessionService::listene
     return m_listeners;
 }
 
+std::string TeamServerListenerSessionService::resolveActiveListenerHash(
+    const std::vector<std::shared_ptr<Listener>>& listeners,
+    const std::string& beaconHash,
+    const std::string& requestedListenerHash,
+    bool& ambiguous) const
+{
+    ambiguous = false;
+    if (beaconHash.empty() || requestedListenerHash.empty())
+        return {};
+
+    std::string fallback;
+    bool requestedRouteStopped = false;
+    for (const auto& listener : listeners)
+    {
+        if (!listener || !listener->isRunning())
+            continue;
+        for (const auto& session : listener->getSessionsSnapshot())
+        {
+            if (!session || session->getBeaconHash() != beaconHash)
+                continue;
+            const std::string route = session->getListenerHash();
+            if (session->isSessionKilled())
+            {
+                requestedRouteStopped |= route == requestedListenerHash;
+                continue;
+            }
+            if (!isListenerAlive(route))
+                continue;
+            if (route == requestedListenerHash)
+            {
+                ambiguous = false;
+                return route;
+            }
+            if (!fallback.empty() && fallback != route)
+                ambiguous = true;
+            fallback = route;
+        }
+    }
+    if (ambiguous)
+        return {};
+    return fallback.empty() && requestedRouteStopped ? requestedListenerHash : fallback;
+}
+
 void TeamServerListenerSessionService::setJobResultHandler(
     std::function<void(const teamserverapi::CommandResult&)> handler)
 {
@@ -803,7 +846,7 @@ grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerLi
             sessionTmp.set_process_id(session->getProcessId());
             sessionTmp.set_additional_information(session->getAdditionalInformation());
 
-            if (!session->isSessionKilled() && isListenerAlive(session->getListenerHash()))
+            if (!session->isSessionKilled() && listeners[i]->isRunning() && isListenerAlive(session->getListenerHash()))
             {
                 if (!emit(sessionTmp))
                     return grpc::Status::OK;
@@ -821,8 +864,18 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
     response->set_status(teamserverapi::KO);
 
     const std::string beaconHash = sessionToStop.beacon_hash();
-    const std::string listenerHash = sessionToStop.listener_hash();
+    const std::string requestedListenerHash = sessionToStop.listener_hash();
     const auto listeners = listenerSnapshot();
+    bool ambiguous = false;
+    const std::string listenerHash = resolveActiveListenerHash(
+        listeners, beaconHash, requestedListenerHash, ambiguous);
+    if (ambiguous)
+    {
+        response->set_message("Multiple active routes for this beacon; refresh and select a listener.");
+        return grpc::Status::OK;
+    }
+    if (!listenerHash.empty() && listenerHash != requestedListenerHash)
+        m_logger->info("StopSession rerouted beacon {} from listener {} to {}", beaconHash, requestedListenerHash, listenerHash);
 
     if (beaconHash.size() == SizeBeaconHash)
     {
@@ -874,7 +927,7 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
 
     const std::string input = command.command();
     const std::string beaconHash = command.session().beacon_hash();
-    const std::string listenerHash = command.session().listener_hash();
+    const std::string requestedListenerHash = command.session().listener_hash();
     const std::string commandId = command.command_id().empty() ? generateUUID8() : command.command_id();
 
     response->set_status(teamserverapi::KO);
@@ -887,6 +940,16 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         return grpc::Status::OK;
     }
     const auto listeners = listenerSnapshot();
+    bool ambiguous = false;
+    const std::string listenerHash = resolveActiveListenerHash(
+        listeners, beaconHash, requestedListenerHash, ambiguous);
+    if (ambiguous)
+    {
+        response->set_message("Multiple active routes for this beacon; refresh and select a listener.");
+        return grpc::Status::OK;
+    }
+    if (!listenerHash.empty() && listenerHash != requestedListenerHash)
+        m_logger->info("Session command rerouted beacon {} from listener {} to {}", beaconHash, requestedListenerHash, listenerHash);
 
     for (size_t i = 0; i < listeners.size(); i++)
     {

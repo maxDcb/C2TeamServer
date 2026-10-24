@@ -1042,6 +1042,7 @@ class ConsolesTab(QWidget):
         self.layout.addWidget(self.tabs)
 
         self.grpcClient = grpcClient
+        self._activeRoutesByBeacon: dict[str, set[str]] = {}
         # App owns the production hub; standalone panels can own one for tests.
         self.command_result_hub = result_hub or CommandEventHub(grpcClient, self)
 
@@ -1113,11 +1114,35 @@ class ConsolesTab(QWidget):
                 if index == currentIndex and hasattr(self.assistant, "setActiveSession"):
                     self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
         
+    def reconcileRoutes(self, sessions):
+        routes: dict[str, set[str]] = {}
+        for session in sessions:
+            beacon_hash = getattr(session, "beacon_hash", "")
+            listener_hash = getattr(session, "listener_hash", "")
+            if beacon_hash and listener_hash:
+                routes.setdefault(beacon_hash, set()).add(listener_hash)
+        self._activeRoutesByBeacon = routes
+
+        for index in range(SYSTEM_TAB_COUNT, self.tabs.count()):
+            console = self.consoleFromTab(index)
+            if console is None or not hasattr(console, "rebindSessionRoute"):
+                continue
+            active_routes = routes.get(console.beaconHash, set())
+            if console.listenerHash not in active_routes and len(active_routes) == 1:
+                console.rebindSessionRoute(next(iter(active_routes)))
+                if index == self.tabs.currentIndex() and hasattr(self.assistant, "setActiveSession"):
+                    self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
+
     def addConsole(self, beaconHash, listenerHash, hostname, username):
+        active_routes = self._activeRoutesByBeacon.get(beaconHash, set())
+        if active_routes and listenerHash not in active_routes and len(active_routes) == 1:
+            listenerHash = next(iter(active_routes))
         tabAlreadyOpen=False
         for idx in range(0,self.tabs.count()):
-            openTabKey = self.tabs.tabText(idx)
-            if openTabKey==beaconHash[0:8]:
+            console = self.consoleFromTab(idx)
+            if console is not None and console.beaconHash == beaconHash:
+                if hasattr(console, "rebindSessionRoute"):
+                    console.rebindSessionRoute(listenerHash)
                 self.tabs.setCurrentIndex(idx)
                 tabAlreadyOpen=True
 
@@ -1285,14 +1310,29 @@ class Console(QWidget):
         self._result_subscription = self.result_hub.subscribe(
             self.beaconHash, self.listenerHash, self.displayResponse,
         )
+        self._result_subscriptions = [self._result_subscription]
         for event in self.result_hub.recent_events(self.beaconHash, self.listenerHash):
             self.displayResponse(event)
 
+    def rebindSessionRoute(self, listenerHash):
+        if not listenerHash or listenerHash == self.listenerHash:
+            return
+        self.listenerHash = listenerHash
+        self.commandEditor.completionProvider.listenerHash = listenerHash
+        self.commandEditor.completionProvider._cachedData = []
+        subscription = self.result_hub.subscribe(
+            self.beaconHash, listenerHash, self.displayResponse,
+        )
+        self._result_subscriptions.append(subscription)
+        for event in self.result_hub.recent_events(self.beaconHash, listenerHash):
+            self.displayResponse(event)
+        self.setConsoleNotice(f"Session route updated: {listenerHash[:8]}")
+
     def closeResultSubscription(self):
-        subscription = getattr(self, "_result_subscription", None)
-        if subscription is not None:
-            self._result_subscription = None
+        for subscription in getattr(self, "_result_subscriptions", []):
             subscription.close()
+        self._result_subscriptions = []
+        self._result_subscription = None
 
     def closeEvent(self, event):
         self.closeResultSubscription()

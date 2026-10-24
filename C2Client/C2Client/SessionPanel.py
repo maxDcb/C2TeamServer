@@ -201,6 +201,7 @@ class Sessions(QWidget):
 
     interactWithSession = pyqtSignal(str, str, str, str)
     sessionScriptSignal = pyqtSignal(str, str, str, str, str, str, str, str, str, bool)
+    sessionsRefreshed = pyqtSignal(object)
 
     idSession = 0
     listSessionObject = []
@@ -514,6 +515,7 @@ class Sessions(QWidget):
                 self.sessionScriptSignal.emit("start", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
 
         self.printSessions()
+        self.sessionsRefreshed.emit(sessions)
 
 
     # don't clear the list each time but just when it's necessary

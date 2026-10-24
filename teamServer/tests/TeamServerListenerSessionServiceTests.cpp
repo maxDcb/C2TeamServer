@@ -717,6 +717,98 @@ void testStopDuringPreparationRejectsCommand()
     requireStop(listener->getTask(beaconHash).instruction().empty(),
         "Command must not be queued after stop");
 }
+
+void testStaleListenerRouteUsesUniqueActiveSession()
+{
+    const auto requireRoute = [](bool condition, const char* message)
+    {
+        if (!condition) throw std::runtime_error(message);
+    };
+    const std::string beaconHash(SizeBeaconHash, 'R');
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto current = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "current-listener");
+    current->addSession("current-listener", beaconHash, "host", "user", "x64", "user", "Linux");
+    listeners.push_back(current);
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commonCommands,
+        sentCommands, nullptr,
+        [](const std::string& input, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction(input == EndInstruction ? EndCmd : "instruction");
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash(beaconHash);
+    command.mutable_session()->set_listener_hash("stale-listener");
+    command.set_command("ls");
+    command.set_command_id("rerouted-command");
+    teamserverapi::CommandAck response;
+    requireRoute(service.sendSessionCommand(command, &response).ok(), "Rerouted command RPC failed");
+    requireRoute(response.status() == teamserverapi::OK, "Rerouted command was rejected");
+    requireRoute(sentCommands.size() == 1 && sentCommands[0].listenerHash == "current-listener",
+        "Rerouted command recorded the stale listener");
+    requireRoute(current->getTask(beaconHash).uuid() == "rerouted-command",
+        "Rerouted command was not queued on the active listener");
+
+    teamserverapi::SessionSelector stop;
+    stop.set_beacon_hash(beaconHash);
+    stop.set_listener_hash("stale-listener");
+    teamserverapi::OperationAck stopResponse;
+    requireRoute(service.stopSession(stop, &stopResponse).ok(), "Rerouted stop RPC failed");
+    requireRoute(stopResponse.status() == teamserverapi::OK, "Rerouted stop was rejected");
+    requireRoute(current->getTask(beaconHash).instruction() == EndCmd,
+        "Rerouted stop was not queued on the active listener");
+}
+
+void testStaleListenerRouteDoesNotGuessBetweenActivePaths()
+{
+    const auto requireRoute = [](bool condition, const char* message)
+    {
+        if (!condition) throw std::runtime_error(message);
+    };
+    const std::string beaconHash(SizeBeaconHash, 'R');
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    for (const std::string& hash : {"route-one", "route-two"})
+    {
+        auto listener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, hash);
+        listener->addSession(hash, beaconHash, "host", "user", "x64", "user", "Linux");
+        listeners.push_back(listener);
+    }
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commonCommands,
+        sentCommands, nullptr,
+        [](const std::string&, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction("instruction");
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash(beaconHash);
+    command.mutable_session()->set_listener_hash("stale-listener");
+    command.set_command("ls");
+    teamserverapi::CommandAck response;
+    requireRoute(service.sendSessionCommand(command, &response).ok(), "Ambiguous route RPC failed");
+    requireRoute(response.status() == teamserverapi::KO, "Ambiguous route was accepted");
+    requireRoute(response.message().find("Multiple active routes") != std::string::npos,
+        "Ambiguous route did not explain the conflict");
+    requireRoute(sentCommands.empty(), "Ambiguous route queued a command");
+
+    command.mutable_session()->set_listener_hash("route-two");
+    teamserverapi::CommandAck exactResponse;
+    requireRoute(service.sendSessionCommand(command, &exactResponse).ok(), "Exact route RPC failed");
+    requireRoute(exactResponse.status() == teamserverapi::OK,
+        "Exact active route was rejected because another path exists");
+    requireRoute(sentCommands.size() == 1 && sentCommands[0].listenerHash == "route-two",
+        "Exact route command was queued on the wrong listener");
+}
 } // namespace
 
 int main()
@@ -731,5 +823,7 @@ int main()
     testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     testDurableSessionCommandBridge();
     testStopDuringPreparationRejectsCommand();
+    testStaleListenerRouteUsesUniqueActiveSession();
+    testStaleListenerRouteDoesNotGuessBetweenActivePaths();
     return 0;
 }

@@ -399,9 +399,13 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
         def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub=None):
             super().__init__(parent)
             self.beaconHash = beaconHash
+            self.listenerHash = listenerHash
             self.pollingActive = None
             self.pollingStates = []
             FakeConsole.instances.append(self)
+
+        def rebindSessionRoute(self, listener_hash):
+            self.listenerHash = listener_hash
 
         def setResponsePollingActive(self, active):
             self.pollingActive = active
@@ -435,6 +439,29 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     consoles.tabs.setCurrentIndex(0)
     assert first.pollingActive is False
     assert second.pollingActive is False
+
+    consoles.reconcileRoutes([SimpleNamespace(beacon_hash="beacon-1", listener_hash="new-listener")])
+    assert first.listenerHash == "new-listener"
+    consoles.addConsole("beacon-1", "listener", "host", "user")
+    assert first.listenerHash == "new-listener"
+    assert consoles.tabs.count() == SYSTEM_TAB_COUNT + 2
+
+
+def test_console_route_change_preserves_old_result_subscription(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    console = console_with_hub(StubGrpc(), 'beacon', 'old-listener', 'host', 'user')
+    qtbot.addWidget(console)
+    old_subscription = console._result_subscription
+
+    console.rebindSessionRoute('new-listener')
+
+    assert console.listenerHash == 'new-listener'
+    assert console.commandEditor.completionProvider.listenerHash == 'new-listener'
+    assert old_subscription.hub is console.result_hub
+    assert len(console._result_subscriptions) == 2
+    console.closeResultSubscription()
+    assert not console.result_hub._streams
 
 
 def _completion_children(entries, text):

@@ -59,6 +59,11 @@ private:
     mutable std::shared_mutex m_localListenersMutex;
     std::shared_mutex* m_listenersMutex;
     std::vector<std::shared_ptr<Listener>> listenerSnapshot() const;
+    std::string resolveActiveListenerHash(
+        const std::vector<std::shared_ptr<Listener>>& listeners,
+        const std::string& beaconHash,
+        const std::string& requestedListenerHash,
+        bool& ambiguous) const;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
     std::vector<BeaconCommandContext>& m_sentCommands;
