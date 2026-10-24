@@ -15,7 +15,9 @@ CONSOLE_FONT_CSS = (
 CONSOLE_COLORS = {
     "background": "#0b1117",
     "border": "#263241",
-    "selection": "#184a73",
+    "selection": "#1e4650",
+    "hover": "#14252d",
+    "focus_border": "#41636d",
     "text": "#d0d5dd",
     "header": "#f2f4f7",
     "muted": "#98a2b3",

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QLabel,
     QPushButton,
+    QToolButton,
 )
 
 from .grpcClient import TeamServerApi_pb2
@@ -1021,6 +1022,10 @@ class ConsolesTab(QWidget):
             QTabWidget#C2ConsoleTabs QTabBar {{
                 background-color: #070b10;
             }}
+            QTabWidget#C2ConsoleTabs QTabBar::tab {{
+                padding-left: 10px;
+                padding-right: 10px;
+            }}
             """
         )
         self.layout = QHBoxLayout(self)
@@ -1126,7 +1131,38 @@ class ConsolesTab(QWidget):
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self._forward_console_send)
             tab = self.createConsolePage(console)
-            self.tabs.addTab(tab, beaconHash[0:8])
+            index = self.tabs.addTab(tab, beaconHash[0:8])
+            close_container = QWidget(self.tabs.tabBar())
+            close_layout = QHBoxLayout(close_container)
+            close_layout.setContentsMargins(2, 0, 6, 0)
+            close_layout.setSpacing(0)
+            close_button = QToolButton(close_container)
+            close_button.setObjectName("C2SessionTabClose")
+            close_button.setText("×")
+            close_button.setToolTip("Close session tab")
+            close_button.setAccessibleName("Close session tab")
+            close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            close_button.setFixedSize(22, 22)
+            close_button.setStyleSheet(
+                f"""
+                QToolButton#C2SessionTabClose {{
+                    background: transparent;
+                    color: {CONSOLE_COLORS["muted"]};
+                    border: 0;
+                    border-radius: 3px;
+                    padding: 0;
+                    font-size: 14px;
+                    font-weight: 600;
+                }}
+                QToolButton#C2SessionTabClose:hover {{
+                    background: {CONSOLE_COLORS["border"]};
+                    color: {CONSOLE_COLORS["header"]};
+                }}
+                """
+            )
+            close_layout.addWidget(close_button)
+            close_button.clicked.connect(lambda _checked=False, page=tab: self.closeTab(self.tabs.indexOf(page)))
+            self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, close_container)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
         if hasattr(self.assistant, "setActiveSession"):
             self.assistant.setActiveSession(beaconHash, listenerHash)

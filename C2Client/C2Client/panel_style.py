@@ -52,7 +52,7 @@ def main_window_stylesheet() -> str:
         }}
         QTabBar::tab:hover {{
             color: {CONSOLE_COLORS["header"]};
-            border-color: {CONSOLE_COLORS["timestamp"]};
+            border-color: {CONSOLE_COLORS["focus_border"]};
         }}
         QTabBar::tab:!selected {{
             margin-top: 2px;
@@ -96,7 +96,7 @@ def apply_dark_panel_style(widget) -> None:
             padding: 3px 8px;
         }}
         QPushButton:hover {{
-            border-color: {CONSOLE_COLORS["timestamp"]};
+            border-color: {CONSOLE_COLORS["focus_border"]};
         }}
         QPushButton:disabled {{
             background-color: {CONSOLE_COLORS["background"]};
@@ -113,7 +113,7 @@ def apply_dark_panel_style(widget) -> None:
             selection-color: {CONSOLE_COLORS["text"]};
         }}
         QLineEdit:focus, QComboBox:focus {{
-            border-color: {CONSOLE_COLORS["timestamp"]};
+            border-color: {CONSOLE_COLORS["focus_border"]};
         }}
         QComboBox::drop-down {{
             border: 0;
@@ -126,6 +126,10 @@ def apply_dark_panel_style(widget) -> None:
             selection-background-color: {CONSOLE_COLORS["selection"]};
             selection-color: {CONSOLE_COLORS["text"]};
         }}
+        QComboBox QAbstractItemView::item:selected {{
+            background-color: {CONSOLE_COLORS["selection"]};
+            color: {CONSOLE_COLORS["header"]};
+        }}
         QTableWidget {{
             background-color: {CONSOLE_COLORS["background"]};
             alternate-background-color: #101820;
@@ -135,8 +139,18 @@ def apply_dark_panel_style(widget) -> None:
             selection-background-color: {CONSOLE_COLORS["selection"]};
             selection-color: {CONSOLE_COLORS["text"]};
         }}
+        QTableWidget:focus {{
+            border-color: {CONSOLE_COLORS["focus_border"]};
+        }}
         QTableWidget::item {{
             padding: 3px 6px;
+        }}
+        QTableWidget::item:hover:!selected {{
+            background-color: {CONSOLE_COLORS["hover"]};
+        }}
+        QTableWidget::item:selected {{
+            background-color: {CONSOLE_COLORS["selection"]};
+            color: {CONSOLE_COLORS["header"]};
         }}
         QHeaderView::section {{
             background-color: #111827;
