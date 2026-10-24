@@ -1,7 +1,7 @@
 import re
 from ipaddress import ip_address
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -586,6 +586,23 @@ class Listeners(QWidget):
         self.updateActionButtons()
 
 
+class ListenerTypeComboBox(QComboBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.view().viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.view().viewport()
+                and event.type() == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton):
+            index = self.view().indexAt(event.position().toPoint())
+            if index.isValid() and index.flags() & Qt.ItemFlag.ItemIsEnabled:
+                self.setCurrentIndex(index.row())
+                self.hidePopup()
+                return True
+        return super().eventFilter(watched, event)
+
+
 class CreateListner(QWidget):
 
     procDone = pyqtSignal(list)
@@ -600,7 +617,7 @@ class CreateListner(QWidget):
         layout.setHorizontalSpacing(10)
         layout.setVerticalSpacing(8)
         self.labelType = QLabel(TypeLabel)
-        self.qcombo = QComboBox(self)
+        self.qcombo = ListenerTypeComboBox(self)
         self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
         self.qcombo.setCurrentIndex(1)
         self.qcombo.currentTextChanged.connect(self.onTypeChanged)

@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QHeaderView, QLineEdit, QWidget
 
@@ -166,7 +167,8 @@ def test_add_listener_form_updates_fields_by_type(qtbot):
     assert form.buttonOk.isEnabled() is True
 
 
-def test_add_listener_type_popup_closes_after_selection(qtbot):
+@pytest.mark.parametrize("listener_type", ["tcp", "http", "https"])
+def test_add_listener_type_popup_closes_after_click(qtbot, listener_type):
     form = CreateListner()
     qtbot.addWidget(form)
     form.show()
@@ -174,11 +176,13 @@ def test_add_listener_type_popup_closes_after_selection(qtbot):
     qtbot.mouseClick(form.qcombo, Qt.MouseButton.LeftButton)
     assert form.qcombo.view().isVisible()
     qtbot.wait(50)
-    expected_type = form.qcombo.itemText(form.qcombo.currentIndex() + 1)
-    qtbot.keyClick(form.qcombo.view(), Qt.Key.Key_Down)
-    qtbot.keyClick(form.qcombo.view(), Qt.Key.Key_Return)
+    target = form.qcombo.model().index(form.qcombo.findText(listener_type), 0)
+    qtbot.mouseClick(
+        form.qcombo.view().viewport(), Qt.MouseButton.LeftButton,
+        pos=form.qcombo.view().visualRect(target).center(),
+    )
 
-    assert form.qcombo.currentText() == expected_type
+    assert form.qcombo.currentText() == listener_type
     qtbot.waitUntil(lambda: not form.qcombo.view().isVisible(), timeout=1000)
 
 
