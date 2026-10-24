@@ -1,7 +1,7 @@
 import re
 from ipaddress import ip_address
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -603,7 +603,8 @@ class CreateListner(QWidget):
         self.qcombo = QComboBox(self)
         self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
         self.qcombo.setCurrentIndex(1)
-        self.qcombo.currentTextChanged.connect(self.changeLabels)
+        self.qcombo.currentTextChanged.connect(self.onTypeChanged)
+        self.qcombo.activated.connect(lambda _index: self.qcombo.hidePopup())
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
 
@@ -654,6 +655,16 @@ class CreateListner(QWidget):
     def setExistingListenersProvider(self, existingListenersProvider):
         self.existingListenersProvider = existingListenersProvider or (lambda: [])
         self.updateFormState()
+
+    def onTypeChanged(self, _text):
+        if self.qcombo.view().isVisible():
+            QTimer.singleShot(0, self.finishTypeSelection)
+        else:
+            self.changeLabels()
+
+    def finishTypeSelection(self):
+        self.qcombo.hidePopup()
+        self.changeLabels()
 
 
     def changeLabels(self):

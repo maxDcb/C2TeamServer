@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QHeaderView, QLineEdit, QWidget
 
 from C2Client.ListenerPanel import (
@@ -163,6 +164,36 @@ def test_add_listener_form_updates_fields_by_type(qtbot):
 
     form.param1.setText("example.com")
     assert form.buttonOk.isEnabled() is True
+
+
+def test_add_listener_type_popup_closes_after_selection(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+    form.show()
+
+    qtbot.mouseClick(form.qcombo, Qt.MouseButton.LeftButton)
+    assert form.qcombo.view().isVisible()
+    qtbot.wait(50)
+    expected_type = form.qcombo.itemText(form.qcombo.currentIndex() + 1)
+    qtbot.keyClick(form.qcombo.view(), Qt.Key.Key_Down)
+    qtbot.keyClick(form.qcombo.view(), Qt.Key.Key_Return)
+
+    assert form.qcombo.currentText() == expected_type
+    qtbot.waitUntil(lambda: not form.qcombo.view().isVisible(), timeout=1000)
+
+
+def test_add_listener_type_change_closes_visible_popup_before_relayout(qtbot):
+    form = CreateListner()
+    qtbot.addWidget(form)
+    form.show()
+    form.qcombo.showPopup()
+    assert form.qcombo.view().isVisible()
+
+    form.qcombo.setCurrentText("tcp")
+
+    qtbot.waitUntil(lambda: not form.qcombo.view().isVisible(), timeout=1000)
+    assert form.labelIP.text() == "IP"
+    assert form.param2.text() == "4444"
 
 
 def test_add_listener_form_masks_github_token_and_requires_values(qtbot):
