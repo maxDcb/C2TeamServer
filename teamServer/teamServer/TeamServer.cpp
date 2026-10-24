@@ -140,7 +140,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_listeners,
         m_moduleCmd,
         m_commonCommands,
-        TeamServerCommandCatalog(runtimeConfig));
+        TeamServerCommandCatalog(runtimeConfig),
+        &m_listenersMutex);
     m_listenerSessionService = std::make_unique<TeamServerListenerSessionService>(
         m_logger,
         m_config,
@@ -150,7 +151,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_sentCommands,
         m_fileArtifactService,
         [this](const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
-        { return this->prepMsg(input, c2Message, isWindows, windowsArch); });
+        { return this->prepMsg(input, c2Message, isWindows, windowsArch); },
+        &m_listenersMutex);
     m_jobRepository = std::make_shared<SqliteJobRepository>(runtimeConfig.jobDatabasePath);
     const std::size_t recovered = m_jobRepository->recoverInFlight();
     if (recovered)
@@ -193,9 +195,12 @@ TeamServer::TeamServer(const nlohmann::json& config)
         [](const std::string& interface)
         {
             return getIPAddress(interface);
-        });
+        },
+        &m_listenersMutex);
     m_moduleLoader = std::make_unique<TeamServerModuleLoader>(m_logger, runtimeConfig);
-    m_socksService = std::make_unique<TeamServerSocksService>(m_logger, m_listeners);
+    m_socksService = std::make_unique<TeamServerSocksService>(
+        m_logger, m_listeners, TeamServerSocksService::PortInUseCallback{},
+        TeamServerSocksService::ServerFactory{}, std::chrono::minutes(2), &m_listenersMutex);
     std::vector<std::unique_ptr<TeamServerCommandPreparer>> commandPreparers;
     commandPreparers.push_back(std::make_unique<TeamServerAssemblyExecCommandPreparer>(
         m_logger,
@@ -247,7 +252,8 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_moduleCmd,
         [this]()
         { return m_moduleLoader->loadModules(); },
-        m_credentialVaultService);
+        m_credentialVaultService,
+        &m_listenersMutex);
 
     m_moduleCmd = m_moduleLoader->loadModules();
 
@@ -257,8 +263,9 @@ TeamServer::TeamServer(const nlohmann::json& config)
 
 TeamServer::~TeamServer()
 {
-    m_handleCmdResponseThreadRuning = false;
-    m_handleCmdResponseThread->join();
+    m_handleCmdResponseThreadRuning.store(false);
+    if (m_handleCmdResponseThread && m_handleCmdResponseThread->joinable())
+        m_handleCmdResponseThread->join();
     m_socksService->shutdown();
 }
 
@@ -427,8 +434,23 @@ grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserve
 
 int TeamServer::handleCmdResponse()
 {
-    while (m_handleCmdResponseThreadRuning)
-        m_listenerSessionService->handleCmdResponse();
+    while (m_handleCmdResponseThreadRuning.load())
+    {
+        try
+        {
+            m_listenerSessionService->handleCmdResponse();
+        }
+        catch (const std::exception& ex)
+        {
+            m_logger->error("Command response worker recovered from an exception: {}", ex.what());
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        catch (...)
+        {
+            m_logger->error("Command response worker recovered from an unknown exception");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
     return 0;
 }
 

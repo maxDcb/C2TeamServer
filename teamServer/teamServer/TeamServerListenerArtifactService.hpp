@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <shared_mutex>
 #include <vector>
 
 #include <grpcpp/support/status.h>
@@ -23,7 +24,8 @@ public:
         const nlohmann::json& config,
         TeamServerRuntimeConfig runtimeConfig,
         std::vector<std::shared_ptr<Listener>>& listeners,
-        IpResolver ipResolver = {});
+        IpResolver ipResolver = {},
+        std::shared_mutex* listenersMutex = nullptr);
 
     bool canHandle(const std::string& instruction) const;
     grpc::Status handleCommand(
@@ -53,5 +55,7 @@ private:
     const nlohmann::json& m_config;
     TeamServerRuntimeConfig m_runtimeConfig;
     std::vector<std::shared_ptr<Listener>>& m_listeners;
+    mutable std::shared_mutex m_localListenersMutex;
+    std::shared_mutex* m_listenersMutex;
     IpResolver m_ipResolver;
 };

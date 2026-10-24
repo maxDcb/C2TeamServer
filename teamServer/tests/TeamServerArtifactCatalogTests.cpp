@@ -443,7 +443,7 @@ void testArtifactServiceUploadsOperatorArtifact()
     assert(service.uploadArtifact(request, &response).ok());
     assert(response.status() == teamserverapi::OK);
     assert(response.message() == "Uploaded artifact stored: payload_v1.exe");
-    assert((fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Windows" / "x64" / "payload_v1.exe").is_regular_file());
+    assert(fs::is_regular_file(fs::path(runtimeConfig.uploadedArtifactsDirectoryPath) / "Windows" / "x64" / "payload_v1.exe"));
 
     TeamServerArtifactCatalog catalog(runtimeConfig);
     TeamServerArtifactQuery query;

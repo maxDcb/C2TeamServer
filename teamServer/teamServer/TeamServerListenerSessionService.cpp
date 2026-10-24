@@ -12,9 +12,11 @@
 #include <thread>
 
 #include "listener/ListenerDns.hpp"
-#include "listener/ListenerGithub.hpp"
 #include "listener/ListenerHttp.hpp"
 #include "listener/ListenerTcp.hpp"
+#ifdef C2_ENABLE_GITHUB_TRANSPORT
+#include "listener/ListenerGithub.hpp"
+#endif
 
 namespace
 {
@@ -163,16 +165,24 @@ TeamServerListenerSessionService::TeamServerListenerSessionService(
     CommonCommands& commonCommands,
     std::vector<BeaconCommandContext>& sentCommands,
     std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
-    PrepMsgCallback prepMsg)
+    PrepMsgCallback prepMsg,
+    std::shared_mutex* listenersMutex)
     : m_logger(std::move(logger)),
       m_config(config),
       m_listeners(listeners),
+      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_moduleCmd(moduleCmd),
       m_commonCommands(commonCommands),
       m_sentCommands(sentCommands),
       m_fileArtifactService(std::move(fileArtifactService)),
       m_prepMsg(std::move(prepMsg))
 {
+}
+
+std::vector<std::shared_ptr<Listener>> TeamServerListenerSessionService::listenerSnapshot() const
+{
+    std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+    return m_listeners;
 }
 
 void TeamServerListenerSessionService::setJobResultHandler(
@@ -184,47 +194,49 @@ void TeamServerListenerSessionService::setJobResultHandler(
 grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerListenerSessionService::ListenerEmitter& emit)
 {
     m_logger->trace("ListListeners");
+    auto listeners = listenerSnapshot();
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    for (size_t i = 0; i < listeners.size(); i++)
     {
         teamserverapi::Listener listener;
-        listener.set_listener_hash(m_listeners[i]->getListenerHash());
+        listener.set_listener_hash(listeners[i]->getListenerHash());
 
-        std::string type = m_listeners[i]->getType();
+        std::string type = listeners[i]->getType();
         listener.set_type(type);
         if (type == ListenerHttpType || type == ListenerHttpsType || type == ListenerTcpType)
         {
-            listener.set_ip(m_listeners[i]->getParam1());
-            listener.set_port(std::stoi(m_listeners[i]->getParam2()));
+            listener.set_ip(listeners[i]->getParam1());
+            listener.set_port(std::stoi(listeners[i]->getParam2()));
         }
         else if (type == ListenerSmbType)
         {
-            listener.set_ip(m_listeners[i]->getParam1());
-            listener.set_domain(m_listeners[i]->getParam2());
+            listener.set_ip(listeners[i]->getParam1());
+            listener.set_domain(listeners[i]->getParam2());
         }
         else if (type == ListenerGithubType)
         {
-            listener.set_project(m_listeners[i]->getParam1());
-            listener.set_token(m_listeners[i]->getParam2());
+            listener.set_project(listeners[i]->getParam1());
+            listener.set_token(listeners[i]->getParam2());
         }
         else if (type == ListenerDnsType)
         {
-            listener.set_domain(m_listeners[i]->getParam1());
-            listener.set_port(std::stoi(m_listeners[i]->getParam2()));
+            listener.set_domain(listeners[i]->getParam1());
+            listener.set_port(std::stoi(listeners[i]->getParam2()));
         }
-        listener.set_session_count(static_cast<int32_t>(m_listeners[i]->getNumberOfSession()));
+        listener.set_session_count(static_cast<int32_t>(listeners[i]->getNumberOfSession()));
 
         if (!emit(listener))
             return grpc::Status::OK;
 
-        int nbSession = static_cast<int>(m_listeners[i]->getNumberOfSession());
+        int nbSession = static_cast<int>(listeners[i]->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)
         {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+            std::shared_ptr<Session> session = listeners[i]->getSessionPtr(kk);
             if (!session || session->isSessionKilled())
                 continue;
 
-            for (auto it = session->getListener().begin(); it != session->getListener().end(); ++it)
+            const auto childListeners = session->getListener();
+            for (auto it = childListeners.begin(); it != childListeners.end(); ++it)
             {
                 m_logger->trace("|-> sessionListenerList {0} {1} {2}", it->getType(), it->getParam1(), it->getParam2());
 
@@ -259,8 +271,17 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     m_logger->trace("AddListener");
     const std::string type = listenerToCreate.type();
     response->set_status(teamserverapi::KO);
+    auto listeners = listenerSnapshot();
 
-    if (auto conflictingListener = findTcpPortConflict(m_listeners, type, listenerToCreate.port()))
+#ifndef C2_ENABLE_GITHUB_TRANSPORT
+    if (type == ListenerGithubType)
+    {
+        response->set_message("GitHub transport is disabled in this build.");
+        return grpc::Status::OK;
+    }
+#endif
+
+    if (auto conflictingListener = findTcpPortConflict(listeners, type, listenerToCreate.port()))
     {
         m_logger->warn("Add listener failed: port {0} already used by {1} listener {2}",
             std::to_string(listenerToCreate.port()),
@@ -275,8 +296,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     if (type == ListenerGithubType)
     {
         auto object = std::find_if(
-            m_listeners.begin(),
-            m_listeners.end(),
+            listeners.begin(),
+            listeners.end(),
             [&](std::shared_ptr<Listener>& obj)
             {
                 return obj->getType() == listenerToCreate.type() &&
@@ -284,7 +305,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
                     obj->getParam2() == listenerToCreate.token();
             });
 
-        if (object != m_listeners.end())
+        if (object != listeners.end())
         {
             m_logger->warn("Add listener failed: Listener already exist");
             response->set_message("Listener already exists.");
@@ -294,8 +315,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     else if (type == ListenerDnsType)
     {
         auto existingDns = std::find_if(
-            m_listeners.begin(),
-            m_listeners.end(),
+            listeners.begin(),
+            listeners.end(),
             [&](std::shared_ptr<Listener>& obj)
             {
                 return obj->getType() == ListenerDnsType &&
@@ -303,7 +324,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
                     obj->getParam2() == std::to_string(listenerToCreate.port());
             });
 
-        if (existingDns != m_listeners.end())
+        if (existingDns != listeners.end())
         {
             m_logger->warn("Add listener failed: DNS listener already running on {0}:{1}",
                 listenerToCreate.domain(),
@@ -315,8 +336,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     else
     {
         auto object = std::find_if(
-            m_listeners.begin(),
-            m_listeners.end(),
+            listeners.begin(),
+            listeners.end(),
             [&](std::shared_ptr<Listener>& obj)
             {
                 return obj->getType() == listenerToCreate.type() &&
@@ -324,7 +345,7 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
                     obj->getParam2() == std::to_string(listenerToCreate.port());
             });
 
-        if (object != m_listeners.end())
+        if (object != listeners.end())
         {
             m_logger->warn("Add listener failed: Listener already exist");
             response->set_message("Listener already exists.");
@@ -337,9 +358,10 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     if (type == ListenerTcpType)
     {
         std::shared_ptr<ListenerTcp> listenerTcp = std::make_shared<ListenerTcp>(listenerToCreate.ip(), listenerToCreate.port(), m_config);
+        listenerTcp->setIsPrimary();
         if (listenerTcp->init() > 0)
         {
-            listenerTcp->setIsPrimary();
+            std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerTcp));
             created = true;
             m_logger->info("AddListener Tcp {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
@@ -352,9 +374,10 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     else if (type == ListenerHttpType)
     {
         std::shared_ptr<ListenerHttp> listenerHttp = std::make_shared<ListenerHttp>(listenerToCreate.ip(), listenerToCreate.port(), m_config, false);
+        listenerHttp->setIsPrimary();
         if (listenerHttp->init() > 0)
         {
-            listenerHttp->setIsPrimary();
+            std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerHttp));
             created = true;
             m_logger->info("AddListener Http {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
@@ -367,9 +390,10 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     else if (type == ListenerHttpsType)
     {
         std::shared_ptr<ListenerHttp> listenerHttps = std::make_shared<ListenerHttp>(listenerToCreate.ip(), listenerToCreate.port(), m_config, true);
+        listenerHttps->setIsPrimary();
         if (listenerHttps->init() > 0)
         {
-            listenerHttps->setIsPrimary();
+            std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerHttps));
             created = true;
             m_logger->info("AddListener Https {0}:{1}", listenerToCreate.ip(), std::to_string(listenerToCreate.port()));
@@ -381,19 +405,30 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
     }
     else if (type == ListenerGithubType)
     {
+#ifdef C2_ENABLE_GITHUB_TRANSPORT
         std::shared_ptr<ListenerGithub> listenerGithub = std::make_shared<ListenerGithub>(listenerToCreate.project(), listenerToCreate.token(), m_config);
         listenerGithub->setIsPrimary();
+        std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
         m_listeners.push_back(std::move(listenerGithub));
         created = true;
         m_logger->info("AddListener Github {0}:{1}", listenerToCreate.project(), listenerToCreate.token());
+#endif
     }
     else if (type == ListenerDnsType)
     {
         std::shared_ptr<ListenerDns> listenerDns = std::make_shared<ListenerDns>(listenerToCreate.domain(), listenerToCreate.port(), m_config);
         listenerDns->setIsPrimary();
-        m_listeners.push_back(std::move(listenerDns));
-        created = true;
-        m_logger->info("AddListener Dns {0}:{1}", listenerToCreate.domain(), std::to_string(listenerToCreate.port()));
+        if (listenerDns->init() > 0)
+        {
+            std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
+            m_listeners.push_back(std::move(listenerDns));
+            created = true;
+            m_logger->info("AddListener Dns {0}:{1}", listenerToCreate.domain(), std::to_string(listenerToCreate.port()));
+        }
+        else
+        {
+            m_logger->error("Error: AddListener Dns {0}:{1}", listenerToCreate.domain(), std::to_string(listenerToCreate.port()));
+        }
     }
 
     if (created)
@@ -419,24 +454,26 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
     bool removedPrimary = false;
     bool stopCommandSent = false;
 
-    auto object = std::find_if(
-        m_listeners.begin(),
-        m_listeners.end(),
-        [&](std::shared_ptr<Listener>& obj)
-        { return obj->getListenerHash() == listenerHash; });
-
-    if (object != m_listeners.end())
     {
-        m_listeners.erase(std::remove(m_listeners.begin(), m_listeners.end(), *object), m_listeners.end());
-        removedPrimary = true;
+        std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
+        auto object = std::find_if(
+            m_listeners.begin(), m_listeners.end(),
+            [&](const std::shared_ptr<Listener>& obj)
+            { return obj->getListenerHash() == listenerHash; });
+        if (object != m_listeners.end())
+        {
+            m_listeners.erase(object);
+            removedPrimary = true;
+        }
     }
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    const auto listeners = listenerSnapshot();
+    for (size_t i = 0; i < listeners.size(); i++)
     {
-        int nbSession = static_cast<int>(m_listeners[i]->getNumberOfSession());
+        int nbSession = static_cast<int>(listeners[i]->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)
         {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+            std::shared_ptr<Session> session = listeners[i]->getSessionPtr(kk);
             if (!session)
                 continue;
 
@@ -461,16 +498,16 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
                     {
                         const std::string commandId = generateUUID8();
                         c2Message.set_uuid(commandId);
-                        m_listeners[i]->queueTask(beaconHash, c2Message);
+                        if (!listeners[i]->queueTask(beaconHash, session->getListenerHash(), c2Message))
+                            continue;
 
-                        m_sentCommands.push_back(BeaconCommandContext{
-                            commandId,
-                            beaconHash,
-                            session->getListenerHash(),
-                            input,
-                            c2Message.instruction(),
-                            c2Message.outputfile(),
-                        });
+                        {
+                            std::lock_guard<std::mutex> sentLock(m_sentCommandsMutex);
+                            m_sentCommands.push_back(BeaconCommandContext{
+                                commandId, beaconHash, session->getListenerHash(), input,
+                                c2Message.instruction(), c2Message.outputfile(),
+                            });
+                        }
                         stopCommandSent = true;
                     }
                 }
@@ -500,20 +537,21 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
 bool TeamServerListenerSessionService::isListenerAlive(const std::string& listenerHash) const
 {
     m_logger->trace("isListenerAlive");
+    const auto listeners = listenerSnapshot();
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    for (size_t i = 0; i < listeners.size(); i++)
     {
-        if (m_listeners[i]->getListenerHash() == listenerHash)
-            return true;
+        if (listeners[i]->getListenerHash() == listenerHash)
+            return listeners[i]->isRunning();
 
-        int nbSession = static_cast<int>(m_listeners[i]->getNumberOfSession());
+        int nbSession = static_cast<int>(listeners[i]->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)
         {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+            std::shared_ptr<Session> session = listeners[i]->getSessionPtr(kk);
             if (!session || session->isSessionKilled())
                 continue;
 
-            std::vector<SessionListener> sessionListenerList(session->getListener().begin(), session->getListener().end());
+            std::vector<SessionListener> sessionListenerList = session->getListener();
             for (size_t j = 0; j < sessionListenerList.size(); j++)
             {
                 if (sessionListenerList[j].getListenerHash() == listenerHash)
@@ -738,15 +776,16 @@ grpc::Status TeamServerListenerSessionService::streamModulesForSession(
 grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerListenerSessionService::SessionEmitter& emit)
 {
     m_logger->trace("ListSessions");
+    const auto listeners = listenerSnapshot();
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    for (size_t i = 0; i < listeners.size(); i++)
     {
-        m_logger->trace("Listener {0}", m_listeners[i]->getListenerHash());
+        m_logger->trace("Listener {0}", listeners[i]->getListenerHash());
 
-        int nbSession = static_cast<int>(m_listeners[i]->getNumberOfSession());
+        int nbSession = static_cast<int>(listeners[i]->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)
         {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+            std::shared_ptr<Session> session = listeners[i]->getSessionPtr(kk);
             if (!session)
                 continue;
 
@@ -783,12 +822,13 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
 
     const std::string beaconHash = sessionToStop.beacon_hash();
     const std::string listenerHash = sessionToStop.listener_hash();
+    const auto listeners = listenerSnapshot();
 
     if (beaconHash.size() == SizeBeaconHash)
     {
-        for (size_t i = 0; i < m_listeners.size(); i++)
+        for (size_t i = 0; i < listeners.size(); i++)
         {
-            if (m_listeners[i]->isSessionExist(beaconHash, listenerHash))
+            if (listeners[i]->isSessionExist(beaconHash, listenerHash))
             {
                 C2Message c2Message;
                 int res = m_prepMsg(EndInstruction, c2Message, true, "x64");
@@ -806,7 +846,7 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
                     response->set_message("Stop command did not produce a beacon task.");
                     return grpc::Status::OK;
                 }
-                if (!m_listeners[i]->queueStopTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
+                if (!listeners[i]->queueStopTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
                 {
                     response->set_message("Session is stopped.");
                     return grpc::Status::OK;
@@ -846,13 +886,14 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         m_logger->trace("SendSessionCommand end");
         return grpc::Status::OK;
     }
+    const auto listeners = listenerSnapshot();
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    for (size_t i = 0; i < listeners.size(); i++)
     {
-        if (!m_listeners[i]->isSessionExist(beaconHash, listenerHash))
+        if (!listeners[i]->isSessionExist(beaconHash, listenerHash))
             continue;
 
-        std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(beaconHash, listenerHash);
+        std::shared_ptr<Session> session = listeners[i]->getSessionPtr(beaconHash, listenerHash);
         if (!session)
             continue;
         if (session->isSessionKilled())
@@ -912,7 +953,7 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         }
 
         c2Message.set_uuid(commandId);
-        if (!m_listeners[i]->queueTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
+        if (!listeners[i]->queueTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
         {
             response->set_message("Session is stopped.");
             return grpc::Status::OK;
@@ -943,18 +984,20 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
 int TeamServerListenerSessionService::handleCmdResponse()
 {
     m_logger->trace("handleCmdResponse");
+    const auto listeners = listenerSnapshot();
 
-    for (size_t i = 0; i < m_listeners.size(); i++)
+    for (size_t i = 0; i < listeners.size(); i++)
     {
-        int nbSession = static_cast<int>(m_listeners[i]->getNumberOfSession());
+        int nbSession = static_cast<int>(listeners[i]->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)
         {
-            std::shared_ptr<Session> session = m_listeners[i]->getSessionPtr(kk);
+            std::shared_ptr<Session> session = listeners[i]->getSessionPtr(kk);
             if (!session)
                 continue;
 
             std::string beaconHash = session->getBeaconHash();
-            C2Message c2Message = m_listeners[i]->getTaskResult(beaconHash);
+            const std::string listenerHash = session->getListenerHash();
+            C2Message c2Message = listeners[i]->getTaskResult(beaconHash, listenerHash);
             while (!c2Message.instruction().empty())
             {
                 m_logger->trace("StreamSessionCommandResults {0} {1} {2}", beaconHash, c2Message.instruction(), c2Message.cmd());
@@ -965,7 +1008,7 @@ int TeamServerListenerSessionService::handleCmdResponse()
                 if (instructionCmd == ListenerPollCmd)
                 {
                     m_logger->debug("beaconHash {0} {1}", beaconHash, c2Message.returnvalue());
-                    c2Message = m_listeners[i]->getTaskResult(beaconHash);
+                    c2Message = listeners[i]->getTaskResult(beaconHash, listenerHash);
                     continue;
                 }
 
@@ -1006,10 +1049,13 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     std::lock_guard<std::mutex> lock(m_sentCommandsMutex);
                     auto sentCommand = std::find_if(
                         m_sentCommands.begin(), m_sentCommands.end(),
-                        [&commandId, &c2Message](const BeaconCommandContext& context)
+                        [&commandId, &c2Message, &beaconHash, &listenerHash](const BeaconCommandContext& context)
                         {
-                            if (!commandId.empty() && context.commandId == commandId) return true;
-                            return !c2Message.outputfile().empty() && !context.outputFile.empty()
+                            if (context.beaconHash != beaconHash || context.listenerHash != listenerHash)
+                                return false;
+                            if (!commandId.empty() && context.commandId == commandId)
+                                return true;
+                            return commandId.empty() && !c2Message.outputfile().empty() && !context.outputFile.empty()
                                 && context.outputFile == c2Message.outputfile();
                         });
                     if (sentCommand != m_sentCommands.end())
@@ -1030,7 +1076,7 @@ int TeamServerListenerSessionService::handleCmdResponse()
 
                 if (keepCommandContext)
                 {
-                    c2Message = m_listeners[i]->getTaskResult(beaconHash);
+                    c2Message = listeners[i]->getTaskResult(beaconHash, listenerHash);
                     continue;
                 }
 
@@ -1065,9 +1111,10 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     m_logger->debug("StreamSessionCommandResults no output");
                 }
 
-                c2Message = m_listeners[i]->getTaskResult(beaconHash);
+                c2Message = listeners[i]->getTaskResult(beaconHash, listenerHash);
             }
         }
+        listeners[i]->pruneStoppedSessions();
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1000));

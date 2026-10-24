@@ -22,6 +22,10 @@ python3 -m pip install --upgrade "conan==2.24.0"
 
 ## Configure And Build
 
+The experimental GitHub listener/beacon transport is excluded from normal builds. To build it
+for a dedicated test or audit, add `-DC2_ENABLE_GITHUB_TRANSPORT=ON` to the CMake configure
+command for the TeamServer and both implant repositories.
+
 ```bash
 git submodule update --init --recursive
 

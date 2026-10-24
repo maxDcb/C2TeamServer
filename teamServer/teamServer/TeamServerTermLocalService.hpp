@@ -3,6 +3,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <shared_mutex>
 #include <vector>
 
 #include <grpcpp/support/status.h>
@@ -29,7 +30,8 @@ public:
         nlohmann::json& credentials,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         ModuleLoader moduleLoader = {},
-        std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService = {});
+        std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService = {},
+        std::shared_mutex* listenersMutex = nullptr);
 
     bool canHandle(const std::string& instruction) const;
     grpc::Status handleCommand(
@@ -67,6 +69,8 @@ private:
     const nlohmann::json& m_config;
     TeamServerRuntimeConfig m_runtimeConfig;
     std::vector<std::shared_ptr<Listener>>& m_listeners;
+    mutable std::shared_mutex m_localListenersMutex;
+    std::shared_mutex* m_listenersMutex;
     nlohmann::json& m_credentials;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     std::shared_ptr<TeamServerCredentialVaultService> m_credentialVaultService;

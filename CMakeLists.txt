@@ -75,10 +75,14 @@ include_directories(${C2_NLOHMANN_JSON_INCLUDE_DIRS})
 ##
 
 option(WITH_TESTS "Compile for tests" ON)
+option(C2_ENABLE_GITHUB_TRANSPORT "Build the experimental GitHub listener and beacon transport" OFF)
 set(BUILD_TEAMSERVER ON CACHE BOOL "Build teamserver-side command parsing/help code" FORCE)
 set(C2CORE_BUILD_TESTS ${WITH_TESTS} CACHE BOOL "Enable C2Core tests from the parent project" FORCE)
 
 add_compile_definitions(BUILD_TEAMSERVER)
+if(C2_ENABLE_GITHUB_TRANSPORT)
+  add_compile_definitions(C2_ENABLE_GITHUB_TRANSPORT=1)
+endif()
 
 if(WITH_TESTS)
   set(BUILD_TESTING ON CACHE BOOL "Enable CTest integration" FORCE)

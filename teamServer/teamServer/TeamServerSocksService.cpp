@@ -127,9 +127,11 @@ TeamServerSocksService::TeamServerSocksService(
     std::vector<std::shared_ptr<Listener>>& listeners,
     PortInUseCallback portInUse,
     ServerFactory serverFactory,
-    std::chrono::milliseconds tunnelResponseTimeout)
+    std::chrono::milliseconds tunnelResponseTimeout,
+    std::shared_mutex* listenersMutex)
     : m_logger(std::move(logger)),
       m_listeners(listeners),
+      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_portInUse(portInUse ? std::move(portInUse) : PortInUseCallback(defaultPortInUse)),
       m_serverFactory(serverFactory ? std::move(serverFactory) : ServerFactory()),
       m_tunnelResponseTimeout(tunnelResponseTimeout),
@@ -488,7 +490,12 @@ std::shared_ptr<Session> TeamServerSocksService::findSessionByPrefix(const std::
 {
     std::shared_ptr<Session> match;
     std::shared_ptr<Listener> matchListener;
-    for (const std::shared_ptr<Listener>& currentListener : m_listeners)
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const std::shared_ptr<Listener>& currentListener : listeners)
     {
         int nbSession = static_cast<int>(currentListener->getNumberOfSession());
         for (int kk = 0; kk < nbSession; kk++)

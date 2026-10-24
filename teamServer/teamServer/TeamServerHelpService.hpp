@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <shared_mutex>
 #include <vector>
 
 #include <grpcpp/support/status.h>
@@ -21,7 +22,8 @@ public:
         std::vector<std::shared_ptr<Listener>>& listeners,
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         CommonCommands& commonCommands,
-        TeamServerCommandCatalog catalog);
+        TeamServerCommandCatalog catalog,
+        std::shared_mutex* listenersMutex = nullptr);
 
     grpc::Status getHelp(const teamserverapi::CommandHelpRequest& command, teamserverapi::CommandHelpResponse* commandResponse) const;
 
@@ -36,6 +38,8 @@ private:
 
     std::shared_ptr<spdlog::logger> m_logger;
     std::vector<std::shared_ptr<Listener>>& m_listeners;
+    mutable std::shared_mutex m_localListenersMutex;
+    std::shared_mutex* m_listenersMutex;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
     TeamServerCommandCatalog m_catalog;

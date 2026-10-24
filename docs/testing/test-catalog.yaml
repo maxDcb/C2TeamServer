@@ -536,10 +536,10 @@ entries:
 
   - id: LISTENER-GITHUB-001
     area: Listeners
-    feature: GitHub listener
-    scenario: "Start GitHub listener and route task/result traffic through configured repository transport."
+    feature: Experimental GitHub listener
+    scenario: "Build with C2_ENABLE_GITHUB_TRANSPORT=ON, then start the listener and route task/result traffic through the configured repository transport."
     priority: medium
-    validation: auto+manual
+    validation: planned
     axes: {os: any, arch: any, listener: github, artifact_category: n/a}
     evidence:
       auto: ["core/listener/tests/testListenerGithub.cpp", "core/beacon/tests/testBeaconGithub.cpp"]

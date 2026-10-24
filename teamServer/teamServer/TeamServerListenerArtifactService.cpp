@@ -65,11 +65,13 @@ TeamServerListenerArtifactService::TeamServerListenerArtifactService(
     const nlohmann::json& config,
     TeamServerRuntimeConfig runtimeConfig,
     std::vector<std::shared_ptr<Listener>>& listeners,
-    IpResolver ipResolver)
+    IpResolver ipResolver,
+    std::shared_mutex* listenersMutex)
     : m_logger(std::move(logger)),
       m_config(config),
       m_runtimeConfig(std::move(runtimeConfig)),
       m_listeners(listeners),
+      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_ipResolver(std::move(ipResolver))
 {
 }
@@ -176,8 +178,10 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
         return linuxTarget ? (linuxBeaconRoot / "BeaconHttp").string() : (windowsBeaconRoot / "BeaconHttp.exe").string();
     if (type == ListenerTcpType)
         return linuxTarget ? (linuxBeaconRoot / "BeaconTcp").string() : (windowsBeaconRoot / "BeaconTcp.exe").string();
+#ifdef C2_ENABLE_GITHUB_TRANSPORT
     if (primaryListener && type == ListenerGithubType)
         return linuxTarget ? (linuxBeaconRoot / "BeaconGithub").string() : (windowsBeaconRoot / "BeaconGithub.exe").string();
+#endif
     if (primaryListener && type == ListenerDnsType)
         return linuxTarget ? (linuxBeaconRoot / "BeaconDns").string() : (windowsBeaconRoot / "BeaconDns.exe").string();
     if (!primaryListener && type == ListenerSmbType)
@@ -199,7 +203,12 @@ grpc::Status TeamServerListenerArtifactService::handleInfoListener(
     }
 
     const std::string& listenerHash = splitedCmd[1];
-    for (const auto& listener : m_listeners)
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const auto& listener : listeners)
     {
         const std::string& hash = listener->getListenerHash();
         if (hash.rfind(listenerHash, 0) == 0)
@@ -223,7 +232,8 @@ grpc::Status TeamServerListenerArtifactService::handleInfoListener(
             if (session->isSessionKilled())
                 continue;
 
-            for (auto it = session->getListener().begin(); it != session->getListener().end(); ++it)
+            const auto childListeners = session->getListener();
+            for (auto it = childListeners.begin(); it != childListeners.end(); ++it)
             {
                 const std::string& secondaryHash = it->getListenerHash();
                 if (secondaryHash.rfind(listenerHash, 0) != 0)
@@ -307,7 +317,12 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
         }
     }
 
-    for (const auto& listener : m_listeners)
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const auto& listener : listeners)
     {
         const std::string& hash = listener->getListenerHash();
         if (hash.rfind(listenerHash, 0) == 0)
@@ -334,7 +349,8 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
             if (session->isSessionKilled())
                 continue;
 
-            for (auto it = session->getListener().begin(); it != session->getListener().end(); ++it)
+            const auto childListeners = session->getListener();
+            for (auto it = childListeners.begin(); it != childListeners.end(); ++it)
             {
                 const std::string& secondaryHash = it->getListenerHash();
                 if (secondaryHash.rfind(listenerHash, 0) != 0)

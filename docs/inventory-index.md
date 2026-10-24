@@ -46,7 +46,8 @@
 | Paquets Python `pip` | Client | Déclarations directes relevées ; transitives non détaillées |
 | Protocole gRPC/Protobuf | TeamServer et Client | 23 RPC recensés ; chaque message et champ ne possède pas encore de fiche individuelle |
 | `protocol/`, `packaging/`, `certs/`, `integration/` | TeamServer et contrats de release | Rôles relevés ; inventaires détaillés indépendants non réalisés |
-| GitHub et OpenAI/Azure OpenAI | TeamServer/Client | Services externes recensés ; disponibilité et configuration runtime non auditées |
+| GitHub | TeamServer/Client/Implants | [Transport audité](github-transport-audit.md) ; conservé derrière `C2_ENABLE_GITHUB_TRANSPORT=OFF`, non prêt à être activé |
+| OpenAI/Azure OpenAI | TeamServer/Client | Services externes recensés ; disponibilité et configuration runtime non auditées |
 | Outils, scripts et artefacts de runtime | TeamServer/Client, C2Core | Emplacements et consommateurs recensés ; contenu concret dépend du build ou déploiement |
 
 ## État avant l'audit

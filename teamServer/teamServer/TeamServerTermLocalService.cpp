@@ -78,11 +78,13 @@ TeamServerTermLocalService::TeamServerTermLocalService(
     nlohmann::json& credentials,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
     ModuleLoader moduleLoader,
-    std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService)
+    std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService,
+    std::shared_mutex* listenersMutex)
     : m_logger(std::move(logger)),
       m_config(config),
       m_runtimeConfig(std::move(runtimeConfig)),
       m_listeners(listeners),
+      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_credentials(credentials),
       m_moduleCmd(moduleCmd),
     m_credentialVaultService(std::move(credentialVaultService)),
@@ -148,7 +150,12 @@ bool TeamServerTermLocalService::isValidFilename(const std::string& filename) co
 std::string TeamServerTermLocalService::resolveDownloadFolderForListener(const std::string& listenerHash) const
 {
     std::string downloadFolder;
-    for (const auto& listener : m_listeners)
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const auto& listener : listeners)
     {
         const std::string& hash = listener->getListenerHash();
         if (hash.find(listenerHash) == std::string::npos)

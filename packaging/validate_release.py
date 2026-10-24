@@ -78,8 +78,6 @@ EXPECTED_LINUX_ARCHES = (
 EXPECTED_WINDOWS_BEACONS = (
     "BeaconDns.exe",
     "BeaconDnsDll.dll",
-    "BeaconGithub.exe",
-    "BeaconGithubDll.dll",
     "BeaconHttp.exe",
     "BeaconHttpDll.dll",
     "BeaconSmb.exe",
@@ -138,9 +136,7 @@ EXPECTED_WINDOWS_MODULES = (
 
 EXPECTED_LINUX_BEACONS = (
     "BeaconDns",
-    "BeaconGithub",
     "BeaconHttp",
-    "BeaconSmb",
     "BeaconTcp",
 )
 

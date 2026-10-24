@@ -1,12 +1,16 @@
 #include <unordered_map>
+#include <atomic>
 #include <mutex>
+#include <shared_mutex>
 #include <chrono>
 #include <string>
 
 #include "listener/ListenerTcp.hpp"
 #include "listener/ListenerHttp.hpp"
-#include "listener/ListenerGithub.hpp"
 #include "listener/ListenerDns.hpp"
+#ifdef C2_ENABLE_GITHUB_TRANSPORT
+#include "listener/ListenerGithub.hpp"
+#endif
 
 #include "modules/ModuleCmd/ModuleCmd.hpp"
 
@@ -99,12 +103,13 @@ private:
     std::shared_ptr<spdlog::logger> m_logger;
 
     std::vector<std::shared_ptr<Listener>> m_listeners;
+    mutable std::shared_mutex m_listenersMutex;
     nlohmann::json m_credentials = nlohmann::json::array();
 
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
     CommonCommands m_commonCommands;
 
-    bool m_handleCmdResponseThreadRuning;
+    std::atomic_bool m_handleCmdResponseThreadRuning{false};
     std::unique_ptr<std::thread> m_handleCmdResponseThread;
     std::vector<BeaconCommandContext> m_sentCommands;
 

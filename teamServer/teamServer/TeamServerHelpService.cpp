@@ -97,9 +97,11 @@ TeamServerHelpService::TeamServerHelpService(
     std::vector<std::shared_ptr<Listener>>& listeners,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
     CommonCommands& commonCommands,
-    TeamServerCommandCatalog catalog)
+    TeamServerCommandCatalog catalog,
+    std::shared_mutex* listenersMutex)
     : m_logger(std::move(logger)),
       m_listeners(listeners),
+      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_moduleCmd(moduleCmd),
       m_commonCommands(commonCommands),
       m_catalog(std::move(catalog))
@@ -140,7 +142,12 @@ grpc::Status TeamServerHelpService::getHelp(const teamserverapi::CommandHelpRequ
 
 std::string TeamServerHelpService::sessionPlatform(const std::string& beaconHash, const std::string& listenerHash) const
 {
-    for (const std::shared_ptr<Listener>& listener : m_listeners)
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const std::shared_ptr<Listener>& listener : listeners)
     {
         if (!listener->isSessionExist(beaconHash, listenerHash))
             continue;

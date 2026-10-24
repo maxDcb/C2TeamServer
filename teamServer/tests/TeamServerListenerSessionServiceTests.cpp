@@ -53,6 +53,7 @@ public:
         : Listener(param1, param2, type)
     {
         m_listenerHash = hash;
+        setState(State::Running);
     }
 
     std::shared_ptr<Session> addSession(
@@ -111,7 +112,7 @@ void testCollectListenersAndSessions()
 
     std::vector<std::shared_ptr<Listener>> listeners;
     auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    auto session = primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    auto session = primaryListener->addSession("listener-primary", "ABCDEFGH12345678ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
     session->addListener("listener-child", ListenerTcpType, "10.0.0.1", "9001");
     listeners.push_back(primaryListener);
 
@@ -153,7 +154,7 @@ void testCollectListenersAndSessions()
                })
                .ok());
     assert(streamedSessions.size() == 1);
-    assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678");
+    assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678ABCDEFGH12345678");
 }
 
 void testQueueStopAndResponseDelivery()
@@ -163,7 +164,8 @@ void testQueueStopAndResponseDelivery()
 
     std::vector<std::shared_ptr<Listener>> listeners;
     auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "arm64", "admin", "Windows");
+    const std::string beaconHash(SizeBeaconHash, 'A');
+    primaryListener->addSession("listener-primary", beaconHash, "host", "user", "arm64", "admin", "Windows");
     listeners.push_back(primaryListener);
 
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
@@ -190,7 +192,7 @@ void testQueueStopAndResponseDelivery()
         });
 
     teamserverapi::SessionCommandRequest command;
-    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_beacon_hash(beaconHash);
     command.mutable_session()->set_listener_hash("listener-primary");
     command.set_command("whoami");
     command.set_command_id("cmd-0001");
@@ -200,7 +202,7 @@ void testQueueStopAndResponseDelivery()
     assert(response.status() == teamserverapi::OK);
     assert(response.command_id() == "cmd-0001");
     assert(preparedArch == "arm64");
-    C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
+    C2Message queuedTask = primaryListener->getTask(beaconHash);
     assert(queuedTask.instruction() == "instruction");
     assert(queuedTask.uuid() == "cmd-0001");
 
@@ -209,7 +211,7 @@ void testQueueStopAndResponseDelivery()
     emptyResult.set_uuid("cmd-0001");
     emptyResult.set_cmd("internal command payload");
     emptyResult.set_returnvalue("");
-    assert(primaryListener->addTaskResult(emptyResult, "ABCDEFGH12345678"));
+    assert(primaryListener->addTaskResult(emptyResult, beaconHash));
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
     assert(cmdResponses.size() == 1);
@@ -219,12 +221,12 @@ void testQueueStopAndResponseDelivery()
     assert(cmdResponses[0].output().empty());
 
     teamserverapi::SessionSelector sessionToStop;
-    sessionToStop.set_beacon_hash("ABCDEFGH12345678");
+    sessionToStop.set_beacon_hash(beaconHash);
     sessionToStop.set_listener_hash("listener-primary");
     teamserverapi::OperationAck stopResponse;
     assert(service.stopSession(sessionToStop, &stopResponse).ok());
     assert(stopResponse.status() == teamserverapi::OK);
-    C2Message stopTask = primaryListener->getTask("ABCDEFGH12345678");
+    C2Message stopTask = primaryListener->getTask(beaconHash);
     assert(stopTask.instruction() == "instruction");
 
 
@@ -268,6 +270,43 @@ void testAddListenerRejectsTcpBoundPortConflicts()
     assert(listeners.size() == 1);
 }
 
+#ifndef C2_ENABLE_GITHUB_TRANSPORT
+void testAddListenerRejectsDisabledGithubTransport()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+
+    std::vector<std::shared_ptr<Listener>> listeners;
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+
+    TeamServerListenerSessionService service(
+        logger,
+        config,
+        listeners,
+        moduleCmd,
+        commonCommands,
+        sentCommands,
+        nullptr,
+        [](const std::string&, C2Message&, bool, const std::string&)
+        {
+            return 0;
+        });
+
+    teamserverapi::Listener githubListener;
+    githubListener.set_type(ListenerGithubType);
+    githubListener.set_project("owner/repository");
+    githubListener.set_token("token");
+
+    teamserverapi::OperationAck response;
+    assert(service.addListener(githubListener, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.message() == "GitHub transport is disabled in this build.");
+    assert(listeners.empty());
+}
+#endif
+
 void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
 {
     nlohmann::json config = {{"LogLevel", "off"}};
@@ -275,7 +314,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
 
     std::vector<std::shared_ptr<Listener>> listeners;
     auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678ABCDEFGH12345678", "host", "user", "x64", "admin", "Linux");
     listeners.push_back(primaryListener);
 
     std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
@@ -313,7 +352,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
         });
 
     teamserverapi::SessionCommandRequest loadCommand;
-    loadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    loadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
     loadCommand.mutable_session()->set_listener_hash("listener-primary");
     loadCommand.set_command("loadModule pwd");
     loadCommand.set_command_id("load-0001");
@@ -324,7 +363,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
 
     std::vector<teamserverapi::LoadedModule> modules;
     teamserverapi::SessionSelector sessionSelector;
-    sessionSelector.set_beacon_hash("ABCDEFGH12345678");
+    sessionSelector.set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
     sessionSelector.set_listener_hash("listener-primary");
     assert(service.streamModulesForSession(
                sessionSelector,
@@ -347,7 +386,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     loadResult.set_instruction(LoadC2ModuleCmd);
     loadResult.set_uuid("load-0001");
     loadResult.set_returnvalue(CmdStatusSuccess);
-    assert(primaryListener->addTaskResult(loadResult, "ABCDEFGH12345678"));
+    assert(primaryListener->addTaskResult(loadResult, "ABCDEFGH12345678ABCDEFGH12345678"));
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
 
@@ -366,7 +405,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     assert(modules[0].load_count() == 1);
 
     teamserverapi::SessionCommandRequest unloadCommand;
-    unloadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    unloadCommand.mutable_session()->set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
     unloadCommand.mutable_session()->set_listener_hash("listener-primary");
     unloadCommand.set_command("unloadModule pwd");
     unloadCommand.set_command_id("unload-0001");
@@ -391,7 +430,7 @@ void testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules()
     unloadResult.set_instruction(UnloadC2ModuleCmd);
     unloadResult.set_uuid("unload-0001");
     unloadResult.set_returnvalue(CmdStatusSuccess);
-    assert(primaryListener->addTaskResult(unloadResult, "ABCDEFGH12345678"));
+    assert(primaryListener->addTaskResult(unloadResult, "ABCDEFGH12345678ABCDEFGH12345678"));
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
 
@@ -414,7 +453,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
 
     std::vector<std::shared_ptr<Listener>> listeners;
     auto primaryListener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "listener-primary");
-    primaryListener->addSession("listener-primary", "ABCDEFGH12345678", "host", "user", "x64", "admin", "Windows");
+    primaryListener->addSession("listener-primary", "ABCDEFGH12345678ABCDEFGH12345678", "host", "user", "x64", "admin", "Windows");
     listeners.push_back(primaryListener);
 
     ScopedPath tempRoot(makeTempDirectory("pending-artifact"));
@@ -463,7 +502,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
         });
 
     teamserverapi::SessionCommandRequest command;
-    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678");
+    command.mutable_session()->set_beacon_hash("ABCDEFGH12345678ABCDEFGH12345678");
     command.mutable_session()->set_listener_hash("listener-primary");
     command.set_command("screenShot desktop.png");
     command.set_command_id("shot-0001");
@@ -473,7 +512,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     assert(response.status() == teamserverapi::OK);
     assert(!preparedOutputFile.empty());
 
-    C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678");
+    C2Message queuedTask = primaryListener->getTask("ABCDEFGH12345678ABCDEFGH12345678");
     assert(queuedTask.instruction() == "screenShot");
     assert(queuedTask.uuid() == "shot-0001");
 
@@ -483,7 +522,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     firstChunk.set_args("0");
     firstChunk.set_data("AA");
     firstChunk.set_returnvalue("2/4");
-    assert(primaryListener->addTaskResult(firstChunk, "ABCDEFGH12345678"));
+    assert(primaryListener->addTaskResult(firstChunk, "ABCDEFGH12345678ABCDEFGH12345678"));
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result) { cmdResponses.push_back(result); });
     service.handleCmdResponse();
     assert(cmdResponses.empty());
@@ -496,7 +535,7 @@ void testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses()
     finalChunk.set_args("1");
     finalChunk.set_data("BB");
     finalChunk.set_returnvalue("Success");
-    assert(primaryListener->addTaskResult(finalChunk, "ABCDEFGH12345678"));
+    assert(primaryListener->addTaskResult(finalChunk, "ABCDEFGH12345678ABCDEFGH12345678"));
     service.handleCmdResponse();
 
     assert(sentCommands.empty());
@@ -685,6 +724,9 @@ int main()
     testCollectListenersAndSessions();
     testQueueStopAndResponseDelivery();
     testAddListenerRejectsTcpBoundPortConflicts();
+#ifndef C2_ENABLE_GITHUB_TRANSPORT
+    testAddListenerRejectsDisabledGithubTransport();
+#endif
     testModuleTrackingBlocksDuplicateLoadsAndListsLoadedModules();
     testPendingGeneratedArtifactChunksDoNotEmitIntermediateResponses();
     testDurableSessionCommandBridge();

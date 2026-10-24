@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,7 +36,8 @@ public:
         CommonCommands& commonCommands,
         std::vector<BeaconCommandContext>& sentCommands,
         std::shared_ptr<TeamServerFileArtifactService> fileArtifactService,
-        PrepMsgCallback prepMsg);
+        PrepMsgCallback prepMsg,
+        std::shared_mutex* listenersMutex = nullptr);
 
     grpc::Status streamListeners(const ListenerEmitter& emit);
     grpc::Status addListener(const teamserverapi::Listener& listenerToCreate, teamserverapi::OperationAck* response);
@@ -54,6 +56,9 @@ private:
     std::shared_ptr<spdlog::logger> m_logger;
     const nlohmann::json& m_config;
     std::vector<std::shared_ptr<Listener>>& m_listeners;
+    mutable std::shared_mutex m_localListenersMutex;
+    std::shared_mutex* m_listenersMutex;
+    std::vector<std::shared_ptr<Listener>> listenerSnapshot() const;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
     std::vector<BeaconCommandContext>& m_sentCommands;

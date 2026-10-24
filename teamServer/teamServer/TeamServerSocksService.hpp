@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -42,7 +43,8 @@ public:
         std::vector<std::shared_ptr<Listener>>& listeners,
         PortInUseCallback portInUse = {},
         ServerFactory serverFactory = {},
-        std::chrono::milliseconds tunnelResponseTimeout = std::chrono::minutes(2));
+        std::chrono::milliseconds tunnelResponseTimeout = std::chrono::minutes(2),
+        std::shared_mutex* listenersMutex = nullptr);
 
     ~TeamServerSocksService();
 
@@ -70,6 +72,8 @@ private:
 
     std::shared_ptr<spdlog::logger> m_logger;
     std::vector<std::shared_ptr<Listener>>& m_listeners;
+    mutable std::shared_mutex m_localListenersMutex;
+    std::shared_mutex* m_listenersMutex;
     PortInUseCallback m_portInUse;
     ServerFactory m_serverFactory;
     std::chrono::milliseconds m_tunnelResponseTimeout;

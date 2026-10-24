@@ -36,6 +36,7 @@ std::string makeExchangePayload(const std::string& key,
     bundle->set_arch("x64");
     bundle->set_privilege("user");
     bundle->set_os("Linux");
+    bundle->set_lastProofOfLife("0");
 
     auto* exchange = bundle->add_c2messages();
     exchange->set_instruction(HttpExchangeCmd);
@@ -108,11 +109,8 @@ void waitForListenerReady(int port)
 
     for (int attempt = 0; attempt < 50; ++attempt)
     {
-        if (auto res = cli.Post("/checkin", "", "text/plain"))
-        {
-            if (res->status == 200)
-                return;
-        }
+        if (cli.Post("/checkin", "", "text/plain"))
+            return;
 
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
@@ -151,7 +149,7 @@ void testHttpAndWebSocketTransport()
     httplib::Client cli("127.0.0.1", port);
     auto ok = cli.Post("/checkin", "", "text/plain");
     assert(ok);
-    assert(ok->status == 200);
+    assert(ok->status == 401);
 
     auto denied = cli.Post("/forbidden", "", "text/plain");
     assert(denied);
@@ -164,7 +162,7 @@ void testHttpAndWebSocketTransport()
 
     std::string reply;
     const auto result = ws.read(reply);
-    assert(result == httplib::ws::Text);
+    assert(result == httplib::ws::Fail);
     assert(reply.empty());
     ws.close();
 

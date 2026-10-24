@@ -140,7 +140,8 @@ void seedCommandSpecs(const TeamServerRuntimeConfig& runtimeConfig)
         "type": "password",
         "protocol": "smb",
         "tag": "admin"
-      }
+      },
+      "completion_parents": ["-u"]
     },
     {
       "name": "service_artifact",

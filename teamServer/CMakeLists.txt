@@ -34,9 +34,14 @@ set(SERVER_LISTENER_TRANSPORT_SOURCES
     ../core/listener/Listener.cpp
     ../core/listener/ListenerTcp.cpp
     ../core/listener/ListenerHttp.cpp
-    ../core/listener/ListenerGithub.cpp
     ../core/listener/ListenerDns.cpp
 )
+
+if(C2_ENABLE_GITHUB_TRANSPORT)
+    list(APPEND SERVER_LISTENER_TRANSPORT_SOURCES
+        ../core/listener/ListenerGithub.cpp
+    )
+endif()
 
 set(SERVER_LISTENER_TRANSPORT_LINK_LIBS
     Dnscommunication
@@ -140,6 +145,11 @@ add_custom_command(TARGET TeamServer POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
 function(teamserver_add_test target_name link_target)
     add_executable(${target_name} ${ARGN})
     target_link_libraries(${target_name} PRIVATE ${link_target})
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /UNDEBUG)
+    else()
+        target_compile_options(${target_name} PRIVATE -UNDEBUG)
+    endif()
     add_custom_command(TARGET ${target_name} POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy
         $<TARGET_FILE:${target_name}> "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:${target_name}>")
     add_test(NAME ${target_name} COMMAND "${C2_TEST_BIN_OUTPUT_DIR}/$<TARGET_FILE_NAME:${target_name}>")
