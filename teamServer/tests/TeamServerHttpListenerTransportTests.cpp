@@ -16,6 +16,39 @@
 
 namespace
 {
+class TestListenerHttp : public ListenerHttp
+{
+public:
+    using ListenerHttp::ListenerHttp;
+    const std::string& key() const { return m_key; }
+};
+
+std::string makeExchangePayload(const std::string& key,
+                                const std::string& beaconHash,
+                                const std::string& exchangeId,
+                                const std::string& resultInstruction)
+{
+    MultiBundleC2Message bundles;
+    auto* bundle = bundles.add_bundlec2messages();
+    bundle->set_beaconhash(beaconHash);
+    bundle->set_hostname("host");
+    bundle->set_username("user");
+    bundle->set_arch("x64");
+    bundle->set_privilege("user");
+    bundle->set_os("Linux");
+
+    auto* exchange = bundle->add_c2messages();
+    exchange->set_instruction(HttpExchangeCmd);
+    exchange->set_cmd(exchangeId);
+    if (!resultInstruction.empty())
+        bundle->add_c2messages()->set_instruction(resultInstruction);
+
+    std::string data;
+    bundles.SerializeToString(&data);
+    XOR(data, key);
+    return base64_encode(data);
+}
+
 #ifndef _WIN32
 int findFreePort()
 {
@@ -110,8 +143,9 @@ void testHttpAndWebSocketTransport()
          }},
     };
 
-    ListenerHttp listener("127.0.0.1", port, config, false);
+    TestListenerHttp listener("127.0.0.1", port, config, false);
     assert(listener.init() == 1);
+    assert(listener.isRunning());
     waitForListenerReady(port);
 
     httplib::Client cli("127.0.0.1", port);
@@ -133,6 +167,30 @@ void testHttpAndWebSocketTransport()
     assert(result == httplib::ws::Text);
     assert(reply.empty());
     ws.close();
+
+    const std::string beaconHash(SizeBeaconHash, 'B');
+    const std::string firstExchange(SizeBeaconHash, '1');
+    const auto firstPayload = makeExchangePayload(
+        listener.key(), beaconHash, firstExchange, "http-contract-result");
+    auto first = cli.Post("/checkin", firstPayload, "text/plain");
+    assert(first && first->status == 200);
+    auto duplicate = cli.Post("/checkin", firstPayload, "text/plain");
+    assert(duplicate && duplicate->status == 200);
+    assert(duplicate->body == first->body);
+    assert(listener.getTaskResult(beaconHash).instruction() == "http-contract-result");
+    assert(listener.getTaskResult(beaconHash).instruction().empty());
+
+    C2Message task;
+    task.set_instruction("http-contract-task");
+    listener.queueTask(beaconHash, task);
+    const auto secondPayload = makeExchangePayload(
+        listener.key(), beaconHash, std::string(SizeBeaconHash, '2'), "");
+    auto second = cli.Post("/checkin", secondPayload, "text/plain");
+    assert(second && second->status == 200);
+    assert(!second->body.empty());
+    auto secondDuplicate = cli.Post("/checkin", secondPayload, "text/plain");
+    assert(secondDuplicate && secondDuplicate->status == 200);
+    assert(secondDuplicate->body == second->body);
 }
 
 void testHttpInitRejectsOccupiedPort()
@@ -152,6 +210,7 @@ void testHttpInitRejectsOccupiedPort()
 
     ListenerHttp listener("127.0.0.1", port, config, false);
     assert(listener.init() < 0);
+    assert(!listener.isRunning());
 
     ::close(occupiedSocket);
 #endif
