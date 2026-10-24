@@ -54,15 +54,7 @@ configuredLogsDir = env_path("C2_LOG_DIR")
 if configuredLogsDir:
     logsDir = str(configuredLogsDir)
 else:
-    try:
-        import pkg_resources
-        logsDir = pkg_resources.resource_filename(
-            'C2Client',
-            'logs'
-        )
-
-    except ImportError:
-        logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
 
 if not os.path.exists(logsDir):
     os.makedirs(logsDir)

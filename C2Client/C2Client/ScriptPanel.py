@@ -37,12 +37,7 @@ logger = logging.getLogger(__name__)
 #
 # scripts
 #
-try:
-    import pkg_resources
-    scriptsDir = pkg_resources.resource_filename('C2Client', 'Scripts')
-except ImportError:
-    # Fallback: relative to this file (…/C2Client/Scripts)
-    scriptsDir = os.path.join(os.path.dirname(__file__), 'Scripts')
+scriptsDir = os.path.join(os.path.dirname(__file__), 'Scripts')
 
 scripts_path = Path(scriptsDir).resolve()
 scripts_path.mkdir(parents=True, exist_ok=True)

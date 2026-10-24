@@ -73,11 +73,7 @@ class GrpcClient:
             ca_cert = str(configured_cert_path)
             logging.info("Using certificate from environment variable: %s", ca_cert)
         else:
-            try:
-                import pkg_resources
-                ca_cert = pkg_resources.resource_filename('C2Client', 'server.crt')
-            except ImportError:
-                ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
+            ca_cert = os.path.join(os.path.dirname(__file__), 'server.crt')
             logging.info(
                 "Using default certificate: %s. To use a custom C2 certificate, set the C2_CERT_PATH environment variable.",
                 ca_cert,

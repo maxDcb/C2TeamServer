@@ -42,20 +42,8 @@ logger = logging.getLogger(__name__)
 #
 configuredDropperModulesDir = env_path("C2_DROPPER_MODULES_DIR")
 configuredDropperModulesPath = env_path("C2_DROPPER_MODULES_CONF")
-try:
-    import pkg_resources
-    defaultDropperModulesDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'DropperModules' 
-    )
-    defaultDropperModulesPath = pkg_resources.resource_filename(
-        'C2Client',  
-        'DropperModules.conf'  
-    )
-
-except ImportError:
-    defaultDropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
-    defaultDropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
+defaultDropperModulesDir = os.path.join(os.path.dirname(__file__), 'DropperModules')
+defaultDropperModulesPath = os.path.join(os.path.dirname(__file__), 'DropperModules.conf')
 
 dropperModulesDir = str(configuredDropperModulesDir) if configuredDropperModulesDir else defaultDropperModulesDir
 DropperModulesPath = str(configuredDropperModulesPath) if configuredDropperModulesPath else defaultDropperModulesPath
@@ -107,20 +95,8 @@ for moduleName in os.listdir(dropperModulesDir):
 
 configuredShellCodeModulesDir = env_path("C2_SHELLCODE_MODULES_DIR")
 configuredShellCodeModulesPath = env_path("C2_SHELLCODE_MODULES_CONF")
-try:
-    import pkg_resources
-    defaultShellCodeModulesDir = pkg_resources.resource_filename(
-        'C2Client',  
-        'ShellCodeModules' 
-    )
-    defaultShellCodeModulesPath = pkg_resources.resource_filename(
-        'C2Client',  
-        'ShellCodeModules.conf'  
-    )
-
-except ImportError:
-    defaultShellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
-    defaultShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
+defaultShellCodeModulesDir = os.path.join(os.path.dirname(__file__), 'ShellCodeModules')
+defaultShellCodeModulesPath = os.path.join(os.path.dirname(__file__), 'ShellCodeModules.conf')
 
 shellCodeModulesDir = str(configuredShellCodeModulesDir) if configuredShellCodeModulesDir else defaultShellCodeModulesDir
 ShellCodeModulesPath = str(configuredShellCodeModulesPath) if configuredShellCodeModulesPath else defaultShellCodeModulesPath
@@ -178,15 +154,7 @@ configuredLogsDir = env_path("C2_LOG_DIR")
 if configuredLogsDir:
     logsDir = str(configuredLogsDir)
 else:
-    try:
-        import pkg_resources
-        logsDir = pkg_resources.resource_filename(
-            'C2Client',
-            'logs'
-        )
-
-    except ImportError:
-        logsDir = os.path.join(os.path.dirname(__file__), 'logs')
+    logsDir = os.path.join(os.path.dirname(__file__), 'logs')
 
 if not os.path.exists(logsDir):
     os.makedirs(logsDir)

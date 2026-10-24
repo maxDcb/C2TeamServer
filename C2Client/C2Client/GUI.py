@@ -42,7 +42,14 @@ from .ui_status import (
 )
 from .window_chrome import apply_dark_window_chrome
 
-import qdarktheme
+from qt_material import apply_stylesheet
+
+
+def apply_client_theme(app: QApplication, theme: str) -> None:
+    if theme in {"native", "none"}:
+        return
+    palette = "light_teal.xml" if theme == "light" else "dark_teal.xml"
+    apply_stylesheet(app, theme=palette)
 
 def configureLogging() -> None:
     level_name = env_value("C2_LOG_LEVEL", "WARNING").strip().upper()
@@ -324,10 +331,7 @@ def main() -> None:
 
     app = QApplication(sys.argv)
     theme = env_value("C2_UI_THEME", "dark").strip().lower()
-    if theme in {"dark", "light"}:
-        app.setStyleSheet(qdarktheme.load_stylesheet(theme))
-    elif theme not in {"native", "none"}:
-        app.setStyleSheet(qdarktheme.load_stylesheet())
+    apply_client_theme(app, theme)
 
     username = os.getenv("C2_USERNAME")
     password = os.getenv("C2_PASSWORD")

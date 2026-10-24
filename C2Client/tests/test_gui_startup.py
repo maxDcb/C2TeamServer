@@ -1,12 +1,30 @@
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
 import C2Client.grpcClient as grpc_client_module
 import sys
 sys.modules['grpcClient'] = grpc_client_module
 
 from C2Client import GUI
+
+
+def test_client_theme_supports_dark_light_and_native(qtbot):
+    app = QApplication.instance()
+    GUI.apply_client_theme(app, "dark")
+    dark_style = app.styleSheet()
+    assert "Qt-Material" in dark_style
+
+    GUI.apply_client_theme(app, "light")
+    light_style = app.styleSheet()
+    assert "Qt-Material" in light_style
+    assert light_style != dark_style
+
+    app.setStyleSheet("")
+    GUI.apply_client_theme(app, "native")
+    assert not app.styleSheet()
+    GUI.apply_client_theme(app, "none")
+    assert not app.styleSheet()
 
 
 class DummySignal:

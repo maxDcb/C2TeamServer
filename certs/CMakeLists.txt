@@ -3,7 +3,8 @@ if(WIN32)
 else()
 	file(COPY ${CMAKE_SOURCE_DIR}/certs/sslBeaconHttps DESTINATION ${CMAKE_BINARY_DIR}/certs)
 
-	execute_process(COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps && ./genSslCert.sh localhost")
+	execute_process(COMMAND bash ./genSslCert.sh localhost
+		WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/certs/sslBeaconHttps")
 
 	file(COPY ${CMAKE_BINARY_DIR}/certs/sslBeaconHttps/localhost.key DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
 
@@ -16,7 +17,8 @@ if(WIN32)
 else()
 	file(COPY ${CMAKE_SOURCE_DIR}/certs/sslTeamServ DESTINATION ${CMAKE_BINARY_DIR}/certs)
 
-	execute_process(COMMAND bash -c "cd ${CMAKE_BINARY_DIR}/certs/sslTeamServ && ./genSslCert.sh")
+	execute_process(COMMAND bash ./genSslCert.sh
+		WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/certs/sslTeamServ")
 
 	# server.key
 	file(COPY ${CMAKE_BINARY_DIR}/certs/sslTeamServ/server-key.pem DESTINATION ${C2_TEAMSERVER_RUNTIME_OUTPUT_DIR}/)
