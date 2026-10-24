@@ -14,6 +14,7 @@
 | Dépendances complémentaires | [Complément](remaining-dependencies-inventory.md) | Manifestes, lock Conan, workflows et réponses du propriétaire | Sous-module imbriqué, services tiers, paquets transitifs verrouillés et outils de build |
 | Alignement des versions | [Comparaison](dependency-version-alignment.md) | Même références de parents | Matrice des commits partagés, Conan, pip et étapes nécessaires avant l'audit des usages |
 | Mises à jour externes | [Relevé Conan/pip](external-dependency-updates.md) | Catalogues Conan Center et PyPI du 24 octobre 2026 | Versions publiées, contraintes résolues et ordre de mise à jour proposé |
+| Publication des sous-modules | [Procédure de validation](submodule-release-policy.md) | Versions alignées des trois parents | Contrôle des gitlinks, builds et ordre de publication |
 
 ## Dépôts et maintenance
 
