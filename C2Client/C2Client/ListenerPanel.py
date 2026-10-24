@@ -1,9 +1,7 @@
-import time
-import logging
 import re
 from ipaddress import ip_address
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QApplication,
@@ -27,11 +25,9 @@ from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style
+from .refresh_worker import RefreshWorker
 from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
 from .window_chrome import apply_dark_window_chrome
-
-logger = logging.getLogger(__name__)
-
 
 #
 # Constant
@@ -277,7 +273,7 @@ class Listeners(QWidget):
         self.headerLayout.addWidget(self.copyListenerIdButton)
 
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh listeners now.", width=70)
-        self.refreshButton.clicked.connect(self.listListeners)
+        self.refreshButton.clicked.connect(self.requestRefresh)
         self.headerLayout.addWidget(self.refreshButton)
         self.layout.addLayout(self.headerLayout, 0, 0)
 
@@ -307,10 +303,12 @@ class Listeners(QWidget):
         # Thread to get listeners every second
         # https://realpython.com/python-pyqt-qthread/
         self.thread = QThread()
-        self.getListenerWorker = GetListenerWorker()
+        self._refresh_failed = False
+        self.getListenerWorker = GetListenerWorker(self.grpcClient)
         self.getListenerWorker.moveToThread(self.thread)
         self.thread.started.connect(self.getListenerWorker.run)
-        self.getListenerWorker.checkin.connect(self.listListeners)
+        self.getListenerWorker.ready.connect(self._applyListeners)
+        self.getListenerWorker.failed.connect(self._onRefreshFailure)
         self.thread.start()
 
         self.setLayout(self.layout)
@@ -475,11 +473,24 @@ class Listeners(QWidget):
 
     # query the server to get the list of listeners
     def listListeners(self):
-        responses = self.grpcClient.listListeners()
+        try:
+            listeners = list(self.grpcClient.listListeners())
+        except Exception as exc:
+            self._onRefreshFailure(str(exc))
+            return
+        self._applyListeners(listeners)
 
-        listeners = list()
-        for response in responses:
-            listeners.append(response)
+    def requestRefresh(self):
+        self.getListenerWorker.request_refresh()
+
+    def _onRefreshFailure(self, _message):
+        self._refresh_failed = True
+        self.setInlineStatus("Server unavailable; retrying listeners.", False)
+
+    def _applyListeners(self, listeners):
+        if self._refresh_failed:
+            self.setInlineStatus("Listeners reconnected.")
+            self._refresh_failed = False
 
         # delete listener
         for ix, listenerStore in enumerate(self.listListenerObject):
@@ -732,25 +743,6 @@ class CreateListner(QWidget):
         self.close()
 
 
-class GetListenerWorker(QObject):
-    checkin = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.exit = False
-        self.refreshIntervalSeconds = env_int("C2_LISTENER_REFRESH_MS", 2000, minimum=100) / 1000
-
-    def __del__(self):
-        self.exit=True
-
-    def run(self):
-        try: 
-            while self.exit==False:
-                if self.receivers(self.checkin) > 0:
-                    self.checkin.emit()
-                time.sleep(self.refreshIntervalSeconds)
-        except Exception:
-            logger.exception("Listener refresh worker stopped unexpectedly")
-
-    def quit(self):
-        self.exit=True
+class GetListenerWorker(RefreshWorker):
+    def __init__(self, grpc_client):
+        super().__init__(grpc_client.listListeners, env_int("C2_LISTENER_REFRESH_MS", 2000, minimum=100))

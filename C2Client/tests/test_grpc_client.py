@@ -1,4 +1,6 @@
 import grpc
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from unittest import mock
 
 import pytest
@@ -13,6 +15,17 @@ from C2Client.grpcClient import GrpcClient, TeamServerApi_pb2, TeamServerApi_pb2
 class DummyFuture:
     def result(self, timeout=None):
         return None
+
+
+class FakeRpcError(grpc.RpcError):
+    def __init__(self, code):
+        self._code = code
+
+    def code(self):
+        return self._code
+
+    def details(self):
+        return self._code.name
 
 
 def test_grpc_client_reads_certificate_and_sets_metadata(tmp_path, monkeypatch):
@@ -400,3 +413,80 @@ def test_grpc_client_connection_error(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError):
         GrpcClient("127.0.0.1", 50051, False)
+
+
+def test_client_reauthenticates_after_server_restart(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.Authenticate.side_effect = [
+        TeamServerApi_pb2.AuthResponse(status=TeamServerApi_pb2.OK, token="old"),
+        TeamServerApi_pb2.AuthResponse(status=TeamServerApi_pb2.OK, token="new"),
+    ]
+
+    def list_listeners(_request, *, metadata, timeout):
+        assert timeout == 3.0
+        if ("authorization", "Bearer old") in metadata:
+            raise FakeRpcError(grpc.StatusCode.UNAUTHENTICATED)
+        return iter(["restored"])
+
+    stub.ListListeners.side_effect = list_listeners
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, username="admin", password="secret")
+    assert list(client.listListeners()) == ["restored"]
+    assert stub.Authenticate.call_count == 2
+    assert stub.ListListeners.call_count == 2
+    assert ("authorization", "Bearer new") in client.metadata
+
+
+def test_unavailable_mutation_is_not_replayed(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.AddListener.side_effect = FakeRpcError(grpc.StatusCode.UNAVAILABLE)
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, token="existing")
+    with pytest.raises(grpc.RpcError):
+        client.addListener(object())
+    stub.AddListener.assert_called_once()
+
+
+def test_parallel_polls_share_one_token_refresh(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.Authenticate.side_effect = [
+        TeamServerApi_pb2.AuthResponse(status=TeamServerApi_pb2.OK, token="old"),
+        TeamServerApi_pb2.AuthResponse(status=TeamServerApi_pb2.OK, token="new"),
+    ]
+    old_token_calls = Barrier(2)
+
+    def list_listeners(_request, *, metadata, timeout):
+        if ("authorization", "Bearer old") in metadata:
+            old_token_calls.wait(timeout=2)
+            raise FakeRpcError(grpc.StatusCode.UNAUTHENTICATED)
+        return iter(["restored"])
+
+    stub.ListListeners.side_effect = list_listeners
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, username="admin", password="secret")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: list(client.listListeners()), range(2)))
+
+    assert results == [["restored"], ["restored"]]
+    assert stub.Authenticate.call_count == 2

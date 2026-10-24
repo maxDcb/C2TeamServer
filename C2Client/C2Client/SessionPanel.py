@@ -1,8 +1,6 @@
-import time
-import logging
 from datetime import datetime, timedelta
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -23,10 +21,8 @@ from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style
+from .refresh_worker import RefreshWorker
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
-
-logger = logging.getLogger(__name__)
-
 
 SESSION_STATE_ALIVE = "Alive"
 SESSION_STATE_STALE = "Stale"
@@ -253,7 +249,7 @@ class Sessions(QWidget):
         self.headerLayout.addWidget(self.copySessionIdButton)
 
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh sessions now.", width=70)
-        self.refreshButton.clicked.connect(self.listSessions)
+        self.refreshButton.clicked.connect(self.requestRefresh)
         self.headerLayout.addWidget(self.refreshButton)
         self.layout.addLayout(self.headerLayout, 0, 0)
 
@@ -281,10 +277,12 @@ class Sessions(QWidget):
         # Thread to fetch sessions every second
         # https://realpython.com/python-pyqt-qthread/
         self.thread = QThread()
-        self.getSessionsWorker = GetSessionsWorker()
+        self._refresh_failed = False
+        self.getSessionsWorker = GetSessionsWorker(self.grpcClient)
         self.getSessionsWorker.moveToThread(self.thread)
         self.thread.started.connect(self.getSessionsWorker.run)
-        self.getSessionsWorker.checkin.connect(self.listSessions)
+        self.getSessionsWorker.ready.connect(self._applySessions)
+        self.getSessionsWorker.failed.connect(self._onRefreshFailure)
         self.thread.start()
 
         self.setLayout(self.layout)
@@ -439,15 +437,28 @@ class Sessions(QWidget):
             beacon_hash=beaconHash, listener_hash=listenerHash)
         ack = self.grpcClient.stopSession(session)
         self.setStatusMessage(ack, "Session stop command accepted.", action="Stop session")
-        self.listSessions()
+        self.requestRefresh()
+
+    def requestRefresh(self):
+        self.getSessionsWorker.request_refresh()
+
+    def _onRefreshFailure(self, _message):
+        self._refresh_failed = True
+        self.setInlineStatus("Server unavailable; retrying sessions.", False)
 
 
     def listSessions(self):
-        responses = self.grpcClient.listSessions()
+        try:
+            sessions = list(self.grpcClient.listSessions())
+        except Exception as exc:
+            self._onRefreshFailure(str(exc))
+            return
+        self._applySessions(sessions)
 
-        sessions = list()
-        for response in responses:
-            sessions.append(response)
+    def _applySessions(self, sessions):
+        if self._refresh_failed:
+            self.setInlineStatus("Sessions reconnected.")
+            self._refresh_failed = False
 
         # check for idl sessions
         for ix, item in enumerate(self.listSessionObject):
@@ -575,25 +586,6 @@ class Sessions(QWidget):
         self.updateActionButtons()
 
 
-class GetSessionsWorker(QObject):
-    checkin = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.exit = False
-        self.refreshIntervalSeconds = env_int("C2_SESSION_REFRESH_MS", 2000, minimum=100) / 1000
-
-    def __del__(self):
-        self.exit=True
-
-    def run(self):
-        try: 
-            while self.exit==False:
-                if self.receivers(self.checkin) > 0:
-                    self.checkin.emit()
-                time.sleep(self.refreshIntervalSeconds)
-        except Exception:
-            logger.exception("Session refresh worker stopped unexpectedly")
-
-    def quit(self):
-        self.exit=True
+class GetSessionsWorker(RefreshWorker):
+    def __init__(self, grpc_client):
+        super().__init__(grpc_client.listSessions, env_int("C2_SESSION_REFRESH_MS", 2000, minimum=100))

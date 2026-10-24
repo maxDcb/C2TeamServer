@@ -135,6 +135,14 @@ is marked `outcome_unknown` on restart and is never dispatched automatically
 again. This avoids an unobserved duplicate when a beacon may already have
 received the task. A late beacon result with its job ID can still complete it.
 
+The GUI client can recover from a TeamServer restart when the endpoint and TLS
+certificate stay the same. Its gRPC channel reconnects, and an invalidated
+operator token is renewed with the credentials retained in memory for that
+client process. Session and listener refreshes run off the GUI thread and back
+off to at most 15 seconds while the server is unavailable. Read streams resume
+after recovery; commands that failed with an uncertain transport outcome are
+not resent automatically. Restart the client if the server certificate changes.
+
 ## Client LLM skills
 
 See [assistant-skills.md](assistant-skills.md) for fixed and agentic skills,

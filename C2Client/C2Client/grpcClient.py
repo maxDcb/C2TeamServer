@@ -9,6 +9,7 @@ import logging
 import json
 import os
 import uuid
+from threading import Lock
 from typing import Any, Callable, Iterable, List, Tuple, Optional
 
 import grpc
@@ -60,6 +61,9 @@ class GrpcClient:
         self.last_rpc_ok = True
         self.last_rpc_message = ""
         self._status_callback: Optional[StatusCallback] = None
+        self._auth_lock = Lock()
+        self._auth_password: Optional[str] = None
+        self._token = token
 
         configured_cert_path = env_path("C2_CERT_PATH")
 
@@ -127,8 +131,10 @@ class GrpcClient:
             if username is None or password is None:
                 username, password = self._load_credentials_from_env()
             self.username = username
+            self._auth_password = password
             token = self._authenticate(username, password)
 
+        self._token = token
         self.metadata: MetadataType = [
             ("authorization", f"Bearer {token}"),
             ("clientid", self.client_id),
@@ -155,27 +161,69 @@ class GrpcClient:
             details = ""
         return details or str(exc)
 
-    def _unary_rpc(self, operation: str, call: Callable[[], Any]) -> Any:
+    @staticmethod
+    def _is_unauthenticated(exc: grpc.RpcError) -> bool:
         try:
-            response = call()
-            self._notify_rpc_status(operation, True)
-            return response
-        except grpc.RpcError as exc:
-            message = self._rpc_error_message(exc)
-            logging.error("%s RPC failed: %s", operation, exc)
-            self._notify_rpc_status(operation, False, message)
-            raise
+            return exc.code() == grpc.StatusCode.UNAUTHENTICATED
+        except (AttributeError, NotImplementedError):
+            return False
+
+    def _refresh_auth(self, rejected_token: Optional[str]) -> bool:
+        """Renew a rejected token once, even when several polling threads fail together."""
+        if not self._auth_password:
+            return False
+        with self._auth_lock:
+            if self._token != rejected_token:
+                return True
+            token = self._authenticate(self.username, self._auth_password)
+            self.metadata = [
+                ("authorization", f"Bearer {token}"),
+                ("clientid", self.client_id),
+            ]
+            self._token = token
+            return True
+
+    def _retry_after_auth_failure(self, exc: grpc.RpcError, rejected_token: Optional[str]) -> bool:
+        if not self._is_unauthenticated(exc):
+            return False
+        try:
+            return self._refresh_auth(rejected_token)
+        except (grpc.RpcError, ValueError) as auth_exc:
+            logging.warning("Reauthentication failed: %s", auth_exc)
+            return False
+
+    def _unary_rpc(self, operation: str, call: Callable[[], Any]) -> Any:
+        for attempt in range(2):
+            rejected_token = self._token
+            try:
+                response = call()
+                self._notify_rpc_status(operation, True)
+                return response
+            except grpc.RpcError as exc:
+                if attempt == 0 and self._retry_after_auth_failure(exc, rejected_token):
+                    continue
+                message = self._rpc_error_message(exc)
+                logging.error("%s RPC failed: %s", operation, exc)
+                self._notify_rpc_status(operation, False, message)
+                raise
 
     def _stream_rpc(self, operation: str, call: Callable[[], Iterable[Any]]) -> Iterable[Any]:
-        try:
-            for response in call():
-                yield response
-            self._notify_rpc_status(operation, True)
-        except grpc.RpcError as exc:
-            message = self._rpc_error_message(exc)
-            logging.error("%s RPC failed: %s", operation, exc)
-            self._notify_rpc_status(operation, False, message)
-            raise
+        for attempt in range(2):
+            rejected_token = self._token
+            yielded = False
+            try:
+                for response in call():
+                    yielded = True
+                    yield response
+                self._notify_rpc_status(operation, True)
+                return
+            except grpc.RpcError as exc:
+                if attempt == 0 and not yielded and self._retry_after_auth_failure(exc, rejected_token):
+                    continue
+                message = self._rpc_error_message(exc)
+                logging.error("%s RPC failed: %s", operation, exc)
+                self._notify_rpc_status(operation, False, message)
+                raise
 
     def _load_credentials_from_env(self) -> Tuple[str, str]:
         username = os.getenv("C2_USERNAME")
@@ -188,7 +236,7 @@ class GrpcClient:
 
     def _authenticate(self, username: str, password: str) -> str:
         request = TeamServerApi_pb2.AuthRequest(username=username, password=password)
-        response = self.stub.Authenticate(request)
+        response = self.stub.Authenticate(request, timeout=5.0)
         if response.status != TeamServerApi_pb2.OK or not response.token:
             message = response.message or "unknown authentication error"
             logging.error("Authentication failed for user %s: %s", username, message)
@@ -202,7 +250,7 @@ class GrpcClient:
         """Return the list of listeners registered on the TeamServer."""
 
         empty = TeamServerApi_pb2.Empty()
-        return self._stream_rpc("ListListeners", lambda: self.stub.ListListeners(empty, metadata=self.metadata))
+        return self._stream_rpc("ListListeners", lambda: self.stub.ListListeners(empty, metadata=self.metadata, timeout=3.0))
 
     def addListener(self, listener: Any) -> Any:
         """Add a new listener on the TeamServer."""
@@ -218,7 +266,7 @@ class GrpcClient:
         """Return all active sessions."""
 
         empty = TeamServerApi_pb2.Empty()
-        return self._stream_rpc("ListSessions", lambda: self.stub.ListSessions(empty, metadata=self.metadata))
+        return self._stream_rpc("ListSessions", lambda: self.stub.ListSessions(empty, metadata=self.metadata, timeout=3.0))
 
     def listArtifacts(self, query: Optional[Any] = None) -> Iterable[Any]:
         """Return artifacts indexed by the TeamServer catalog."""

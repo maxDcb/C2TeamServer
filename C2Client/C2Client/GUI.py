@@ -240,7 +240,8 @@ class App(QMainWindow):
         if not ok:
             self._lastRpcError = format_last_error(operation, message)
             apply_error(self.errorStatusLabel, f"Last error: {self._lastRpcError}")
-        elif not self._lastRpcError:
+        else:
+            self._lastRpcError = ""
             clear_status(self.errorStatusLabel, DEFAULT_LAST_ERROR_TEXT)
 
     @staticmethod
