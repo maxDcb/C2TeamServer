@@ -314,6 +314,20 @@ std::string connectByHostname(socket_t client, int targetPort,
     require(static_cast<uint8_t>(reply[0]) == 5, "SOCKS CONNECT reply version mismatch");
     return reply;
 }
+
+std::string waitForReplyWithoutBeacon(socket_t client)
+{
+    std::string reply;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        reply += takeAvailable(client);
+        if (reply.size() >= 10)
+            return reply;
+        std::this_thread::sleep_for(5ms);
+    }
+    throw std::runtime_error("SOCKS timeout reply was not produced");
+}
 } // namespace
 
 int main()
@@ -332,7 +346,8 @@ int main()
     TeamServerSocksService service(
         std::make_shared<spdlog::logger>("socks-contract"), listeners,
         [](unsigned short) { return false; },
-        [socksPort](int) { return std::make_unique<RealSocksServer>(socksPort); });
+        [socksPort](int) { return std::make_unique<RealSocksServer>(socksPort); },
+        250ms);
     teamserverapi::TerminalCommandResponse response;
     require(service.handleCommand({"socks", "start"}, &response).ok() &&
                 response.status() == teamserverapi::OK,
@@ -340,6 +355,25 @@ int main()
     require(service.handleCommand({"socks", "bind", beacon.hash().substr(0, 8)}, &response).ok() &&
                 response.status() == teamserverapi::OK,
             "SOCKS service bind failed");
+
+    EchoServer timeoutEcho;
+    SocketHandle timeoutClient(connectLocal(socksPort));
+    negotiateNoAuth(timeoutClient.get(), beacon, *listener);
+    const std::string host = "127.0.0.1";
+    std::string timeoutRequest("\x05\x01\x00\x03", 4);
+    timeoutRequest.push_back(static_cast<char>(host.size()));
+    timeoutRequest += host;
+    const uint16_t timeoutPort = htons(static_cast<uint16_t>(timeoutEcho.port()));
+    timeoutRequest.append(reinterpret_cast<const char*>(&timeoutPort), sizeof(timeoutPort));
+    sendBytes(timeoutClient.get(), timeoutRequest);
+    const std::string timeoutReply = waitForReplyWithoutBeacon(timeoutClient.get());
+    require(static_cast<uint8_t>(timeoutReply[1]) ==
+                static_cast<uint8_t>(Response::HostUnreachable),
+            "missing beacon response did not expire the SOCKS handshake");
+    timeoutClient.reset();
+    pumpUntil(beacon, *listener, [&] { return timeoutEcho.disconnected(); },
+              "expired SOCKS handshake left a delayed target socket open");
+    require(service.isBound(), "expired tunnel stopped the SOCKS service");
 
     const int unavailablePort = reservePort();
     SocketHandle rejectedClient(connectLocal(socksPort));

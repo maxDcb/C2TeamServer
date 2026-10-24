@@ -234,6 +234,23 @@ void testImmediateUnbindAfterBind()
         require(!service.isBound());
     }
 }
+
+void testAmbiguousSessionPrefixIsRejected()
+{
+    auto listener = std::make_shared<TestListener>("listener-primary");
+    listener->addSession("listener-primary", "PREFIXAA12345678", "Linux");
+    listener->addSession("listener-primary", "PREFIXBB12345678", "Linux");
+    std::vector<std::shared_ptr<Listener>> listeners = {listener};
+    TeamServerSocksService service(
+        makeLogger(), listeners,
+        [](unsigned short) { return false; },
+        [](int) { return std::make_unique<FakeSocksServer>(); });
+    teamserverapi::TerminalCommandResponse response;
+    require(service.handleCommand({"socks", "start"}, &response).ok());
+    require(service.handleCommand({"socks", "bind", "PREFIX"}, &response).ok());
+    require(response.status() == teamserverapi::KO);
+    require(!service.isBound());
+}
 } // namespace
 
 int main()
@@ -243,5 +260,6 @@ int main()
     testPortInUseAndUnknownCommand();
     testRebindAfterSessionKilled();
     testImmediateUnbindAfterBind();
+    testAmbiguousSessionPrefixIsRejected();
     return 0;
 }
