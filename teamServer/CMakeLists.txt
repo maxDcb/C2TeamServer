@@ -191,6 +191,14 @@ if(WITH_TESTS)
         tests/TeamServerSocksServiceTests.cpp
     )
 
+    teamserver_add_test(testsTeamServerSocksContract
+        server_core
+        tests/TeamServerSocksContractTests.cpp
+        ../core/beacon/Beacon.cpp
+    )
+    target_link_libraries(testsTeamServerSocksContract PRIVATE MemoryModule PipeHandler)
+    set_tests_properties(testsTeamServerSocksContract PROPERTIES TIMEOUT 30 LABELS "functional;transport;socks")
+
     teamserver_add_test(testsTeamServerTermLocalService
         server_core
         tests/TeamServerTermLocalServiceTests.cpp

@@ -158,6 +158,10 @@ void testBindAndUnbindLifecycle()
     require(response.status() == teamserverapi::OK);
     require(response.result() == "Socks server successfully unbinding");
     require(!service.isBound());
+
+    const C2Message stop = listener->getTask("ABCDEFGH12345678");
+    require(stop.instruction() == Socks5Cmd);
+    require(stop.cmd() == StopSocksCmd);
 }
 
 void testPortInUseAndUnknownCommand()

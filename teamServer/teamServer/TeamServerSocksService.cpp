@@ -262,72 +262,122 @@ void TeamServerSocksService::run()
 {
     std::string dataIn;
     std::string dataOut;
-    while (m_isSocksServerBinded.load())
+    try
     {
-        if (m_socksSession->isSessionKilled())
+        while (m_isSocksServerBinded.load())
         {
-            m_isSocksServerBinded.store(false);
-            for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-                m_socksServer->resetTunnel(i);
-        }
-
-        C2Message c2Message = m_socksListener->getSocksTaskResult(m_socksSession->getBeaconHash());
-        if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopSocksCmd)
-        {
-            m_socksServer->stop();
-            m_isSocksServerBinded.store(false);
-            for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-                m_socksServer->resetTunnel(i);
-        }
-
-        for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
-        {
-            SocksTunnelServer* tunnel = m_socksServer->getTunnel(i);
-            if (tunnel == nullptr)
-                continue;
-
-            int id = tunnel->getId();
-            SocksState state = tunnel->getState();
-            if (state == SocksState::INIT)
+            if (!m_socksSession || !m_socksListener || !m_socksServer ||
+                m_socksSession->isSessionKilled())
             {
-                int port = tunnel->getPort();
-
-                m_logger->debug("Socks5 to {}:{}", tunnelDestinationLabel(tunnel), std::to_string(port));
-
-                C2Message c2MessageToSend;
-                c2MessageToSend.set_instruction(Socks5Cmd);
-                c2MessageToSend.set_cmd(InitCmd);
-                c2MessageToSend.set_data(tunnelDestinationPayload(tunnel));
-                c2MessageToSend.set_args(std::to_string(port));
-                c2MessageToSend.set_pid(id);
-
-                if (!c2MessageToSend.instruction().empty())
-                    m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-
-                tunnel->setState(SocksState::HANDSHAKE);
+                m_isSocksServerBinded.store(false);
+                resetAllTunnels();
+                break;
             }
-            else if (state == SocksState::HANDSHAKE)
+
+            C2Message c2Message = m_socksListener->getSocksTaskResult(m_socksSession->getBeaconHash());
+
+            for (std::size_t i = 0; i < m_socksServer->tunnelCount(); i++)
             {
-                m_logger->trace("Socks5 wait handshake {}", id);
+                SocksTunnelServer* tunnel = m_socksServer->getTunnel(i);
+                if (tunnel == nullptr)
+                    continue;
 
-                if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == InitCmd && c2Message.pid() == id)
+                int id = tunnel->getId();
+                SocksState state = tunnel->getState();
+                if (state == SocksState::INIT)
                 {
-                    m_logger->debug("Socks5 handshake received {}", id);
+                    int port = tunnel->getPort();
 
-                    if (isSocksInitFailure(c2Message.data()))
+                    m_logger->debug("Socks5 to {}:{}", tunnelDestinationLabel(tunnel), std::to_string(port));
+
+                    C2Message c2MessageToSend;
+                    c2MessageToSend.set_instruction(Socks5Cmd);
+                    c2MessageToSend.set_cmd(InitCmd);
+                    c2MessageToSend.set_data(tunnelDestinationPayload(tunnel));
+                    c2MessageToSend.set_args(std::to_string(port));
+                    c2MessageToSend.set_pid(id);
+
+                    if (queueToBoundSession(c2MessageToSend))
+                        tunnel->setState(SocksState::HANDSHAKE);
+                    else
                     {
-                        m_logger->debug("Socks5 handshake failed {}", id);
                         tunnel->failHandshake(Response::HostUnreachable);
                         m_socksServer->resetTunnel(i);
                     }
-                    else
-                    {
-                        m_logger->debug("Socks5 handshake succed {}", id);
-                        tunnel->finishHandshake();
-                        tunnel->setState(SocksState::RUN);
+                }
+                else if (state == SocksState::HANDSHAKE)
+                {
+                    m_logger->trace("Socks5 wait handshake {}", id);
 
-                        dataIn = "";
+                    if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == InitCmd && c2Message.pid() == id)
+                    {
+                        m_logger->debug("Socks5 handshake received {}", id);
+
+                        if (isSocksInitFailure(c2Message.data()))
+                        {
+                            m_logger->debug("Socks5 handshake failed {}", id);
+                            tunnel->failHandshake(Response::HostUnreachable);
+                            m_socksServer->resetTunnel(i);
+                        }
+                        else if (!tunnel->finishHandshake())
+                        {
+                            m_socksServer->resetTunnel(i);
+                            C2Message stop;
+                            stop.set_instruction(Socks5Cmd);
+                            stop.set_cmd(StopCmd);
+                            stop.set_pid(id);
+                            queueToBoundSession(stop);
+                        }
+                        else
+                        {
+                            m_logger->debug("Socks5 handshake succed {}", id);
+                            tunnel->setState(SocksState::RUN);
+
+                            dataIn.clear();
+                            int res = tunnel->process(dataIn, dataOut);
+                            if (res <= 0)
+                            {
+                                m_logger->debug("Socks5 stop");
+                                m_socksServer->resetTunnel(i);
+
+                                C2Message c2MessageToSend;
+                                c2MessageToSend.set_instruction(Socks5Cmd);
+                                c2MessageToSend.set_cmd(StopCmd);
+                                c2MessageToSend.set_pid(id);
+                                queueToBoundSession(c2MessageToSend);
+                            }
+                            else
+                            {
+                                m_logger->debug("Socks5 send data to beacon");
+
+                                C2Message c2MessageToSend;
+                                c2MessageToSend.set_instruction(Socks5Cmd);
+                                c2MessageToSend.set_cmd(RunCmd);
+                                c2MessageToSend.set_pid(id);
+                                c2MessageToSend.set_data(dataOut);
+                                if (!queueToBoundSession(c2MessageToSend))
+                                    m_socksServer->resetTunnel(i);
+                            }
+                        }
+                    }
+                    else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
+                    {
+                        m_socksServer->resetTunnel(i);
+                    }
+                }
+                else if (state == SocksState::RUN)
+                {
+                    m_logger->trace("Socks5 run {}", id);
+
+                    dataIn.clear();
+                    if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == RunCmd && c2Message.pid() == id)
+                    {
+                        m_logger->debug("Socks5 {}: data received from beacon", id);
+
+                        dataIn = c2Message.data();
                         int res = tunnel->process(dataIn, dataOut);
+
+                        m_logger->debug("Socks5 process, res {}, dataIn {}, dataOut {}", res, dataIn.size(), dataOut.size());
                         if (res <= 0)
                         {
                             m_logger->debug("Socks5 stop");
@@ -337,8 +387,7 @@ void TeamServerSocksService::run()
                             c2MessageToSend.set_instruction(Socks5Cmd);
                             c2MessageToSend.set_cmd(StopCmd);
                             c2MessageToSend.set_pid(id);
-                            if (!c2MessageToSend.instruction().empty())
-                                m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
+                            queueToBoundSession(c2MessageToSend);
                         }
                         else
                         {
@@ -349,63 +398,25 @@ void TeamServerSocksService::run()
                             c2MessageToSend.set_cmd(RunCmd);
                             c2MessageToSend.set_pid(id);
                             c2MessageToSend.set_data(dataOut);
-                            if (!c2MessageToSend.instruction().empty())
-                                m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
+                            if (!queueToBoundSession(c2MessageToSend))
+                                m_socksServer->resetTunnel(i);
                         }
                     }
-                }
-                else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
-                {
-                    m_socksServer->resetTunnel(i);
-                }
-            }
-            else if (state == SocksState::RUN)
-            {
-                m_logger->trace("Socks5 run {}", id);
-
-                dataIn = "";
-                if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == RunCmd && c2Message.pid() == id)
-                {
-                    m_logger->debug("Socks5 {}: data received from beacon", id);
-
-                    dataIn = c2Message.data();
-                    int res = tunnel->process(dataIn, dataOut);
-
-                    m_logger->debug("Socks5 process, res {}, dataIn {}, dataOut {}", res, dataIn.size(), dataOut.size());
-                    if (res <= 0)
+                    else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
                     {
-                        m_logger->debug("Socks5 stop");
                         m_socksServer->resetTunnel(i);
-
-                        C2Message c2MessageToSend;
-                        c2MessageToSend.set_instruction(Socks5Cmd);
-                        c2MessageToSend.set_cmd(StopCmd);
-                        c2MessageToSend.set_pid(id);
-                        if (!c2MessageToSend.instruction().empty())
-                            m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
                     }
-                    else
-                    {
-                        m_logger->debug("Socks5 send data to beacon");
-
-                        C2Message c2MessageToSend;
-                        c2MessageToSend.set_instruction(Socks5Cmd);
-                        c2MessageToSend.set_cmd(RunCmd);
-                        c2MessageToSend.set_pid(id);
-                        c2MessageToSend.set_data(dataOut);
-                        if (!c2MessageToSend.instruction().empty())
-                            m_socksListener->queueTask(m_socksSession->getBeaconHash(), c2MessageToSend);
-                    }
-                }
-                else if (c2Message.instruction() == Socks5Cmd && c2Message.cmd() == StopCmd && c2Message.pid() == id)
-                {
-                    m_socksServer->resetTunnel(i);
                 }
             }
-        }
 
-        m_socksServer->cleanTunnel();
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            m_socksServer->cleanTunnel();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    catch (...)
+    {
+        m_isSocksServerBinded.store(false);
+        resetAllTunnels();
     }
 
     m_logger->info("End SocksServer binding");
@@ -458,12 +469,44 @@ bool TeamServerSocksService::portInUse(unsigned short port) const
     return m_portInUse(port);
 }
 
+bool TeamServerSocksService::queueToBoundSession(const C2Message& message)
+{
+    if (!m_socksListener || !m_socksSession)
+        return false;
+    return m_socksListener->queueTaskIfSessionAlive(
+        m_socksSession->getBeaconHash(),
+        m_socksSession->getListenerHash(),
+        message);
+}
+
+void TeamServerSocksService::requestRemoteStop()
+{
+    if (!m_socksListener || !m_socksSession || m_socksSession->isSessionKilled())
+        return;
+    C2Message stop;
+    stop.set_instruction(Socks5Cmd);
+    stop.set_cmd(StopSocksCmd);
+    queueToBoundSession(stop);
+}
+
+void TeamServerSocksService::resetAllTunnels()
+{
+    if (!m_socksServer)
+        return;
+    const std::size_t count = m_socksServer->tunnelCount();
+    for (std::size_t i = 0; i < count; ++i)
+        m_socksServer->resetTunnel(i);
+    m_socksServer->cleanTunnel();
+}
+
 void TeamServerSocksService::unbindThread()
 {
     m_isSocksServerBinded.store(false);
     if (m_socksThread)
         m_socksThread->join();
     m_socksThread.reset();
+    requestRemoteStop();
+    resetAllTunnels();
     m_socksListener.reset();
     m_socksSession.reset();
 }

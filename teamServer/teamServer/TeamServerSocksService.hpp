@@ -54,6 +54,9 @@ private:
     std::shared_ptr<Session> findSessionByPrefix(const std::string& beaconHashPrefix, std::shared_ptr<Listener>& listener) const;
     std::unique_ptr<ISocksServer> createServer(int port);
     bool portInUse(unsigned short port) const;
+    bool queueToBoundSession(const C2Message& message);
+    void requestRemoteStop();
+    void resetAllTunnels();
     void unbindThread();
     void stopServer();
 
