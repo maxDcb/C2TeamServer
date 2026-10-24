@@ -400,12 +400,16 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
             super().__init__(parent)
             self.beaconHash = beaconHash
             self.listenerHash = listenerHash
+            self.sessionAvailable = True
             self.pollingActive = None
             self.pollingStates = []
             FakeConsole.instances.append(self)
 
         def rebindSessionRoute(self, listener_hash):
             self.listenerHash = listener_hash
+
+        def setSessionAvailable(self, available):
+            self.sessionAvailable = available
 
         def setResponsePollingActive(self, active):
             self.pollingActive = active
@@ -442,9 +446,17 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
 
     consoles.reconcileRoutes([SimpleNamespace(beacon_hash="beacon-1", listener_hash="new-listener")])
     assert first.listenerHash == "new-listener"
+    assert first.sessionAvailable is True
+    assert second.sessionAvailable is False
     consoles.addConsole("beacon-1", "listener", "host", "user")
     assert first.listenerHash == "new-listener"
     assert consoles.tabs.count() == SYSTEM_TAB_COUNT + 2
+
+    consoles.reconcileRoutes([])
+    assert first.sessionAvailable is False
+    consoles.reconcileRoutes([SimpleNamespace(beacon_hash="beacon-1", listener_hash="latest-listener")])
+    assert first.listenerHash == "latest-listener"
+    assert first.sessionAvailable is True
 
 
 def test_console_route_change_preserves_old_result_subscription(tmp_path, qtbot, monkeypatch):
@@ -462,6 +474,27 @@ def test_console_route_change_preserves_old_result_subscription(tmp_path, qtbot,
     assert len(console._result_subscriptions) == 2
     console.closeResultSubscription()
     assert not console.result_hub._streams
+
+
+def test_unavailable_console_does_not_send_command(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
+    grpc = StubGrpc()
+    console = console_with_hub(grpc, 'beacon', 'listener', 'host', 'user')
+    qtbot.addWidget(console)
+
+    console.setSessionAvailable(False)
+    console.commandEditor.setText('ls')
+    console.runCommand()
+    assert console.commandEditor.displayText() == 'ls'
+    assert grpc.sent_commands == []
+    assert 'Session unavailable' in console.consoleNoticeLabel.text()
+
+    console.setSessionAvailable(True)
+    console.runCommand()
+    assert grpc.sent_commands[-1].session.listener_hash == 'listener'
+    console.closeResultSubscription()
 
 
 def _completion_children(entries, text):

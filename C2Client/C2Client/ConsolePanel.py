@@ -1043,6 +1043,7 @@ class ConsolesTab(QWidget):
 
         self.grpcClient = grpcClient
         self._activeRoutesByBeacon: dict[str, set[str]] = {}
+        self._routesSnapshotReceived = False
         # App owns the production hub; standalone panels can own one for tests.
         self.command_result_hub = result_hub or CommandEventHub(grpcClient, self)
 
@@ -1112,7 +1113,10 @@ class ConsolesTab(QWidget):
                 else:
                     console.setResponsePollingActive(index == currentIndex)
                 if index == currentIndex and hasattr(self.assistant, "setActiveSession"):
-                    self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
+                    if getattr(console, "sessionAvailable", True):
+                        self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
+                    else:
+                        self.assistant.setActiveSession("", "")
         
     def reconcileRoutes(self, sessions):
         routes: dict[str, set[str]] = {}
@@ -1122,16 +1126,26 @@ class ConsolesTab(QWidget):
             if beacon_hash and listener_hash:
                 routes.setdefault(beacon_hash, set()).add(listener_hash)
         self._activeRoutesByBeacon = routes
+        self._routesSnapshotReceived = True
 
         for index in range(SYSTEM_TAB_COUNT, self.tabs.count()):
             console = self.consoleFromTab(index)
-            if console is None or not hasattr(console, "rebindSessionRoute"):
+            if console is None:
                 continue
             active_routes = routes.get(console.beaconHash, set())
-            if console.listenerHash not in active_routes and len(active_routes) == 1:
+            previous_route = console.listenerHash
+            was_available = getattr(console, "sessionAvailable", True)
+            if console.listenerHash not in active_routes and len(active_routes) == 1 and hasattr(console, "rebindSessionRoute"):
                 console.rebindSessionRoute(next(iter(active_routes)))
-                if index == self.tabs.currentIndex() and hasattr(self.assistant, "setActiveSession"):
+            if hasattr(console, "setSessionAvailable"):
+                console.setSessionAvailable(console.listenerHash in active_routes)
+            if (index == self.tabs.currentIndex()
+                    and (previous_route != console.listenerHash or was_available != getattr(console, "sessionAvailable", True))
+                    and hasattr(self.assistant, "setActiveSession")):
+                if getattr(console, "sessionAvailable", True):
                     self.assistant.setActiveSession(console.beaconHash, console.listenerHash)
+                else:
+                    self.assistant.setActiveSession("", "")
 
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         active_routes = self._activeRoutesByBeacon.get(beaconHash, set())
@@ -1143,6 +1157,8 @@ class ConsolesTab(QWidget):
             if console is not None and console.beaconHash == beaconHash:
                 if hasattr(console, "rebindSessionRoute"):
                     console.rebindSessionRoute(listenerHash)
+                if self._routesSnapshotReceived and hasattr(console, "setSessionAvailable"):
+                    console.setSessionAvailable(listenerHash in active_routes)
                 self.tabs.setCurrentIndex(idx)
                 tabAlreadyOpen=True
 
@@ -1153,6 +1169,8 @@ class ConsolesTab(QWidget):
                 self, self.grpcClient, beaconHash, listenerHash, hostname, username,
                 result_hub=self.command_result_hub,
             )
+            if self._routesSnapshotReceived and hasattr(console, "setSessionAvailable"):
+                console.setSessionAvailable(listenerHash in active_routes)
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self._forward_console_send)
             tab = self.createConsolePage(console)
@@ -1190,7 +1208,11 @@ class ConsolesTab(QWidget):
             self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, close_container)
             self.tabs.setCurrentIndex(self.tabs.count()-1)
         if hasattr(self.assistant, "setActiveSession"):
-            self.assistant.setActiveSession(beaconHash, listenerHash)
+            active_console = self.consoleFromTab(self.tabs.currentIndex())
+            if active_console is not None and getattr(active_console, "sessionAvailable", True):
+                self.assistant.setActiveSession(active_console.beaconHash, active_console.listenerHash)
+            else:
+                self.assistant.setActiveSession("", "")
 
     def closeTab(self, currentIndex):
         currentQWidget = self.tabs.widget(currentIndex)
@@ -1242,6 +1264,7 @@ class Console(QWidget):
 
         self.beaconHash=beaconHash
         self.listenerHash=listenerHash
+        self.sessionAvailable = True
         self.hostname=hostname.replace("\\", "_").replace(" ", "_")
         self.username=username.replace("\\", "_").replace(" ", "_")
         self.logFileName=self.hostname+"_"+self.username+"_"+self.beaconHash+".log"
@@ -1327,6 +1350,18 @@ class Console(QWidget):
         for event in self.result_hub.recent_events(self.beaconHash, listenerHash):
             self.displayResponse(event)
         self.setConsoleNotice(f"Session route updated: {listenerHash[:8]}")
+
+    def setSessionAvailable(self, available):
+        available = bool(available)
+        if available == self.sessionAvailable:
+            return
+        self.sessionAvailable = available
+        self.commandEditor.setEnabled(available)
+        self.resendButton.setEnabled(available)
+        if available:
+            self.setConsoleNotice("Session available.")
+        else:
+            self.setConsoleNotice("Session unavailable; waiting for an active route.", True)
 
     def closeResultSubscription(self):
         for subscription in getattr(self, "_result_subscriptions", []):
@@ -1568,6 +1603,9 @@ class Console(QWidget):
         self.executeCommand(self.lastCommandLine)
 
     def runCommand(self):
+        if not self.sessionAvailable:
+            self.setConsoleNotice("Session unavailable; waiting for an active route.", True)
+            return
         commandLine = self.commandEditor.displayText()
         self.commandEditor.clearLine()
         self.executeCommand(commandLine)
@@ -1578,6 +1616,10 @@ class Console(QWidget):
         if commandLine == "":
             self.printInTerminal("", "", "")
             self.setCursorEditorAtEnd()
+            return
+
+        if not self.sessionAvailable:
+            self.setConsoleNotice("Session unavailable; waiting for an active route.", True)
             return
 
         self.lastCommandLine = commandLine

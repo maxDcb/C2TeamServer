@@ -315,3 +315,33 @@ def test_child_listener_displays_beacon_id_in_host_column(qtbot, monkeypatch):
     assert "Beacon ID: beacon-full-hash" in listeners.listListener.item(0, 2).toolTip()
     assert "Endpoint: 0.0.0.0:4444" in listeners.listListener.item(0, 2).toolTip()
     assert listeners.scriptSnapshot()[0]["beacon_hash"] == "beacon-full-hash"
+
+
+def test_listener_refresh_removes_all_missing_rows(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+    parent = QWidget()
+    listeners = Listeners(parent, StubGrpc())
+    qtbot.addWidget(listeners)
+    listeners.listListenerObject = [
+        Listener(0, "old-one", HttpsType, "127.0.0.1", 8443, 0),
+        Listener(1, "old-two", HttpsType, "127.0.0.1", 8444, 0),
+        Listener(2, "current", HttpsType, "127.0.0.1", 8445, 0),
+    ]
+    events = []
+    listeners.listenerScriptSignal.connect(lambda *args: events.append(args))
+    listeners.printListeners()
+    listeners.listListener.selectRow(0)
+
+    listeners._applyListeners([SimpleNamespace(
+        listener_hash="current", type=HttpsType, ip="127.0.0.1",
+        port=8445, session_count=0, beacon_hash="",
+    )])
+
+    assert [item.listenerHash for item in listeners.listListenerObject] == ["current"]
+    assert listeners.listListener.rowCount() == 1
+    assert listeners.selectedListener() is None
+    assert {event[1] for event in events if event[0] == "stop"} == {"old-one", "old-two"}
+
+    listeners._applyListeners([])
+    assert listeners.listListener.rowCount() == 0
+    assert listeners.statusLabel.text() == "No active listeners on TeamServer; add a listener to resume sessions."

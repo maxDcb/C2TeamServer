@@ -1,4 +1,5 @@
 from datetime import datetime
+from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
 
@@ -293,3 +294,34 @@ def test_session_table_humanizes_state_last_seen_and_os(qtbot, monkeypatch):
     assert sessions.listSession.item(0, 9).text() == "now"
     assert sessions.listSession.item(0, 10).text() == SESSION_STATE_ALIVE
     assert sessions.listSession.item(0, 10).toolTip().startswith("Last seen now.")
+
+
+def test_session_refresh_replaces_removed_listener_route(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    parent = QWidget()
+    sessions = Sessions(parent, StubGrpc())
+    qtbot.addWidget(sessions)
+    events = []
+    sessions.sessionScriptSignal.connect(lambda *args: events.append(args))
+
+    def snapshot(listener_hash):
+        return SimpleNamespace(
+            beacon_hash="beacon-full-hash", listener_hash=listener_hash,
+            hostname="host", username="user", arch="x64", privilege="user",
+            os="Linux", last_proof_of_life="0.1", killed=False,
+            internal_ips="", process_id="123", additional_information="",
+        )
+
+    sessions._applySessions([snapshot("old-listener")])
+    sessions.listSession.selectRow(0)
+    sessions._applySessions([])
+    assert sessions.listSession.rowCount() == 0
+    assert sessions.selectedSession() is None
+    assert not sessions.interactButton.isEnabled()
+    assert sessions.statusLabel.text() == "No active sessions on TeamServer; waiting for beacon check-in."
+    assert any(event[0:3] == ("stop", "beacon-full-hash", "old-listener") for event in events)
+
+    sessions._applySessions([snapshot("new-listener")])
+    assert sessions.listSession.rowCount() == 1
+    assert sessions.listSessionObject[0].listenerHash == "new-listener"
+    assert sessions.selectedSession() is None

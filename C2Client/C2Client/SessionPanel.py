@@ -458,63 +458,61 @@ class Sessions(QWidget):
 
     def _applySessions(self, sessions):
         if self._refresh_failed:
-            self.setInlineStatus("Sessions reconnected.")
+            self.setInlineStatus("Sessions reconnected." if sessions else "Connected; waiting for beacon check-in.")
             self._refresh_failed = False
 
-        # check for idl sessions
-        for ix, item in enumerate(self.listSessionObject):
-            runing=False
-            for session in sessions:
-                if session.beacon_hash == item.beaconHash:
-                    runing=True
-            # set idl
-            if not runing:
-                self.listSessionObject[ix].lastProofOfLife="-1"
+        selected = self.selectedSession()
+        selected_key = (selected.beaconHash, selected.listenerHash) if selected else None
+        previous = {(item.beaconHash, item.listenerHash): item for item in self.listSessionObject}
+        if previous and not sessions:
+            self.setInlineStatus("No active sessions on TeamServer; waiting for beacon check-in.")
+        current_keys = {(session.beacon_hash, session.listener_hash) for session in sessions}
+        for key, item in previous.items():
+            if key not in current_keys:
+                self.sessionScriptSignal.emit(
+                    "stop", item.beaconHash, item.listenerHash, item.hostname, item.username,
+                    item.arch, item.privilege, item.os, item.lastProofOfLife, item.killed,
+                )
 
+        current = []
         for session in sessions:
-            inStore=False
-            for sessionStore in self.listSessionObject:
-                #maj
-                if session.listener_hash == sessionStore.listenerHash and session.beacon_hash == sessionStore.beaconHash:
-                    inStore=True
-                    sessionStore.lastProofOfLife=session.last_proof_of_life
-                    sessionStore.listenerHash=session.listener_hash
-                    if session.hostname:
-                        sessionStore.hostname=session.hostname
-                    if session.username:
-                        sessionStore.username=session.username
-                    if session.arch:
-                        sessionStore.arch=session.arch
-                    if session.privilege:
-                        sessionStore.privilege=session.privilege
-                    if session.os:
-                        sessionStore.os=session.os
-                    if session.last_proof_of_life:
-                        sessionStore.lastProofOfLife=session.last_proof_of_life
-                    if session.killed:
-                        sessionStore.killed=session.killed
-                    if session.internal_ips:
-                        sessionStore.internalIps=session.internal_ips
-                    if session.process_id:
-                        sessionStore.processId=session.process_id
-                    if session.additional_information:
-                        sessionStore.additionalInformation=session.additional_information
-                    self.sessionScriptSignal.emit("update", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
-            # add
-            if not inStore:
-                self.listSessionObject.append(
-                    Session(
-                        self.idSession,
-                        session.listener_hash, session.beacon_hash, 
-                        session.hostname, session.username, session.arch,
-                        session.privilege, session.os, session.last_proof_of_life,
-                        session.killed, session.internal_ips, session.process_id, session.additional_information
-                        )
-                    )
-                self.idSession = self.idSession+1
-                self.sessionScriptSignal.emit("start", session.beacon_hash, session.listener_hash, session.hostname, session.username, session.arch, session.privilege, session.os, session.last_proof_of_life, session.killed)
+            key = (session.beacon_hash, session.listener_hash)
+            item = previous.get(key)
+            action = "update" if item is not None else "start"
+            if item is None:
+                item = Session(
+                    self.idSession, session.listener_hash, session.beacon_hash,
+                    session.hostname, session.username, session.arch, session.privilege,
+                    session.os, session.last_proof_of_life, session.killed,
+                    session.internal_ips, session.process_id, session.additional_information,
+                )
+                self.idSession += 1
+            else:
+                item.hostname = session.hostname
+                item.username = session.username
+                item.arch = session.arch
+                item.privilege = session.privilege
+                item.os = session.os
+                item.lastProofOfLife = session.last_proof_of_life
+                item.killed = session.killed
+                item.internalIps = session.internal_ips
+                item.processId = session.process_id
+                item.additionalInformation = session.additional_information
+            current.append(item)
+            self.sessionScriptSignal.emit(
+                action, session.beacon_hash, session.listener_hash, session.hostname,
+                session.username, session.arch, session.privilege, session.os,
+                session.last_proof_of_life, session.killed,
+            )
 
+        self.listSessionObject = current
+        self.listSession.clearSelection()
         self.printSessions()
+        if selected_key is not None:
+            for row, item in enumerate(current):
+                if (item.beaconHash, item.listenerHash) == selected_key:
+                    self.listSession.selectRow(row)
+                    break
         self.sessionsRefreshed.emit(sessions)
 
 

@@ -489,18 +489,23 @@ class Listeners(QWidget):
 
     def _applyListeners(self, listeners):
         if self._refresh_failed:
-            self.setInlineStatus("Listeners reconnected.")
+            self.setInlineStatus("Listeners reconnected." if listeners else "Connected; add a listener to resume sessions.")
             self._refresh_failed = False
 
-        # delete listener
-        for ix, listenerStore in enumerate(self.listListenerObject):
-            runing=False
-            for listener in listeners:
-                if listener.listener_hash == listenerStore.listenerHash:
-                    runing=True
-            # delete
-            if not runing:
-                del self.listListenerObject[ix]
+        selected = self.selectedListener()
+        selected_hash = selected.listenerHash if selected else None
+        if self.listListenerObject and not listeners:
+            self.setInlineStatus("No active listeners on TeamServer; add a listener to resume sessions.")
+        active_hashes = {listener.listener_hash for listener in listeners}
+        for listenerStore in self.listListenerObject:
+            if listenerStore.listenerHash not in active_hashes:
+                self.listenerScriptSignal.emit(
+                    "stop", listenerStore.listenerHash, listenerStore.type, listenerStore.host,
+                )
+        self.listListenerObject = [
+            listenerStore for listenerStore in self.listListenerObject
+            if listenerStore.listenerHash in active_hashes
+        ]
                 
         for listener in listeners:
             inStore=False
@@ -545,7 +550,13 @@ class Listeners(QWidget):
                     listenerStore.host,
                 )
 
+        self.listListener.clearSelection()
         self.printListeners()
+        if selected_hash is not None:
+            for row, listenerStore in enumerate(self.listListenerObject):
+                if listenerStore.listenerHash == selected_hash:
+                    self.listListener.selectRow(row)
+                    break
 
 
     def printListeners(self):
