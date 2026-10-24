@@ -21,6 +21,8 @@ Release/
   TeamServer/
   TeamServerModules/
   Client/
+  install/
+    exploration.py
 ```
 
 ## Validate Base Staging
@@ -37,6 +39,7 @@ Validation checks:
 - `TeamServer/logs`
 - full `TeamServerModules` list
 - Python client launchers and generated protocol files
+- client `uv.lock` and the Linux/WSL installer
 - no `.gitignore`
 - no `__pycache__`
 
@@ -56,10 +59,11 @@ python packaging/validate_release.py \
 
 ## Create Archive
 
-Only archive validated staging:
+Only archive validated staging, then publish its checksum and `install.sh`:
 
 ```bash
 tar -C build/release-staging -czf Release.tar.gz Release
+sha256sum Release.tar.gz > Release.tar.gz.sha256
 ```
 
 ## Rules
@@ -69,4 +73,4 @@ tar -C build/release-staging -czf Release.tar.gz Release
 - Do not rename source directories.
 - Do not delete source directories.
 - Do not mutate source directories during CD.
-- Publish only the validated `Release.tar.gz`.
+- Publish the validated `Release.tar.gz`, its checksum and `install.sh`.

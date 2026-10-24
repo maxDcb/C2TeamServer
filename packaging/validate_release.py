@@ -309,6 +309,7 @@ def validate_base_release(release_root: Path) -> None:
 
     _require_non_empty_file(client_root / "README.md")
     _require_non_empty_file(client_root / "pyproject.toml")
+    _require_non_empty_file(client_root / "uv.lock")
     _require_non_empty_file(client_root / "requirements.txt")
     _require_executable(client_root / "run-client.sh")
     _require_non_empty_file(client_root / "run-client.ps1")
@@ -318,6 +319,7 @@ def validate_base_release(release_root: Path) -> None:
         )
     _require_non_empty_file(client_root / "c2client_protocol" / "TeamServerApi_pb2.py")
     _require_non_empty_file(client_root / "c2client_protocol" / "TeamServerApi_pb2_grpc.py")
+    _require_non_empty_file(release_root / "install" / "exploration.py")
 
     generated_noise = [
         path for path in release_root.rglob("*") if path.name in {".gitignore", "__pycache__"}

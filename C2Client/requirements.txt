@@ -11,6 +11,6 @@ openai==3.37.0
 agent-core @ git+https://github.com/maxDcb/agent-core.git@dfa341b06850600192172a6ffcc422ed022ad244
 pytest==9.1.1
 pytest-qt==4.5.0
-git+https://github.com/maxDcb/donut.git@master#egg=donut-shellcode
+git+https://github.com/maxDcb/donut.git@728289d3d8b694c642c6f7f7c79b7bce62f788eb#egg=donut-shellcode
 markdown==3.11.2
 PyYAML==6.0.3

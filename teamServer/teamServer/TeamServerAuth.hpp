@@ -27,12 +27,13 @@ public:
 private:
     std::string generateToken() const;
     std::string hashPassword(const std::string& password) const;
+    bool verifyPassword(const std::string& password, const std::string& encodedHash) const;
+    void upgradeLegacyPassword(const std::string& username, const std::string& password);
     void cleanupExpiredTokens();
 
     std::shared_ptr<spdlog::logger> m_logger;
     std::string m_authCredentialsFile;
     std::unordered_map<std::string, std::string> m_userPasswordHashes;
-    bool m_authEnabled;
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
     std::chrono::minutes m_tokenValidityDuration;
     mutable std::mutex m_authMutex;

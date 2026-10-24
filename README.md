@@ -54,32 +54,32 @@ docs/         build, release, CI/CD, and integration notes
 
 ## Quick Start
 
-Download the latest release:
+Install both the TeamServer and GUI client on Linux or WSL:
 
 ```bash
-wget -q $(wget -q -O - 'https://api.github.com/repos/maxDcb/C2TeamServer/releases/latest' | jq -r '.assets[] | select(.name=="Release.tar.gz").browser_download_url') -O ./C2TeamServer.tar.gz
-mkdir C2TeamServer
-tar xf C2TeamServer.tar.gz -C C2TeamServer --strip-components 1
+curl -fsSL https://github.com/maxDcb/C2TeamServer/releases/latest/download/install.sh | bash
 ```
 
-Start the TeamServer:
+The installer uses `~/.local/Exploration` by default. It creates a unique TLS certificate
+and admin password, and shows that password once. It uses uv for the client dependencies.
 
 ```bash
-cd C2TeamServer/TeamServer
-./TeamServer
+exploration server start
+exploration server status
+exploration client
+exploration server stop
 ```
 
-Install and run the client:
+Install just one component, or use a local bundle:
 
 ```bash
-cd C2TeamServer/Client
-python -m venv .venv
-. .venv/bin/activate
-pip install .
-
-export C2_CERT_PATH="$PWD/../TeamServer/server.crt"
-c2client --ip 127.0.0.1 --port 50051
+curl -fsSL https://github.com/maxDcb/C2TeamServer/releases/latest/download/install.sh | bash -s -- --server-only
+curl -fsSL https://github.com/maxDcb/C2TeamServer/releases/latest/download/install.sh | bash -s -- --client-only --hostname teamserver.example.org --ca-cert ./trust.crt
+bash install.sh --bundle ./Release.tar.gz --prefix "$HOME/.local/Exploration"
 ```
+
+See [installation and updates](docs/install.md) for certificate options, commands and
+persistent files.
 
 ## Docker
 
@@ -106,6 +106,7 @@ docker run --rm -it \
 ## Build And Release Docs
 
 - [Build and tests](docs/build.md)
+- [Installation and updates](docs/install.md)
 - [Release packaging](docs/release.md)
 - [Implant asset contract](docs/implants.md)
 - [CI/CD contract](docs/ci-cd.md)

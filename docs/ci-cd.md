@@ -61,13 +61,17 @@ permissions:
 Gates before publishing:
 
 ```bash
+uv lock --check --project C2Client
 ctest --test-dir "$BUILD_DIR" --build-config "$BUILD_TYPE" --output-on-failure --timeout 120
 timeout 180 python -m pytest "$GITHUB_WORKSPACE/C2Client/tests" -vv -s
 cmake --build "$BUILD_DIR" --target validate_release_bundle --config "$BUILD_TYPE"
 python packaging/import_implant_releases.py ...
 python packaging/validate_release.py --release-root "$BUILD_DIR/release-staging/Release" --require-implants
 tar -C "$BUILD_DIR/release-staging" -czf Release.tar.gz Release
+sha256sum Release.tar.gz > Release.tar.gz.sha256
 ```
+
+The release publishes `Release.tar.gz`, `Release.tar.gz.sha256` and `install.sh`.
 
 ## Cache
 
@@ -80,6 +84,6 @@ Conan cache from conanfile.txt, conan.lock, conan/profiles/linux-gcc13
 
 - CI runs before release.
 - CD publishes only after build and tests pass.
-- Archive is created from validated staging.
+- Archive and checksum are created from validated staging.
 - Default GitHub token permission is read-only.
 - Only the publish job gets `contents: write`.

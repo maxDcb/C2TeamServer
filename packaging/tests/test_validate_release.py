@@ -35,12 +35,14 @@ def _seed_base_release(root: Path) -> None:
 
     _write_file(root / "Client" / "README.md")
     _write_file(root / "Client" / "pyproject.toml")
+    _write_file(root / "Client" / "uv.lock")
     _write_file(root / "Client" / "requirements.txt")
     _write_file(root / "Client" / "run-client.sh", executable=True)
     _write_file(root / "Client" / "run-client.ps1")
     _write_file(root / "Client" / "c2client_protocol" / "__init__.py")
     _write_file(root / "Client" / "c2client_protocol" / "TeamServerApi_pb2.py")
     _write_file(root / "Client" / "c2client_protocol" / "TeamServerApi_pb2_grpc.py")
+    _write_file(root / "install" / "exploration.py")
 
 
 def test_validate_base_release_requires_command_specs(tmp_path):

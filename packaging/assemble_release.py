@@ -38,7 +38,7 @@ def _build_client_bundle(source_root: Path, build_root: Path, release_root: Path
     _copytree(client_package_root, client_bundle_root / "C2Client")
     _copytree(protocol_package_root, client_bundle_root / "c2client_protocol")
 
-    for metadata_name in ("pyproject.toml", "requirements.txt"):
+    for metadata_name in ("pyproject.toml", "requirements.txt", "uv.lock"):
         shutil.copy2(source_root / "C2Client" / metadata_name, client_bundle_root / metadata_name)
 
     _write_text(
@@ -127,6 +127,9 @@ def assemble_release(source_root: Path, build_root: Path, output_root: Path) -> 
     (output_root / "TeamServer" / "logs").mkdir(parents=True, exist_ok=True)
 
     _build_client_bundle(source_root, build_root, output_root)
+    install_root = output_root / "install"
+    install_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_root / "packaging" / "exploration_install.py", install_root / "exploration.py")
 
     _remove_matching(output_root, ".gitignore")
     _remove_matching(output_root, "__pycache__")

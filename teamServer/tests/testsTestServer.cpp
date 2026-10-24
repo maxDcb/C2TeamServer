@@ -11,6 +11,9 @@
 #include "TeamServerAuth.hpp"
 #include "TeamServerBootstrap.hpp"
 
+extern "C" int argon2id_hash_encoded(unsigned int, unsigned int, unsigned int,
+    const void*, size_t, const void*, size_t, size_t, char*, size_t);
+
 namespace fs = std::filesystem;
 
 namespace
@@ -118,15 +121,15 @@ void testAuthManagerRoundTrip()
 {
     ScopedPath tempDir(makeTempDirectory("auth"));
     fs::path credentials = tempDir.path() / "auth.json";
-    writeFile(credentials, R"({
-        "token_ttl_minutes": 10,
-        "users": [
-            {
-                "username": "operator",
-                "password": "secret"
-            }
-        ]
-    })");
+    const std::string password = "secret";
+    const std::string salt = "fixed-tests-salt";
+    char encoded[256] {};
+    assert(argon2id_hash_encoded(2, 19456, 1, password.data(), password.size(),
+        salt.data(), salt.size(), 32, encoded, sizeof(encoded)) == 0);
+    writeFile(credentials, nlohmann::json({
+        {"token_ttl_minutes", 10},
+        {"users", {{{"username", "operator"}, {"password_hash", encoded}}}}
+    }).dump());
 
     nlohmann::json config = {
         {"AuthCredentialsFile", credentials.string()},
@@ -164,6 +167,33 @@ void testAuthManagerRoundTrip()
 
     std::multimap<grpc::string_ref, grpc::string_ref> missingMetadata;
     assert(!authManager.ensureAuthenticated(missingMetadata).ok());
+
+    TeamServerAuthManager missingManager(logger);
+    bool missingRejected = false;
+    try { missingManager.configure({{"LogLevel", "off"}}); }
+    catch (const std::runtime_error&) { missingRejected = true; }
+    assert(missingRejected);
+    assert(!missingManager.ensureAuthenticated(missingMetadata).ok());
+
+    writeFile(credentials, R"({"users":[{"username":"operator","password":"secret"}]})");
+    TeamServerAuthManager plaintextManager(logger);
+    bool plaintextRejected = false;
+    try { plaintextManager.configure(config); }
+    catch (const std::runtime_error&) { plaintextRejected = true; }
+    assert(plaintextRejected);
+
+    writeFile(credentials, R"({"users":[{"username":"admin","password_hash":"8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"}]})");
+    TeamServerAuthManager legacyManager(logger);
+    legacyManager.configure(config);
+    teamserverapi::AuthRequest legacyRequest;
+    legacyRequest.set_username("admin");
+    legacyRequest.set_password("admin");
+    teamserverapi::AuthResponse legacyResponse;
+    assert(legacyManager.authenticate(legacyRequest, legacyResponse).ok());
+    assert(legacyResponse.status() == teamserverapi::OK);
+    std::ifstream migratedInput(credentials);
+    auto migratedCredentials = nlohmann::json::parse(migratedInput);
+    assert(migratedCredentials["users"][0]["password_hash"].get<std::string>().rfind("$argon2id$", 0) == 0);
 }
 } // namespace
 

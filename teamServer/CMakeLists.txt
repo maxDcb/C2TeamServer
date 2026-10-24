@@ -54,6 +54,9 @@ set(SERVER_LISTENER_TRANSPORT_LINK_LIBS
     rt
 )
 
+find_library(C2_SQLITE3_LIBRARY NAMES sqlite3 sqlite3.so.0 libsqlite3.so.0 REQUIRED)
+find_library(C2_ARGON2_LIBRARY NAMES argon2 libargon2.so.1 REQUIRED)
+
 set(TEAMSERVER_CORE_LINK_LIBS
     GrpcMessages
     pthread
@@ -68,9 +71,9 @@ set(TEAMSERVER_CORE_LINK_LIBS
     rt
     job_application
     job_sqlite
+    ${C2_ARGON2_LIBRARY}
 )
 
-find_library(C2_SQLITE3_LIBRARY NAMES sqlite3 sqlite3.so.0 libsqlite3.so.0 REQUIRED)
 add_library(job_application STATIC teamServer/JobApplicationService.cpp)
 target_include_directories(job_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/teamServer)
 target_link_libraries(job_application PUBLIC openssl::openssl nlohmann_json::nlohmann_json)

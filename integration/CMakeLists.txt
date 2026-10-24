@@ -55,3 +55,9 @@ add_test(NAME testsJobRuntimeE2E
   COMMAND "${C2_JOB_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/JobRuntimeE2E.py"
     --runtime "${C2_INTEGRATION_RUNTIME_RELEASE_DIR}" --client-python "${C2_JOB_TEST_PYTHON}")
 set_tests_properties(testsJobRuntimeE2E PROPERTIES DEPENDS testsTeamServerRuntimeIntegration TIMEOUT 120)
+
+add_test(NAME testsInstalledRuntimeE2E
+  COMMAND "${C2_JOB_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/InstalledRuntimeE2E.py"
+    --release-root "${C2_INTEGRATION_RUNTIME_RELEASE_DIR}"
+    --installer "${CMAKE_SOURCE_DIR}/packaging/exploration_install.py")
+set_tests_properties(testsInstalledRuntimeE2E PROPERTIES DEPENDS testsTeamServerRuntimeIntegration TIMEOUT 120)

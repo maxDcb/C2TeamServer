@@ -13,6 +13,7 @@ ARG C2TEAMSERVER_RELEASE_URL=""
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
+        libargon2-1 \
         libstdc++6 \
         wget \
         jq \

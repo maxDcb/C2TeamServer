@@ -6,6 +6,7 @@
 sudo apt-get update
 sudo apt-get install -y \
   golang-cfssl \
+  libargon2-dev \
   libegl1 \
   libgl1 \
   libsmbclient-dev \
@@ -19,6 +20,9 @@ sudo apt-get install -y \
 
 python3 -m pip install --upgrade "conan==2.24.0"
 ```
+
+`libargon2` is linked by the TeamServer for Argon2id password verification. The runtime
+also needs the `libargon2` shared library and SQLite 3.
 
 ## Configure And Build
 
