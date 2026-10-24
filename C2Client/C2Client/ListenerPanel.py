@@ -2,7 +2,7 @@ import re
 from ipaddress import ip_address
 
 from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QIntValidator
+from PyQt6.QtGui import QColor, QIntValidator, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QFormLayout,
@@ -13,6 +13,9 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QMenu,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -588,6 +591,52 @@ class Listeners(QWidget):
         self.updateActionButtons()
 
 
+class ListenerTypeOptionDelegate(QStyledItemDelegate):
+    def paint(self, painter, option, index):
+        option = QStyleOptionViewItem(option)
+        option.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, option, index)
+
+
+class ListenerTypeButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._expanded = False
+        self.setAccessibleName("Listener type")
+        self.setFixedHeight(32)
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #101820;
+                color: {CONSOLE_COLORS['text']};
+                border: 1px solid {CONSOLE_COLORS['border']};
+                border-radius: 4px;
+                text-align: left;
+                padding-left: 10px;
+                padding-right: 28px;
+            }}
+            QPushButton:hover, QPushButton:focus {{
+                border-color: {CONSOLE_COLORS['focus_border']};
+            }}
+        """)
+
+    def setExpanded(self, expanded):
+        self._expanded = bool(expanded)
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(CONSOLE_COLORS["muted"]))
+        pen.setWidthF(1.5)
+        painter.setPen(pen)
+        x, y = self.width() - 16, self.height() // 2
+        tip = y - 2 if self._expanded else y + 2
+        edge = y + 2 if self._expanded else y - 2
+        painter.drawLine(x - 4, edge, x, tip)
+        painter.drawLine(x, tip, x + 4, edge)
+
+
 class ListenerTypePicker(QWidget):
     currentTextChanged = pyqtSignal(str)
 
@@ -598,29 +647,12 @@ class ListenerTypePicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        self.button = QPushButton(self)
-        self.button.setAccessibleName("Listener type")
-        self.button.setFixedHeight(32)
-        self.button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #101820;
-                border: 1px solid {CONSOLE_COLORS['border']};
-                border-radius: 4px;
-            }}
-            QPushButton:focus {{ border-color: {CONSOLE_COLORS['focus_border']}; }}
-        """)
-        buttonLayout = QHBoxLayout(self.button)
-        buttonLayout.setContentsMargins(10, 0, 10, 0)
-        self.currentLabel = QLabel("")
-        self.arrowLabel = QLabel("▾")
-        self.arrowLabel.setStyleSheet(f"color: {CONSOLE_COLORS['muted']};")
-        buttonLayout.addWidget(self.currentLabel)
-        buttonLayout.addStretch(1)
-        buttonLayout.addWidget(self.arrowLabel)
+        self.button = ListenerTypeButton(self)
         self.button.clicked.connect(self.toggleOptions)
         layout.addWidget(self.button)
 
         self.options = QListWidget(self)
+        self.options.setItemDelegate(ListenerTypeOptionDelegate(self.options))
         self.options.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.options.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.options.setStyleSheet(f"""
@@ -671,7 +703,7 @@ class ListenerTypePicker(QWidget):
             return
         changed = index != self._currentIndex
         self._currentIndex = index
-        self.currentLabel.setText(self.currentText())
+        self.button.setText(self.currentText())
         self.options.setCurrentRow(index)
         self.hideOptions()
         if changed:
@@ -692,13 +724,13 @@ class ListenerTypePicker(QWidget):
         else:
             self.options.show()
             self.options.setCurrentRow(self._currentIndex)
-            self.arrowLabel.setText("▴")
+            self.button.setExpanded(True)
             self.fitWindowHeight()
             self.options.setFocus()
 
     def hideOptions(self):
         self.options.hide()
-        self.arrowLabel.setText("▾")
+        self.button.setExpanded(False)
         self.fitWindowHeight()
         QTimer.singleShot(0, self.fitWindowHeight)
         self.button.setFocus()
