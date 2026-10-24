@@ -15,9 +15,13 @@ public:
 	~Server();
 
 	bool initServer();
+	bool openServer();
+	bool acceptConnection();
+	void stop();
 
 	bool sendData(std::string& data);
 	bool receiveData(std::string& data);
+	void waitForClientClose();
 
 private:
 	bool reset();

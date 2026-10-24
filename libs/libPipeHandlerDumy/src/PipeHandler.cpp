@@ -25,20 +25,24 @@ bool Server::reset()
 
 bool Server::initServer()
 {
-	return true;
+	return false;
 }
 
+bool Server::openServer() { return false; }
+bool Server::acceptConnection() { return false; }
+void Server::stop() {}
 
 bool Server::sendData(std::string& data)
 {
-	return true;
+	return false;
 }
 
 
 bool Server::receiveData(std::string& data)
 {
-	return true;
+	return false;
 }
+void Server::waitForClientClose() {}
 
 
 // https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-client
@@ -56,7 +60,7 @@ Client::~Client()
 
 bool Client::initConnection()
 {
-	return true;
+	return false;
 }
 
 
@@ -74,13 +78,13 @@ bool Client::reset()
 
 bool Client::sendData(std::string& data)
 { 
-	return true;
+	return false;
 }
 
 
 bool Client::receiveData(std::string& data)
 {
-	return true;
+	return false;
 }
 
 

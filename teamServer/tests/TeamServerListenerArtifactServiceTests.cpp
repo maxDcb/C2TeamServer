@@ -200,6 +200,7 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "arm64" / "BeaconHttp.exe", "HTTPBIN-ARM64");
     writeFile(fs::path(runtimeConfig.windowsBeaconsDirectoryPath) / "x64" / "BeaconSmb.exe", "SMBBIN-X64");
     writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "x64" / "BeaconHttp", "LINUX-HTTPBIN-X64");
+    writeFile(fs::path(runtimeConfig.linuxBeaconsDirectoryPath) / "x64" / "BeaconSmb", "STALE-SMB");
 
     nlohmann::json config = nlohmann::json::object();
     auto primary = std::make_shared<TestListener>("listener-primary");
@@ -253,6 +254,11 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     assert(response.result() == "ok");
     assert(response.message().empty());
     assert(response.data() == "SMBBIN-X64");
+
+    command.set_command("getBeaconBinary secondary Linux x64");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary", "Linux", "x64"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: SMB is supported only on Windows.");
 }
 } // namespace
 

@@ -181,7 +181,7 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
     if (primaryListener && type == ListenerDnsType)
         return linuxTarget ? (linuxBeaconRoot / "BeaconDns").string() : (windowsBeaconRoot / "BeaconDns.exe").string();
     if (!primaryListener && type == ListenerSmbType)
-        return linuxTarget ? (linuxBeaconRoot / "BeaconSmb").string() : (windowsBeaconRoot / "BeaconSmb.exe").string();
+        return linuxTarget ? "" : (windowsBeaconRoot / "BeaconSmb.exe").string();
     return "";
 }
 
@@ -339,6 +339,12 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
                 const std::string& secondaryHash = it->getListenerHash();
                 if (secondaryHash.rfind(listenerHash, 0) != 0)
                     continue;
+
+                if (targetOs == "Linux" && it->getType() == ListenerSmbType)
+                {
+                    setTerminalError(response, "Error: SMB is supported only on Windows.");
+                    return grpc::Status::OK;
+                }
 
                 const std::string beaconFilePath = resolveBeaconBinaryPath(it->getType(), targetOs, targetArch, false);
                 std::ifstream beaconFile(beaconFilePath, std::ios::binary);
