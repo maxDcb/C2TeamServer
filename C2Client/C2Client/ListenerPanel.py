@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QMenu,
     QPushButton,
     QStyle,
     QStyledItemDelegate,
@@ -29,7 +28,7 @@ from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .console_style import CONSOLE_COLORS
-from .panel_style import apply_dark_panel_style
+from .panel_style import apply_dark_panel_style, create_dark_context_menu
 from .refresh_worker import RefreshWorker
 from .ui_status import apply_error, apply_status, clear_status, format_action_status, status_kind_for_ok
 from .window_chrome import apply_dark_window_chrome
@@ -400,7 +399,7 @@ class Listeners(QWidget):
     def showContextMenu(self, position):
         index = self.listListener.indexAt(position)
         if not index.isValid():
-            menu = QMenu()
+            menu = create_dark_context_menu(self)
             menu.addAction('Add')
             menu.triggered.connect(self.actionClicked)
             menu.exec(self.listListener.viewport().mapToGlobal(position))
@@ -408,7 +407,7 @@ class Listeners(QWidget):
             row = index.row()
             self.item = str(self.listListener.item(row, 0).data(0))
 
-            menu = QMenu()
+            menu = create_dark_context_menu(self)
             menu.addAction('Stop')
             menu.triggered.connect(self.actionClicked)
             menu.exec(self.listListener.viewport().mapToGlobal(position))

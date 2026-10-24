@@ -29,7 +29,7 @@ from .console_style import (
     move_editor_to_end,
 )
 from .autocomplete import CompletionInput
-from .panel_style import apply_dark_panel_style
+from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +176,7 @@ class Script(QWidget):
 
         manualLayout = QHBoxLayout()
         self.manualHookSelector = QComboBox()
+        style_dark_combo_popup(self.manualHookSelector)
         self.manualHookSelector.setMinimumWidth(220)
         self.runHookButton = QPushButton("Run Hook")
         self.runHookButton.clicked.connect(self.runSelectedHook)

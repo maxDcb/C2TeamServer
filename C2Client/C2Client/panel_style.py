@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtGui import QColor, QPalette
-from PyQt6.QtWidgets import QToolTip
+from PyQt6.QtWidgets import QComboBox, QMenu, QToolTip
 
 from .console_style import CONSOLE_COLORS
 
@@ -72,6 +72,71 @@ def apply_main_window_style(window) -> None:
     window.setStyleSheet(main_window_stylesheet())
 
 
+def create_dark_context_menu(parent=None) -> QMenu:
+    menu = QMenu(parent)
+    menu.setStyleSheet(
+        f"""
+        QMenu {{
+            background-color: #101820;
+            color: {CONSOLE_COLORS['text']};
+            border: 1px solid {CONSOLE_COLORS['border']};
+            padding: 4px;
+        }}
+        QMenu::item {{
+            background-color: transparent;
+            color: {CONSOLE_COLORS['text']};
+            border-radius: 3px;
+            padding: 6px 18px;
+            margin: 1px 0;
+        }}
+        QMenu::item:selected {{
+            background-color: {CONSOLE_COLORS['selection']};
+            color: {CONSOLE_COLORS['header']};
+        }}
+        QMenu::item:disabled {{ color: {CONSOLE_COLORS['muted']}; }}
+        QMenu::separator {{
+            height: 1px;
+            background-color: {CONSOLE_COLORS['border']};
+            margin: 4px 8px;
+        }}
+        """
+    )
+    return menu
+
+
+def style_dark_combo_popup(combo: QComboBox) -> None:
+    """Style the popup itself; it is a separate window on some Qt platforms."""
+    view = combo.view()
+    popup = view.window()
+    popup.setObjectName("C2ComboPopup")
+    popup.setStyleSheet(
+        f"QFrame#C2ComboPopup {{ background-color: {CONSOLE_COLORS['background']}; "
+        f"border: 1px solid {CONSOLE_COLORS['border']}; }}"
+    )
+    palette = view.palette()
+    palette.setColor(QPalette.ColorRole.Base, QColor(CONSOLE_COLORS["background"]))
+    palette.setColor(QPalette.ColorRole.Text, QColor(CONSOLE_COLORS["text"]))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(CONSOLE_COLORS["selection"]))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(CONSOLE_COLORS["header"]))
+    view.setPalette(palette)
+    view.setStyleSheet(
+        f"""
+        QAbstractItemView {{
+            background-color: {CONSOLE_COLORS['background']};
+            color: {CONSOLE_COLORS['text']};
+            border: 1px solid {CONSOLE_COLORS['border']};
+            outline: none;
+            selection-background-color: {CONSOLE_COLORS['selection']};
+            selection-color: {CONSOLE_COLORS['header']};
+        }}
+        QAbstractItemView::item:selected {{
+            background-color: {CONSOLE_COLORS['selection']};
+            color: {CONSOLE_COLORS['header']};
+        }}
+        """
+    )
+
+
 def apply_dark_panel_style(widget) -> None:
     tooltip_palette = QToolTip.palette()
     tooltip_palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#101820"))
@@ -130,6 +195,33 @@ def apply_dark_panel_style(widget) -> None:
             background-color: {CONSOLE_COLORS["selection"]};
             color: {CONSOLE_COLORS["header"]};
         }}
+        QScrollBar:vertical {{
+            background-color: {CONSOLE_COLORS["background"]};
+            border: 0;
+            width: 10px;
+            margin: 0;
+        }}
+        QScrollBar:horizontal {{
+            background-color: {CONSOLE_COLORS["background"]};
+            border: 0;
+            height: 10px;
+            margin: 0;
+        }}
+        QScrollBar::handle:vertical, QScrollBar::handle:horizontal {{
+            background-color: {CONSOLE_COLORS["selection"]};
+            border-radius: 4px;
+            margin: 1px;
+        }}
+        QScrollBar::handle:vertical {{ min-height: 24px; }}
+        QScrollBar::handle:horizontal {{ min-width: 24px; }}
+        QScrollBar::handle:vertical:hover, QScrollBar::handle:horizontal:hover {{
+            background-color: {CONSOLE_COLORS["focus_border"]};
+        }}
+        QScrollBar::add-line, QScrollBar::sub-line {{
+            width: 0;
+            height: 0;
+        }}
+        QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
         QTableWidget {{
             background-color: {CONSOLE_COLORS["background"]};
             alternate-background-color: #101820;

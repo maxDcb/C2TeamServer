@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
-from ...panel_style import apply_dark_panel_style
+from ...panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .catalog import SKILLS, AgenticSkillDefinition
 from .service import C2SkillService, FINISHED_RUN_STATES, WAITING_STATES
 
@@ -118,6 +118,7 @@ class SkillsPanel(QWidget):
         layout = QVBoxLayout(self)
         controls = QHBoxLayout()
         self.skillSelector = QComboBox()
+        style_dark_combo_popup(self.skillSelector)
         for skill in SKILLS.values():
             kind = "Agent" if isinstance(skill, AgenticSkillDefinition) else "Fixed"
             self.skillSelector.addItem(f"{kind} · {skill.title} v{skill.version}", skill.skill_id)
@@ -131,6 +132,7 @@ class SkillsPanel(QWidget):
         controls.addWidget(self.skillHelpButton)
         controls.addWidget(QLabel("Session"))
         self.sessionSelector = QComboBox()
+        style_dark_combo_popup(self.sessionSelector)
         self.sessionSelector.addItem("Loading sessions...", None)
         controls.addWidget(self.sessionSelector, 1)
         self.refreshSessionsButton = QPushButton("Refresh")
@@ -142,6 +144,7 @@ class SkillsPanel(QWidget):
         runs = QHBoxLayout()
         runs.addWidget(QLabel("Runs"))
         self.runSelector = QComboBox()
+        style_dark_combo_popup(self.runSelector)
         self.runSelector.addItem("No runs yet", None)
         self.runSelector.setEnabled(False)
         runs.addWidget(self.runSelector, 1)

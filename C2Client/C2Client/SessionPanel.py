@@ -7,7 +7,6 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -20,7 +19,7 @@ from PyQt6.QtWidgets import (
 from .grpcClient import TeamServerApi_pb2
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
-from .panel_style import apply_dark_panel_style
+from .panel_style import apply_dark_panel_style, create_dark_context_menu
 from .refresh_worker import RefreshWorker
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
 
@@ -408,7 +407,7 @@ class Sessions(QWidget):
         row = index.row()
         self.item = str(self.listSession.item(row, 0).data(0))
 
-        menu = QMenu()
+        menu = create_dark_context_menu(self)
         menu.addAction('Interact')
         menu.addAction('Stop')
         menu.addAction('Delete')

@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from .console_style import CONSOLE_COLORS, apply_console_output_style
 from .grpcClient import TeamServerApi_pb2
-from .panel_style import apply_dark_panel_style
+from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .ui_status import StatusKind, apply_status, compact_message
 
 
@@ -145,6 +145,7 @@ class Commands(QWidget):
 
     def createFilter(self, values: list[str], tooltip: str) -> QComboBox:
         combo = QComboBox(self)
+        style_dark_combo_popup(combo)
         combo.addItems(values)
         combo.setToolTip(tooltip)
         combo.setMinimumWidth(96)

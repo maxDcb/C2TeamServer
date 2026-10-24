@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 from .console_style import apply_console_output_style
 from .grpcClient import TeamServerApi_pb2
 from .grpc_status import is_response_ok, operation_ack_text, response_message
-from .panel_style import apply_dark_panel_style
+from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .ui_status import StatusKind, apply_status, compact_message
 
 
@@ -127,6 +127,7 @@ class CredentialEntryDialog(QDialog):
         self.usernameInput = QLineEdit(self)
         self.usernameInput.setPlaceholderText("Username or DOMAIN\\username")
         self.typeInput = QComboBox(self)
+        style_dark_combo_popup(self.typeInput)
         self.typeInput.addItems(ENTRY_TYPES)
         self.typeInput.setEditable(True)
         self.secretInput = QLineEdit(self)
@@ -323,6 +324,7 @@ class CredentialVault(QWidget):
 
     def createFilter(self, values: list[str], tooltip: str) -> QComboBox:
         combo = QComboBox(self)
+        style_dark_combo_popup(combo)
         combo.addItems(values)
         combo.setToolTip(tooltip)
         combo.setMinimumWidth(112)
