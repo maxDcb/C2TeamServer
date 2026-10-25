@@ -15,6 +15,7 @@ from typing import Any, Callable, Iterable, List, Tuple, Optional
 import grpc
 from .env import env_int, env_path
 from .protocol_bindings import TeamServerApi_pb2, TeamServerApi_pb2_grpc
+from .operator_audit import record_client_audit
 
 
 MetadataType = List[Tuple[str, str]]
@@ -215,6 +216,36 @@ class GrpcClient:
                 self._notify_rpc_status(operation, False, message)
                 raise
 
+    def _audited_rpc(self, operation: str, call: Callable[[], Any], details: dict | None = None,
+                     *, audit_action: str | None = None) -> Any:
+        fields = {
+            "client_id": getattr(self, "client_id", ""),
+            "username": getattr(self, "username", ""),
+            "endpoint": getattr(self, "endpoint", ""),
+            "action": audit_action or operation,
+            "details": details or {},
+        }
+        record_client_audit(**fields, outcome="requested")
+        try:
+            response = self._unary_rpc(operation, call)
+        except Exception:
+            record_client_audit(**fields, outcome="error")
+            raise
+        accepted = (getattr(response, "status", TeamServerApi_pb2.OK) == TeamServerApi_pb2.OK
+                    and getattr(response, "state", "") not in {"failed", "outcome_unknown"})
+        result_fields = dict(fields)
+        result_details = dict(details or {})
+        if operation == "StopSession":
+            result_details["resolved_beacon_hash"] = getattr(response, "session_beacon_hash", "")
+            result_details["resolved_listener_hash"] = getattr(response, "session_listener_hash", "")
+        elif operation == "AddListener":
+            result_details["listener_hash"] = getattr(response, "listener_hash", "")
+        elif operation == "SubmitJob":
+            result_details["state"] = getattr(response, "state", "")
+        result_fields["details"] = result_details
+        record_client_audit(**result_fields, outcome="accepted" if accepted else "rejected")
+        return response
+
     def _stream_rpc(self, operation: str, call: Callable[[], Iterable[Any]]) -> Iterable[Any]:
         for attempt in range(2):
             rejected_token = self._token
@@ -244,12 +275,21 @@ class GrpcClient:
 
     def _authenticate(self, username: str, password: str) -> str:
         request = TeamServerApi_pb2.AuthRequest(username=username, password=password)
-        response = self.stub.Authenticate(request, timeout=5.0)
+        fields = {"client_id": self.client_id, "username": username, "endpoint": self.endpoint,
+                  "action": "Authenticate"}
+        record_client_audit(**fields, outcome="requested")
+        try:
+            response = self.stub.Authenticate(request, timeout=5.0)
+        except Exception:
+            record_client_audit(**fields, outcome="error")
+            raise
         if response.status != TeamServerApi_pb2.OK or not response.token:
+            record_client_audit(**fields, outcome="rejected")
             message = response.message or "unknown authentication error"
             logging.error("Authentication failed for user %s: %s", username, message)
             raise ValueError(f"grpcClient: authentication failed: {message}")
 
+        record_client_audit(**fields, outcome="accepted")
         logging.info("Authenticated against TeamServer as %s", username)
         available_types = tuple(response.available_listener_types)
         if available_types:
@@ -267,21 +307,24 @@ class GrpcClient:
     def addListener(self, listener: Any) -> Any:
         """Add a new listener on the TeamServer."""
 
-        return self._unary_rpc(
+        return self._audited_rpc(
             "AddListener",
             lambda: self.stub.AddListener(
                 listener, metadata=self.metadata, timeout=self.listener_mutation_timeout_seconds,
             ),
+            {"type": getattr(listener, "type", ""), "ip": getattr(listener, "ip", ""),
+             "port": getattr(listener, "port", 0)},
         )
 
     def stopListener(self, listener: Any) -> Any:
         """Stop a running listener."""
 
-        return self._unary_rpc(
+        return self._audited_rpc(
             "StopListener",
             lambda: self.stub.StopListener(
                 listener, metadata=self.metadata, timeout=self.listener_mutation_timeout_seconds,
             ),
+            {"listener_hash": listener.listener_hash},
         )
 
     def listSessions(self) -> Any:
@@ -313,9 +356,10 @@ class GrpcClient:
         """Return artifact payload bytes by id."""
 
         selector = TeamServerApi_pb2.ArtifactSelector(artifact_id=artifact_id)
-        return self._unary_rpc(
+        return self._audited_rpc(
             "DownloadArtifact",
             lambda: self.stub.DownloadArtifact(selector, metadata=self.metadata),
+            {"artifact_id": artifact_id},
         )
 
     def uploadArtifact(self, name: str, data: bytes, platform: str = "any", arch: str = "any") -> Any:
@@ -327,18 +371,20 @@ class GrpcClient:
             arch=arch,
             data=data,
         )
-        return self._unary_rpc(
+        return self._audited_rpc(
             "UploadArtifact",
             lambda: self.stub.UploadArtifact(request, metadata=self.metadata),
+            {"name": name, "platform": platform, "arch": arch, "size": len(data)},
         )
 
     def deleteArtifact(self, artifact_id: str) -> Any:
         """Delete a deletable TeamServer artifact by id."""
 
         selector = TeamServerApi_pb2.ArtifactSelector(artifact_id=artifact_id)
-        return self._unary_rpc(
+        return self._audited_rpc(
             "DeleteGeneratedArtifact",
             lambda: self.stub.DeleteGeneratedArtifact(selector, metadata=self.metadata),
+            {"artifact_id": artifact_id},
         )
 
     def deleteGeneratedArtifact(self, artifact_id: str) -> Any:
@@ -360,23 +406,30 @@ class GrpcClient:
             credential_id=credential_id,
             reveal_secret=reveal_secret,
         )
-        return self._unary_rpc("GetCredential", lambda: self.stub.GetCredential(selector, metadata=self.metadata))
+        call = lambda: self.stub.GetCredential(selector, metadata=self.metadata)
+        if reveal_secret:
+            return self._audited_rpc("GetCredential", call, {"credential_id": credential_id},
+                                     audit_action="RevealCredential")
+        return self._unary_rpc("GetCredential", call)
 
     def addCredential(self, request: Any) -> Any:
         """Add a credential to the TeamServer vault."""
 
-        return self._unary_rpc("AddCredential", lambda: self.stub.AddCredential(request, metadata=self.metadata))
+        return self._audited_rpc("AddCredential", lambda: self.stub.AddCredential(request, metadata=self.metadata),
+                                 {"credential_id": request.credential_id, "type": request.type})
 
     def updateCredential(self, request: Any) -> Any:
         """Update a credential in the TeamServer vault."""
 
-        return self._unary_rpc("UpdateCredential", lambda: self.stub.UpdateCredential(request, metadata=self.metadata))
+        return self._audited_rpc("UpdateCredential", lambda: self.stub.UpdateCredential(request, metadata=self.metadata),
+                                 {"credential_id": request.credential_id})
 
     def deleteCredential(self, credential_id: str) -> Any:
         """Delete a credential from the TeamServer vault."""
 
         selector = TeamServerApi_pb2.CredentialSelector(credential_id=credential_id)
-        return self._unary_rpc("DeleteCredential", lambda: self.stub.DeleteCredential(selector, metadata=self.metadata))
+        return self._audited_rpc("DeleteCredential", lambda: self.stub.DeleteCredential(selector, metadata=self.metadata),
+                                 {"credential_id": credential_id})
 
     def listCommands(self, query: Optional[Any] = None) -> Iterable[Any]:
         """Return command specs exposed by the TeamServer catalog."""
@@ -395,11 +448,12 @@ class GrpcClient:
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 
-        return self._unary_rpc(
+        return self._audited_rpc(
             "StopSession",
             lambda: self.stub.StopSession(
                 session, metadata=self.metadata, timeout=self.session_stop_timeout_seconds,
             ),
+            {"beacon_hash": session.beacon_hash, "listener_hash": session.listener_hash},
         )
 
     def sendSessionCommand(self, command: Any, *, origin: str = "") -> Any:
@@ -447,10 +501,19 @@ class GrpcClient:
 
     def submitJob(self, job_id: str, operation: str, input: str, *, origin: str = "") -> Any:
         request = TeamServerApi_pb2.SubmitJobRequest(job_id=job_id, operation=operation, input=input, origin=origin)
-        return self._unary_rpc("SubmitJob", lambda: self.stub.SubmitJob(
+        details = {"job_id": job_id, "operation": operation}
+        if operation == "session_command":
+            try:
+                payload = json.loads(input)
+                if isinstance(payload, dict):
+                    details.update({key: payload[key] for key in ("beacon_hash", "listener_hash")
+                                    if isinstance(payload.get(key), str)})
+            except (ValueError, TypeError):
+                pass
+        return self._audited_rpc("SubmitJob", lambda: self.stub.SubmitJob(
             request, metadata=self.metadata,
             timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1),
-        ))
+        ), details)
 
     def getJobExecution(self, job_id: str) -> Any:
         request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)
@@ -477,7 +540,7 @@ class GrpcClient:
     def executeTerminalCommand(self, command: Any) -> Any:
         """Send a command to the TeamServer terminal."""
 
-        return self._unary_rpc(
+        return self._audited_rpc(
             "ExecuteTerminalCommand",
             lambda: self.stub.ExecuteTerminalCommand(
                 command,

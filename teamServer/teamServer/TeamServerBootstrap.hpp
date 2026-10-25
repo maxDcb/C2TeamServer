@@ -24,6 +24,8 @@ struct TeamServerTlsMaterial
 
 nlohmann::json loadTeamServerConfigFile(const std::string& configFile);
 std::shared_ptr<spdlog::logger> createTeamServerLogger(const nlohmann::json& config);
+std::shared_ptr<spdlog::logger> createTeamServerAuditLogger(
+    const std::string& path = "logs/TeamServer.audit.jsonl");
 TeamServerTlsMaterial loadTeamServerTlsMaterial(const nlohmann::json& config, const std::shared_ptr<spdlog::logger>& logger);
 std::string buildTeamServerGrpcAddress(const nlohmann::json& config);
 std::unique_ptr<grpc::Server> buildAndStartTeamServerServer(

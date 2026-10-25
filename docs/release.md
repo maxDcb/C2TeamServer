@@ -57,6 +57,11 @@ python packaging/validate_release.py \
   --require-implants
 ```
 
+The importer accepts the known GitHub beacon artifacts in Windows implant
+archives, and GitHub/SMB beacon artifacts in Linux implant archives, but does
+not include them in the TeamServer bundle. These transports are excluded from
+the current release contract. Unknown artifacts still fail import validation.
+
 ## Create Archive
 
 Only archive validated staging, then publish its checksum and `install.sh`:

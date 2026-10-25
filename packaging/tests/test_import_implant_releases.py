@@ -13,18 +13,18 @@ import import_implant_releases  # noqa: E402
 import validate_release  # noqa: E402
 
 
-def _make_windows_archive(path: Path, arch: str) -> None:
+def _make_windows_archive(path: Path, arch: str, extra_beacons: tuple[str, ...] = ()) -> None:
     with zipfile.ZipFile(path, "w") as archive:
-        for filename in validate_release.EXPECTED_WINDOWS_BEACONS:
+        for filename in (*validate_release.EXPECTED_WINDOWS_BEACONS, *extra_beacons):
             archive.writestr(f"Release/WindowsBeacons/{filename}", f"{arch}:{filename}")
         for filename in validate_release.EXPECTED_WINDOWS_MODULES:
             archive.writestr(f"Release/WindowsModules/{filename}", f"{arch}:{filename}")
 
 
-def _make_linux_archive(path: Path) -> None:
+def _make_linux_archive(path: Path, extra_beacons: tuple[str, ...] = ()) -> None:
     with tarfile.open(path, "w:gz") as archive:
         for directory, expected_files in (
-            ("LinuxBeacons", validate_release.EXPECTED_LINUX_BEACONS),
+            ("LinuxBeacons", (*validate_release.EXPECTED_LINUX_BEACONS, *extra_beacons)),
             ("LinuxModules", validate_release.EXPECTED_LINUX_MODULES),
         ):
             for filename in expected_files:
@@ -112,3 +112,51 @@ def test_import_implant_releases_rejects_missing_windows_arch_asset(tmp_path, mo
     )
 
     assert exit_code == 1
+
+
+def test_import_excludes_known_unsupported_beacons(tmp_path, monkeypatch):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    for arch in validate_release.EXPECTED_WINDOWS_ARCHES:
+        _make_windows_archive(
+            source_root / f"C2Implant-windows-{arch}.zip", arch,
+            import_implant_releases.EXCLUDED_WINDOWS_BEACONS,
+        )
+    _make_linux_archive(
+        source_root / "Release.tar.gz", import_implant_releases.EXCLUDED_LINUX_BEACONS,
+    )
+
+    def fake_fetch_release_asset(_repo, _tag, asset_name, destination, _token):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((source_root / asset_name).read_bytes())
+
+    monkeypatch.setattr(import_implant_releases, "_fetch_release_asset", fake_fetch_release_asset)
+    stage_root = tmp_path / "Release"
+    stage_root.mkdir()
+    assert import_implant_releases.main([
+        "--stage-root", str(stage_root), "--import-root", str(tmp_path / "imports"),
+    ]) == 0
+    validate_release.validate_implants(stage_root)
+    for arch in validate_release.EXPECTED_WINDOWS_ARCHES:
+        for name in import_implant_releases.EXCLUDED_WINDOWS_BEACONS:
+            assert not (stage_root / "WindowsBeacons" / arch / name).exists()
+    for name in import_implant_releases.EXCLUDED_LINUX_BEACONS:
+        assert not (stage_root / "LinuxBeacons" / "x64" / name).exists()
+
+
+def test_import_rejects_unrecognized_source_beacon(tmp_path):
+    source = tmp_path / "WindowsBeacons"
+    source.mkdir()
+    for name in validate_release.EXPECTED_WINDOWS_BEACONS:
+        (source / name).write_bytes(b"beacon")
+    (source / "UnknownBeacon.exe").write_bytes(b"unknown")
+
+    try:
+        import_implant_releases._require_source_dir(
+            source, validate_release.EXPECTED_WINDOWS_BEACONS,
+            import_implant_releases.EXCLUDED_WINDOWS_BEACONS,
+        )
+    except validate_release.ValidationError as error:
+        assert "UnknownBeacon.exe" in str(error)
+    else:
+        raise AssertionError("Unknown source beacon should be rejected")

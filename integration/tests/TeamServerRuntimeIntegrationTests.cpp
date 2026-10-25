@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -174,6 +175,7 @@ void rewriteRuntimeConfig(const fs::path& runtimeRoot, int grpcPort)
 
     config["ServerGRPCAdd"] = "127.0.0.1";
     config["ServerGRPCPort"] = std::to_string(grpcPort);
+    config["LogLevel"] = "off";
 
     std::ofstream output(configFile);
     output << config.dump(4);
@@ -311,6 +313,53 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
     teamserverapi::JobExecutionRecord stored;
     assert(stub->GetJobExecution(&getContext, getRequest, &stored).ok());
     assert(stored.operator_username() == "admin" && stored.origin() == submitRequest.origin());
+
+    grpc::ClientContext stopContext;
+    stopContext.AddMetadata("authorization", "Bearer " + token);
+    stopContext.AddMetadata("clientid", "integration-test");
+    teamserverapi::SessionSelector stopRequest;
+    stopRequest.set_beacon_hash("CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC");
+    stopRequest.set_listener_hash("child-listener");
+    teamserverapi::OperationAck stopResponse;
+    assert(stub->StopSession(&stopContext, stopRequest, &stopResponse).ok());
+    assert(stopResponse.status() == teamserverapi::KO);
+
+    grpc::ClientContext terminalContext;
+    terminalContext.AddMetadata("authorization", "Bearer " + token);
+    teamserverapi::TerminalCommandRequest terminalRequest;
+    terminalRequest.set_command("unknown private-argument");
+    teamserverapi::TerminalCommandResponse terminalResponse;
+    assert(stub->ExecuteTerminalCommand(&terminalContext, terminalRequest, &terminalResponse).ok());
+    assert(terminalResponse.status() == teamserverapi::KO);
+
+    const std::string audit = readFile(runtimeCopy.path() / "TeamServer" / "logs" / "TeamServer.audit.jsonl");
+    assert(audit.find("\"action\":\"Authenticate\"") != std::string::npos);
+    assert(audit.find("\"action\":\"SubmitJob\"") != std::string::npos);
+    assert(audit.find("\"actor\":\"admin\"") != std::string::npos);
+    assert(audit.find("\"client_id\":\"integration-test\"") != std::string::npos);
+    assert(audit.find("\"beacon_hash\":\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\"") != std::string::npos);
+    assert(audit.find("\"listener_hash\":\"child-listener\"") != std::string::npos);
+    assert(audit.find("audit-check") == std::string::npos);
+    assert(audit.find("private-argument") == std::string::npos);
+    assert(audit.find(token) == std::string::npos);
+    std::istringstream auditLines(audit);
+    std::string line;
+    std::vector<nlohmann::json> stopEvents;
+    while (std::getline(auditLines, line))
+    {
+        const auto event = nlohmann::json::parse(line);
+        if (event.value("action", "") == "StopSession") stopEvents.push_back(event);
+    }
+    assert(stopEvents.size() == 2);
+    assert(stopEvents[0]["outcome"] == "requested");
+    assert(stopEvents[1]["outcome"] == "rejected");
+    for (const auto& event : stopEvents)
+    {
+        assert(event["actor"] == "admin");
+        assert(event["client_id"] == "integration-test");
+        assert(event["details"]["beacon_hash"] == stopRequest.beacon_hash());
+        assert(event["details"]["listener_hash"] == stopRequest.listener_hash());
+    }
 }
 } // namespace
 

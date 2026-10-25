@@ -4,6 +4,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <grpcpp/support/string_ref.h>
@@ -197,6 +198,24 @@ void testAuthManagerRoundTrip()
     auto migratedCredentials = nlohmann::json::parse(migratedInput);
     assert(migratedCredentials["users"][0]["password_hash"].get<std::string>().rfind("$argon2id$", 0) == 0);
 }
+
+void testAuditLogIsPrivateAndIndependentOfDiagnosticLevel()
+{
+    ScopedPath tempDir(makeTempDirectory("audit"));
+    const fs::path path = tempDir.path() / "TeamServer.audit.jsonl";
+    auto logger = createTeamServerAuditLogger(path.string());
+    assert(logger->level() == spdlog::level::info);
+    logger->info(R"({"action":"StopSession","outcome":"accepted"})");
+    logger->flush();
+
+    std::ifstream input(path);
+    const auto record = nlohmann::json::parse(input);
+    assert(record["action"] == "StopSession");
+    assert(record["outcome"] == "accepted");
+    struct stat fileInfo {};
+    assert(::stat(path.c_str(), &fileInfo) == 0);
+    assert((fileInfo.st_mode & 0777) == 0600);
+}
 } // namespace
 
 int main()
@@ -204,5 +223,6 @@ int main()
     testLoadConfigFile();
     testLoadTlsMaterial();
     testAuthManagerRoundTrip();
+    testAuditLogIsPrivateAndIndependentOfDiagnosticLevel();
     return 0;
 }

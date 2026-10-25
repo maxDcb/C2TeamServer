@@ -2,7 +2,8 @@ from datetime import datetime
 from threading import Event
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
+import pytest
+from PyQt6.QtWidgets import QAbstractItemView, QApplication, QHeaderView, QMessageBox, QWidget
 
 import C2Client.SessionPanel as session_panel
 from C2Client.SessionPanel import (
@@ -25,6 +26,7 @@ class StubGrpc:
     def __init__(self):
         self.stop_ack = None
         self.stopped_sessions = []
+        self.listeners = []
 
     def listSessions(self):
         return []
@@ -32,6 +34,14 @@ class StubGrpc:
     def stopSession(self, session):
         self.stopped_sessions.append(session)
         return self.stop_ack or type("Ack", (), {"status": TeamServerApi_pb2.OK, "message": "Session stop command queued."})()
+
+    def listListeners(self):
+        return self.listeners
+
+
+@pytest.fixture(autouse=True)
+def accept_beacon_stop_confirmation(monkeypatch):
+    monkeypatch.setattr(session_panel.QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
 
 
 def test_sessions_table_labels_arch_as_beacon_process(qtbot, monkeypatch):
@@ -178,6 +188,32 @@ def test_session_toolbar_actions_use_selected_session(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: bool(grpc.stopped_sessions))
     assert grpc.stopped_sessions[-1].beacon_hash == "beacon-full-hash"
     assert grpc.stopped_sessions[-1].listener_hash == "listener-full-hash"
+
+
+def test_stop_targets_only_the_current_session_row(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    qtbot.addWidget(sessions)
+    sessions.listSessionObject = [
+        Session(0, "parent-route", "parent-beacon", "host", "user", "x64", "user", "Linux", "0", False, "", "101", ""),
+        Session(1, "child-route", "child-beacon", "host", "user", "x64", "user", "Linux", "0", False, "", "102", ""),
+    ]
+    sessions.printSessions()
+    sessions.listSessionObject.reverse()  # Simulate a refresh that changes the backing order.
+
+    assert sessions.listSession.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
+    sessions.listSession.selectRow(0)
+    sessions.listSession.selectRow(1)
+    assert [index.row() for index in sessions.listSession.selectionModel().selectedRows()] == [1]
+
+    sessions.stopButton.click()
+    qtbot.waitUntil(lambda: bool(grpc.stopped_sessions))
+    assert grpc.stopped_sessions[0].beacon_hash == "child-beacon"
+    assert grpc.stopped_sessions[0].listener_hash == "child-route"
+    qtbot.waitUntil(lambda: not sessions._stop_pending)
+    assert "child-be / child-ro" in sessions.statusLabel.text()
 
 
 def test_session_script_snapshot_exposes_beacon_context(qtbot, monkeypatch):
@@ -355,7 +391,7 @@ def test_stop_session_runs_outside_gui_and_prevents_duplicate_request(qtbot, mon
     sessions = Sessions(parent, grpc)
     qtbot.addWidget(sessions)
     sessions.stopSession("beacon", "listener")
-    assert grpc.started.wait(timeout=2)
+    qtbot.waitUntil(grpc.started.is_set)
     assert sessions._stop_pending is True
     assert "waiting for TeamServer" in sessions.statusLabel.text()
     sessions.stopSession("beacon", "listener")
@@ -384,6 +420,85 @@ def test_stop_session_transport_error_is_visible_and_not_replayed(qtbot, monkeyp
     assert len(grpc.stopped_sessions) == 1
 
 
+def test_stop_confirmation_warns_about_hosted_listeners_and_cancel_sends_nothing(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    grpc.listeners = [
+        SimpleNamespace(beacon_hash="parent-beacon", listener_hash="child-listener-full", type="tcp"),
+        SimpleNamespace(beacon_hash="other-beacon", listener_hash="unrelated-listener", type="tcp"),
+    ]
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    sessions.setParent(None)
+    qtbot.addWidget(sessions)
+    sessions.listSessionObject = [
+        Session(0, "parent-route", "parent-beacon", "host", "user", "x64", "user", "Linux", "0", False, "", "101", ""),
+    ]
+    sessions.printSessions()
+    dialogs = []
+
+    def decline(_parent, title, message, buttons, default):
+        dialogs.append((title, message, buttons, default))
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(session_panel.QMessageBox, "question", decline)
+    sessions.stopSession("parent-beacon", "parent-route")
+    qtbot.waitUntil(lambda: bool(dialogs) and not sessions._stop_pending)
+
+    assert "parent-beacon" in dialogs[0][1]
+    assert "PID: 101" in dialogs[0][1]
+    assert "1 child listener" in dialogs[0][1]
+    assert "child-li" in dialogs[0][1]
+    assert "unrelated" not in dialogs[0][1]
+    assert dialogs[0][3] == QMessageBox.StandardButton.No
+    assert grpc.stopped_sessions == []
+
+
+def test_stop_confirmation_is_required_without_child_listener(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    sessions.setParent(None)
+    qtbot.addWidget(sessions)
+    messages = []
+
+    def decline(_parent, _title, message, _buttons, _default):
+        messages.append(message)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(session_panel.QMessageBox, "question", decline)
+    sessions.stopSession("beacon", "listener")
+    qtbot.waitUntil(lambda: bool(messages) and not sessions._stop_pending)
+    assert "No hosted child listener was reported" in messages[0]
+    assert grpc.stopped_sessions == []
+
+
+def test_stop_confirmation_reports_unknown_child_listener_state(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+
+    class FailedLookup(StubGrpc):
+        def listListeners(self):
+            raise RuntimeError("listener listing unavailable")
+
+    grpc = FailedLookup()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    sessions.setParent(None)
+    qtbot.addWidget(sessions)
+    messages = []
+
+    def decline(_parent, _title, message, _buttons, _default):
+        messages.append(message)
+        return QMessageBox.StandardButton.No
+
+    monkeypatch.setattr(session_panel.QMessageBox, "question", decline)
+    sessions.stopSession("beacon", "listener")
+    qtbot.waitUntil(lambda: bool(messages) and not sessions._stop_pending)
+    assert "could not be checked" in messages[0]
+    assert grpc.stopped_sessions == []
+
+
 def test_context_action_targets_full_session_key_with_prefix_collision(qtbot, monkeypatch):
     monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
     parent = QWidget()
@@ -408,10 +523,11 @@ def test_context_action_targets_full_session_key_with_prefix_collision(qtbot, mo
     menu = FakeMenu()
     monkeypatch.setattr(session_panel, "create_dark_context_menu", lambda parent: menu)
     sessions.printSessions()
+    sessions.listSessionObject.reverse()  # The visible second row must keep its own identity.
     sessions.show()
     position = sessions.listSession.visualItemRect(sessions.listSession.item(1, 0)).center()
     sessions.showContextMenu(position)
-    assert menu.labels == ["Interact", "Stop"]
+    assert menu.labels == ["Interact", "Stop abcdefgh (PID 2)"]
     assert sessions._context_session_key == ("abcdefgh-two", "route-two")
     emitted = []
     sessions.interactWithSession.connect(lambda *args: emitted.append(args))
@@ -419,6 +535,46 @@ def test_context_action_targets_full_session_key_with_prefix_collision(qtbot, mo
     assert emitted == [("abcdefgh-two", "route-two", "host2", "user", False)]
     sessions.actionClicked(SimpleNamespace(text=lambda: "Delete"))
     assert len(sessions.listSessionObject) == 2
+
+
+def test_context_stop_keeps_clicked_session_when_menu_context_changes(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    sessions.setParent(None)
+    qtbot.addWidget(sessions)
+    sessions.listSessionObject = [
+        Session(0, "parent-route", "parent-beacon", "host", "user", "x64", "user", "Linux", "0", False, "", "101", ""),
+        Session(1, "child-route", "child-beacon", "host", "user", "x64", "user", "Linux", "0", False, "", "102", ""),
+    ]
+    sessions.printSessions()
+    sessions.show()
+
+    class FakeMenu:
+        def __init__(self):
+            self.callback = None
+            self.triggered = SimpleNamespace(connect=self._connect)
+
+        def _connect(self, callback):
+            self.callback = callback
+
+        def addAction(self, label):
+            return SimpleNamespace(setEnabled=lambda enabled: None)
+
+        def exec(self, position):
+            return None
+
+    menu = FakeMenu()
+    monkeypatch.setattr(session_panel, "create_dark_context_menu", lambda parent: menu)
+    position = sessions.listSession.visualItemRect(sessions.listSession.item(1, 0)).center()
+    sessions.showContextMenu(position)
+    sessions._context_session_key = ("parent-beacon", "parent-route")
+    menu.callback(SimpleNamespace(text=lambda: "Stop child-be (PID 102)"))
+
+    qtbot.waitUntil(lambda: bool(grpc.stopped_sessions))
+    assert grpc.stopped_sessions[0].beacon_hash == "child-beacon"
+    assert grpc.stopped_sessions[0].listener_hash == "child-route"
 
 
 def test_session_hooks_use_confirmed_transitions_and_ignore_poll_age(qtbot, monkeypatch):

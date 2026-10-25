@@ -99,10 +99,13 @@ protected:
 
 private:
     grpc::Status ensureAuthenticated(grpc::ServerContext* context);
+    void writeAudit(grpc::ServerContext* context, const std::string& actor,
+        const std::string& action, const std::string& outcome, const nlohmann::json& details = {});
 
     nlohmann::json m_config;
 
     std::shared_ptr<spdlog::logger> m_logger;
+    std::shared_ptr<spdlog::logger> m_auditLogger;
 
     std::vector<std::shared_ptr<Listener>> m_listeners;
     mutable std::shared_mutex m_listenersMutex;

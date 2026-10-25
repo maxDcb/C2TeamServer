@@ -1101,6 +1101,43 @@ void testStaleListenerRouteDoesNotGuessBetweenActivePaths()
     requireRoute(sentCommands.size() == 1 && sentCommands[0].listenerHash == "route-two",
         "Exact route command was queued on the wrong listener");
 }
+
+void testStoppingChildQueuesNoParentStop()
+{
+    const std::string parentHash(SizeBeaconHash, 'P');
+    const std::string childHash(SizeBeaconHash, 'C');
+    const std::string primaryHash = "primary-listener";
+    const std::string childListenerHash = "child-listener";
+    auto listener = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, primaryHash);
+    listener->addSession(primaryHash, parentHash, "host", "user", "x64", "user", "Linux");
+    listener->addSession(childListenerHash, childHash, "host", "user", "x64", "user", "Linux");
+    if (!listener->addSessionListener(parentHash, primaryHash, childListenerHash, ListenerTcpType,
+                                     "127.0.0.1", "5555"))
+        throw std::runtime_error("Could not register the parent-hosted child listener");
+
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners{listener};
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commonCommands,
+        sentCommands, nullptr,
+        [](const std::string& input, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction(input == EndInstruction ? EndCmd : "instruction");
+            return 0;
+        });
+
+    teamserverapi::SessionSelector childSelector;
+    childSelector.set_beacon_hash(childHash);
+    childSelector.set_listener_hash(childListenerHash);
+    teamserverapi::OperationAck ack;
+    if (!service.stopSession(childSelector, &ack).ok() || ack.status() != teamserverapi::OK ||
+        ack.session_beacon_hash() != childHash || ack.session_listener_hash() != childListenerHash ||
+        listener->getTask(parentHash, primaryHash).instruction() == EndCmd ||
+        listener->getTask(childHash, childListenerHash).instruction() != EndCmd)
+        throw std::runtime_error("Stopping a child queued the stop task on the wrong beacon");
+}
 } // namespace
 
 int main()
@@ -1122,5 +1159,6 @@ int main()
     testStopDuringPreparationRejectsCommand();
     testStaleListenerRouteUsesUniqueActiveSession();
     testStaleListenerRouteDoesNotGuessBetweenActivePaths();
+    testStoppingChildQueuesNoParentStop();
     return 0;
 }

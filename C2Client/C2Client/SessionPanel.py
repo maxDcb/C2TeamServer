@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -27,6 +29,8 @@ from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style, create_dark_context_menu
 from .refresh_worker import RefreshWorker
 from .ui_status import apply_status, format_action_status, status_kind_for_ok
+
+logger = logging.getLogger(__name__)
 
 SESSION_STATE_ALIVE = "Alive"
 SESSION_STATE_STALE = "Stale"
@@ -227,6 +231,26 @@ class SessionStopSignals(QObject):
     finished = pyqtSignal(object, str)
 
 
+class SessionStopLookupSignals(QObject):
+    finished = pyqtSignal(str, str, object, str)
+
+
+class SessionStopLookupWorker(QRunnable):
+    def __init__(self, grpc_client, beacon_hash, listener_hash, signals):
+        super().__init__()
+        self.grpc_client = grpc_client
+        self.beacon_hash = beacon_hash
+        self.listener_hash = listener_hash
+        self.signals = signals
+
+    def run(self):
+        try:
+            listeners = list(self.grpc_client.listListeners())
+            self.signals.finished.emit(self.beacon_hash, self.listener_hash, listeners, "")
+        except Exception as exc:
+            self.signals.finished.emit(self.beacon_hash, self.listener_hash, [], str(exc))
+
+
 class SessionStopWorker(QRunnable):
     def __init__(self, grpc_client, request, signals):
         super().__init__()
@@ -267,6 +291,8 @@ class Sessions(QWidget):
         self._snapshot_auth_generation = getattr(grpcClient, "auth_generation", None)
         self._stop_signals = SessionStopSignals()
         self._stop_signals.finished.connect(self._onStopFinished)
+        self._stop_lookup_signals = SessionStopLookupSignals()
+        self._stop_lookup_signals.finished.connect(self._onStopLookupFinished)
         apply_dark_panel_style(self)
         self.sessionStaleAfterMs = env_int(
             "C2_SESSION_STALE_AFTER_MS",
@@ -325,6 +351,7 @@ class Sessions(QWidget):
         self.listSession.setShowGrid(False)
         self.listSession.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.listSession.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.listSession.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.listSession.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.listSession.setRowCount(0)
         self.listSession.setColumnCount(11)
@@ -483,9 +510,15 @@ class Sessions(QWidget):
             return None
 
         row = selectedRows[0].row()
-        if row < 0 or row >= len(self.listSessionObject) or self.listSession.isRowHidden(row):
+        if row < 0 or self.listSession.isRowHidden(row):
             return None
-        return self.listSessionObject[row]
+        item = self.listSession.item(row, 0)
+        key = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        return next(
+            (session for session in self.listSessionObject
+             if (session.beaconHash, session.listenerHash) == key),
+            None,
+        )
 
     def _onHideInactiveToggled(self, hideInactive):
         self.hideInactiveButton.setText("Show inactive" if hideInactive else "Hide inactive")
@@ -585,29 +618,35 @@ class Sessions(QWidget):
         if not index.isValid():
             return
 
-        row = index.row()
-        if row >= len(self.listSessionObject):
+        item = self.listSession.item(index.row(), 0)
+        session_key = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        sessionStore = next(
+            (session for session in self.listSessionObject
+             if (session.beaconHash, session.listenerHash) == session_key),
+            None,
+        )
+        if sessionStore is None:
             return
-        sessionStore = self.listSessionObject[row]
-        self._context_session_key = (sessionStore.beaconHash, sessionStore.listenerHash)
+        self._context_session_key = session_key
 
         menu = create_dark_context_menu(self)
         history_only = not self._canSendCommands(sessionStore)
         interactAction = menu.addAction('View history' if history_only else 'Interact')
-        stopAction = menu.addAction('Stop')
+        stopAction = menu.addAction(f'Stop {sessionStore.beaconHash[:8]} (PID {sessionStore.processId})')
         interactAction.setEnabled(True)
         stopAction.setEnabled(not self._stop_pending and sessionStore.available
                               and not _is_truthy(sessionStore.killed) and sessionStore.state not in {
             TeamServerApi_pb2.SESSION_STATE_STOPPING,
             TeamServerApi_pb2.SESSION_STATE_STOPPED,
         })
-        menu.triggered.connect(self.actionClicked)
+        menu.triggered.connect(lambda action, key=session_key: self.actionClicked(action, key))
         menu.exec(self.listSession.viewport().mapToGlobal(position))
 
 
     # catch Interact and Stop menu click
-    def actionClicked(self, action):
-        key = getattr(self, "_context_session_key", None)
+    def actionClicked(self, action, key=None):
+        if key is None:
+            key = getattr(self, "_context_session_key", None)
         for sessionStore in self.listSessionObject:
             if (sessionStore.beaconHash, sessionStore.listenerHash) != key:
                 continue
@@ -617,7 +656,7 @@ class Sessions(QWidget):
                     sessionStore.hostname, sessionStore.username,
                     not self._canSendCommands(sessionStore),
                 )
-            elif action.text() == "Stop" and sessionStore.available:
+            elif action.text().startswith("Stop ") and sessionStore.available:
                 self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
             break
 
@@ -625,12 +664,80 @@ class Sessions(QWidget):
     def stopSession(self, beaconHash, listenerHash):
         if self._stop_pending:
             return
-        session = TeamServerApi_pb2.SessionSelector(
-            beacon_hash=beaconHash, listener_hash=listenerHash)
         self._stop_pending = True
         self._pending_stop_key = (beaconHash, listenerHash)
-        self.setInlineStatus("Stopping session; waiting for TeamServer…")
+        self.setInlineStatus(f"Checking child listeners for beacon {beaconHash[:8]}…")
         self.updateActionButtons()
+        QThreadPool.globalInstance().start(
+            SessionStopLookupWorker(self.grpcClient, beaconHash, listenerHash, self._stop_lookup_signals)
+        )
+
+    def _onStopLookupFinished(self, beaconHash, listenerHash, listeners, error):
+        if self._pending_stop_key != (beaconHash, listenerHash):
+            return
+        sessionStore = next(
+            (session for session in self.listSessionObject
+             if (session.beaconHash, session.listenerHash) == (beaconHash, listenerHash)),
+            None,
+        )
+        if sessionStore is not None and (
+            not sessionStore.available or _is_truthy(sessionStore.killed) or sessionStore.state in {
+                TeamServerApi_pb2.SESSION_STATE_STOPPING,
+                TeamServerApi_pb2.SESSION_STATE_STOPPED,
+            }
+        ):
+            self._pending_stop_key = None
+            self._stop_pending = False
+            self.setInlineStatus(f"Session {beaconHash[:8]} is no longer available for stopping.", False)
+            self.updateActionButtons()
+            return
+
+        childListeners = sorted(
+            (listener for listener in listeners
+             if getattr(listener, "beacon_hash", "") == beaconHash
+             and getattr(listener, "listener_hash", "")),
+            key=lambda listener: listener.listener_hash,
+        )
+        host = sessionStore.hostname if sessionStore is not None else "unknown"
+        pid = sessionStore.processId if sessionStore is not None else "unknown"
+        message = (
+            f"Stop beacon {beaconHash}?\n"
+            f"Host: {host} | PID: {pid}\n"
+            f"Listener route: {listenerHash}\n\n"
+        )
+        if childListeners:
+            message += f"This beacon hosts {len(childListeners)} child listener(s):\n"
+            message += "\n".join(
+                f"• {listener.type} {listener.listener_hash[:8]}"
+                for listener in childListeners[:5]
+            )
+            if len(childListeners) > 5:
+                message += f"\n• … and {len(childListeners) - 5} more"
+            message += "\n\nSessions reached through them may become unavailable."
+        elif error:
+            logger.warning("Could not check child listeners before stopping beacon %s: %s", beaconHash, error)
+            message += "Child listeners could not be checked; their status is unknown."
+        else:
+            message += "No hosted child listener was reported."
+
+        answer = QMessageBox.question(
+            self, "Confirm beacon stop", message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._pending_stop_key = None
+            self._stop_pending = False
+            self.setInlineStatus(f"Stop cancelled for beacon {beaconHash[:8]}.")
+            self.updateActionButtons()
+            return
+
+        logger.info("StopSession requested for beacon %s on listener %s", beaconHash, listenerHash)
+        session = TeamServerApi_pb2.SessionSelector(
+            beacon_hash=beaconHash, listener_hash=listenerHash)
+        self.setInlineStatus(
+            f"Stopping session {beaconHash[:8]} / {listenerHash[:8]}; waiting for TeamServer…"
+        )
         QThreadPool.globalInstance().start(SessionStopWorker(self.grpcClient, session, self._stop_signals))
 
     def _onStopFinished(self, ack, error):
@@ -649,12 +756,18 @@ class Sessions(QWidget):
                 getattr(ack, "session_beacon_hash", "") or pending_key[0],
                 getattr(ack, "session_listener_hash", "") or pending_key[1],
             )
+            logger.info("StopSession accepted for beacon %s on listener %s", *actual_key)
             for sessionStore in self.listSessionObject:
                 if (sessionStore.beaconHash, sessionStore.listenerHash) == actual_key:
                     sessionStore.state = TeamServerApi_pb2.SESSION_STATE_STOPPING
-            self.setStatusMessage(ack, "Session stop command queued.", action="Stop session")
+            self.setInlineStatus(
+                f"Stop session {actual_key[0][:8]} / {actual_key[1][:8]}: "
+                + operation_ack_text(ack, "Session stop command queued.")
+            )
             if actual_key[1] != pending_key[1]:
-                self.setInlineStatus(f"Stop session: queued via current route {actual_key[1][:8]}.")
+                self.setInlineStatus(
+                    f"Stop session {actual_key[0][:8]}: queued via current route {actual_key[1][:8]}."
+                )
             self.printSessions()
         self.updateActionButtons()
         self.requestRefresh()
@@ -833,6 +946,10 @@ class Sessions(QWidget):
         for ix, sessionStore in enumerate(self.listSessionObject):
 
             beaconHash = QTableWidgetItem(sessionStore.beaconHash[0:8])
+            beaconHash.setData(
+                Qt.ItemDataRole.UserRole,
+                (sessionStore.beaconHash, sessionStore.listenerHash),
+            )
             self.listSession.setItem(ix, 0, beaconHash)
 
             listenerHash = QTableWidgetItem(sessionStore.listenerHash[0:8])

@@ -31,11 +31,15 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <functional>
 #include <unordered_map>
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 using namespace std;
 using namespace std::placeholders;
@@ -101,6 +105,12 @@ grpc::Status jobStatus(const JobError& error)
     }
     return {grpc::StatusCode::INTERNAL, error.what()};
 }
+
+std::string auditOutcome(const grpc::Status& status, teamserverapi::Status responseStatus)
+{
+    if (!status.ok()) return "error";
+    return responseStatus == teamserverapi::OK ? "accepted" : "rejected";
+}
 } // namespace
 
 std::string getIPAddress(const std::string& interface);
@@ -110,10 +120,42 @@ grpc::Status TeamServer::ensureAuthenticated(grpc::ServerContext* context)
     return m_authManager->ensureAuthenticated(context->client_metadata());
 }
 
+void TeamServer::writeAudit(grpc::ServerContext* context, const std::string& actor,
+    const std::string& action, const std::string& outcome, const nlohmann::json& details)
+{
+    try
+    {
+        json record = {
+            {"timestamp_ms", std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count()},
+            {"actor", actor}, {"action", action}, {"outcome", outcome}, {"details", details}
+        };
+        if (context)
+        {
+            record["peer"] = context->peer();
+            const auto& metadata = context->client_metadata();
+            const auto clientId = metadata.find("clientid");
+            if (clientId != metadata.end())
+                record["client_id"] = std::string(clientId->second.data(),
+                    std::min<std::size_t>(clientId->second.size(), 64));
+        }
+        m_auditLogger->info("{}", record.dump());
+#ifndef _WIN32
+        if (::chmod("logs/TeamServer.audit.jsonl", S_IRUSR | S_IWUSR) != 0)
+            std::fprintf(stderr, "TeamServer audit log permissions could not be updated\n");
+#endif
+    }
+    catch (const std::exception& error)
+    {
+        std::fprintf(stderr, "TeamServer audit write failed: %s\n", error.what());
+    }
+}
+
 TeamServer::TeamServer(const nlohmann::json& config)
     : m_config(config)
 {
     m_logger = createTeamServerLogger(config);
+    m_auditLogger = createTeamServerAuditLogger();
 
     TeamServerRuntimeConfig runtimeConfig = TeamServerRuntimeConfig::fromJson(config);
     runtimeConfig.validateDirectories(m_logger);
@@ -180,8 +222,10 @@ TeamServer::TeamServer(const nlohmann::json& config)
         if (result.command_id().empty()) return;
         try
         {
-            m_jobApplication->complete(result.command_id(), result.status() == teamserverapi::OK,
+            const auto completed = m_jobApplication->complete(result.command_id(), result.status() == teamserverapi::OK,
                 result.output(), result.status() == teamserverapi::OK ? "" : "command_failed", result.message());
+            writeAudit(nullptr, completed.operatorUsername, "JobCompleted", completed.state,
+                {{"job_id", completed.jobId}, {"operation", completed.operation}});
         }
         catch (const JobError& error)
         {
@@ -276,8 +320,8 @@ TeamServer::~TeamServer()
 
 grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response)
 {
-    (void)context;
     auto status = m_authManager->authenticate(*request, *response);
+    writeAudit(context, request->username(), "Authenticate", auditOutcome(status, response->status()));
     if (status.ok() && response->status() == teamserverapi::OK)
     {
         response->add_available_listener_types(ListenerHttpType);
@@ -307,18 +351,36 @@ grpc::Status TeamServer::ListListeners(grpc::ServerContext* context, const teams
 // To add a listener to a beacon the process it to send a command to the beacon
 grpc::Status TeamServer::AddListener(grpc::ServerContext* context, const teamserverapi::Listener* listenerToCreate, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "AddListener", "denied");
         return authStatus;
-    return m_listenerSessionService->addListener(*listenerToCreate, response);
+    }
+    writeAudit(context, actor, "AddListener", "requested",
+        {{"type", listenerToCreate->type()}, {"ip", listenerToCreate->ip()}, {"port", listenerToCreate->port()}});
+    const auto status = m_listenerSessionService->addListener(*listenerToCreate, response);
+    writeAudit(context, actor, "AddListener", auditOutcome(status, response->status()),
+        {{"type", listenerToCreate->type()}, {"ip", listenerToCreate->ip()},
+         {"port", listenerToCreate->port()}, {"listener_hash", response->listener_hash()}});
+    return status;
 }
 
 grpc::Status TeamServer::StopListener(grpc::ServerContext* context, const teamserverapi::ListenerSelector* listenerToStop, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "StopListener", "denied", {{"listener_hash", listenerToStop->listener_hash()}});
         return authStatus;
-    return m_listenerSessionService->stopListener(*listenerToStop, response);
+    }
+    writeAudit(context, actor, "StopListener", "requested", {{"listener_hash", listenerToStop->listener_hash()}});
+    const auto status = m_listenerSessionService->stopListener(*listenerToStop, response);
+    writeAudit(context, actor, "StopListener", auditOutcome(status, response->status()),
+        {{"listener_hash", listenerToStop->listener_hash()}});
+    return status;
 }
 
 bool TeamServer::isListenerAlive(const std::string& listenerHash)
@@ -355,10 +417,23 @@ grpc::Status TeamServer::ListSessionHistory(grpc::ServerContext* context, const 
 
 grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "StopSession", "denied",
+            {{"beacon_hash", sessionToStop->beacon_hash()}, {"listener_hash", sessionToStop->listener_hash()}});
         return authStatus;
-    return m_listenerSessionService->stopSession(*sessionToStop, response);
+    }
+    writeAudit(context, actor, "StopSession", "requested",
+        {{"beacon_hash", sessionToStop->beacon_hash()}, {"listener_hash", sessionToStop->listener_hash()}});
+    const auto status = m_listenerSessionService->stopSession(*sessionToStop, response);
+    writeAudit(context, actor, "StopSession", auditOutcome(status, response->status()),
+        {{"beacon_hash", sessionToStop->beacon_hash()}, {"listener_hash", sessionToStop->listener_hash()},
+         {"resolved_beacon_hash", response->session_beacon_hash()},
+         {"resolved_listener_hash", response->session_listener_hash()},
+         {"session_state", response->session_state()}});
+    return status;
 }
 
 grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer)
@@ -372,26 +447,48 @@ grpc::Status TeamServer::ListArtifacts(grpc::ServerContext* context, const teams
 
 grpc::Status TeamServer::DownloadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::ArtifactContent* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "DownloadArtifact", "denied", {{"artifact_id", selector->artifact_id()}});
         return authStatus;
-    return m_artifactService->downloadArtifact(*selector, response);
+    }
+    const auto status = m_artifactService->downloadArtifact(*selector, response);
+    writeAudit(context, actor, "DownloadArtifact", auditOutcome(status, response->status()),
+        {{"artifact_id", selector->artifact_id()}, {"size", response->data().size()}});
+    return status;
 }
 
 grpc::Status TeamServer::UploadArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactUploadRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "UploadArtifact", "denied");
         return authStatus;
-    return m_artifactService->uploadArtifact(*request, response);
+    }
+    const auto status = m_artifactService->uploadArtifact(*request, response);
+    writeAudit(context, actor, "UploadArtifact", auditOutcome(status, response->status()),
+        {{"name", request->name()}, {"platform", request->platform()}, {"arch", request->arch()},
+         {"size", request->data().size()}});
+    return status;
 }
 
 grpc::Status TeamServer::DeleteGeneratedArtifact(grpc::ServerContext* context, const teamserverapi::ArtifactSelector* selector, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "DeleteGeneratedArtifact", "denied", {{"artifact_id", selector->artifact_id()}});
         return authStatus;
-    return m_artifactService->deleteGeneratedArtifact(*selector, response);
+    }
+    const auto status = m_artifactService->deleteGeneratedArtifact(*selector, response);
+    writeAudit(context, actor, "DeleteGeneratedArtifact", auditOutcome(status, response->status()),
+        {{"artifact_id", selector->artifact_id()}});
+    return status;
 }
 
 grpc::Status TeamServer::ListCredentials(grpc::ServerContext* context, const teamserverapi::CredentialQuery* query, grpc::ServerWriter<teamserverapi::CredentialSummary>* writer)
@@ -405,34 +502,64 @@ grpc::Status TeamServer::ListCredentials(grpc::ServerContext* context, const tea
 
 grpc::Status TeamServer::GetCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::CredentialDetail* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        if (selector->reveal_secret())
+            writeAudit(context, actor, "RevealCredential", "denied", {{"credential_id", selector->credential_id()}});
         return authStatus;
-    return m_credentialVaultService->getCredential(*selector, response);
+    }
+    const auto status = m_credentialVaultService->getCredential(*selector, response);
+    if (selector->reveal_secret())
+        writeAudit(context, actor, "RevealCredential", auditOutcome(status, response->status()),
+            {{"credential_id", selector->credential_id()}});
+    return status;
 }
 
 grpc::Status TeamServer::AddCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "AddCredential", "denied");
         return authStatus;
-    return m_credentialVaultService->addCredential(*request, response);
+    }
+    const auto status = m_credentialVaultService->addCredential(*request, response);
+    writeAudit(context, actor, "AddCredential", auditOutcome(status, response->status()),
+        {{"credential_id", request->credential_id()}, {"type", request->type()}});
+    return status;
 }
 
 grpc::Status TeamServer::UpdateCredential(grpc::ServerContext* context, const teamserverapi::CredentialUpsertRequest* request, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "UpdateCredential", "denied", {{"credential_id", request->credential_id()}});
         return authStatus;
-    return m_credentialVaultService->updateCredential(*request, response);
+    }
+    const auto status = m_credentialVaultService->updateCredential(*request, response);
+    writeAudit(context, actor, "UpdateCredential", auditOutcome(status, response->status()),
+        {{"credential_id", request->credential_id()}});
+    return status;
 }
 
 grpc::Status TeamServer::DeleteCredential(grpc::ServerContext* context, const teamserverapi::CredentialSelector* selector, teamserverapi::OperationAck* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "DeleteCredential", "denied", {{"credential_id", selector->credential_id()}});
         return authStatus;
-    return m_credentialVaultService->deleteCredential(*selector, response);
+    }
+    const auto status = m_credentialVaultService->deleteCredential(*selector, response);
+    writeAudit(context, actor, "DeleteCredential", auditOutcome(status, response->status()),
+        {{"credential_id", selector->credential_id()}});
+    return status;
 }
 
 grpc::Status TeamServer::ListCommands(grpc::ServerContext* context, const teamserverapi::CommandQuery* query, grpc::ServerWriter<teamserverapi::CommandSpec>* writer)
@@ -455,13 +582,39 @@ grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response)
 {
+    json details = {{"job_id", request->job_id()}, {"operation", request->operation()}};
     std::string operatorUsername;
     auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &operatorUsername);
     if (!authStatus.ok())
+    {
+        writeAudit(context, operatorUsername, "SubmitJob", "denied", details);
         return authStatus;
-    try { copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input(),
-        operatorUsername, request->origin()), response); }
-    catch (const JobError& error) { return jobStatus(error); }
+    }
+    if (request->operation() == "session_command")
+    {
+        const json input = json::parse(request->input(), nullptr, false);
+        if (input.is_object())
+        {
+            if (input.contains("beacon_hash") && input["beacon_hash"].is_string())
+                details["beacon_hash"] = input["beacon_hash"];
+            if (input.contains("listener_hash") && input["listener_hash"].is_string())
+                details["listener_hash"] = input["listener_hash"];
+        }
+    }
+    writeAudit(context, operatorUsername, "SubmitJob", "requested", details);
+    try
+    {
+        copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input(),
+            operatorUsername, request->origin()), response);
+    }
+    catch (const JobError& error)
+    {
+        writeAudit(context, operatorUsername, "SubmitJob", "error", details);
+        return jobStatus(error);
+    }
+    details["state"] = response->state();
+    writeAudit(context, operatorUsername, "SubmitJob",
+        response->state() == "failed" ? "rejected" : "accepted", details);
     return grpc::Status::OK;
 }
 
@@ -602,14 +755,29 @@ const std::string SocksInstruction_ = "socks";
 
 grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
+    {
+        writeAudit(context, actor, "ExecuteTerminalCommand", "denied");
         return authStatus;
+    }
+    writeAudit(context, actor, "ExecuteTerminalCommand", "requested");
+
+    std::string auditedInstruction;
+    const auto auditedReturn = [&](grpc::Status status)
+    {
+        json details = json::object();
+        if (!auditedInstruction.empty()) details["instruction"] = auditedInstruction;
+        writeAudit(context, actor, "ExecuteTerminalCommand",
+            auditOutcome(status, response->status()), details);
+        return status;
+    };
 
     m_logger->trace("ExecuteTerminalCommand");
 
     std::string cmd = command->command();
-    m_logger->debug("ExecuteTerminalCommand {0}", cmd);
+    m_logger->debug("ExecuteTerminalCommand received");
 
     std::vector<std::string> splitedCmd;
     const bool validCommand = TeamServerCommandLine::splitInput(cmd, splitedCmd);
@@ -626,7 +794,7 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
         responseTmp.set_result("Error: Unclosed single quote.");
         responseTmp.set_message("Invalid terminal command.");
         *response = responseTmp;
-        return grpc::Status::OK;
+        return auditedReturn(grpc::Status::OK);
     }
 
     if (splitedCmd.empty())
@@ -634,34 +802,37 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
         responseTmp.set_result("Error: empty command.");
         responseTmp.set_message("Empty terminal command.");
         *response = responseTmp;
-        return grpc::Status::OK;
+        return auditedReturn(grpc::Status::OK);
     }
 
     string instruction = splitedCmd[0];
+    if (m_listenerArtifactService->canHandle(instruction) ||
+        m_termLocalService->canHandle(instruction) || instruction == SocksInstruction_)
+        auditedInstruction = instruction;
     if (m_listenerArtifactService->canHandle(instruction))
     {
-        return m_listenerArtifactService->handleCommand(instruction, splitedCmd, *command, response);
+        return auditedReturn(m_listenerArtifactService->handleCommand(instruction, splitedCmd, *command, response));
     }
     else if (m_termLocalService->canHandle(instruction))
     {
-        return m_termLocalService->handleCommand(instruction, splitedCmd, *command, response);
+        return auditedReturn(m_termLocalService->handleCommand(instruction, splitedCmd, *command, response));
     }
     else if (instruction == SocksInstruction_)
     {
-        m_logger->debug("socks {0}", cmd);
-        return m_socksService->handleCommand(splitedCmd, response);
+        m_logger->debug("SOCKS terminal command received");
+        return auditedReturn(m_socksService->handleCommand(splitedCmd, response));
     }
     else
     {
         responseTmp.set_result("Error: not implemented.");
         responseTmp.set_message("Terminal command not implemented.");
         *response = responseTmp;
-        return grpc::Status::OK;
+        return auditedReturn(grpc::Status::OK);
     }
 
     *response = responseTmp;
 
-    return grpc::Status::OK;
+    return auditedReturn(grpc::Status::OK);
 }
 
 int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)

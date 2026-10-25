@@ -21,12 +21,16 @@ from validate_release import (
     EXPECTED_WINDOWS_MODULES,
     ValidationError,
     _require_directory_exact,
+    _require_non_empty_file,
+    _relative_files,
 )
 
 
 DEFAULT_WINDOWS_REPO = "maxDcb/C2Implant"
 DEFAULT_LINUX_REPO = "maxDcb/C2LinuxImplant"
 DEFAULT_LINUX_ARCH = EXPECTED_LINUX_ARCHES[0]
+EXCLUDED_WINDOWS_BEACONS = ("BeaconGithub.exe", "BeaconGithubDll.dll")
+EXCLUDED_LINUX_BEACONS = ("BeaconGithub", "BeaconSmb")
 
 
 def _request(url: str, token: str | None = None) -> urllib.request.Request:
@@ -104,11 +108,27 @@ def _extract_tar(archive_path: Path, destination: Path) -> None:
             archive.extractall(destination)
 
 
+def _require_source_dir(source: Path, expected_files: tuple[str, ...],
+                        excluded_files: tuple[str, ...] = ()) -> None:
+    if not source.is_dir():
+        raise ValidationError(f"Missing required directory: {source}")
+    actual = _relative_files(source)
+    missing = sorted(set(expected_files) - actual)
+    unexpected = sorted(actual - set(expected_files) - set(excluded_files))
+    if missing:
+        raise ValidationError(f"{source} is missing expected file(s): {', '.join(missing)}")
+    if unexpected:
+        raise ValidationError(f"{source} contains unexpected file(s): {', '.join(unexpected)}")
+    for relative in expected_files:
+        _require_non_empty_file(source / relative)
+
+
 def _copy_validated_dir(source: Path, destination: Path, expected_files: tuple[str, ...]) -> None:
-    _require_directory_exact(source, expected_files)
     shutil.rmtree(destination, ignore_errors=True)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination)
+    destination.mkdir()
+    for relative in expected_files:
+        shutil.copy2(source / relative, destination / relative)
     _require_directory_exact(destination, expected_files)
 
 
@@ -155,8 +175,8 @@ def _prepare_windows(repo: str, tag: str | None, import_root: Path, stage_root: 
         release_root = _find_release_layout_root(extract_root, ("WindowsBeacons", "WindowsModules"))
         windows_beacons = release_root / "WindowsBeacons"
         windows_modules = release_root / "WindowsModules"
-        _require_directory_exact(windows_beacons, EXPECTED_WINDOWS_BEACONS)
-        _require_directory_exact(windows_modules, EXPECTED_WINDOWS_MODULES)
+        _require_source_dir(windows_beacons, EXPECTED_WINDOWS_BEACONS, EXCLUDED_WINDOWS_BEACONS)
+        _require_source_dir(windows_modules, EXPECTED_WINDOWS_MODULES)
         copy_plan.extend(
             [
                 (windows_beacons, stage_root / "WindowsBeacons" / arch, EXPECTED_WINDOWS_BEACONS),
@@ -176,8 +196,8 @@ def _prepare_linux(repo: str, tag: str | None, import_root: Path, stage_root: Pa
     release_root = _find_release_layout_root(extract_root, ("LinuxBeacons", "LinuxModules"))
     linux_beacons = release_root / "LinuxBeacons"
     linux_modules = release_root / "LinuxModules"
-    _require_directory_exact(linux_beacons, EXPECTED_LINUX_BEACONS)
-    _require_directory_exact(linux_modules, EXPECTED_LINUX_MODULES)
+    _require_source_dir(linux_beacons, EXPECTED_LINUX_BEACONS, EXCLUDED_LINUX_BEACONS)
+    _require_source_dir(linux_modules, EXPECTED_LINUX_MODULES)
     return [
         (linux_beacons, stage_root / "LinuxBeacons" / DEFAULT_LINUX_ARCH, EXPECTED_LINUX_BEACONS),
         (linux_modules, stage_root / "LinuxModules" / DEFAULT_LINUX_ARCH, EXPECTED_LINUX_MODULES),

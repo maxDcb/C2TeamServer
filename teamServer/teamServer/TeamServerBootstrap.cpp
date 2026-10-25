@@ -6,6 +6,9 @@
 #include <iterator>
 #include <stdexcept>
 #include <unordered_map>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 #include <grpcpp/server_builder.h>
 
@@ -105,6 +108,20 @@ std::shared_ptr<spdlog::logger> createTeamServerLogger(const nlohmann::json& con
         logger->warn("Unknown log level '{}' requested, defaulting to 'info'.", logLevel);
 
     logger->info("TeamServer logging initialized at {} level", spdlog::level::to_string_view(logger->level()));
+    return logger;
+}
+
+std::shared_ptr<spdlog::logger> createTeamServerAuditLogger(const std::string& path)
+{
+    auto sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(path, 10 * 1024 * 1024, 5);
+#ifndef _WIN32
+    if (::chmod(path.c_str(), S_IRUSR | S_IWUSR) != 0)
+        throw std::runtime_error("Cannot make TeamServer audit log private");
+#endif
+    auto logger = std::make_shared<spdlog::logger>("TeamServerAudit", sink);
+    logger->set_pattern("%v");
+    logger->set_level(spdlog::level::info);
+    logger->flush_on(spdlog::level::info);
     return logger;
 }
 
