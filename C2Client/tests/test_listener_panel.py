@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from threading import Event
 
 import pytest
 from PyQt6.QtCore import Qt
@@ -47,6 +48,7 @@ def test_add_listener_ack_message_is_displayed(qtbot, monkeypatch):
     qtbot.addWidget(listeners)
 
     listeners.addListener(["https", "0.0.0.0", "8443"])
+    qtbot.waitUntil(lambda: not listeners._mutation_pending)
 
     assert listeners.statusLabel.text() == "Add listener: Listener already exists."
     assert "#b00020" in listeners.statusLabel.styleSheet()
@@ -104,6 +106,7 @@ def test_add_listener_blocks_tcp_bound_port_conflict(qtbot, monkeypatch):
     assert "#b00020" in listeners.statusLabel.styleSheet()
 
     listeners.addListener(["tcp", "0.0.0.0", "4444"])
+    qtbot.waitUntil(lambda: len(grpc.added_listeners) == 1)
     assert len(grpc.added_listeners) == 1
 
 
@@ -216,7 +219,7 @@ def test_add_listener_type_list_closes_with_escape(qtbot):
 
 
 def test_add_listener_form_masks_github_token_and_requires_values(qtbot):
-    form = CreateListner()
+    form = CreateListner(availableTypes=[HttpType, HttpsType, "tcp", GithubType, DnsType])
     qtbot.addWidget(form)
 
     form.qcombo.setCurrentText(GithubType)
@@ -233,7 +236,7 @@ def test_add_listener_form_masks_github_token_and_requires_values(qtbot):
 
 
 def test_add_listener_form_resets_incompatible_values_when_type_changes(qtbot):
-    form = CreateListner()
+    form = CreateListner(availableTypes=[HttpType, HttpsType, "tcp", GithubType, DnsType])
     qtbot.addWidget(form)
 
     form.qcombo.setCurrentText(GithubType)
@@ -294,6 +297,7 @@ def test_listener_toolbar_actions_use_selected_listener(qtbot, monkeypatch):
     assert listeners.statusLabel.text() == "Listener ID copied to clipboard."
 
     listeners.stopListenerButton.click()
+    qtbot.waitUntil(lambda: len(grpc.stopped_listeners) == 1)
     assert grpc.stopped_listeners[-1].listener_hash == "listener-full-hash"
 
 
@@ -381,6 +385,7 @@ def test_listener_refresh_removes_all_missing_rows(qtbot, monkeypatch):
     listeners.listenerScriptSignal.connect(lambda *args: events.append(args))
     listeners.printListeners()
     listeners.listListener.selectRow(0)
+    listeners._has_snapshot = True
 
     listeners._applyListeners([SimpleNamespace(
         listener_hash="current", type=HttpsType, ip="127.0.0.1",
@@ -395,3 +400,152 @@ def test_listener_refresh_removes_all_missing_rows(qtbot, monkeypatch):
     listeners._applyListeners([])
     assert listeners.listListener.rowCount() == 0
     assert listeners.statusLabel.text() == "No active listeners on TeamServer; add a listener to resume sessions."
+
+
+def test_listener_mutation_keeps_gui_responsive_and_form_open_until_ack(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    class DelayedGrpc(StubGrpc):
+        def __init__(self):
+            super().__init__()
+            self.entered = Event()
+            self.release = Event()
+
+        def addListener(self, listener):
+            self.entered.set()
+            assert self.release.wait(2)
+            return super().addListener(listener)
+
+    grpc = DelayedGrpc()
+    grpc.add_ack = TeamServerApi_pb2.OperationAck(
+        status=TeamServerApi_pb2.OK, message="Listener created.",
+        listener_hash="new-listener", listener_state=TeamServerApi_pb2.LISTENER_STATE_RUNNING,
+    )
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    listeners.listenerForm()
+    form = listeners.createListenerWindow
+    qtbot.addWidget(form)
+    form.checkAndSend()
+    try:
+        assert grpc.entered.wait(1)
+        assert listeners._mutation_pending
+        assert form.isVisible()
+        assert not form.buttonOk.isEnabled()
+        assert not listeners.addListenerButton.isEnabled()
+    finally:
+        grpc.release.set()
+    qtbot.waitUntil(lambda: not listeners._mutation_pending)
+    assert not form.isVisible()
+    assert len(grpc.added_listeners) == 1
+    assert listeners.statusLabel.text() == "Add listener: Listener created."
+
+
+def test_failed_mutation_keeps_form_and_does_not_replay(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+
+    class FailingGrpc(StubGrpc):
+        def addListener(self, listener):
+            self.added_listeners.append(listener)
+            raise RuntimeError("server unavailable")
+
+    grpc = FailingGrpc()
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    listeners.listenerForm()
+    form = listeners.createListenerWindow
+    qtbot.addWidget(form)
+    form.checkAndSend()
+    qtbot.waitUntil(lambda: not listeners._mutation_pending)
+    assert form.isVisible()
+    assert "did not confirm" in listeners.statusLabel.text()
+    assert len(grpc.added_listeners) == 1
+
+
+def test_rejected_add_keeps_form_open_with_server_reason(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    grpc.add_ack = TeamServerApi_pb2.OperationAck(
+        status=TeamServerApi_pb2.KO, message="Port is already in use.",
+    )
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    listeners.listenerForm()
+    form = listeners.createListenerWindow
+    qtbot.addWidget(form)
+    form.checkAndSend()
+    qtbot.waitUntil(lambda: not listeners._mutation_pending)
+    assert form.isVisible()
+    assert form.errorLabel.text() == "Port is already in use."
+    assert listeners.statusLabel.text() == "Add listener: Port is already in use."
+
+
+def test_context_stop_uses_full_hash_when_prefixes_collide(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    qtbot.addWidget(listeners)
+    listeners.listListenerObject = [
+        Listener(0, "12345678-first", HttpsType, "127.0.0.1", 8443, 0),
+        Listener(1, "12345678-second", HttpsType, "127.0.0.1", 8444, 0),
+    ]
+    listeners.item = listeners.listListenerObject[1].listenerHash
+    listeners.actionClicked(SimpleNamespace(text=lambda: "Stop"))
+    qtbot.waitUntil(lambda: not listeners._mutation_pending)
+    assert [item.listener_hash for item in grpc.stopped_listeners] == ["12345678-second"]
+
+
+def test_initial_and_reauthenticated_snapshots_do_not_fire_listener_hooks(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    grpc.auth_generation = 1
+    parent = QWidget()
+    listeners = Listeners(parent, grpc)
+    qtbot.addWidget(listeners)
+    events = []
+    listeners.listenerScriptSignal.connect(lambda *args: events.append(args))
+
+    def snapshot(listener_hash):
+        return SimpleNamespace(
+            listener_hash=listener_hash, type=HttpsType, ip="127.0.0.1",
+            port=8443, session_count=0, beacon_hash="",
+            state=TeamServerApi_pb2.LISTENER_STATE_RUNNING,
+        )
+
+    listeners._applyListeners([snapshot("old")])
+    assert events == []
+    grpc.auth_generation = 2
+    listeners._applyListeners([snapshot("new")])
+    assert events == []
+    listeners._applyListeners([snapshot("latest")])
+    assert [(event[0], event[1]) for event in events] == [
+        ("stop", "new"), ("start", "latest"),
+    ]
+
+
+def test_listener_state_and_available_types_are_displayed(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.ListenerPanel.QThread.start", lambda self: None)
+    default = CreateListner()
+    qtbot.addWidget(default)
+    assert default.qcombo.findText(GithubType) == -1
+    enabled = CreateListner(availableTypes=[HttpType, GithubType])
+    qtbot.addWidget(enabled)
+    assert enabled.qcombo.findText(GithubType) >= 0
+
+    parent = QWidget()
+    listeners = Listeners(parent, StubGrpc())
+    qtbot.addWidget(listeners)
+    listeners._applyListeners([SimpleNamespace(
+        listener_hash="child", beacon_hash="beacon", type="tcp", ip="127.0.0.1",
+        port=4444, session_count=0, state=TeamServerApi_pb2.LISTENER_STATE_STOP_FAILED,
+    )])
+    assert listeners.listListener.item(0, 4).text() == "Stop failed"
+    listeners.listListener.selectRow(0)
+    assert listeners.stopListenerButton.isEnabled()
+    listeners._applyListeners([SimpleNamespace(
+        listener_hash="child", beacon_hash="beacon", type="tcp", ip="127.0.0.1",
+        port=4444, session_count=0, state=TeamServerApi_pb2.LISTENER_STATE_STOPPING,
+    )])
+    assert listeners.listListener.item(0, 4).text() == "Stopping"
+    assert not listeners.stopListenerButton.isEnabled()

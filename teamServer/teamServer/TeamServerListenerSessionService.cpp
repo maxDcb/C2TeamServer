@@ -1,5 +1,6 @@
 #include "TeamServerListenerSessionService.hpp"
 
+#include <arpa/inet.h>
 #include <algorithm>
 #include <chrono>
 #include <cctype>
@@ -10,6 +11,7 @@
 #include <random>
 #include <sstream>
 #include <thread>
+#include <unordered_set>
 
 #include "listener/ListenerDns.hpp"
 #include "listener/ListenerHttp.hpp"
@@ -67,6 +69,121 @@ bool isTcpBoundListenerType(const std::string& type)
 {
     return type == ListenerHttpType || type == ListenerHttpsType || type == ListenerTcpType;
 }
+
+bool isValidIpAddress(const std::string& ip)
+{
+    in_addr ipv4 {};
+    in6_addr ipv6 {};
+    return ::inet_pton(AF_INET, ip.c_str(), &ipv4) == 1 ||
+        ::inet_pton(AF_INET6, ip.c_str(), &ipv6) == 1;
+}
+
+bool isAsciiAlphanumeric(unsigned char ch)
+{
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+        (ch >= '0' && ch <= '9');
+}
+
+bool isValidDomain(std::string domain)
+{
+    if (!domain.empty() && domain.back() == '.')
+        domain.pop_back();
+    if (domain.empty() || domain.size() > 253)
+        return false;
+
+    std::size_t start = 0;
+    do
+    {
+        const auto end = domain.find('.', start);
+        const auto length = (end == std::string::npos ? domain.size() : end) - start;
+        if (length == 0 || length > 63 ||
+            !isAsciiAlphanumeric(static_cast<unsigned char>(domain[start])) ||
+            !isAsciiAlphanumeric(static_cast<unsigned char>(domain[start + length - 1])))
+            return false;
+        for (std::size_t index = start; index < start + length; ++index)
+        {
+            const unsigned char ch = static_cast<unsigned char>(domain[index]);
+            if (!isAsciiAlphanumeric(ch) && ch != '-')
+                return false;
+        }
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    } while (true);
+    return true;
+}
+
+bool isValidGithubProject(const std::string& project)
+{
+    if (project.empty() || std::count(project.begin(), project.end(), '/') > 1)
+        return false;
+    std::size_t start = 0;
+    do
+    {
+        const auto end = project.find('/', start);
+        const auto length = (end == std::string::npos ? project.size() : end) - start;
+        if (length == 0 || !isAsciiAlphanumeric(static_cast<unsigned char>(project[start])))
+            return false;
+        for (std::size_t index = start; index < start + length; ++index)
+        {
+            const unsigned char ch = static_cast<unsigned char>(project[index]);
+            if (!isAsciiAlphanumeric(ch) && ch != '_' && ch != '.' && ch != '-')
+                return false;
+        }
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    } while (true);
+    return true;
+}
+
+std::string validateListenerRequest(const teamserverapi::Listener& listener)
+{
+    const std::string& type = listener.type();
+    if (isTcpBoundListenerType(type))
+    {
+        if (listener.ip().empty())
+            return "IP is required.";
+        if (!isValidIpAddress(listener.ip()))
+            return "IP must be a valid IPv4 or IPv6 address.";
+    }
+    else if (type == ListenerDnsType)
+    {
+        if (!isValidDomain(listener.domain()))
+            return "Domain must be a valid DNS name.";
+    }
+    else if (type == ListenerGithubType)
+    {
+        if (listener.project().empty())
+            return "GitHub project is required.";
+        if (!isValidGithubProject(listener.project()))
+            return "GitHub project must use a simple name or owner/repo.";
+        if (listener.token().empty())
+            return "GitHub token is required.";
+        return {};
+    }
+    else
+    {
+        return "Unknown listener type.";
+    }
+
+    if (listener.port() < 1 || listener.port() > 65535)
+        return "Port must be a number between 1 and 65535.";
+    return {};
+}
+
+teamserverapi::ListenerState primaryListenerState(const Listener& listener)
+{
+    if (listener.isRunning())
+        return teamserverapi::LISTENER_STATE_RUNNING;
+    if (listener.getState() == Listener::State::Stopping)
+        return teamserverapi::LISTENER_STATE_STOPPING;
+    if (listener.getType() == ListenerGithubType)
+        return teamserverapi::LISTENER_STATE_UNSPECIFIED;
+    return teamserverapi::LISTENER_STATE_FAILED;
+}
+
+constexpr auto ChildStopTimeout = std::chrono::seconds(30);
 
 std::shared_ptr<Listener> findTcpPortConflict(
     const std::vector<std::shared_ptr<Listener>>& listeners,
@@ -238,11 +355,19 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
 {
     m_logger->trace("ListListeners");
     auto listeners = listenerSnapshot();
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> pendingChildStops;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingChildStopsMutex);
+        pendingChildStops = m_pendingChildStops;
+    }
+    std::unordered_set<std::string> visibleChildHashes;
+    const auto now = std::chrono::steady_clock::now();
 
     for (size_t i = 0; i < listeners.size(); i++)
     {
         teamserverapi::Listener listener;
         listener.set_listener_hash(listeners[i]->getListenerHash());
+        listener.set_state(primaryListenerState(*listeners[i]));
 
         std::string type = listeners[i]->getType();
         listener.set_type(type);
@@ -259,7 +384,6 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
         else if (type == ListenerGithubType)
         {
             listener.set_project(listeners[i]->getParam1());
-            listener.set_token(listeners[i]->getParam2());
         }
         else if (type == ListenerDnsType)
         {
@@ -285,6 +409,15 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
 
                 teamserverapi::Listener childListener;
                 childListener.set_listener_hash(it->getListenerHash());
+                visibleChildHashes.insert(it->getListenerHash());
+                const auto pendingStop = pendingChildStops.find(it->getListenerHash());
+                childListener.set_state(!listeners[i]->isRunning()
+                    ? teamserverapi::LISTENER_STATE_FAILED
+                    : pendingStop == pendingChildStops.end()
+                        ? teamserverapi::LISTENER_STATE_RUNNING
+                        : now - pendingStop->second < ChildStopTimeout
+                            ? teamserverapi::LISTENER_STATE_STOPPING
+                            : teamserverapi::LISTENER_STATE_STOP_FAILED);
                 childListener.set_beacon_hash(session->getBeaconHash());
                 std::string childType = it->getType();
                 childListener.set_type(childType);
@@ -302,6 +435,17 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
                 if (!emit(childListener))
                     return grpc::Status::OK;
             }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_pendingChildStopsMutex);
+        for (auto it = m_pendingChildStops.begin(); it != m_pendingChildStops.end();)
+        {
+            if (visibleChildHashes.find(it->first) == visibleChildHashes.end())
+                it = m_pendingChildStops.erase(it);
+            else
+                ++it;
         }
     }
 
@@ -323,6 +467,13 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         return grpc::Status::OK;
     }
 #endif
+
+    const std::string validationError = validateListenerRequest(listenerToCreate);
+    if (!validationError.empty())
+    {
+        response->set_message(validationError);
+        return grpc::Status::OK;
+    }
 
     if (auto conflictingListener = findTcpPortConflict(listeners, type, listenerToCreate.port()))
     {
@@ -404,6 +555,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         listenerTcp->setIsPrimary();
         if (listenerTcp->init() > 0)
         {
+            response->set_listener_hash(listenerTcp->getListenerHash());
+            response->set_listener_state(teamserverapi::LISTENER_STATE_RUNNING);
             std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerTcp));
             created = true;
@@ -420,6 +573,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         listenerHttp->setIsPrimary();
         if (listenerHttp->init() > 0)
         {
+            response->set_listener_hash(listenerHttp->getListenerHash());
+            response->set_listener_state(teamserverapi::LISTENER_STATE_RUNNING);
             std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerHttp));
             created = true;
@@ -436,6 +591,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         listenerHttps->setIsPrimary();
         if (listenerHttps->init() > 0)
         {
+            response->set_listener_hash(listenerHttps->getListenerHash());
+            response->set_listener_state(teamserverapi::LISTENER_STATE_RUNNING);
             std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerHttps));
             created = true;
@@ -454,7 +611,9 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
         m_listeners.push_back(std::move(listenerGithub));
         created = true;
-        m_logger->info("AddListener Github {0}:{1}", listenerToCreate.project(), listenerToCreate.token());
+        response->set_listener_hash(m_listeners.back()->getListenerHash());
+        response->set_listener_state(teamserverapi::LISTENER_STATE_UNSPECIFIED);
+        m_logger->info("AddListener Github project {}", listenerToCreate.project());
 #endif
     }
     else if (type == ListenerDnsType)
@@ -463,6 +622,8 @@ grpc::Status TeamServerListenerSessionService::addListener(const teamserverapi::
         listenerDns->setIsPrimary();
         if (listenerDns->init() > 0)
         {
+            response->set_listener_hash(listenerDns->getListenerHash());
+            response->set_listener_state(teamserverapi::LISTENER_STATE_RUNNING);
             std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
             m_listeners.push_back(std::move(listenerDns));
             created = true;
@@ -496,6 +657,33 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
     const std::string listenerHash = listenerToStop.listener_hash();
     bool removedPrimary = false;
     bool stopCommandSent = false;
+
+    if (listenerHash.empty())
+    {
+        response->set_message("Listener hash is required.");
+        return grpc::Status::OK;
+    }
+
+    bool stopAlreadyPending = false;
+    {
+        std::lock_guard<std::mutex> lock(m_pendingChildStopsMutex);
+        const auto pending = m_pendingChildStops.find(listenerHash);
+        stopAlreadyPending = pending != m_pendingChildStops.end() &&
+            std::chrono::steady_clock::now() - pending->second < ChildStopTimeout;
+    }
+    if (stopAlreadyPending)
+    {
+        if (isListenerAlive(listenerHash))
+        {
+            response->set_status(teamserverapi::OK);
+            response->set_message("Listener stop is already pending.");
+            response->set_listener_hash(listenerHash);
+            response->set_listener_state(teamserverapi::LISTENER_STATE_STOPPING);
+            return grpc::Status::OK;
+        }
+        std::lock_guard<std::mutex> lock(m_pendingChildStopsMutex);
+        m_pendingChildStops.erase(listenerHash);
+    }
 
     {
         std::unique_lock<std::shared_mutex> lock(*m_listenersMutex);
@@ -552,6 +740,10 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
                             });
                         }
                         stopCommandSent = true;
+                        {
+                            std::lock_guard<std::mutex> lock(m_pendingChildStopsMutex);
+                            m_pendingChildStops[listenerHash] = std::chrono::steady_clock::now();
+                        }
                     }
                 }
             }
@@ -562,6 +754,8 @@ grpc::Status TeamServerListenerSessionService::stopListener(const teamserverapi:
     {
         response->set_status(teamserverapi::OK);
         response->set_message("Listener stop requested.");
+        response->set_listener_hash(listenerHash);
+        response->set_listener_state(teamserverapi::LISTENER_STATE_STOPPING);
         m_logger->info("StopListener completed for {0} (primary removed: {1}, stop commands sent: {2})",
             listenerHash,
             removedPrimary ? "yes" : "no",

@@ -64,6 +64,11 @@ class GrpcClient:
         self._auth_lock = Lock()
         self._auth_password: Optional[str] = None
         self._token = token
+        self.auth_generation = 0
+        self.available_listener_types: tuple[str, ...] = ("http", "https", "tcp", "dns")
+        self.listener_mutation_timeout_seconds = env_int(
+            "C2_LISTENER_MUTATION_TIMEOUT_SECONDS", 8, minimum=1,
+        )
 
         configured_cert_path = env_path("C2_CERT_PATH")
 
@@ -243,6 +248,10 @@ class GrpcClient:
             raise ValueError(f"grpcClient: authentication failed: {message}")
 
         logging.info("Authenticated against TeamServer as %s", username)
+        available_types = tuple(response.available_listener_types)
+        if available_types:
+            self.available_listener_types = available_types
+        self.auth_generation += 1
         self._notify_rpc_status("Authenticate", True)
         return response.token
 
@@ -255,12 +264,22 @@ class GrpcClient:
     def addListener(self, listener: Any) -> Any:
         """Add a new listener on the TeamServer."""
 
-        return self._unary_rpc("AddListener", lambda: self.stub.AddListener(listener, metadata=self.metadata))
+        return self._unary_rpc(
+            "AddListener",
+            lambda: self.stub.AddListener(
+                listener, metadata=self.metadata, timeout=self.listener_mutation_timeout_seconds,
+            ),
+        )
 
     def stopListener(self, listener: Any) -> Any:
         """Stop a running listener."""
 
-        return self._unary_rpc("StopListener", lambda: self.stub.StopListener(listener, metadata=self.metadata))
+        return self._unary_rpc(
+            "StopListener",
+            lambda: self.stub.StopListener(
+                listener, metadata=self.metadata, timeout=self.listener_mutation_timeout_seconds,
+            ),
+        )
 
     def listSessions(self) -> Any:
         """Return all active sessions."""

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <functional>
 #include <map>
 #include <memory>
@@ -71,6 +72,8 @@ private:
     PrepMsgCallback m_prepMsg;
     std::function<void(const teamserverapi::CommandResult&)> m_jobResultHandler;
     mutable std::mutex m_sentCommandsMutex;
+    mutable std::mutex m_pendingChildStopsMutex;
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_pendingChildStops;
 
     struct BeaconModuleRecord
     {

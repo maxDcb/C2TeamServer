@@ -56,6 +56,8 @@ public:
         setState(State::Running);
     }
 
+    void fail() { setState(State::Failed); }
+
     std::shared_ptr<Session> addSession(
         const std::string& listenerHash,
         const std::string& beaconHash,
@@ -144,7 +146,9 @@ void testCollectListenersAndSessions()
                .ok());
     assert(streamedListeners.size() == 2);
     assert(streamedListeners[0].listener_hash() == "listener-primary");
+    assert(streamedListeners[0].state() == teamserverapi::LISTENER_STATE_RUNNING);
     assert(streamedListeners[1].listener_hash() == "listener-child");
+    assert(streamedListeners[1].state() == teamserverapi::LISTENER_STATE_RUNNING);
 
     std::vector<teamserverapi::Session> streamedSessions;
     assert(service.streamSessions([&](const teamserverapi::Session& sessionInfo)
@@ -155,6 +159,16 @@ void testCollectListenersAndSessions()
                .ok());
     assert(streamedSessions.size() == 1);
     assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678ABCDEFGH12345678");
+
+    primaryListener->fail();
+    streamedListeners.clear();
+    assert(service.streamListeners([&](const teamserverapi::Listener& listener)
+               {
+                   streamedListeners.push_back(listener);
+                   return true;
+               }).ok());
+    assert(streamedListeners[0].state() == teamserverapi::LISTENER_STATE_FAILED);
+    assert(streamedListeners[1].state() == teamserverapi::LISTENER_STATE_FAILED);
 }
 
 void testQueueStopAndResponseDelivery()
@@ -268,6 +282,135 @@ void testAddListenerRejectsTcpBoundPortConflicts()
     assert(response.status() == teamserverapi::KO);
     assert(response.message() == "Port 8443 is already used by https listener.");
     assert(listeners.size() == 1);
+}
+
+void testServerValidatesListenerRequests()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+    std::vector<std::shared_ptr<Listener>> listeners;
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(
+        logger, config, listeners, moduleCmd, commonCommands, sentCommands, nullptr,
+        [](const std::string&, C2Message&, bool, const std::string&) { return 0; });
+
+    const std::vector<std::pair<teamserverapi::Listener, std::string>> invalid = []
+    {
+        std::vector<std::pair<teamserverapi::Listener, std::string>> cases;
+        teamserverapi::Listener unknown;
+        unknown.set_type("unknown");
+        cases.emplace_back(unknown, "Unknown listener type.");
+        teamserverapi::Listener invalidIp;
+        invalidIp.set_type(ListenerHttpType);
+        invalidIp.set_ip("999.0.0.1");
+        invalidIp.set_port(8080);
+        cases.emplace_back(invalidIp, "IP must be a valid IPv4 or IPv6 address.");
+        teamserverapi::Listener missingIp;
+        missingIp.set_type(ListenerTcpType);
+        missingIp.set_port(4444);
+        cases.emplace_back(missingIp, "IP is required.");
+        teamserverapi::Listener invalidPort;
+        invalidPort.set_type(ListenerHttpsType);
+        invalidPort.set_ip("127.0.0.1");
+        invalidPort.set_port(0);
+        cases.emplace_back(invalidPort, "Port must be a number between 1 and 65535.");
+        invalidPort.set_port(65536);
+        cases.emplace_back(invalidPort, "Port must be a number between 1 and 65535.");
+        teamserverapi::Listener invalidDomain;
+        invalidDomain.set_type(ListenerDnsType);
+        invalidDomain.set_domain("https://example.com");
+        invalidDomain.set_port(53);
+        cases.emplace_back(invalidDomain, "Domain must be a valid DNS name.");
+        return cases;
+    }();
+    for (const auto& [request, expectedMessage] : invalid)
+    {
+        teamserverapi::OperationAck response;
+        assert(service.addListener(request, &response).ok());
+        assert(response.status() == teamserverapi::KO);
+        assert(response.message() == expectedMessage);
+        assert(response.listener_hash().empty());
+        assert(listeners.empty());
+    }
+}
+
+void testChildStopIsPendingUntilListenerDisappears()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primary = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "primary");
+    const std::string beaconHash(SizeBeaconHash, 'A');
+    auto session = primary->addSession("primary", beaconHash, "host", "user", "x64", "admin", "Linux");
+    session->addListener("child", ListenerTcpType, "127.0.0.1", "9001");
+    listeners.push_back(primary);
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(
+        logger, config, listeners, moduleCmd, commonCommands, sentCommands, nullptr,
+        [](const std::string&, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction("noop");
+            return 0;
+        });
+
+    teamserverapi::ListenerSelector selector;
+    selector.set_listener_hash("child");
+    teamserverapi::OperationAck response;
+    assert(service.stopListener(selector, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.listener_hash() == "child");
+    assert(response.listener_state() == teamserverapi::LISTENER_STATE_STOPPING);
+    teamserverapi::OperationAck duplicate;
+    assert(service.stopListener(selector, &duplicate).ok());
+    assert(duplicate.message() == "Listener stop is already pending.");
+
+    std::vector<teamserverapi::Listener> snapshot;
+    assert(service.streamListeners([&](const teamserverapi::Listener& listener)
+               {
+                   snapshot.push_back(listener);
+                   return true;
+               }).ok());
+    assert(snapshot.size() == 2);
+    assert(snapshot[1].state() == teamserverapi::LISTENER_STATE_STOPPING);
+
+    assert(session->rmListener("child"));
+    teamserverapi::OperationAck afterRemoval;
+    assert(service.stopListener(selector, &afterRemoval).ok());
+    assert(afterRemoval.status() == teamserverapi::KO);
+    snapshot.clear();
+    assert(service.streamListeners([&](const teamserverapi::Listener& listener)
+               {
+                   snapshot.push_back(listener);
+                   return true;
+               }).ok());
+    assert(snapshot.size() == 1);
+}
+
+void testListenerListingDoesNotExposeGithubToken()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    auto logger = makeLogger();
+    std::vector<std::shared_ptr<Listener>> listeners;
+    listeners.push_back(std::make_shared<TestListener>(
+        "owner/repo", "secret-token", ListenerGithubType, "github-listener"));
+    std::vector<std::unique_ptr<ModuleCmd>> moduleCmd;
+    CommonCommands commonCommands;
+    std::vector<BeaconCommandContext> sentCommands;
+    TeamServerListenerSessionService service(
+        logger, config, listeners, moduleCmd, commonCommands, sentCommands, nullptr,
+        [](const std::string&, C2Message&, bool, const std::string&) { return 0; });
+    std::vector<teamserverapi::Listener> snapshot;
+    assert(service.streamListeners([&](const teamserverapi::Listener& listener)
+               {
+                   snapshot.push_back(listener);
+                   return true;
+               }).ok());
+    assert(snapshot.size() == 1);
+    assert(snapshot[0].token().empty());
 }
 
 #ifndef C2_ENABLE_GITHUB_TRANSPORT
@@ -816,6 +959,9 @@ int main()
     testCollectListenersAndSessions();
     testQueueStopAndResponseDelivery();
     testAddListenerRejectsTcpBoundPortConflicts();
+    testServerValidatesListenerRequests();
+    testChildStopIsPendingUntilListenerDisappears();
+    testListenerListingDoesNotExposeGithubToken();
 #ifndef C2_ENABLE_GITHUB_TRANSPORT
     testAddListenerRejectsDisabledGithubTransport();
 #endif

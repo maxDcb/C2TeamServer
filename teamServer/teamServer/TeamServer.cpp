@@ -272,7 +272,18 @@ TeamServer::~TeamServer()
 grpc::Status TeamServer::Authenticate(grpc::ServerContext* context, const teamserverapi::AuthRequest* request, teamserverapi::AuthResponse* response)
 {
     (void)context;
-    return m_authManager->authenticate(*request, *response);
+    auto status = m_authManager->authenticate(*request, *response);
+    if (status.ok() && response->status() == teamserverapi::OK)
+    {
+        response->add_available_listener_types(ListenerHttpType);
+        response->add_available_listener_types(ListenerHttpsType);
+        response->add_available_listener_types(ListenerTcpType);
+        response->add_available_listener_types(ListenerDnsType);
+#ifdef C2_ENABLE_GITHUB_TRANSPORT
+        response->add_available_listener_types(ListenerGithubType);
+#endif
+    }
+    return status;
 }
 
 // Get the list of liseteners from primary listeners

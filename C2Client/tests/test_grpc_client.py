@@ -461,6 +461,30 @@ def test_unavailable_mutation_is_not_replayed(tmp_path, monkeypatch):
     stub.AddListener.assert_called_once()
 
 
+def test_listener_mutations_have_deadlines_and_auth_advertises_types(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setenv("C2_LISTENER_MUTATION_TIMEOUT_SECONDS", "6")
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.Authenticate.return_value = TeamServerApi_pb2.AuthResponse(
+        status=TeamServerApi_pb2.OK, token="token",
+        available_listener_types=["http", "https", "tcp", "dns"],
+    )
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+
+    client = GrpcClient("127.0.0.1", 50051, False, username="admin", password="secret")
+    assert client.available_listener_types == ("http", "https", "tcp", "dns")
+    assert client.auth_generation == 1
+    client.addListener(TeamServerApi_pb2.Listener(type="tcp", ip="127.0.0.1", port=4444))
+    client.stopListener(TeamServerApi_pb2.ListenerSelector(listener_hash="listener"))
+    assert stub.AddListener.call_args.kwargs["timeout"] == 6
+    assert stub.StopListener.call_args.kwargs["timeout"] == 6
+
+
 def test_parallel_polls_share_one_token_refresh(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

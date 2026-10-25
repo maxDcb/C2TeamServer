@@ -63,9 +63,43 @@ def main() -> None:
             valid = stub.Authenticate(TeamServerApi_pb2.AuthRequest(username="admin", password=password))
             assert valid.status == TeamServerApi_pb2.OK
             assert valid.token
+            assert {"http", "https", "tcp", "dns"}.issubset(
+                set(valid.available_listener_types))
+            metadata = (("authorization", f"Bearer {valid.token}"),)
             listeners = list(stub.ListListeners(TeamServerApi_pb2.Empty(),
-                                                metadata=(("authorization", f"Bearer {valid.token}"),)))
+                                                metadata=metadata))
             assert listeners == []
+
+            invalid = stub.AddListener(
+                TeamServerApi_pb2.Listener(type="tcp", ip="999.0.0.1", port=4444),
+                metadata=metadata, timeout=8,
+            )
+            assert invalid.status == TeamServerApi_pb2.KO
+            assert invalid.message == "IP must be a valid IPv4 or IPv6 address."
+
+            listener_port = reserve_port()
+            created = stub.AddListener(
+                TeamServerApi_pb2.Listener(type="tcp", ip="127.0.0.1", port=listener_port),
+                metadata=metadata, timeout=8,
+            )
+            assert created.status == TeamServerApi_pb2.OK, created.message
+            assert created.listener_hash
+            assert created.listener_state == TeamServerApi_pb2.LISTENER_STATE_RUNNING
+            listeners = list(stub.ListListeners(
+                TeamServerApi_pb2.Empty(), metadata=metadata, timeout=8,
+            ))
+            assert len(listeners) == 1
+            assert listeners[0].listener_hash == created.listener_hash
+            assert listeners[0].state == TeamServerApi_pb2.LISTENER_STATE_RUNNING
+            stopped = stub.StopListener(
+                TeamServerApi_pb2.ListenerSelector(listener_hash=created.listener_hash),
+                metadata=metadata, timeout=8,
+            )
+            assert stopped.status == TeamServerApi_pb2.OK, stopped.message
+            assert stopped.listener_hash == created.listener_hash
+            assert list(stub.ListListeners(
+                TeamServerApi_pb2.Empty(), metadata=metadata, timeout=8,
+            )) == []
         finally:
             subprocess.run([sys.executable, str(manager), "server", "stop", "--prefix", str(prefix)],
                            capture_output=True, text=True, timeout=15)

@@ -1,7 +1,7 @@
 import re
 from ipaddress import ip_address
 
-from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QEvent, QRunnable, Qt, QThread, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIntValidator, QPainter, QPen
 from PyQt6.QtWidgets import (
     QApplication,
@@ -57,7 +57,14 @@ DOMAIN_LABEL_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9]
 GITHUB_PROJECT_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 PORT_FIELD_TYPES = {HttpType, HttpsType, TcpType, DnsType}
 TCP_BOUND_LISTENER_TYPES = {HttpType, HttpsType, TcpType}
-PRIMARY_LISTENER_TYPES = [HttpType, HttpsType, TcpType, GithubType, DnsType]
+PRIMARY_LISTENER_TYPES = [HttpType, HttpsType, TcpType, DnsType]
+LISTENER_STATE_LABELS = {
+    TeamServerApi_pb2.LISTENER_STATE_UNSPECIFIED: "Unknown",
+    TeamServerApi_pb2.LISTENER_STATE_RUNNING: "Running",
+    TeamServerApi_pb2.LISTENER_STATE_STOPPING: "Stopping",
+    TeamServerApi_pb2.LISTENER_STATE_FAILED: "Failed",
+    TeamServerApi_pb2.LISTENER_STATE_STOP_FAILED: "Stop failed",
+}
 AUTO_FIELD_VALUES = {"0.0.0.0", "8443", "8080", "4444", "53"}
 LISTENER_FORM_CONFIG = {
     HttpType: {
@@ -206,7 +213,8 @@ def listener_port_conflict_message(conflict):
 #
 class Listener():
 
-    def __init__(self, id, hash, type, host, port, nbSession, beaconHash=""):
+    def __init__(self, id, hash, type, host, port, nbSession, beaconHash="",
+                 state=TeamServerApi_pb2.LISTENER_STATE_RUNNING):
         self.id = id
         self.listenerHash = hash
         self.type = type
@@ -214,6 +222,7 @@ class Listener():
         self.port = port
         self.nbSession = nbSession
         self.beaconHash = beaconHash
+        self.state = state
 
     def hostDisplay(self):
         if self.beaconHash:
@@ -230,13 +239,34 @@ class Listener():
         return f"Beacon ID: {self.beaconHash}\nEndpoint: {endpoint}"
 
 
+class ListenerMutationSignals(QObject):
+    finished = pyqtSignal(str, object, str)
+
+
+class ListenerMutationWorker(QRunnable):
+    def __init__(self, grpc_client, action, request, signals):
+        super().__init__()
+        self.grpc_client = grpc_client
+        self.action = action
+        self.request = request
+        self.signals = signals
+
+    def run(self):
+        try:
+            operation = self.grpc_client.addListener if self.action == "add" else self.grpc_client.stopListener
+            ack = operation(self.request)
+            self.signals.finished.emit(self.action, ack, "")
+        except Exception as exc:
+            self.signals.finished.emit(self.action, None, str(exc))
+
+
 class Listeners(QWidget):
 
     listenerScriptSignal = pyqtSignal(str, str, str, str)
 
     idListener = 0
     listListenerObject = []
-    COLUMN_WIDTHS = [76, 70, 160, 72]
+    COLUMN_WIDTHS = [76, 70, 160, 72, 86]
     STRETCH_COLUMN = 2
 
 
@@ -246,6 +276,12 @@ class Listeners(QWidget):
         self.grpcClient = grpcClient
         self.idListener = 0
         self.listListenerObject = []
+        self._mutation_pending = False
+        self._pending_hash = ""
+        self._has_snapshot = False
+        self._snapshot_auth_generation = getattr(grpcClient, "auth_generation", None)
+        self._mutation_signals = ListenerMutationSignals()
+        self._mutation_signals.finished.connect(self._onMutationFinished)
         apply_dark_panel_style(self)
                 
         self.createListenerWindow = None
@@ -293,7 +329,7 @@ class Listeners(QWidget):
         self.listListener.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         self.listListener.setRowCount(0)
-        self.listListener.setColumnCount(4)
+        self.listListener.setColumnCount(5)
 
         # self.listListener.cellPressed.connect(self.listListenerClicked)
         self.listListener.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -345,8 +381,13 @@ class Listeners(QWidget):
         apply_status(self.statusLabel, message, status_kind_for_ok(ok))
 
     def updateActionButtons(self):
-        hasSelection = self.selectedListener() is not None
-        self.stopListenerButton.setEnabled(hasSelection)
+        selected = self.selectedListener()
+        hasSelection = selected is not None
+        self.addListenerButton.setEnabled(not self._mutation_pending)
+        self.stopListenerButton.setEnabled(
+            hasSelection and not self._mutation_pending
+            and selected.state != TeamServerApi_pb2.LISTENER_STATE_STOPPING
+        )
         self.copyListenerIdButton.setEnabled(hasSelection)
 
     def selectedListener(self):
@@ -391,9 +432,11 @@ class Listeners(QWidget):
         self.setInlineStatus("Listener ID copied to clipboard.")
 
     def __del__(self):
-        self.getListenerWorker.quit()
-        self.thread.quit()
-        self.thread.wait()
+        if hasattr(self, "getListenerWorker"):
+            self.getListenerWorker.quit()
+        if hasattr(self, "thread"):
+            self.thread.quit()
+            self.thread.wait()
 
 
     def showContextMenu(self, position):
@@ -405,10 +448,14 @@ class Listeners(QWidget):
             menu.exec(self.listListener.viewport().mapToGlobal(position))
         else:
             row = index.row()
-            self.item = str(self.listListener.item(row, 0).data(0))
+            self.item = self.listListenerObject[row].listenerHash
 
             menu = create_dark_context_menu(self)
-            menu.addAction('Stop')
+            stop_action = menu.addAction('Stop')
+            stop_action.setEnabled(
+                not self._mutation_pending
+                and self.listListenerObject[row].state != TeamServerApi_pb2.LISTENER_STATE_STOPPING
+            )
             menu.triggered.connect(self.actionClicked)
             menu.exec(self.listListener.viewport().mapToGlobal(position))
 
@@ -418,34 +465,48 @@ class Listeners(QWidget):
         if action.text() == "Add":
             self.listenerForm()
         elif action.text() == "Stop":         
-            hash = self.item
-            for listenerStore in self.listListenerObject:
-                if listenerStore.listenerHash[0:8] == hash:
-                    self.stopListener(listenerStore.listenerHash)
+            if getattr(self, "item", ""):
+                self.stopListener(self.item)
 
 
     # form for adding a listener
     def listenerForm(self):
+        if self._mutation_pending:
+            return
+        available_types = getattr(self.grpcClient, "available_listener_types", PRIMARY_LISTENER_TYPES)
         if self.createListenerWindow is None:
-            self.createListenerWindow = CreateListner(lambda: self.listListenerObject)
+            self.createListenerWindow = CreateListner(
+                lambda: self.listListenerObject, available_types,
+            )
             self.createListenerWindow.procDone.connect(self.addListener)
         else:
             self.createListenerWindow.setExistingListenersProvider(lambda: self.listListenerObject)
+            self.createListenerWindow.setAvailableTypes(available_types)
         self.createListenerWindow.show()
 
 
     # send message for adding a listener
     def addListener(self, message):
+        if self._mutation_pending:
+            return
         listenerType = _text(message[0]) if len(message) > 0 else ""
         param1 = _text(message[1]) if len(message) > 1 else ""
         param2 = _text(message[2]) if len(message) > 2 else ""
         valid, error = validate_listener_fields(listenerType, param1, param2)
         if not valid:
             self.setInlineStatus(format_action_status("Add listener", error), False)
+            if self.createListenerWindow is not None:
+                self.createListenerWindow.showValidationError(error)
+            return
+        available_types = getattr(self.grpcClient, "available_listener_types", PRIMARY_LISTENER_TYPES)
+        if listenerType not in available_types:
+            self.setInlineStatus("Add listener: Type unavailable on this TeamServer.", False)
             return
         conflict = find_tcp_port_conflict(listenerType, param2, self.listListenerObject)
         if conflict is not None:
             self.setInlineStatus(format_action_status("Add listener", listener_port_conflict_message(conflict)), False)
+            if self.createListenerWindow is not None:
+                self.createListenerWindow.showValidationError(listener_port_conflict_message(conflict))
             return
 
         if listenerType=="github":
@@ -463,16 +524,61 @@ class Listeners(QWidget):
             type=listenerType,
             ip=param1,
             port=int(param2))
-        ack = self.grpcClient.addListener(listener)
-        self.setStatusMessage(ack, "Listener command accepted.", action="Add listener")
+        self._submitMutation("add", listener)
 
 
     # send message for stoping a listener
     def stopListener(self, listenerHash):
+        if self._mutation_pending:
+            return
         listener = TeamServerApi_pb2.ListenerSelector(
         listener_hash=listenerHash)
-        ack = self.grpcClient.stopListener(listener)
-        self.setStatusMessage(ack, "Listener stop command accepted.", action="Stop listener")
+        self._submitMutation("stop", listener, listenerHash)
+
+    def _submitMutation(self, action, request, listener_hash=""):
+        self._mutation_pending = True
+        self._pending_hash = listener_hash
+        if action == "add" and self.createListenerWindow is not None:
+            self.createListenerWindow.setPending(True)
+        self.setInlineStatus(
+            "Adding listener…" if action == "add" else "Stopping listener…",
+        )
+        self.updateActionButtons()
+        QThreadPool.globalInstance().start(
+            ListenerMutationWorker(self.grpcClient, action, request, self._mutation_signals),
+        )
+
+    def _onMutationFinished(self, action, ack, error):
+        pending_hash = self._pending_hash
+        self._pending_hash = ""
+        self._mutation_pending = False
+        if self.createListenerWindow is not None:
+            self.createListenerWindow.setPending(False)
+        self.updateActionButtons()
+
+        label = "Add listener" if action == "add" else "Stop listener"
+        if error:
+            message = "Server did not confirm the request; refreshing listeners. " + error
+            self.setInlineStatus(format_action_status(label, message), False)
+            if action == "add" and self.createListenerWindow is not None:
+                self.createListenerWindow.showValidationError(message)
+        elif not is_response_ok(ack):
+            self.setStatusMessage(ack, "Request rejected.", action=label)
+            if action == "add" and self.createListenerWindow is not None:
+                self.createListenerWindow.showValidationError(
+                    operation_ack_text(ack, "Request rejected."),
+                )
+        else:
+            listener_hash = _text(getattr(ack, "listener_hash", "")) or pending_hash
+            self.setStatusMessage(ack, "Request accepted.", action=label)
+            if action == "add" and self.createListenerWindow is not None:
+                self.createListenerWindow.close()
+            if action == "stop":
+                for listener_store in self.listListenerObject:
+                    if listener_store.listenerHash == listener_hash:
+                        listener_store.state = TeamServerApi_pb2.LISTENER_STATE_STOPPING
+                self.printListeners()
+        self.requestRefresh()
 
 
     # query the server to get the list of listeners
@@ -492,6 +598,17 @@ class Listeners(QWidget):
         self.setInlineStatus("Server unavailable; retrying listeners.", False)
 
     def _applyListeners(self, listeners):
+        auth_generation = getattr(self.grpcClient, "auth_generation", None)
+        reauthenticated = (
+            self._snapshot_auth_generation is not None
+            and auth_generation != self._snapshot_auth_generation
+        )
+        emit_lifecycle_events = self._has_snapshot and not self._refresh_failed and not reauthenticated
+        self._snapshot_auth_generation = auth_generation
+        if reauthenticated and self.createListenerWindow is not None:
+            self.createListenerWindow.setAvailableTypes(
+                getattr(self.grpcClient, "available_listener_types", PRIMARY_LISTENER_TYPES),
+            )
         if self._refresh_failed:
             self.setInlineStatus("Listeners reconnected." if listeners else "Connected; add a listener to resume sessions.")
             self._refresh_failed = False
@@ -502,7 +619,7 @@ class Listeners(QWidget):
             self.setInlineStatus("No active listeners on TeamServer; add a listener to resume sessions.")
         active_hashes = {listener.listener_hash for listener in listeners}
         for listenerStore in self.listListenerObject:
-            if listenerStore.listenerHash not in active_hashes:
+            if emit_lifecycle_events and listenerStore.listenerHash not in active_hashes:
                 self.listenerScriptSignal.emit(
                     "stop", listenerStore.listenerHash, listenerStore.type, listenerStore.host,
                 )
@@ -521,9 +638,12 @@ class Listeners(QWidget):
                     listenerStore.type = listener.type
                     listenerStore.nbSession = listener.session_count
                     listenerStore.beaconHash = _text(getattr(listener, "beacon_hash", ""))
+                    listenerStore.state = getattr(
+                        listener, "state", TeamServerApi_pb2.LISTENER_STATE_RUNNING,
+                    )
                     if listener.type == GithubType:
                         listenerStore.host = listener.project
-                        listenerStore.port = listener.token[0:10]
+                        listenerStore.port = ""
                     elif listener.type == DnsType:
                         listenerStore.host = listener.domain
                         listenerStore.port = listener.port
@@ -537,23 +657,23 @@ class Listeners(QWidget):
             # if listener is not yet already on our list
             if not inStore:
                 beaconHash = _text(getattr(listener, "beacon_hash", ""))
+                state = getattr(listener, "state", TeamServerApi_pb2.LISTENER_STATE_RUNNING)
                 if listener.type == GithubType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, listener.token[0:10], listener.session_count, beaconHash)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.project, "", listener.session_count, beaconHash, state)
                 elif listener.type == DnsType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count, beaconHash)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.domain, listener.port, listener.session_count, beaconHash, state)
                 elif listener.type == SmbType:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count, beaconHash)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.domain, listener.session_count, beaconHash, state)
                 else:
-                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count, beaconHash)
+                    listenerStore = Listener(self.idListener, listener.listener_hash, listener.type, listener.ip, listener.port, listener.session_count, beaconHash, state)
                 self.listListenerObject.append(listenerStore)
                 self.idListener = self.idListener+1
-                self.listenerScriptSignal.emit(
-                    "start",
-                    listenerStore.listenerHash,
-                    listenerStore.type,
-                    listenerStore.host,
-                )
+                if emit_lifecycle_events:
+                    self.listenerScriptSignal.emit(
+                        "start", listenerStore.listenerHash, listenerStore.type, listenerStore.host,
+                    )
 
+        self._has_snapshot = True
         self.listListener.clearSelection()
         self.printListeners()
         if selected_hash is not None:
@@ -565,7 +685,7 @@ class Listeners(QWidget):
 
     def printListeners(self):
         self.listListener.setRowCount(len(self.listListenerObject))
-        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host/Beacon", "Port"])
+        self.listListener.setHorizontalHeaderLabels(["ID", "Type", "Host/Beacon", "Port", "State"])
         for index, tooltip in {
             0: "Listener hash",
             2: "Primary bind host, or beacon ID for child listeners.",
@@ -587,6 +707,15 @@ class Listeners(QWidget):
 
             port = QTableWidgetItem(str(listenerStore.port))
             self.listListener.setItem(ix, 3, port)
+
+            state_text = LISTENER_STATE_LABELS.get(listenerStore.state, "Unknown")
+            state_item = QTableWidgetItem(state_text)
+            if listenerStore.state in (
+                TeamServerApi_pb2.LISTENER_STATE_FAILED,
+                TeamServerApi_pb2.LISTENER_STATE_STOP_FAILED,
+            ):
+                state_item.setForeground(QColor("#d97b80"))
+            self.listListener.setItem(ix, 4, state_item)
         self.updateActionButtons()
 
 
@@ -684,6 +813,15 @@ class ListenerTypePicker(QWidget):
         self.options.addItems(values)
         self.options.setFixedHeight(self.options.sizeHintForRow(0) * self.options.count() + 2)
 
+    def replaceItems(self, values):
+        previous = self.currentText()
+        self.hideOptions()
+        self.options.clear()
+        self._currentIndex = -1
+        self.addItems(values)
+        index = self.findText(previous)
+        self.setCurrentIndex(index if index >= 0 else min(1, self.options.count() - 1))
+
     def findText(self, value):
         for index in range(self.options.count()):
             if self.options.item(index).text() == value:
@@ -742,9 +880,10 @@ class CreateListner(QWidget):
 
     procDone = pyqtSignal(list)
     
-    def __init__(self, existingListenersProvider=None):
+    def __init__(self, existingListenersProvider=None, availableTypes=None):
         super().__init__()
         self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        self._pending = False
         apply_dark_panel_style(self)
         
         layout = QFormLayout()
@@ -753,8 +892,8 @@ class CreateListner(QWidget):
         layout.setVerticalSpacing(8)
         self.labelType = QLabel(TypeLabel)
         self.qcombo = ListenerTypePicker(self)
-        self.qcombo.addItems(PRIMARY_LISTENER_TYPES)
-        self.qcombo.setCurrentIndex(1)
+        self.qcombo.addItems(availableTypes or PRIMARY_LISTENER_TYPES)
+        self.qcombo.setCurrentIndex(min(1, self.qcombo.options.count() - 1))
         self.qcombo.currentTextChanged.connect(self.changeLabels)
         self.type = self.qcombo
         layout.addRow(self.labelType, self.type)
@@ -805,6 +944,19 @@ class CreateListner(QWidget):
 
     def setExistingListenersProvider(self, existingListenersProvider):
         self.existingListenersProvider = existingListenersProvider or (lambda: [])
+        self.updateFormState()
+
+    def setAvailableTypes(self, availableTypes):
+        types = list(availableTypes or PRIMARY_LISTENER_TYPES)
+        if [self.qcombo.options.item(index).text() for index in range(self.qcombo.options.count())] != types:
+            self.qcombo.replaceItems(types)
+        self.updateFormState()
+
+    def setPending(self, pending):
+        self._pending = bool(pending)
+        self.qcombo.setEnabled(not pending)
+        self.param1.setEnabled(not pending)
+        self.param2.setEnabled(not pending)
         self.updateFormState()
 
     def changeLabels(self):
@@ -885,9 +1037,11 @@ class CreateListner(QWidget):
         )
         if valid and find_tcp_port_conflict(self.type.currentText(), self.param2.text(), self.existingListenersProvider()):
             valid = False
-        self.buttonOk.setEnabled(valid)
+        self.buttonOk.setEnabled(valid and not self._pending)
 
     def checkAndSend(self):
+        if self._pending:
+            return
         type = self.type.currentText().strip()
         param1 = self.param1.text().strip()
         param2 = self.param2.text().strip()
@@ -903,7 +1057,6 @@ class CreateListner(QWidget):
 
         result = [type, param1, param2]
         self.procDone.emit(result)
-        self.close()
 
 
 class GetListenerWorker(RefreshWorker):

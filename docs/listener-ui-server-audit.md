@@ -1,8 +1,8 @@
 # Audit de la gestion des listeners entre GUI et TeamServer — 25 octobre 2026
 
-Périmètre : création, liste, arrêt et réconciliation des listeners primaires et enfants, depuis `C2Client` jusqu'aux services gRPC du TeamServer et retour. Revue statique du commit `40e1885` ; tests client ciblés exécutés sous WSL. Aucun cycle complet avec serveur et beacon réels n'a été exécuté pour cette passe.
+Périmètre : création, liste, arrêt et réconciliation des listeners primaires et enfants, depuis `C2Client` jusqu'aux services gRPC du TeamServer et retour. Le parcours et les constats ci-dessous décrivent l'état initial du commit `40e1885`. La correction et ses preuves figurent en fin de document.
 
-## Parcours observé
+## Parcours observé avant correction
 
 | Étape | Comportement actuel | Source |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Périmètre : création, liste, arrêt et réconciliation des listeners primaire
 | Arrêt | La GUI envoie `ListenerSelector.listener_hash`. Le serveur retire immédiatement un listener primaire ; pour un listener enfant, il met une instruction d'arrêt en file vers le beacon et renvoie « stop requested ». La disparition de la ligne est constatée lors d'un `ListListeners` ultérieur. | [Panneau](../C2Client/C2Client/ListenerPanel.py), [service](../teamServer/teamServer/TeamServerListenerSessionService.cpp) |
 | Redémarrage/reconnexion | Un échec de liste conserve temporairement la table locale et affiche un état d'erreur. Le prochain appel réussi peut réauthentifier le client, puis le panneau retire les anciennes lignes et ajoute celles de la nouvelle instance du serveur. | [gRPC](../C2Client/C2Client/grpcClient.py), [worker](../C2Client/C2Client/refresh_worker.py), [panneau](../C2Client/C2Client/ListenerPanel.py) |
 
-## Constats
+## Constats initiaux
 
 | Priorité | Constat et conséquence | Vérification ou correction attendue |
 | --- | --- | --- |
@@ -24,8 +24,22 @@ Périmètre : création, liste, arrêt et réconciliation des listeners primaire
 | Moyenne | **Les hooks interprètent le diff local comme événement de cycle de vie.** Le premier snapshot d'un client fraîchement ouvert émet `OnListenerStart` pour les listeners déjà actifs ; après reconnexion, les suppressions et ajouts de la table émettent `OnListenerStop`/`OnListenerStart`. Ces signaux décrivent une découverte locale, pas nécessairement une transition réelle côté serveur. | Séparer synchronisation initiale et événements de cycle de vie, ou documenter cette sémantique et tester les effets des hooks au redémarrage. |
 | Conditionnelle | **GitHub figure dans le formulaire alors que le build standard le refuse.** `C2_ENABLE_GITHUB_TRANSPORT` vaut `OFF` par défaut. Si le transport est activé, `ListListeners` renvoie le jeton complet et le serveur le journalise à la création ; masquer seulement la valeur dans la table GUI ne réduit pas cette exposition. | Ne proposer que les types disponibles et ne jamais retourner ni journaliser le jeton complet. Garder GitHub désactivé tant que son [audit propre](github-transport-audit.md) reste ouvert. |
 
-## Couverture et prochaine preuve
+## Corrections appliquées
 
-`QT_QPA_PLATFORM=offscreen C2Client/.venv/bin/python -m pytest -q C2Client/tests/test_listener_panel.py C2Client/tests/test_grpc_client.py` : **39 tests réussis**. Les tests couvrent notamment la saisie, les conflits de ports, le rendu des listeners enfants, la suppression de lignes absentes, la réauthentification de `ListListeners` et l'absence de rejeu d'une mutation `UNAVAILABLE`. Les tests C++ du service vérifient l'émission primaire/enfant, le conflit TCP et le refus de GitHub désactivé.
+| Frontière | Changement |
+| --- | --- |
+| GUI ↔ gRPC | `AddListener` et `StopListener` s'exécutent dans un worker Qt, avec délai maximal de 8 s configurable. Le formulaire reste ouvert pendant l'appel, les actions répétées sont bloquées, les refus/erreurs sont affichés, et une erreur de transport déclenche un rafraîchissement sans rejeu automatique. |
+| Entrée serveur | Le serveur valide type, IP, domaine/projet et port avant d'instancier le listener. Les refus utilisent les mêmes messages que la validation de saisie de la GUI. |
+| Contrat de retour | `OperationAck` fournit le hash concerné et un état ; `ListListeners` fournit l'état du listener. Un arrêt enfant est `STOPPING` pendant 30 s, puis `STOP_FAILED` s'il reste présent ; un nouvel arrêt est alors possible. Un listener primaire défaillant et ses enfants sont indiqués comme `FAILED`. |
+| Identité et hooks | Le menu contextuel utilise le hash complet. La première synchronisation et le premier snapshot après réauthentification/erreur de rafraîchissement ne déclenchent pas les hooks de démarrage/arrêt. |
+| Types disponibles et secret | L'authentification annonce les types compilés ; le formulaire ne montre GitHub que s'il est annoncé. `ListListeners` ne renvoie plus le jeton GitHub, la GUI ne montre plus de préfixe de jeton et le journal de création ne le contient plus. Le build standard garde GitHub désactivé. |
 
-Preuve encore nécessaire : cycle GUI ↔ vrai serveur pour créer, lister, arrêter et recréer HTTP/HTTPS, TCP et DNS ; arrêt d'un listener enfant avec beacon ; indisponibilité pendant chaque action ; redémarrage serveur avec anciennes lignes visibles ; erreur après ACK mais avant le polling suivant. Les tests existants ne prouvent pas encore ces transitions de bout en bout.
+## Validation et limites
+
+La suite client passe sous WSL : **278 tests**. Les tests ajoutés vérifient le worker et le formulaire pendant un appel différé, les refus et erreurs sans rejeu, la collision des préfixes de hash, les états affichés, les hooks lors d'une réauthentification, les types disponibles et les deadlines gRPC. Le test C++ `testsTeamServerListenerSessionService` passe ; il vérifie aussi la validation serveur, l'état défaillant, l'arrêt enfant en cours et l'absence de jeton dans la liste.
+
+La compilation complète du TeamServer passe. `testsInstalledRuntimeE2E` passe sur un serveur installé avec TLS et authentification : adresse TCP invalide refusée, listener TCP créé avec hash/état, puis listé et arrêté. Le rendu de la table à cinq colonnes a été inspecté en mode Qt hors écran.
+
+La suite CTest complète compte **un échec sur 103 tests** : `testBeaconDnsFunctional`. Il échoue aussi isolément. Le [test de C2Core](../core/beacon/tests/testBeaconDns.cpp) construit `ListenerDns` et interroge immédiatement `isRunning()` sans appeler `init()` ; ce chemin ne fait pas partie de la modification GUI ↔ serveur. Les 11 scénarios fonctionnels dépendant d'un environnement externe sont sautés selon leur configuration habituelle.
+
+Restent à exécuter sur un serveur et des beacons réels : cycle GUI complet pour HTTP/HTTPS et DNS, confirmation d'arrêt d'un listener enfant, indisponibilité pendant les mutations et redémarrage serveur avec la GUI ouverte. Les tests actuels vérifient ces chemins par unités et un cycle réseau TCP installé, mais ne constituent pas cette preuve de fonctionnement continu.

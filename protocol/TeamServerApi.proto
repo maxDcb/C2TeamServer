@@ -42,6 +42,15 @@ enum Status
   KO = 1;
 }
 
+enum ListenerState
+{
+  LISTENER_STATE_UNSPECIFIED = 0;
+  LISTENER_STATE_RUNNING = 1;
+  LISTENER_STATE_STOPPING = 2;
+  LISTENER_STATE_FAILED = 3;
+  LISTENER_STATE_STOP_FAILED = 4;
+}
+
 
 message Empty
 {
@@ -52,6 +61,8 @@ message OperationAck
 {
   Status status = 1;
   string message = 2;
+  string listener_hash = 3;
+  ListenerState listener_state = 4;
 }
 
 
@@ -67,6 +78,7 @@ message AuthResponse
   Status status = 1;
   string token = 2;
   string message = 3;
+  repeated string available_listener_types = 4;
 }
 
 
@@ -94,6 +106,7 @@ message Listener
   string token = 7;
   string domain = 8;
   string beacon_hash = 9;
+  ListenerState state = 10;
 }
 
 
