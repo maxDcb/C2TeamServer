@@ -217,7 +217,8 @@ def download_bundle(directory: Path, version: str | None) -> Path:
 
 
 def verify_checksum(archive: Path, checksum: Path) -> None:
-    expected = checksum.read_text(encoding="ascii").split()[0].lower()
+    fields = checksum.read_text(encoding="ascii").split()
+    expected = fields[0].lower() if fields else ""
     if not re.fullmatch(r"[0-9a-f]{64}", expected):
         fail("Invalid release checksum.")
     hasher = hashlib.sha256()
@@ -342,9 +343,8 @@ def install_server(root: Path, prefix: Path, args: argparse.Namespace) -> str | 
     if not config_file.exists():
         private_json(config_file, server_config(root / "TeamServer" / "TeamServerConfig.json",
                                                prefix, args.hostname))
-    password = create_credentials(config_dir / "auth_credentials.json", args.admin_password_file)
     swap_directory(staged, server / "app")
-    return password
+    return create_credentials(config_dir / "auth_credentials.json", args.admin_password_file)
 
 
 def ensure_uv(prefix: Path, override: Path | None) -> Path:

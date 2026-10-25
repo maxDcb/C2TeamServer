@@ -101,6 +101,12 @@ def test_server_install_and_update_preserve_state(tmp_path: Path, monkeypatch, c
     assert credentials_path.read_bytes() != original_credentials
     assert json.loads(credentials_path.read_text())["users"][0]["password_hash"].startswith("$argon2id$")
 
+    blocked_prefix = tmp_path / "blocked"
+    (blocked_prefix / "server" / "app.previous").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="Previous application backup still exists"):
+        installer.install(_args(blocked_prefix, _release(tmp_path / "blocked-release", "blocked")))
+    assert not (blocked_prefix / "server" / "config" / "auth_credentials.json").exists()
+
 
 def test_extract_bundle_rejects_unsafe_paths(tmp_path: Path):
     archive = tmp_path / "bundle.tar.gz"
@@ -142,6 +148,9 @@ def test_release_checksum_detects_tampering(tmp_path: Path):
     installer.verify_checksum(archive, checksum)
     archive.write_bytes(b"modified archive")
     with pytest.raises(RuntimeError, match="checksum mismatch"):
+        installer.verify_checksum(archive, checksum)
+    checksum.write_text("", encoding="ascii")
+    with pytest.raises(RuntimeError, match="Invalid release checksum"):
         installer.verify_checksum(archive, checksum)
 
 
