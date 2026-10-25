@@ -50,7 +50,8 @@ See [Implant asset contract](implants.md).
 ```bash
 python packaging/import_implant_releases.py \
   --stage-root build/release-staging/Release \
-  --import-root build/release-imports
+  --import-root build/release-imports \
+  --manifest packaging/release_inputs.json
 
 python packaging/validate_release.py \
   --release-root build/release-staging/Release \
@@ -61,6 +62,10 @@ The importer accepts the known GitHub beacon artifacts in Windows implant
 archives, and GitHub/SMB beacon artifacts in Linux implant archives, but does
 not include them in the TeamServer bundle. These transports are excluded from
 the current release contract. Unknown artifacts still fail import validation.
+For publication, `release_inputs.json` pins the two implant release tags, their
+Git commit IDs, and the SHA-256 of every downloaded archive. The import rejects
+a changed tag or asset before modifying the staged bundle. The CD workflow also
+requires the TeamServer tag to match the manifest's `release_tag`.
 
 ## Create Archive
 

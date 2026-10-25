@@ -75,13 +75,17 @@ uv lock --check --project C2Client
 ctest --test-dir "$BUILD_DIR" --build-config "$BUILD_TYPE" --output-on-failure --timeout 120
 timeout 180 python -m pytest "$GITHUB_WORKSPACE/C2Client/tests" -vv -s
 cmake --build "$BUILD_DIR" --target validate_release_bundle --config "$BUILD_TYPE"
-python packaging/import_implant_releases.py ...
+python packaging/import_implant_releases.py ... --manifest packaging/release_inputs.json
 python packaging/validate_release.py --release-root "$BUILD_DIR/release-staging/Release" --require-implants
 tar -C "$BUILD_DIR/release-staging" -czf Release.tar.gz Release
 sha256sum Release.tar.gz > Release.tar.gz.sha256
 ```
 
-The release publishes `Release.tar.gz`, `Release.tar.gz.sha256` and `install.sh`.
+The release manifest pins implant tags, their Git commits, and asset SHA-256
+digests. A tag push publishes only when the TeamServer tag matches this manifest
+and the imported assets pass provenance and layout checks. Manual dispatch
+builds and validates without publishing. The release publishes `Release.tar.gz`,
+`Release.tar.gz.sha256` and `install.sh`.
 
 ## Cache
 

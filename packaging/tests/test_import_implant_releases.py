@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import hashlib
+import json
 import sys
 import tarfile
 import zipfile
@@ -160,3 +162,64 @@ def test_import_rejects_unrecognized_source_beacon(tmp_path):
         assert "UnknownBeacon.exe" in str(error)
     else:
         raise AssertionError("Unknown source beacon should be rejected")
+
+
+def test_import_pinned_manifest_checks_tag_commits_and_asset_hashes(tmp_path, monkeypatch):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    for arch in validate_release.EXPECTED_WINDOWS_ARCHES:
+        _make_windows_archive(source_root / f"C2Implant-windows-{arch}.zip", arch)
+    _make_linux_archive(source_root / "Release.tar.gz")
+
+    windows_commit = "a" * 40
+    linux_commit = "b" * 40
+    manifest = {
+        "release_tag": "0.18.0",
+        "windows": {
+            "repo": "example/windows", "tag": "0.18.0", "commit": windows_commit,
+            "assets": {
+                path.name: "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in source_root.glob("C2Implant-windows-*.zip")
+            },
+        },
+        "linux": {
+            "repo": "example/linux", "tag": "0.18.0", "commit": linux_commit,
+            "assets": {
+                "Release.tar.gz": "sha256:" + hashlib.sha256(
+                    (source_root / "Release.tar.gz").read_bytes()
+                ).hexdigest(),
+            },
+        },
+    }
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def fake_fetch_release_asset(_repo, _tag, asset_name, destination, _token):
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes((source_root / asset_name).read_bytes())
+
+    commits = {"example/windows": windows_commit, "example/linux": linux_commit}
+    monkeypatch.setattr(import_implant_releases, "_fetch_release_asset", fake_fetch_release_asset)
+    monkeypatch.setattr(import_implant_releases, "_tag_commit", lambda repo, _tag, _token: commits[repo])
+    stage_root = tmp_path / "Release"
+    stage_root.mkdir()
+    args = [
+        "--stage-root", str(stage_root), "--import-root", str(tmp_path / "imports"),
+        "--manifest", str(manifest_path),
+    ]
+    assert import_implant_releases.main(args) == 0
+    validate_release.validate_implants(stage_root)
+
+    marker = stage_root / "untouched"
+    marker.write_text("keep", encoding="utf-8")
+    manifest["windows"]["assets"]["C2Implant-windows-x64.zip"] = "sha256:" + "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    assert import_implant_releases.main(args) == 1
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+    manifest["windows"]["assets"]["C2Implant-windows-x64.zip"] = (
+        "sha256:" + hashlib.sha256((source_root / "C2Implant-windows-x64.zip").read_bytes()).hexdigest()
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    commits["example/linux"] = "c" * 40
+    assert import_implant_releases.main(args) == 1

@@ -2,19 +2,6 @@ name: CD
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Git tag to publish when running manually. Leave empty to build and validate only."
-        required: false
-        type: string
-      c2implant_release_tag:
-        description: "C2Implant release tag to import. Leave empty to use latest."
-        required: false
-        type: string
-      c2linuximplant_release_tag:
-        description: "C2LinuxImplant release tag to import. Leave empty to use latest."
-        required: false
-        type: string
   push:
     tags:
       - "*"
@@ -73,6 +60,20 @@ jobs:
           python -m pip install "uv==0.13.5"
           uv lock --check --project C2Client
 
+      - name: Verify release tag matches pinned inputs
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected = json.loads(Path("packaging/release_inputs.json").read_text())["release_tag"]
+          actual = os.environ["GITHUB_REF_NAME"]
+          if actual != expected:
+              raise SystemExit(f"Release tag {actual} does not match pinned inputs for {expected}")
+          PY
+
       - name: Cache Conan packages
         uses: actions/cache@v4
         with:
@@ -124,23 +125,11 @@ jobs:
       - name: Import implant release assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          C2IMPLANT_RELEASE_TAG: ${{ inputs.c2implant_release_tag || '' }}
-          C2LINUXIMPLANT_RELEASE_TAG: ${{ inputs.c2linuximplant_release_tag || '' }}
         run: |
-          set -euo pipefail
-
-          args=()
-          if [ -n "${C2IMPLANT_RELEASE_TAG}" ]; then
-            args+=(--windows-tag "${C2IMPLANT_RELEASE_TAG}")
-          fi
-          if [ -n "${C2LINUXIMPLANT_RELEASE_TAG}" ]; then
-            args+=(--linux-tag "${C2LINUXIMPLANT_RELEASE_TAG}")
-          fi
-
           python "${{ github.workspace }}/packaging/import_implant_releases.py" \
             --stage-root "${{ github.workspace }}/${{ env.BUILD_DIR }}/release-staging/Release" \
             --import-root "${{ github.workspace }}/${{ env.BUILD_DIR }}/release-imports" \
-            "${args[@]}"
+            --manifest "${{ github.workspace }}/packaging/release_inputs.json"
 
       - name: Validate complete release staging
         run: >
@@ -167,7 +156,7 @@ jobs:
     name: Publish GitHub release
     runs-on: ubuntu-22.04
     needs: build-test-package
-    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
 
@@ -183,7 +172,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ env.RELEASE_TARBALL }}
           asset_name: ${{ env.RELEASE_TARBALL }}
-          tag: ${{ inputs.release_tag || github.ref }}
+          tag: ${{ github.ref_name }}
           overwrite: true
           body: "C2TeamServer client, server, TeamServer modules, and validated C2Implant/C2LinuxImplant beacons and modules."
 
@@ -193,7 +182,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ${{ env.RELEASE_TARBALL }}.sha256
           asset_name: ${{ env.RELEASE_TARBALL }}.sha256
-          tag: ${{ inputs.release_tag || github.ref }}
+          tag: ${{ github.ref_name }}
           overwrite: true
 
       - name: Upload installer
@@ -202,5 +191,5 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: install.sh
           asset_name: install.sh
-          tag: ${{ inputs.release_tag || github.ref }}
+          tag: ${{ github.ref_name }}
           overwrite: true

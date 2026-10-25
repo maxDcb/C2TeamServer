@@ -1,0 +1,21 @@
+{
+  "release_tag": "0.18.0",
+  "windows": {
+    "repo": "maxDcb/C2Implant",
+    "tag": "0.18.0",
+    "commit": "5ee91319f979912a3e34f448b876bb2c69e859b1",
+    "assets": {
+      "C2Implant-windows-x86.zip": "sha256:83ec6bb7a4e78eceec81b1ce8998cd86b69b06cede4b01e95fdda8da5597d111",
+      "C2Implant-windows-x64.zip": "sha256:04277d087667961061e2e46ce6ec4ef63aa1cdec83020f3a6710f68520debb67",
+      "C2Implant-windows-arm64.zip": "sha256:aa9f83725f63e782b05160ed038dcab17e95c867068d6f7ac555237303b7603c"
+    }
+  },
+  "linux": {
+    "repo": "maxDcb/C2LinuxImplant",
+    "tag": "0.18.0",
+    "commit": "81fdea0de09c806a85b9baa04efc9595e2790288",
+    "assets": {
+      "Release.tar.gz": "sha256:89f0ce0fd50e015c7429fa75b32259413ada075328675c91273aae3ed26a9414"
+    }
+  }
+}

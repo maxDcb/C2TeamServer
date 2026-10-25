@@ -82,15 +82,16 @@ Release/Beacons/
 Release/Modules/
 ```
 
-## Import Latest Releases
+## Import Pinned Release Inputs
 
 ```bash
 python packaging/import_implant_releases.py \
   --stage-root build/release-staging/Release \
-  --import-root build/release-imports
+  --import-root build/release-imports \
+  --manifest packaging/release_inputs.json
 ```
 
-## Import Pinned Releases
+## Import Other Releases for Local Testing
 
 ```bash
 python packaging/import_implant_releases.py \
