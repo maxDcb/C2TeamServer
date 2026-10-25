@@ -1,0 +1,28 @@
+# Audit du chaînage beacon/listener — 25 octobre 2026
+
+Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des sessions enfant sur un ou plusieurs sauts, commandes et résultats, arrêt, visibilité TeamServer et graphe client. Révision examinée : C2Core `afc23ab`, TeamServer `2a33a43`, C2Implant `3aad52c`, C2LinuxImplant `9ec8907`.
+
+## Parcours constaté
+
+1. La commande `listener start tcp ...` ou `listener start smb ...` est envoyée à la session du beacon parent. `Beacon::handleListenerInstruction` crée le listener local, puis renvoie son hash et ses métadonnées. Linux refuse SMB explicitement.
+2. À chaque cycle, le beacon parent émet un `ListenerPollCmd` pour ses listeners locaux. Le listener amont rattache le hash du listener enfant à la session parent identifiée par `(beaconHash, listenerHash)`.
+3. Les sessions reçues par le listener enfant conservent leur `listenerHash` dans les bundles remontés par le beacon parent. Le listener primaire enregistre ces sessions et renvoie leurs tâches dans des bundles distincts. Le beacon parent les redistribue au listener local correspondant.
+4. `ListListeners` reconstruit la liste des listeners enfants à partir des sessions parent ; `StopListener` place une tâche sur la route parent et attend la disparition du listener signalée par le beacon. La GUI réconcilie périodiquement les snapshots du serveur.
+
+Sources principales : [exécution beacon](../core/beacon/Beacon.cpp), [enveloppes listener](../core/listener/Listener.cpp), [service TeamServer](../teamServer/teamServer/TeamServerListenerSessionService.cpp), [panneau client](../C2Client/C2Client/ListenerPanel.py).
+
+## Constats prioritaires
+
+| Priorité | Constat et impact | Correction et preuve attendues |
+| --- | --- | --- |
+| P0 | **Une métadonnée TCP enfant invalide peut faire échouer `ListListeners` par exception non traitée.** `parseListenerMetadata` n'exige que trois chaînes JSON ; `streamListeners` convertit ensuite directement le port avec `std::stoi`. Un port non numérique ou hors plage envoyé dans un poll peut interrompre la RPC, voire le processus serveur selon la gestion des exceptions du runtime gRPC. | Valider type et port à l'entrée du rapport beacon, borner le port à 1–65535, rejeter le seul rapport invalide sans casser le snapshot. Tester les ports non numériques et hors plage via `ListenerPollCmd` puis `ListListeners`. |
+| P1 | **La livraison vers plusieurs sessions enfant n'est pas atomique.** `Beacon::cmdToTasks` met en file les bundles successifs puis renvoie `false` dès qu'une route enfant manque ou qu'une file est pleine. Les transports appellent cette fonction sans utiliser son résultat. Lorsqu'une route disparaît entre l'émission amont et la réception, les tâches des bundles suivants sont perdues alors que la réponse transport a déjà été envoyée. | Valider toutes les routes et capacités avant toute mise en file, puis disposer d'un acquittement de livraison ou d'un mécanisme de rejeu sûr. Tester un bundle valide, un bundle sur route disparue, puis un autre bundle valide et vérifier le sort de chacun. |
+| P1 | **L'état d'un listener enfant n'a pas de péremption.** Après le premier poll, son existence reste dans la session parent ; `ListListeners` le déclare `RUNNING` tant que le listener primaire tourne et qu'aucun arrêt n'est en attente. `isListenerAlive` se fonde aussi sur cette présence. Si le beacon parent cesse de communiquer sans confirmation d'arrêt, le listener enfant paraît toujours actif et des commandes peuvent attendre sur une route inutilisable. | Enregistrer le dernier poll et l'état du parent, exposer `Unavailable` après un seuil cohérent avec les sessions, puis refuser ou signaler explicitement les envois sur cette route. Tester perte du parent et retour ultérieur. |
+| P2 | **Le graphe fusionne les routes d'un même beacon.** `GraphPanel.findBeaconNode` utilise seulement `beaconHash`, alors que les sessions sont identifiées par `(beaconHash, listenerHash)` ; `syncBeacons` remplace le parent connecté à chaque ligne. Si un beacon est visible sur deux routes, une seule arête subsiste et le rattachement des listeners hébergés devient ambigu. | Donner aux nœuds de session une identité de route et transmettre l'identité complète du parent pour les listeners enfants. Tester deux routes du même beacon, dont une route de pivot. |
+| P2 | **Aucun test de chaîne complète à deux sauts n'est présent dans les suites examinées.** Les tests TCP/SMB vérifient le transport direct ; `testListener` vérifie le poll et le routage isolément ; le service vérifie l'état d'arrêt enfant par simulation. Ils ne couvrent pas ensemble création enfant → arrivée d'un second beacon → commande/résultat → arrêt ou perte du parent → reconnexion. | Ajouter un test d'intégration local avec deux niveaux TCP, puis un scénario SMB sur Windows, dont perte de route et redémarrage serveur. |
+
+Points d'appui : [validation des métadonnées](../core/listener/Listener.cpp), [conversion du port et liveness](../teamServer/teamServer/TeamServerListenerSessionService.cpp), [redistribution des tâches](../core/beacon/Beacon.cpp), [transport TCP](../core/beacon/BeaconTcp.cpp), [graphe](../C2Client/C2Client/GraphPanel.py), [tests TCP directs](../core/beacon/tests/testBeaconTcp.cpp), [tests d'arrêt enfant](../teamServer/tests/TeamServerListenerSessionServiceTests.cpp).
+
+## Limite de validation
+
+Les suites CI et les tests de l'installateur valident compilation, transports directs, service et déploiement. Ils ne démontrent pas encore le cycle pivot de bout en bout. Les constats ci-dessus sont établis par lecture du code et des tests ; les scénarios de chaîne complète restent à exécuter avant publication.
