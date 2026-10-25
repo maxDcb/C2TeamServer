@@ -2,9 +2,11 @@
 
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "JobDomain.hpp"
 #include "SqliteApi.hpp"
+#include "TeamServerApi.pb.h"
 
 class SqliteJobRepository final : public IJobRepository
 {
@@ -22,6 +24,8 @@ public:
         const std::string& toState, const std::string& errorCode, const std::string& errorMessage,
         const std::string& output, std::int64_t observedOutputSize = -1) override;
     std::size_t recoverInFlight() override;
+    void syncSessions(const std::vector<teamserverapi::Session>& sessions);
+    std::vector<teamserverapi::Session> listSessions();
 
 private:
     JobExecution getUnlocked(const std::string& jobId);

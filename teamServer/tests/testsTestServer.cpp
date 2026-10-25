@@ -155,7 +155,9 @@ void testAuthManagerRoundTrip()
         grpc::string_ref(metadataKey.data(), metadataKey.size()),
         grpc::string_ref(metadataValue.data(), metadataValue.size()));
 
-    assert(authManager.ensureAuthenticated(metadata).ok());
+    std::string authenticatedUsername;
+    assert(authManager.ensureAuthenticated(metadata, &authenticatedUsername).ok());
+    assert(authenticatedUsername == "operator");
 
     teamserverapi::AuthRequest invalidRequest;
     invalidRequest.set_username("operator");

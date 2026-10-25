@@ -1,6 +1,7 @@
 #include "JobApplicationService.hpp"
 
 #include <chrono>
+#include <algorithm>
 #include <iomanip>
 #include <openssl/sha.h>
 #include <sstream>
@@ -58,16 +59,26 @@ JobApplicationService::JobApplicationService(std::shared_ptr<IJobRepository> rep
         throw JobError(JobErrorCode::invalid_argument, "A job repository and positive output limit are required.");
 }
 
-JobExecution JobApplicationService::submit(const std::string& jobId, const std::string& operation, const std::string& input)
+JobExecution JobApplicationService::submit(const std::string& jobId, const std::string& operation, const std::string& input,
+    const std::string& operatorUsername, const std::string& origin)
 {
     if (jobId.empty() || jobId.size() > 128)
         throw JobError(JobErrorCode::invalid_argument, "job_id must contain 1 to 128 bytes.");
+    if (operatorUsername.size() > 256 || origin.size() > 512)
+        throw JobError(JobErrorCode::invalid_argument, "Job attribution is too long.");
+    if (!std::all_of(origin.begin(), origin.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9') || c == ':' || c == '.' || c == '_' || c == '-';
+        }))
+        throw JobError(JobErrorCode::invalid_argument, "Job origin contains unsupported characters.");
     const std::string normalized = normalize(operation, input);
     JobExecution requested;
     requested.jobId = jobId;
     requested.operation = operation;
     requested.normalizedInput = normalized;
     requested.requestHash = digest(operation, normalized);
+    requested.operatorUsername = operatorUsername;
+    requested.origin = origin;
     requested.state = "accepted";
     requested.createdAt = nowMillis();
     auto [execution, created] = m_repository->create(requested);

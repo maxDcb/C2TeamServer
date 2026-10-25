@@ -129,6 +129,33 @@ void testInfoListenerForPrimaryAndSecondary()
     assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: Listener not found.");
     assert(response.message() == "Error: Listener not found.");
+
+    listeners.push_back(std::make_shared<TestListener>("listener-primary-other"));
+    command.set_command("infoListener listener-pri");
+    assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener reference is ambiguous.");
+
+    command.set_command("infoListener listener-primary");
+    assert(service.handleCommand("infoListener", {"infoListener", "listener-primary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+
+    secondarySession->addListener("secondary-other", ListenerTcpType, "10.0.0.2", "4466");
+    command.set_command("infoListener secondary");
+    assert(service.handleCommand("infoListener", {"infoListener", "secondary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener reference is ambiguous.");
+
+    command.set_command("infoListener secondary-hash");
+    assert(service.handleCommand("infoListener", {"infoListener", "secondary-hash"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.result() == "tcp\n10.0.0.1\n4455\nnone");
+
+    listeners.push_back(std::make_shared<TestListener>("listener-primary"));
+    command.set_command("infoListener listener-primary");
+    assert(service.handleCommand("infoListener", {"infoListener", "listener-primary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener reference is ambiguous.");
 }
 
 void testInfoListenerAddressFallbacks()
@@ -189,6 +216,12 @@ void testInfoListenerAddressFallbacks()
     assert(wildcardService.handleCommand("infoListener", {"infoListener", "wildcard"}, command, &response).ok());
     assert(response.status() == teamserverapi::OK);
     assert(response.result() == "https\n127.0.0.1\n8443\n/drop.bin");
+
+    auto ipv6 = std::make_shared<TestListener>("ipv6-listener", ListenerHttpsType, "::1", "8443");
+    std::vector<std::shared_ptr<Listener>> ipv6Listeners = {ipv6};
+    config["ListenerHttpsConfig"]["uriFileDownload"] = "/downloads/";
+    TeamServerListenerArtifactService ipv6Service(makeLogger(), config, runtimeConfig, ipv6Listeners);
+    assert(ipv6Service.hostedArtifactUrl(ipv6, "payload.bin") == "https://[::1]:8443/downloads/payload.bin");
 }
 
 void testGetBeaconBinaryForPrimaryAndSecondary()
@@ -259,6 +292,17 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
     assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary", "Linux", "x64"}, command, &response).ok());
     assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: SMB is supported only on Windows.");
+
+    listeners.push_back(std::make_shared<TestListener>("listener-primary-other"));
+    command.set_command("getBeaconBinary listener-pri");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener reference is ambiguous.");
+
+    command.set_command("getBeaconBinary listener-primary");
+    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-primary"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(response.data() == "HTTPBIN-X64");
 }
 } // namespace
 

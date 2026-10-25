@@ -63,6 +63,7 @@ public:
     grpc::Status StopListener(grpc::ServerContext* context, const teamserverapi::ListenerSelector* listenerToStop, teamserverapi::OperationAck* response) override;
 
     grpc::Status ListSessions(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer) override;
+    grpc::Status ListSessionHistory(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer) override;
     grpc::Status StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response) override;
 
     grpc::Status ListArtifacts(grpc::ServerContext* context, const teamserverapi::ArtifactQuery* query, grpc::ServerWriter<teamserverapi::ArtifactSummary>* writer) override;
@@ -88,6 +89,7 @@ public:
 
 protected:
     int handleCmdResponse();
+    void syncSessionHistory();
     bool isListenerAlive(const std::string& listenerHash);
     int prepMsg(
         const std::string& input,
@@ -107,6 +109,7 @@ private:
     nlohmann::json m_credentials = nlohmann::json::array();
 
     std::vector<std::unique_ptr<ModuleCmd>> m_moduleCmd;
+    mutable std::shared_mutex m_moduleCmdMutex;
     CommonCommands m_commonCommands;
 
     std::atomic_bool m_handleCmdResponseThreadRuning{false};

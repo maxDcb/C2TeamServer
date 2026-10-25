@@ -15,7 +15,8 @@ public:
     JobApplicationService(std::shared_ptr<IJobRepository> repository, std::size_t maxOutputBytes,
         SessionCommandDispatcher dispatcher);
 
-    JobExecution submit(const std::string& jobId, const std::string& operation, const std::string& input);
+    JobExecution submit(const std::string& jobId, const std::string& operation, const std::string& input,
+        const std::string& operatorUsername = {}, const std::string& origin = {});
     JobExecution get(const std::string& jobId) const;
     JobListPage list(std::int64_t afterCreatedAt, const std::string& afterJobId, std::size_t limit) const;
     std::vector<JobEvent> events(std::int64_t afterEventId, const JobEventFilter& filter, std::size_t limit) const;

@@ -202,7 +202,7 @@ def test_command_result_error_uses_message_for_display(tmp_path, qtbot, monkeypa
     assert "Command failed." in console.editorOutput.toPlainText()
     assert "raw failure" not in console.editorOutput.toPlainText()
     assert console.commandStatusById["cmd-1"]["status"] == "error"
-    assert emitted[0][-2] == "Command failed."
+    assert emitted == []  # Hook delivery is owned by ConsolesTab, not the view.
     assert outcomes[0].state == "failed"
     assert outcomes[0].output == "raw failure"
     assert outcomes[0].error_message == "Command failed."
@@ -237,8 +237,7 @@ def test_console_collects_responses_even_when_not_visible(tmp_path, qtbot, monke
 
     assert console.consoleActive is False
     assert console.commandStatusById["cmd-1"]["status"] == "done"
-    assert emitted[0][0] == "receive"
-    assert emitted[0][-1] == "cmd-1"
+    assert emitted == []
     assert outcomes[0].state == "succeeded"
     assert outcomes[0].output == "user"
     assert "user" in console.editorOutput.toPlainText()
@@ -390,16 +389,56 @@ def test_consoles_tab_uses_dark_flush_pages(qtbot, monkeypatch):
         assert page.layout().spacing() == 0
 
 
+def test_receive_hook_runs_without_open_console_and_ignores_untracked_replay(qtbot, monkeypatch):
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
+    for panel in ('Terminal', 'Artifacts', 'CredentialVault', 'Commands', 'Assistant'):
+        monkeypatch.setattr(f'C2Client.ConsolePanel.{panel}', DummyPanel)
+
+    class HookPanel(DummyPanel):
+        hookActivationChanged = pyqtSignal()
+
+        def __init__(self, parent=None, *_args, **_kwargs):
+            super().__init__(parent)
+            self.calls = []
+
+        def hasEnabledHook(self, hook):
+            return hook == 'OnConsoleReceive'
+
+        def consoleScriptMethod(self, *args):
+            self.calls.append(args)
+
+    monkeypatch.setattr('C2Client.ConsolePanel.Script', HookPanel)
+    consoles = ConsolesTab(None, StubGrpc())
+    qtbot.addWidget(consoles)
+    consoles.reconcileRoutes([SimpleNamespace(
+        beacon_hash='beacon', listener_hash='listener', killed=False,
+        state=TeamServerApi_pb2.SESSION_STATE_RUNNING,
+    )])
+    assert consoles.tabs.count() == SYSTEM_TAB_COUNT
+    consoles._hookPendingCommands['current-job'] = ('beacon', 'listener')
+    for command_id in ('old-job', 'current-job'):
+        consoles.command_result_hub.ingest_response('beacon', 'listener', SimpleNamespace(
+            status=TeamServerApi_pb2.OK,
+            session=SimpleNamespace(beacon_hash='beacon', listener_hash='listener'),
+            command_id=command_id, command='whoami', output=b'user', message='',
+        ))
+    assert len(consoles.script.calls) == 1
+    assert consoles.script.calls[0][0] == 'receive'
+    assert consoles.script.calls[0][-1] == 'current-job'
+    consoles.shutdown()
+
+
 def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     class FakeConsole(QWidget):
         consoleScriptSignal = pyqtSignal(str, str, str, str, str, str, str)
         commandOutcomeSignal = pyqtSignal(object)
         instances = []
 
-        def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub=None):
+        def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub=None, historyOnly=False):
             super().__init__(parent)
             self.beaconHash = beaconHash
             self.listenerHash = listenerHash
+            self.historyOnly = historyOnly
             self.sessionAvailable = True
             self.pollingActive = None
             self.pollingStates = []
@@ -474,6 +513,16 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     assert FakeConsole.instances[-1].listenerHash == "route-two"
     assert "route-on" in consoles.tabs.tabText(SYSTEM_TAB_COUNT + 2)
 
+    consoles.addConsole("beacon-1", "old-route", "host", "user", True)
+    history = FakeConsole.instances[-1]
+    assert history.listenerHash == "old-route"
+    assert history.historyOnly is True
+    assert history.sessionAvailable is False
+    assert "history" in consoles.tabs.tabText(consoles.tabs.currentIndex())
+    consoles.reconcileRoutes([SimpleNamespace(beacon_hash="beacon-1", listener_hash="latest-route")])
+    assert history.listenerHash == "old-route"
+    assert history.sessionAvailable is False
+
 
 def test_console_route_change_preserves_old_result_subscription(tmp_path, qtbot, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -510,6 +559,29 @@ def test_unavailable_console_does_not_send_command(tmp_path, qtbot, monkeypatch)
     console.setSessionAvailable(True)
     console.runCommand()
     assert grpc.sent_commands[-1].session.listener_hash == 'listener'
+    console.closeResultSubscription()
+
+
+def test_history_console_shows_results_without_replaying_script_hooks(tmp_path, qtbot, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr('C2Client.ConsolePanel.logsDir', str(tmp_path))
+    monkeypatch.setattr('C2Client.command_event_hub.CommandResultWorker.start', lambda self: None)
+    grpc = StubGrpc()
+    hub = CommandEventHub(grpc)
+    console = Console(None, grpc, 'beacon', 'route', 'host', 'user', result_hub=hub, historyOnly=True)
+    qtbot.addWidget(console)
+    console.setSessionAvailable(False)
+    script_events = []
+    console.consoleScriptSignal.connect(lambda *args: script_events.append(args))
+    hub.ingest_response('beacon', 'route', SimpleNamespace(
+        session=TeamServerApi_pb2.SessionSelector(beacon_hash='beacon', listener_hash='route'),
+        status=TeamServerApi_pb2.OK, command_id='old-command', command='ls',
+        output=b'previous output', event_id=1, job_state='succeeded', message='',
+    ))
+    assert 'previous output' in console.editorOutput.toPlainText()
+    assert not console.commandEditor.isEnabled()
+    assert console.searchInput.isEnabled() and console.exportLogButton.isEnabled()
+    assert script_events == []
     console.closeResultSubscription()
 
 

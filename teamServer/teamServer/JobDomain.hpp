@@ -31,6 +31,8 @@ struct JobExecution
     std::string errorMessage;
     std::string outputInline;
     std::int64_t outputSize = 0;
+    std::string operatorUsername;
+    std::string origin;
 };
 
 struct JobEvent

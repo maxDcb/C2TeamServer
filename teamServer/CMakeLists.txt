@@ -80,7 +80,7 @@ target_link_libraries(job_application PUBLIC openssl::openssl nlohmann_json::nlo
 
 add_library(job_sqlite STATIC teamServer/SqliteJobRepository.cpp)
 target_include_directories(job_sqlite PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/teamServer)
-target_link_libraries(job_sqlite PUBLIC ${C2_SQLITE3_LIBRARY})
+target_link_libraries(job_sqlite PUBLIC GrpcMessages ${C2_SQLITE3_LIBRARY})
 
 add_library(server_listener_transport STATIC ${SERVER_LISTENER_TRANSPORT_SOURCES})
 target_include_directories(server_listener_transport

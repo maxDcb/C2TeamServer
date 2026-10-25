@@ -285,10 +285,22 @@ class GrpcClient:
         )
 
     def listSessions(self) -> Any:
-        """Return all active sessions."""
+        """Return current sessions for active-session consumers."""
 
         empty = TeamServerApi_pb2.Empty()
         return self._stream_rpc("ListSessions", lambda: self.stub.ListSessions(empty, metadata=self.metadata, timeout=3.0))
+
+    def listSessionHistory(self) -> Any:
+        """Return current and archived sessions for the Sessions view."""
+
+        empty = TeamServerApi_pb2.Empty()
+        try:
+            yield from self._stream_rpc("ListSessionHistory", lambda: self.stub.ListSessionHistory(
+                empty, metadata=self.metadata, timeout=3.0))
+        except grpc.RpcError as exc:
+            if exc.code() != grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            yield from self.listSessions()
 
     def listArtifacts(self, query: Optional[Any] = None) -> Iterable[Any]:
         """Return artifacts indexed by the TeamServer catalog."""
@@ -390,18 +402,16 @@ class GrpcClient:
             ),
         )
 
-    def sendSessionCommand(self, command: Any) -> Any:
+    def sendSessionCommand(self, command: Any, *, origin: str = "") -> Any:
         """Submit a session command through the durable V2 job API."""
 
-        job = self.submitJob(
-            command.command_id or uuid.uuid4().hex,
-            "session_command",
-            json.dumps({
-                "beacon_hash": command.session.beacon_hash,
-                "listener_hash": command.session.listener_hash,
-                "command": command.command,
-            }, separators=(",", ":")),
-        )
+        payload = json.dumps({
+            "beacon_hash": command.session.beacon_hash,
+            "listener_hash": command.session.listener_hash,
+            "command": command.command,
+        }, separators=(",", ":"))
+        job_args = (command.command_id or uuid.uuid4().hex, "session_command", payload)
+        job = self.submitJob(*job_args, origin=origin) if origin else self.submitJob(*job_args)
         return TeamServerApi_pb2.CommandAck(
             status=TeamServerApi_pb2.KO if job.state == "failed" else TeamServerApi_pb2.OK,
             command_id=job.job_id,
@@ -435,9 +445,12 @@ class GrpcClient:
             cursor = event.event_id
             self._session_cursors[key] = cursor
 
-    def submitJob(self, job_id: str, operation: str, input: str) -> Any:
-        request = TeamServerApi_pb2.SubmitJobRequest(job_id=job_id, operation=operation, input=input)
-        return self._unary_rpc("SubmitJob", lambda: self.stub.SubmitJob(request, metadata=self.metadata))
+    def submitJob(self, job_id: str, operation: str, input: str, *, origin: str = "") -> Any:
+        request = TeamServerApi_pb2.SubmitJobRequest(job_id=job_id, operation=operation, input=input, origin=origin)
+        return self._unary_rpc("SubmitJob", lambda: self.stub.SubmitJob(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1),
+        ))
 
     def getJobExecution(self, job_id: str) -> Any:
         request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)

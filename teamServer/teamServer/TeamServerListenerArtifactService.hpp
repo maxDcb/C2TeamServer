@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <shared_mutex>
 #include <vector>
@@ -34,7 +35,22 @@ public:
         const teamserverapi::TerminalCommandRequest& command,
         teamserverapi::TerminalCommandResponse* response) const;
 
+    std::shared_ptr<Listener> resolvePrimaryListener(
+        const std::string& listenerReference, std::string& error) const;
+    std::string hostedArtifactUrl(
+        const std::shared_ptr<Listener>& listener, const std::string& filename) const;
+
 private:
+    struct SecondaryListenerInfo
+    {
+        std::string hash;
+        std::string type;
+        std::string address;
+        std::string port;
+    };
+
+    std::optional<SecondaryListenerInfo> resolveSecondaryListener(
+        const std::string& listenerReference, std::string& error) const;
     std::string resolvePublicAddress(const std::shared_ptr<Listener>& listener) const;
     std::string resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const;
     std::string resolveBeaconBinaryPath(

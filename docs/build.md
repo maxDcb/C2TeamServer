@@ -151,3 +151,7 @@ not resent automatically. Restart the client if the server certificate changes.
 
 See [assistant-skills.md](assistant-skills.md) for fixed and agentic skills,
 client-side recovery, the pinned `agent-core` dependency, and GUI startup.
+
+## Client hooks
+
+See [hooks.md](hooks.md) for activation, lifecycle, execution limits, and audit records.

@@ -165,6 +165,121 @@ std::string TeamServerListenerArtifactService::resolvePrimaryListenerInfo(const 
     return result;
 }
 
+std::shared_ptr<Listener> TeamServerListenerArtifactService::resolvePrimaryListener(
+    const std::string& listenerReference, std::string& error) const
+{
+    if (listenerReference.empty())
+    {
+        error = "Error: Listener reference is empty.";
+        return {};
+    }
+
+    std::vector<std::shared_ptr<Listener>> matches;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        for (const auto& listener : m_listeners)
+        {
+            if (listener && listener->getListenerHash().rfind(listenerReference, 0) == 0)
+                matches.push_back(listener);
+        }
+    }
+    std::shared_ptr<Listener> exact;
+    for (const auto& listener : matches)
+    {
+        if (listener->getListenerHash() == listenerReference)
+        {
+            if (exact)
+            {
+                error = "Error: Listener reference is ambiguous.";
+                return {};
+            }
+            exact = listener;
+        }
+    }
+    if (exact)
+        return exact;
+    if (matches.size() == 1)
+        return matches.front();
+
+    error = matches.empty() ? "Error: Listener not found." : "Error: Listener reference is ambiguous.";
+    return {};
+}
+
+std::optional<TeamServerListenerArtifactService::SecondaryListenerInfo>
+TeamServerListenerArtifactService::resolveSecondaryListener(
+    const std::string& listenerReference, std::string& error) const
+{
+    std::vector<SecondaryListenerInfo> matches;
+    std::vector<std::shared_ptr<Listener>> listeners;
+    {
+        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
+        listeners = m_listeners;
+    }
+    for (const auto& listener : listeners)
+    {
+        if (!listener)
+            continue;
+        const int sessionCount = listener->getNumberOfSession();
+        for (int index = 0; index < sessionCount; ++index)
+        {
+            const auto session = listener->getSessionPtr(index);
+            if (!session || session->isSessionKilled())
+                continue;
+            for (const auto& child : session->getListener())
+            {
+                if (child.getListenerHash().rfind(listenerReference, 0) == 0)
+                    matches.push_back({child.getListenerHash(), child.getType(), child.getParam1(), child.getParam2()});
+            }
+        }
+    }
+    std::optional<SecondaryListenerInfo> exact;
+    for (const auto& match : matches)
+    {
+        if (match.hash == listenerReference)
+        {
+            if (exact)
+            {
+                error = "Error: Listener reference is ambiguous.";
+                return std::nullopt;
+            }
+            exact = match;
+        }
+    }
+    if (exact)
+        return exact;
+    if (matches.size() == 1)
+        return matches.front();
+    error = matches.empty() ? "Error: Listener not found." : "Error: Listener reference is ambiguous.";
+    return std::nullopt;
+}
+
+std::string TeamServerListenerArtifactService::hostedArtifactUrl(
+    const std::shared_ptr<Listener>& listener, const std::string& filename) const
+{
+    if (!listener || (listener->getType() != ListenerHttpType && listener->getType() != ListenerHttpsType))
+        return "";
+
+    const std::string address = resolvePublicAddress(listener);
+    if (address.empty())
+        return "";
+
+    const char* section = listener->getType() == ListenerHttpType ? "ListenerHttpConfig" : "ListenerHttpsConfig";
+    const auto configIt = m_config.find(section);
+    if (configIt == m_config.end() || !configIt->is_object())
+        return "";
+    std::string path = configString(*configIt, "uriFileDownload");
+    if (path.empty())
+        return "";
+    if (path.front() != '/')
+        path.insert(path.begin(), '/');
+    if (path.back() != '/')
+        path += '/';
+
+    const std::string urlHost = address.find(':') != std::string::npos && address.front() != '['
+        ? "[" + address + "]" : address;
+    return listener->getType() + "://" + urlHost + ":" + listener->getParam2() + path + filename;
+}
+
 std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
     const std::string& type,
     const std::string& targetOs,
@@ -203,59 +318,34 @@ grpc::Status TeamServerListenerArtifactService::handleInfoListener(
     }
 
     const std::string& listenerHash = splitedCmd[1];
-    std::vector<std::shared_ptr<Listener>> listeners;
+    std::string lookupError;
+    const auto primary = resolvePrimaryListener(listenerHash, lookupError);
+    if (primary)
     {
-        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
-        listeners = m_listeners;
-    }
-    for (const auto& listener : listeners)
-    {
-        const std::string& hash = listener->getListenerHash();
-        if (hash.rfind(listenerHash, 0) == 0)
+        const std::string result = resolvePrimaryListenerInfo(primary);
+        if (result.empty())
         {
-            const std::string result = resolvePrimaryListenerInfo(listener);
-            if (result.empty())
-            {
-                setTerminalError(response, "Error: No IP or Hostname in config.");
-                return grpc::Status::OK;
-            }
-
-            m_logger->debug("infoListener found in primary listeners {0}", hash);
-            setTerminalOk(response, result);
+            setTerminalError(response, "Error: No IP or Hostname in config.");
             return grpc::Status::OK;
         }
 
-        const int nbSession = listener->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = listener->getSessionPtr(kk);
-            if (session->isSessionKilled())
-                continue;
-
-            const auto childListeners = session->getListener();
-            for (auto it = childListeners.begin(); it != childListeners.end(); ++it)
-            {
-                const std::string& secondaryHash = it->getListenerHash();
-                if (secondaryHash.rfind(listenerHash, 0) != 0)
-                    continue;
-
-                std::string result = it->getType();
-                result += "\n";
-                result += it->getParam1();
-                result += "\n";
-                result += it->getParam2();
-                result += "\n";
-                result += "none";
-
-                m_logger->debug("infoListener found in beacon listener {0} {1} {2}", it->getType(), it->getParam1(), it->getParam2());
-                setTerminalOk(response, result);
-                return grpc::Status::OK;
-            }
-        }
+        m_logger->debug("infoListener found in primary listeners {0}", primary->getListenerHash());
+        setTerminalOk(response, result);
+        return grpc::Status::OK;
+    }
+    if (lookupError != "Error: Listener not found.")
+    {
+        setTerminalError(response, lookupError);
+        return grpc::Status::OK;
     }
 
-    m_logger->error("Error: Listener {} not found.", listenerHash);
-    setTerminalError(response, "Error: Listener not found.");
+    const auto secondary = resolveSecondaryListener(listenerHash, lookupError);
+    if (!secondary)
+    {
+        setTerminalError(response, lookupError);
+        return grpc::Status::OK;
+    }
+    setTerminalOk(response, secondary->type + "\n" + secondary->address + "\n" + secondary->port + "\nnone");
     return grpc::Status::OK;
 }
 
@@ -317,68 +407,46 @@ grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
         }
     }
 
-    std::vector<std::shared_ptr<Listener>> listeners;
+    std::string lookupError;
+    const auto primary = resolvePrimaryListener(listenerHash, lookupError);
+    if (primary)
     {
-        std::shared_lock<std::shared_mutex> lock(*m_listenersMutex);
-        listeners = m_listeners;
-    }
-    for (const auto& listener : listeners)
-    {
-        const std::string& hash = listener->getListenerHash();
-        if (hash.rfind(listenerHash, 0) == 0)
+        const std::string beaconFilePath = resolveBeaconBinaryPath(primary->getType(), targetOs, targetArch, true);
+        std::ifstream beaconFile(beaconFilePath, std::ios::binary);
+        if (!beaconFile.good())
         {
-            const std::string beaconFilePath = resolveBeaconBinaryPath(listener->getType(), targetOs, targetArch, true);
-            std::ifstream beaconFile(beaconFilePath, std::ios::binary);
-            if (!beaconFile.good())
-            {
-                m_logger->error("Error: Beacons {0} {1} {2} not found.", listener->getType(), targetOs, targetArch);
-                setTerminalError(response, "Error: Beacons not found.");
-                return grpc::Status::OK;
-            }
-
-            m_logger->info("getBeaconBinary found in primary listeners {0} {1} {2}", listener->getType(), targetOs, targetArch);
-            response->set_data(readBinaryFile(beaconFilePath));
-            setTerminalOk(response, "ok");
+            setTerminalError(response, "Error: Beacons not found.");
             return grpc::Status::OK;
         }
-
-        const int nbSession = listener->getNumberOfSession();
-        for (int kk = 0; kk < nbSession; kk++)
-        {
-            std::shared_ptr<Session> session = listener->getSessionPtr(kk);
-            if (session->isSessionKilled())
-                continue;
-
-            const auto childListeners = session->getListener();
-            for (auto it = childListeners.begin(); it != childListeners.end(); ++it)
-            {
-                const std::string& secondaryHash = it->getListenerHash();
-                if (secondaryHash.rfind(listenerHash, 0) != 0)
-                    continue;
-
-                if (targetOs == "Linux" && it->getType() == ListenerSmbType)
-                {
-                    setTerminalError(response, "Error: SMB is supported only on Windows.");
-                    return grpc::Status::OK;
-                }
-
-                const std::string beaconFilePath = resolveBeaconBinaryPath(it->getType(), targetOs, targetArch, false);
-                std::ifstream beaconFile(beaconFilePath, std::ios::binary);
-                if (!beaconFile.good())
-                {
-                    m_logger->error("Error: Beacons {0} {1} {2} not found.", it->getType(), targetOs, targetArch);
-                    setTerminalError(response, "Error: Beacons not found.");
-                    return grpc::Status::OK;
-                }
-
-                m_logger->info("getBeaconBinary found in beacon listeners {0} {1} {2}", it->getType(), targetOs, targetArch);
-                response->set_data(readBinaryFile(beaconFilePath));
-                setTerminalOk(response, "ok");
-                return grpc::Status::OK;
-            }
-        }
+        response->set_data(readBinaryFile(beaconFilePath));
+        setTerminalOk(response, "ok");
+        return grpc::Status::OK;
+    }
+    if (lookupError != "Error: Listener not found.")
+    {
+        setTerminalError(response, lookupError);
+        return grpc::Status::OK;
     }
 
-    setTerminalError(response, "Error: Listener not found.");
+    const auto secondary = resolveSecondaryListener(listenerHash, lookupError);
+    if (!secondary)
+    {
+        setTerminalError(response, lookupError);
+        return grpc::Status::OK;
+    }
+    if (targetOs == "Linux" && secondary->type == ListenerSmbType)
+    {
+        setTerminalError(response, "Error: SMB is supported only on Windows.");
+        return grpc::Status::OK;
+    }
+    const std::string beaconFilePath = resolveBeaconBinaryPath(secondary->type, targetOs, targetArch, false);
+    std::ifstream beaconFile(beaconFilePath, std::ios::binary);
+    if (!beaconFile.good())
+    {
+        setTerminalError(response, "Error: Beacons not found.");
+        return grpc::Status::OK;
+    }
+    response->set_data(readBinaryFile(beaconFilePath));
+    setTerminalOk(response, "ok");
     return grpc::Status::OK;
 }

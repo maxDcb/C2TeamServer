@@ -1,10 +1,14 @@
 #include "SqliteJobRepository.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace
@@ -112,10 +116,12 @@ JobExecution readJob(sqlite3_stmt* statement)
     job.errorMessage = columnString(statement, 9);
     job.outputInline = columnBlob(statement, 10);
     job.outputSize = sqlite3_column_int64(statement, 11);
+    job.operatorUsername = columnString(statement, 12);
+    job.origin = columnString(statement, 13);
     return job;
 }
 
-constexpr const char* JobColumns = "job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size";
+constexpr const char* JobColumns = "job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size,operator_username,origin";
 
 void addEvent(sqlite3* db, const std::string& jobId, const std::string& state)
 {
@@ -178,7 +184,7 @@ SqliteJobRepository::SqliteJobRepository(const std::string& path)
         Statement version(m_db, "SELECT COALESCE(MAX(version),0) FROM schema_migrations");
         if (version.step() != SQLITE_ROW) fail(m_db, "Read schema version");
         const auto currentVersion = sqlite3_column_int64(version.get(), 0);
-        if (currentVersion > 1)
+        if (currentVersion > 3)
             throw JobError(JobErrorCode::storage, "Database schema is newer than this server.");
         if (currentVersion == 0)
         {
@@ -197,6 +203,37 @@ SqliteJobRepository::SqliteJobRepository(const std::string& path)
             run(m_db, "CREATE INDEX idx_job_events_job ON job_events(job_id,event_id)");
             run(m_db, "CREATE INDEX idx_job_events_type ON job_events(event_type,event_id)");
             Statement record(m_db, "INSERT INTO schema_migrations(version,applied_at) VALUES(1,?)");
+            record.integer(1, nowMillis());
+            record.step();
+        }
+        if (currentVersion < 2)
+        {
+            run(m_db, "CREATE TABLE session_history("
+                "beacon_hash TEXT NOT NULL, listener_hash TEXT NOT NULL, snapshot BLOB NOT NULL,"
+                "archived INTEGER NOT NULL DEFAULT 0, first_seen_at INTEGER NOT NULL,"
+                "observed_at INTEGER NOT NULL, archived_at INTEGER,"
+                "PRIMARY KEY(beacon_hash,listener_hash))");
+            run(m_db, "CREATE INDEX idx_session_history_archive ON session_history(archived,archived_at)");
+            Statement record(m_db, "INSERT INTO schema_migrations(version,applied_at) VALUES(2,?)");
+            record.integer(1, nowMillis());
+            record.step();
+        }
+        if (currentVersion < 3)
+        {
+            bool hasOperator = false;
+            bool hasOrigin = false;
+            Statement columns(m_db, "PRAGMA table_info(job_executions)");
+            while (columns.step() == SQLITE_ROW)
+            {
+                const std::string name = columnString(columns.get(), 1);
+                hasOperator = hasOperator || name == "operator_username";
+                hasOrigin = hasOrigin || name == "origin";
+            }
+            if (!hasOperator)
+                run(m_db, "ALTER TABLE job_executions ADD COLUMN operator_username TEXT NOT NULL DEFAULT ''");
+            if (!hasOrigin)
+                run(m_db, "ALTER TABLE job_executions ADD COLUMN origin TEXT NOT NULL DEFAULT ''");
+            Statement record(m_db, "INSERT INTO schema_migrations(version,applied_at) VALUES(3,?)");
             record.integer(1, nowMillis());
             record.step();
         }
@@ -221,7 +258,7 @@ void SqliteJobRepository::execute(const char* sql) { run(m_db, sql); }
 
 JobExecution SqliteJobRepository::getUnlocked(const std::string& jobId)
 {
-    Statement query(m_db, "SELECT job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size FROM job_executions WHERE job_id=?");
+    Statement query(m_db, "SELECT job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size,operator_username,origin FROM job_executions WHERE job_id=?");
     query.text(1, jobId);
     if (query.step() != SQLITE_ROW)
         throw JobError(JobErrorCode::not_found, "Job not found.");
@@ -238,13 +275,15 @@ std::pair<JobExecution, bool> SqliteJobRepository::create(const JobExecution& ex
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     Transaction transaction(m_db);
-    Statement insert(m_db, "INSERT INTO job_executions(job_id,operation,normalized_input,request_hash,state,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(job_id) DO NOTHING");
+    Statement insert(m_db, "INSERT INTO job_executions(job_id,operation,normalized_input,request_hash,state,created_at,operator_username,origin) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(job_id) DO NOTHING");
     insert.text(1, execution.jobId);
     insert.text(2, execution.operation);
     insert.text(3, execution.normalizedInput);
     insert.text(4, execution.requestHash);
     insert.text(5, "accepted");
     insert.integer(6, execution.createdAt);
+    insert.text(7, execution.operatorUsername);
+    insert.text(8, execution.origin);
     insert.step();
     const bool created = sqlite3_changes(m_db) == 1;
     if (created) addEvent(m_db, execution.jobId, "accepted");
@@ -258,7 +297,7 @@ std::pair<JobExecution, bool> SqliteJobRepository::create(const JobExecution& ex
 JobListPage SqliteJobRepository::list(std::int64_t afterCreatedAt, const std::string& afterJobId, std::size_t limit)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    Statement query(m_db, "SELECT job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size FROM job_executions WHERE (created_at>? OR (created_at=? AND job_id>?)) ORDER BY created_at,job_id LIMIT ?");
+    Statement query(m_db, "SELECT job_id,operation,normalized_input,request_hash,state,created_at,queued_at,completed_at,error_code,error_message,output_inline,output_size,operator_username,origin FROM job_executions WHERE (created_at>? OR (created_at=? AND job_id>?)) ORDER BY created_at,job_id LIMIT ?");
     query.integer(1, afterCreatedAt);
     query.integer(2, afterCreatedAt);
     query.text(3, afterJobId);
@@ -350,4 +389,104 @@ std::size_t SqliteJobRepository::recoverInFlight()
     }
     transaction.commit();
     return ids.size();
+}
+
+void SqliteJobRepository::syncSessions(const std::vector<teamserverapi::Session>& sessions)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Transaction transaction(m_db);
+    const auto observedAt = nowMillis();
+    std::vector<std::pair<std::string, std::string>> previouslyActive;
+    std::unordered_map<std::string, teamserverapi::Session> previousSnapshots;
+    {
+        Statement query(m_db, "SELECT beacon_hash,listener_hash,snapshot FROM session_history WHERE archived=0");
+        while (query.step() == SQLITE_ROW)
+        {
+            const auto beaconHash = columnString(query.get(), 0);
+            const auto listenerHash = columnString(query.get(), 1);
+            previouslyActive.emplace_back(beaconHash, listenerHash);
+            teamserverapi::Session old;
+            if (!old.ParseFromString(columnBlob(query.get(), 2)))
+                throw JobError(JobErrorCode::storage, "Stored session snapshot is invalid.");
+            previousSnapshots.emplace(beaconHash + "\n" + listenerHash, std::move(old));
+        }
+    }
+    std::unordered_set<std::string> currentKeys;
+    for (const auto& session : sessions)
+    {
+        if (session.beacon_hash().empty() || session.listener_hash().empty())
+            continue;
+        const auto key = session.beacon_hash() + "\n" + session.listener_hash();
+        currentKeys.insert(key);
+        teamserverapi::Session snapshot(session);
+        snapshot.set_archived(false);
+        snapshot.clear_archived_at_ms();
+        snapshot.clear_last_proof_of_life();
+        const auto previous = previousSnapshots.find(key);
+        if (previous != previousSnapshots.end())
+            snapshot.set_last_seen_at_ms(previous->second.last_seen_at_ms());
+        if (!session.last_proof_of_life().empty())
+        {
+            try
+            {
+                std::size_t consumed = 0;
+                const double ageSeconds = std::stod(session.last_proof_of_life(), &consumed);
+                if (consumed == session.last_proof_of_life().size() && std::isfinite(ageSeconds)
+                    && ageSeconds >= 0 && ageSeconds * 1000 <= static_cast<double>(observedAt))
+                {
+                    const auto candidate = observedAt - static_cast<std::int64_t>(ageSeconds * 1000);
+                    const auto previousTime = snapshot.last_seen_at_ms();
+                    if (previousTime == 0 || candidate < previousTime - 1000 || candidate > previousTime + 1000)
+                        snapshot.set_last_seen_at_ms(candidate);
+                }
+            }
+            catch (const std::exception&) {}
+        }
+        Statement upsert(m_db, "INSERT INTO session_history("
+            "beacon_hash,listener_hash,snapshot,archived,first_seen_at,observed_at,archived_at)"
+            " VALUES(?,?,?,0,?,?,NULL) ON CONFLICT(beacon_hash,listener_hash) DO UPDATE SET"
+            " snapshot=excluded.snapshot,archived=0,observed_at=excluded.observed_at,archived_at=NULL"
+            " WHERE session_history.snapshot<>excluded.snapshot OR session_history.archived<>0");
+        upsert.text(1, snapshot.beacon_hash());
+        upsert.text(2, snapshot.listener_hash());
+        upsert.blob(3, snapshot.SerializeAsString());
+        upsert.integer(4, observedAt);
+        upsert.integer(5, observedAt);
+        upsert.step();
+    }
+    for (const auto& [beaconHash, listenerHash] : previouslyActive)
+    {
+        if (currentKeys.count(beaconHash + "\n" + listenerHash))
+            continue;
+        Statement archive(m_db, "UPDATE session_history SET archived=1,archived_at=?"
+            " WHERE beacon_hash=? AND listener_hash=? AND archived=0");
+        archive.integer(1, observedAt);
+        archive.text(2, beaconHash);
+        archive.text(3, listenerHash);
+        archive.step();
+    }
+    transaction.commit();
+}
+
+std::vector<teamserverapi::Session> SqliteJobRepository::listSessions()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Statement query(m_db, "SELECT snapshot,archived,archived_at FROM session_history"
+        " ORDER BY archived ASC,archived_at DESC,first_seen_at DESC,beacon_hash,listener_hash");
+    std::vector<teamserverapi::Session> result;
+    while (query.step() == SQLITE_ROW)
+    {
+        teamserverapi::Session session;
+        const auto snapshot = columnBlob(query.get(), 0);
+        if (!session.ParseFromString(snapshot))
+            throw JobError(JobErrorCode::storage, "Stored session snapshot is invalid.");
+        session.set_archived(sqlite3_column_int64(query.get(), 1) != 0);
+        if (session.archived())
+            session.set_archived_at_ms(sqlite3_column_int64(query.get(), 2));
+        else if (session.last_seen_at_ms() > 0)
+            session.set_last_proof_of_life(std::to_string(
+                std::max<std::int64_t>(0, nowMillis() - session.last_seen_at_ms()) / 1000.0));
+        result.push_back(std::move(session));
+    }
+    return result;
 }

@@ -1,11 +1,17 @@
 #include <cassert>
 #include <filesystem>
 #include <fstream>
+#include <atomic>
+#include <chrono>
 #include <memory>
+#include <shared_mutex>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 #include "TeamServerArtifactCatalog.hpp"
+#include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerTermLocalService.hpp"
 
 namespace fs = std::filesystem;
@@ -38,8 +44,8 @@ private:
 class TestListener final : public Listener
 {
 public:
-    explicit TestListener(const std::string& hash)
-        : Listener("127.0.0.1", "8443", ListenerHttpsType)
+    explicit TestListener(const std::string& hash, const std::string& type = ListenerHttpsType)
+        : Listener("127.0.0.1", "8443", type)
     {
         m_listenerHash = hash;
     }
@@ -132,11 +138,12 @@ void testUploadCommands()
     fs::create_directories(downloadDir);
 
     nlohmann::json config = {
-        {"ListenerHttpsConfig", {{"downloadFolder", downloadDir.string()}}}};
+        {"ListenerHttpsConfig", {{"downloadFolder", downloadDir.string()}, {"uriFileDownload", "/downloads/"}}}};
     std::vector<std::shared_ptr<Listener>> listeners;
     listeners.push_back(std::make_shared<TestListener>("listener-primary"));
     nlohmann::json credentials = nlohmann::json::array();
     std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerListenerArtifactService listenerService(makeLogger(), config, runtimeConfig, listeners);
 
     TeamServerTermLocalService service(
         makeLogger(),
@@ -144,7 +151,8 @@ void testUploadCommands()
         runtimeConfig,
         listeners,
         credentials,
-        modules);
+        modules,
+        {}, {}, nullptr, &listenerService);
 
     teamserverapi::TerminalCommandRequest uploadCommand;
     uploadCommand.set_command("putIntoUploadDir listener-pri hello.bin");
@@ -162,6 +170,25 @@ void testUploadCommands()
     assert(response.result() == "Error: filename not allowed.");
     assert(response.message() == "Error: filename not allowed.");
 
+    listeners.push_back(std::make_shared<TestListener>("listener-primary-other"));
+    assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "listener-pri", "ambiguous.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener reference is ambiguous.");
+    assert(!fs::exists(downloadDir / "ambiguous.bin"));
+
+    assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "primary", "substring.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener not found.");
+
+    assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "listener-primary", "exact.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(readFile(downloadDir / "exact.bin") == "PAYLOAD");
+
+    fs::create_directories(downloadDir / "blocked.bin");
+    assert(service.handleCommand("putIntoUploadDir", {"putIntoUploadDir", "listener-primary", "blocked.bin"}, uploadCommand, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(fs::is_directory(downloadDir / "blocked.bin"));
+
     teamserverapi::TerminalCommandRequest batcaveCommand;
     batcaveCommand.set_command("batcaveUpload tool.bin");
     batcaveCommand.set_data("TOOL");
@@ -170,6 +197,73 @@ void testUploadCommands()
     assert(response.result() == "ok");
     assert(response.message().empty());
     assert(readFile(fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any" / "tool.bin") == "TOOL");
+}
+
+void testBatcaveBundleIsAllOrNothing()
+{
+    ScopedPath tempRoot(makeTempDirectory("batcave-bundle"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    nlohmann::json config = nlohmann::json::object();
+    std::vector<std::shared_ptr<Listener>> listeners;
+    nlohmann::json credentials = nlohmann::json::array();
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerTermLocalService service(makeLogger(), config, runtimeConfig, listeners, credentials, modules);
+
+    const fs::path tools = fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any";
+    writeFile(tools / "first.bin", "OLD");
+    fs::create_directories(tools / "blocked.bin");
+
+    teamserverapi::TerminalCommandRequest command;
+    command.set_command("batcaveUploadBundle");
+    command.set_data(std::string("[[\"first.bin\",3],[\"blocked.bin\",6]]\n") + "NEW" + "SECOND");
+    teamserverapi::TerminalCommandResponse response;
+    assert(service.handleCommand("batcaveUploadBundle", {"batcaveUploadBundle"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(readFile(tools / "first.bin") == "OLD");
+    assert(fs::is_directory(tools / "blocked.bin"));
+
+    command.set_data(std::string("[[\"first.bin\",3],[\"second.bin\",6]]\n") + "NEW" + "SECOND");
+    assert(service.handleCommand("batcaveUploadBundle", {"batcaveUploadBundle"}, command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(readFile(tools / "first.bin") == "NEW");
+    assert(readFile(tools / "second.bin") == "SECOND");
+
+    command.set_data("[[\"first.bin\",99]]\nSHORT");
+    assert(service.handleCommand("batcaveUploadBundle", {"batcaveUploadBundle"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(readFile(tools / "first.bin") == "NEW");
+}
+
+void testBatcaveBundleRecoveryAfterRestart()
+{
+    ScopedPath tempRoot(makeTempDirectory("batcave-recovery"));
+    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
+    const fs::path tools = fs::path(runtimeConfig.toolsDirectoryPath) / "Any" / "any";
+    const fs::path staging = fs::path(runtimeConfig.toolsDirectoryPath) / ".batcave-staging";
+
+    const fs::path interrupted = staging / ".bundle.c2tmp-interrupted";
+    writeFile(tools / "old.bin", "NEW");
+    writeFile(tools / "new.bin", "NEWFILE");
+    writeFile(interrupted / "backups" / "old.bin", "ORIGINAL");
+    writeFile(interrupted / "recovery.json", "[[\"old.bin\",true],[\"new.bin\",false]]");
+
+    const fs::path committed = staging / ".bundle.c2tmp-committed";
+    writeFile(tools / "done.bin", "COMMITTED");
+    writeFile(committed / "backups" / "done.bin", "PREVIOUS");
+    writeFile(committed / "recovery.json", "[[\"done.bin\",true]]");
+    writeFile(committed / "committed", "");
+
+    nlohmann::json config = nlohmann::json::object();
+    std::vector<std::shared_ptr<Listener>> listeners;
+    nlohmann::json credentials = nlohmann::json::array();
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerTermLocalService service(makeLogger(), config, runtimeConfig, listeners, credentials, modules);
+
+    assert(readFile(tools / "old.bin") == "ORIGINAL");
+    assert(!fs::exists(tools / "new.bin"));
+    assert(!fs::exists(interrupted));
+    assert(readFile(tools / "done.bin") == "COMMITTED");
+    assert(!fs::exists(committed));
 }
 
 void testHostArtifactCommand()
@@ -188,11 +282,13 @@ void testHostArtifactCommand()
     assert(artifacts.size() == 1);
 
     nlohmann::json config = {
-        {"ListenerHttpsConfig", {{"downloadFolder", downloadDir.string()}}}};
+        {"DomainName", "team.example"},
+        {"ListenerHttpsConfig", {{"downloadFolder", downloadDir.string()}, {"uriFileDownload", "/downloads/"}}}};
     std::vector<std::shared_ptr<Listener>> listeners;
     listeners.push_back(std::make_shared<TestListener>("listener-primary"));
     nlohmann::json credentials = nlohmann::json::array();
     std::vector<std::unique_ptr<ModuleCmd>> modules;
+    TeamServerListenerArtifactService listenerService(makeLogger(), config, runtimeConfig, listeners);
 
     TeamServerTermLocalService service(
         makeLogger(),
@@ -200,26 +296,33 @@ void testHostArtifactCommand()
         runtimeConfig,
         listeners,
         credentials,
-        modules);
+        modules,
+        {}, {}, nullptr, &listenerService);
 
     teamserverapi::TerminalCommandRequest command;
     command.set_command("hostArtifact listener-pri " + artifacts[0].artifactId);
     teamserverapi::TerminalCommandResponse response;
     assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", artifacts[0].artifactId}, command, &response).ok());
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "operator_payload.bin");
+    assert(response.result() == "https://team.example:8443/downloads/operator_payload.bin");
     assert(response.message().empty());
     assert(readFile(downloadDir / "operator_payload.bin") == "PAYLOAD");
 
     command.set_command("hostArtifact listener-pri " + artifacts[0].artifactId + " hosted.bin");
     assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", artifacts[0].artifactId, "hosted.bin"}, command, &response).ok());
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "hosted.bin");
+    assert(response.result() == "https://team.example:8443/downloads/hosted.bin");
     assert(readFile(downloadDir / "hosted.bin") == "PAYLOAD");
 
     assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", "missing"}, command, &response).ok());
     assert(response.status() == teamserverapi::KO);
     assert(response.result() == "Error: artifact not found.");
+
+    config["ListenerHttpsConfig"].erase("uriFileDownload");
+    assert(service.handleCommand("hostArtifact", {"hostArtifact", "listener-pri", artifacts[0].artifactId, "no-url.bin"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(response.result() == "Error: Listener has no public download URL configured.");
+    assert(!fs::exists(downloadDir / "no-url.bin"));
 }
 
 void testCredentialCommands()
@@ -271,6 +374,8 @@ void testReloadModulesUsesInjectedLoader()
     nlohmann::json credentials = nlohmann::json::array();
     std::vector<std::unique_ptr<ModuleCmd>> modules;
     modules.push_back(std::make_unique<FakeModule>("OldModule"));
+    int reloadMode = 0;
+    std::shared_mutex moduleMutex;
 
     TeamServerTermLocalService service(
         makeLogger(),
@@ -279,12 +384,16 @@ void testReloadModulesUsesInjectedLoader()
         listeners,
         credentials,
         modules,
-        []()
+        [&reloadMode]()
         {
+            if (reloadMode == 1)
+                return std::vector<std::unique_ptr<ModuleCmd>>{};
+            if (reloadMode == 2)
+                throw std::runtime_error("loader failure");
             std::vector<std::unique_ptr<ModuleCmd>> loaded;
             loaded.push_back(std::make_unique<FakeModule>("ReloadedModule"));
             return loaded;
-        });
+        }, {}, nullptr, nullptr, &moduleMutex);
 
     teamserverapi::TerminalCommandRequest command;
     command.set_command("reloadModules");
@@ -294,12 +403,42 @@ void testReloadModulesUsesInjectedLoader()
     assert(modules.size() == 1);
     assert(modules.front()->getName() == "ReloadedModule");
     assert(response.result().empty());
+
+    reloadMode = 1;
+    assert(service.handleCommand("reloadModules", {"reloadModules"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(modules.size() == 1);
+    assert(modules.front()->getName() == "ReloadedModule");
+
+    reloadMode = 2;
+    assert(service.handleCommand("reloadModules", {"reloadModules"}, command, &response).ok());
+    assert(response.status() == teamserverapi::KO);
+    assert(modules.size() == 1);
+    assert(modules.front()->getName() == "ReloadedModule");
+
+    reloadMode = 0;
+    std::atomic<bool> completed{false};
+    teamserverapi::TerminalCommandResponse concurrentResponse;
+    std::shared_lock<std::shared_mutex> reader(moduleMutex);
+    std::thread reloadThread([&]()
+    {
+        service.handleCommand("reloadModules", {"reloadModules"}, command, &concurrentResponse);
+        completed.store(true);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    assert(!completed.load());
+    reader.unlock();
+    reloadThread.join();
+    assert(completed.load());
+    assert(concurrentResponse.status() == teamserverapi::OK);
 }
 } // namespace
 
 int main()
 {
     testUploadCommands();
+    testBatcaveBundleIsAllOrNothing();
+    testBatcaveBundleRecoveryAfterRestart();
     testHostArtifactCommand();
     testCredentialCommands();
     testReloadModulesUsesInjectedLoader();

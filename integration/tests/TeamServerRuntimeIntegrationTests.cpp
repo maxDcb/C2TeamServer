@@ -284,6 +284,33 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
 
     assert(sessionsStatus.ok());
     assert(streamedSessions.empty());
+
+    grpc::ClientContext historyContext;
+    historyContext.AddMetadata("authorization", "Bearer " + token);
+    historyContext.AddMetadata("clientid", "integration-test");
+    std::unique_ptr<grpc::ClientReader<teamserverapi::Session>> history = stub->ListSessionHistory(&historyContext, empty);
+    assert(!history->Read(&session));
+    assert(history->Finish().ok());
+
+    grpc::ClientContext submitContext;
+    submitContext.AddMetadata("authorization", "Bearer " + token);
+    teamserverapi::SubmitJobRequest submitRequest;
+    submitRequest.set_job_id("hook-integration-1");
+    submitRequest.set_operation("echo");
+    submitRequest.set_input("audit-check");
+    submitRequest.set_origin("hook:integration:OnStart:invocation-1");
+    teamserverapi::JobExecutionRecord submitted;
+    assert(stub->SubmitJob(&submitContext, submitRequest, &submitted).ok());
+    assert(submitted.operator_username() == "admin");
+    assert(submitted.origin() == submitRequest.origin());
+
+    grpc::ClientContext getContext;
+    getContext.AddMetadata("authorization", "Bearer " + token);
+    teamserverapi::GetJobExecutionRequest getRequest;
+    getRequest.set_job_id(submitRequest.job_id());
+    teamserverapi::JobExecutionRecord stored;
+    assert(stub->GetJobExecution(&getContext, getRequest, &stored).ok());
+    assert(stored.operator_username() == "admin" && stored.origin() == submitRequest.origin());
 }
 } // namespace
 

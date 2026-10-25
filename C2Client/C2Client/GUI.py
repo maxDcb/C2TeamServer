@@ -208,6 +208,7 @@ class App(QMainWindow):
             )
 
         self.consoleWidget.script.mainScriptMethod("start", "", "", "")
+        self._hookAuthGeneration = getattr(self.grpcClient, "auth_generation", None)
 
     def setupStatusBar(self) -> None:
         """Initialise the persistent connection and RPC status widgets."""
@@ -252,6 +253,11 @@ class App(QMainWindow):
         else:
             self._lastRpcError = ""
             clear_status(self.errorStatusLabel, DEFAULT_LAST_ERROR_TEXT)
+            generation = getattr(self.grpcClient, "auth_generation", None)
+            if (hasattr(self, "_hookAuthGeneration") and generation is not None
+                    and generation != self._hookAuthGeneration):
+                self._hookAuthGeneration = generation
+                self.consoleWidget.script.mainScriptMethod("start", "", "", "")
 
     @staticmethod
     def compactStatusMessage(message: str, limit: int = 160) -> str:
@@ -292,12 +298,9 @@ class App(QMainWindow):
         self.mainLayout.addWidget(self.consoleWidget, 1, 0, 1, 1)
 
 
-    def __del__(self) -> None:
-        """Ensure scripts are stopped when the window is destroyed."""
-        if hasattr(self, 'consoleWidget'):
-            self.consoleWidget.script.mainScriptMethod("stop", "", "", "")
-
     def closeEvent(self, event) -> None:
+        if hasattr(self, "consoleWidget") and hasattr(self.consoleWidget.script, "closeHooks"):
+            self.consoleWidget.script.closeHooks()
         if hasattr(self, "consoleWidget") and hasattr(self.consoleWidget, "shutdown"):
             self.consoleWidget.shutdown()
         self.command_result_hub.shutdown()

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <shared_mutex>
 #include <vector>
@@ -16,6 +17,7 @@
 #include "spdlog/logger.h"
 
 class TeamServerCredentialVaultService;
+class TeamServerListenerArtifactService;
 
 class TeamServerTermLocalService
 {
@@ -31,7 +33,9 @@ public:
         std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
         ModuleLoader moduleLoader = {},
         std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService = {},
-        std::shared_mutex* listenersMutex = nullptr);
+        std::shared_mutex* listenersMutex = nullptr,
+        TeamServerListenerArtifactService* listenerArtifactService = nullptr,
+        std::shared_mutex* moduleCmdMutex = nullptr);
 
     bool canHandle(const std::string& instruction) const;
     grpc::Status handleCommand(
@@ -42,8 +46,10 @@ public:
 
 private:
     std::vector<std::unique_ptr<ModuleCmd>> loadModulesFromDisk() const;
+    void recoverBatcaveBundles();
     bool isValidFilename(const std::string& filename) const;
-    std::string resolveDownloadFolderForListener(const std::string& listenerHash) const;
+    std::string resolveDownloadFolderForListener(
+        const std::string& listenerHash, std::shared_ptr<Listener>& listener, std::string& error) const;
     grpc::Status handleHostArtifact(
         const std::vector<std::string>& splitedCmd,
         teamserverapi::TerminalCommandResponse* response);
@@ -52,6 +58,10 @@ private:
         const teamserverapi::TerminalCommandRequest& command,
         teamserverapi::TerminalCommandResponse* response);
     grpc::Status handleBatcaveUpload(
+        const std::vector<std::string>& splitedCmd,
+        const teamserverapi::TerminalCommandRequest& command,
+        teamserverapi::TerminalCommandResponse* response);
+    grpc::Status handleBatcaveUploadBundle(
         const std::vector<std::string>& splitedCmd,
         const teamserverapi::TerminalCommandRequest& command,
         teamserverapi::TerminalCommandResponse* response);
@@ -75,4 +85,8 @@ private:
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     std::shared_ptr<TeamServerCredentialVaultService> m_credentialVaultService;
     ModuleLoader m_moduleLoader;
+    TeamServerListenerArtifactService* m_listenerArtifactService;
+    mutable std::shared_mutex m_localModuleCmdMutex;
+    std::shared_mutex* m_moduleCmdMutex;
+    std::mutex m_uploadMutex;
 };

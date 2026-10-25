@@ -85,6 +85,8 @@ void copyJob(const JobExecution& job, teamserverapi::JobExecutionRecord* respons
     response->set_error_message(job.errorMessage);
     response->set_output_inline(job.outputInline);
     response->set_output_size(job.outputSize);
+    response->set_operator_username(job.operatorUsername);
+    response->set_origin(job.origin);
 }
 
 grpc::Status jobStatus(const JobError& error)
@@ -154,6 +156,7 @@ TeamServer::TeamServer(const nlohmann::json& config)
         { return this->prepMsg(input, c2Message, isWindows, windowsArch); },
         &m_listenersMutex);
     m_jobRepository = std::make_shared<SqliteJobRepository>(runtimeConfig.jobDatabasePath);
+    m_jobRepository->syncSessions({});
     const std::size_t recovered = m_jobRepository->recoverInFlight();
     if (recovered)
         m_logger->warn("Marked {} unfinished jobs as outcome_unknown after restart", recovered);
@@ -253,7 +256,9 @@ TeamServer::TeamServer(const nlohmann::json& config)
         [this]()
         { return m_moduleLoader->loadModules(); },
         m_credentialVaultService,
-        &m_listenersMutex);
+        &m_listenersMutex,
+        m_listenerArtifactService.get(),
+        &m_moduleCmdMutex);
 
     m_moduleCmd = m_moduleLoader->loadModules();
 
@@ -331,6 +336,21 @@ grpc::Status TeamServer::ListSessions(grpc::ServerContext* context, const teamse
         return authStatus;
     return m_listenerSessionService->streamSessions([&](const teamserverapi::Session& session)
         { return writer->Write(session); });
+}
+
+grpc::Status TeamServer::ListSessionHistory(grpc::ServerContext* context, const teamserverapi::Empty* empty, grpc::ServerWriter<teamserverapi::Session>* writer)
+{
+    (void)empty;
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok()) return authStatus;
+    try
+    {
+        syncSessionHistory();
+        for (const auto& session : m_jobRepository->listSessions())
+            if (!writer->Write(session)) break;
+    }
+    catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
 }
 
 grpc::Status TeamServer::StopSession(grpc::ServerContext* context, const teamserverapi::SessionSelector* sessionToStop, teamserverapi::OperationAck* response)
@@ -435,10 +455,12 @@ grpc::Status TeamServer::ListModules(grpc::ServerContext* context, const teamser
 
 grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response)
 {
-    auto authStatus = ensureAuthenticated(context);
+    std::string operatorUsername;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &operatorUsername);
     if (!authStatus.ok())
         return authStatus;
-    try { copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input()), response); }
+    try { copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input(),
+        operatorUsername, request->origin()), response); }
     catch (const JobError& error) { return jobStatus(error); }
     return grpc::Status::OK;
 }
@@ -449,7 +471,11 @@ int TeamServer::handleCmdResponse()
     {
         try
         {
-            m_listenerSessionService->handleCmdResponse();
+            {
+                std::shared_lock<std::shared_mutex> lock(m_moduleCmdMutex);
+                m_listenerSessionService->handleCmdResponse();
+            }
+            syncSessionHistory();
         }
         catch (const std::exception& ex)
         {
@@ -463,6 +489,17 @@ int TeamServer::handleCmdResponse()
         }
     }
     return 0;
+}
+
+void TeamServer::syncSessionHistory()
+{
+    std::vector<teamserverapi::Session> live;
+    m_listenerSessionService->streamSessions([&](const teamserverapi::Session& session)
+    {
+        live.push_back(session);
+        return true;
+    });
+    m_jobRepository->syncSessions(live);
 }
 
 grpc::Status TeamServer::GetJobExecution(grpc::ServerContext* context, const teamserverapi::GetJobExecutionRequest* request, teamserverapi::JobExecutionRecord* response)
@@ -529,6 +566,7 @@ grpc::Status TeamServer::GetCommandHelp(grpc::ServerContext* context, const team
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
+    std::shared_lock<std::shared_mutex> lock(m_moduleCmdMutex);
     return m_helpService->getHelp(*command, commandResponse);
 }
 
@@ -628,5 +666,6 @@ grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, co
 
 int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)
 {
+    std::shared_lock<std::shared_mutex> lock(m_moduleCmdMutex);
     return m_commandPreparationService->prepareMessage(input, c2Message, isWindows, windowsArch);
 }

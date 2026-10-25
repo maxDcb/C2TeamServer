@@ -154,6 +154,26 @@ def test_app_close_shuts_down_command_result_collection(qtbot, monkeypatch):
     assert stopped == [True]
 
 
+def test_hooks_start_once_per_reauthentication_and_stop_on_close(qtbot, monkeypatch):
+    client = SimpleNamespace(auth_generation=1)
+    monkeypatch.setattr(GUI, 'GrpcClient', lambda *args, **kwargs: client)
+    monkeypatch.setattr(GUI, 'Sessions', DummyWidget)
+    monkeypatch.setattr(GUI, 'Listeners', DummyWidget)
+    monkeypatch.setattr(GUI, 'Graph', DummyWidget)
+    monkeypatch.setattr(GUI, 'ConsolesTab', DummyConsole)
+    calls = []
+    monkeypatch.setattr(DummyScript, 'closeHooks', lambda self: calls.append('stop'), raising=False)
+    app = GUI.App('127.0.0.1', 50051, False)
+    qtbot.addWidget(app)
+    app.consoleWidget.script.mainScriptMethod = lambda action, *_args: calls.append(action)
+    client.auth_generation = 2
+    app.updateRpcStatus('Authenticate', True, '')
+    app.updateRpcStatus('ListSessions', True, '')
+    assert calls == ['start']
+    app.close()
+    assert calls == ['start', 'stop']
+
+
 def test_parse_client_args_uses_env_defaults(monkeypatch):
     monkeypatch.setenv("C2_IP", "10.10.10.5")
     monkeypatch.setenv("C2_PORT", "5443")

@@ -46,21 +46,83 @@ void testCreateIdempotenceAndReopen()
     {
         auto repository = std::make_shared<SqliteJobRepository>(temp.path());
         JobApplicationService application(repository, 65536, {});
-        auto first = application.submit("echo-1", "echo", std::string("a\0b\xff", 4));
+        auto first = application.submit("echo-1", "echo", std::string("a\0b\xff", 4),
+            "operator-one", "hook:sample:invocation-one");
         require(first.state == "succeeded", "Echo must succeed");
         require(first.outputInline == std::string("a\0b\xff", 4), "BLOB bytes changed");
         require(first.outputSize == 4, "BLOB size changed");
+        require(first.operatorUsername == "operator-one" && first.origin == "hook:sample:invocation-one",
+            "Job attribution was not persisted");
         auto repeated = application.submit("echo-1", "echo", std::string("a\0b\xff", 4));
         require(repeated.outputInline == first.outputInline, "Idempotent result changed");
         require(application.events(0, {}, 10).size() == 3, "Duplicate submission added events");
         expectError([&] { application.submit("echo-1", "echo", "different"); }, JobErrorCode::conflict);
+        expectError([&] { application.submit("invalid-origin", "echo", "x", "operator", "hook:secret\nvalue"); },
+            JobErrorCode::invalid_argument);
         expectError([&] { application.submit("bad", "does-not-exist", "x"); }, JobErrorCode::invalid_argument);
     }
     {
         auto repository = std::make_shared<SqliteJobRepository>(temp.path());
         require(repository->get("echo-1").outputInline == std::string("a\0b\xff", 4), "Reopen lost output");
+        require(repository->get("echo-1").origin == "hook:sample:invocation-one", "Reopen lost origin");
         require(repository->recoverInFlight() == 0, "Completed job recovered");
     }
+}
+
+void testSessionHistorySurvivesRetirementAndRestart()
+{
+    TempDb temp;
+    teamserverapi::Session session;
+    session.set_beacon_hash("beacon-one");
+    session.set_listener_hash("listener-one");
+    session.set_hostname("host-one");
+    session.set_last_proof_of_life("2.0");
+    session.set_state(teamserverapi::SESSION_STATE_STOPPED);
+    session.set_killed(true);
+    {
+        SqliteJobRepository repository(temp.path());
+        repository.syncSessions({session});
+        const auto active = repository.listSessions();
+        require(active.size() == 1 && !active.front().archived(), "Live session was not stored");
+        require(active.front().last_seen_at_ms() > 0, "Last contact timestamp was not recorded");
+        repository.syncSessions({});
+        const auto archived = repository.listSessions();
+        require(archived.size() == 1 && archived.front().archived(), "Retired session vanished");
+        require(archived.front().archived_at_ms() > 0, "Retirement timestamp was not recorded");
+    }
+    {
+        SqliteJobRepository repository(temp.path());
+        const auto archived = repository.listSessions();
+        require(archived.size() == 1 && archived.front().archived(), "Restart lost session history");
+        require(archived.front().state() == teamserverapi::SESSION_STATE_STOPPED,
+            "Restart lost the confirmed stop state");
+        session.set_state(teamserverapi::SESSION_STATE_RUNNING);
+        session.set_killed(false);
+        repository.syncSessions({session});
+        require(!repository.listSessions().front().archived(), "Returning route was not reactivated");
+    }
+}
+
+void testExistingJobDatabaseGainsSessionHistory()
+{
+    TempDb temp;
+    {
+        auto repository = std::make_shared<SqliteJobRepository>(temp.path());
+        JobApplicationService application(repository, 65536, {});
+        application.submit("legacy-job", "echo", "saved");
+    }
+    sqlite3* db = nullptr;
+    require(sqlite3_open_v2(temp.path().c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) == SQLITE_OK,
+        "Open legacy SQLite failed");
+    char* error = nullptr;
+    require(sqlite3_exec(db,
+        "DROP TABLE session_history;"
+        "DELETE FROM schema_migrations WHERE version>=2;",
+        nullptr, nullptr, &error) == SQLITE_OK, "Simulate version 1 schema failed");
+    sqlite3_close_v2(db);
+    SqliteJobRepository upgraded(temp.path());
+    require(upgraded.get("legacy-job").outputInline == "saved", "Migration lost existing jobs");
+    require(upgraded.listSessions().empty(), "Migration did not create an empty session archive");
 }
 
 void testTransitionsAndCursor()
@@ -170,7 +232,7 @@ void testAtomicityAndStartupFailures()
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) == SQLITE_OK, "Open future SQLite failed");
     require(sqlite3_exec(futureDb,
         "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);"
-        "INSERT INTO schema_migrations(version,applied_at) VALUES(2,1);",
+        "INSERT INTO schema_migrations(version,applied_at) VALUES(4,1);",
         nullptr, nullptr, &error) == SQLITE_OK, "Create future schema failed");
     sqlite3_close_v2(futureDb);
     expectError([&] { SqliteJobRepository invalid(future.string()); }, JobErrorCode::storage);
@@ -182,6 +244,8 @@ int main()
     try
     {
         testCreateIdempotenceAndReopen();
+        testSessionHistorySurvivesRetirementAndRestart();
+        testExistingJobDatabaseGainsSessionHistory();
         testTransitionsAndCursor();
         testOutputLimitAndConcurrency();
         testAtomicityAndStartupFailures();

@@ -28,6 +28,32 @@ class FakeRpcError(grpc.RpcError):
         return self._code.name
 
 
+def test_session_history_uses_separate_rpc_from_active_sessions():
+    client = object.__new__(GrpcClient)
+    active = TeamServerApi_pb2.Session(beacon_hash="active", archived=False)
+    archived = TeamServerApi_pb2.Session(beacon_hash="old", archived=True)
+    client.metadata = []
+    client.stub = mock.MagicMock()
+    client.stub.ListSessions.return_value = iter((active,))
+    client.stub.ListSessionHistory.return_value = iter((active, archived))
+    client._stream_rpc = lambda operation, call: call()
+    assert list(client.listSessions()) == [active]
+    assert list(client.listSessionHistory()) == [active, archived]
+    assert client.stub.ListSessions.call_count == 1
+    assert client.stub.ListSessionHistory.call_count == 1
+
+
+def test_session_history_falls_back_to_active_list_on_old_server():
+    client = object.__new__(GrpcClient)
+    client.metadata = []
+    client.stub = mock.MagicMock()
+    active = TeamServerApi_pb2.Session(beacon_hash="active")
+    client.stub.ListSessionHistory.side_effect = FakeRpcError(grpc.StatusCode.UNIMPLEMENTED)
+    client.stub.ListSessions.return_value = iter((active,))
+    client._stream_rpc = lambda operation, call: call()
+    assert list(client.listSessionHistory()) == [active]
+
+
 def test_grpc_client_reads_certificate_and_sets_metadata(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")
@@ -237,8 +263,9 @@ def test_v2_job_submit_get_and_cursor(tmp_path, monkeypatch):
     monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
     client = GrpcClient("127.0.0.1", 50051, False, token="tok")
 
-    assert client.submitJob("id-1", "echo", "hello") is expected
+    assert client.submitJob("id-1", "echo", "hello", origin="hook:demo:invocation") is expected
     assert stub.SubmitJob.call_args.args[0].job_id == "id-1"
+    assert stub.SubmitJob.call_args.args[0].origin == "hook:demo:invocation"
     assert client.getJobExecution("id-1") is expected
     assert [event.event_id for event in client.subscribeJobEvents(8)] == [9]
     assert stub.SubscribeJobEvents.call_args.args[0].after_event_id == 8

@@ -183,7 +183,7 @@ grpc::Status TeamServerAuthManager::authenticate(const teamserverapi::AuthReques
     std::string token = generateToken();
     {
         std::lock_guard<std::mutex> lock(m_authMutex);
-        m_activeTokens[token] = std::chrono::steady_clock::now() + m_tokenValidityDuration;
+        m_activeTokens[token] = {std::chrono::steady_clock::now() + m_tokenValidityDuration, username};
     }
 
     response.set_status(teamserverapi::OK);
@@ -194,7 +194,8 @@ grpc::Status TeamServerAuthManager::authenticate(const teamserverapi::AuthReques
     return grpc::Status::OK;
 }
 
-grpc::Status TeamServerAuthManager::ensureAuthenticated(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata)
+grpc::Status TeamServerAuthManager::ensureAuthenticated(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
+    std::string* authenticatedUsername)
 {
     if (m_userPasswordHashes.empty())
         return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Authentication is not configured");
@@ -226,14 +227,16 @@ grpc::Status TeamServerAuthManager::ensureAuthenticated(const std::multimap<grpc
         return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Invalid token");
     }
 
-    if (now >= tokenIt->second)
+    if (now >= tokenIt->second.expiresAt)
     {
         m_logger->warn("gRPC request rejected: expired token presented");
         m_activeTokens.erase(tokenIt);
         return grpc::Status(grpc::StatusCode::UNAUTHENTICATED, "Token expired");
     }
 
-    tokenIt->second = now + m_tokenValidityDuration;
+    tokenIt->second.expiresAt = now + m_tokenValidityDuration;
+    if (authenticatedUsername)
+        *authenticatedUsername = tokenIt->second.username;
     return grpc::Status::OK;
 }
 
@@ -324,7 +327,7 @@ void TeamServerAuthManager::cleanupExpiredTokens()
     std::lock_guard<std::mutex> lock(m_authMutex);
     for (auto it = m_activeTokens.begin(); it != m_activeTokens.end();)
     {
-        if (now >= it->second)
+        if (now >= it->second.expiresAt)
         {
             it = m_activeTokens.erase(it);
         }

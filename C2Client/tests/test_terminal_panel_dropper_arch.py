@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from threading import Event
+import json
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget
@@ -14,6 +15,7 @@ import C2Client.TerminalPanel as terminal_panel
 class FakeGrpc:
     def __init__(self):
         self.commands = []
+        self.requests = []
 
     def listArtifacts(self, query=None):
         return iter([
@@ -43,14 +45,17 @@ class FakeGrpc:
 
     def executeTerminalCommand(self, command):
         self.commands.append(command.command)
+        self.requests.append(command)
         if command.command.startswith(terminal_panel.GrpcInfoListenerInstruction):
             return SimpleNamespace(result="http\n127.0.0.1\n8080\n/uploads/\n", data=b"")
         if command.command.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
             return SimpleNamespace(result="ok", data=b"beacon")
         if command.command.startswith(terminal_panel.GrpcHostArtifactInstruction):
-            return SimpleNamespace(result="hosted.bin", data=b"")
+            return SimpleNamespace(result="http://127.0.0.1:8080/uploads/hosted.bin", data=b"")
         if command.command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
             return SimpleNamespace(result="ok", data=b"")
+        if command.command == terminal_panel.GrpcBatcaveUploadBundleInstruction:
+            return SimpleNamespace(result="Batcave bundle installed (2 tools).", data=b"")
         return SimpleNamespace(result="Error: unexpected command", data=b"")
 
 
@@ -254,7 +259,7 @@ def test_terminal_host_uses_artifact_reference(qtbot):
 
     terminal.runHost("host artifact-123 listener-pri", ["host", "artifact-123", "listener-pri"])
 
-    assert "infoListener listener-pri" in grpc.commands
+    assert "infoListener listener-pri" not in grpc.commands
     assert "hostArtifact listener-pri artifact-123" in grpc.commands
     output = terminal.editorOutput.toPlainText()
     assert "http://127.0.0.1:8080/uploads/hosted.bin" in output
@@ -273,6 +278,114 @@ def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
     )
 
     assert "hostArtifact listener-pri artifact-123" in grpc.commands
+
+
+def test_terminal_response_error_uses_rpc_status_only():
+    ok = SimpleNamespace(status=terminal_panel.TeamServerApi_pb2.OK, result="Error is a word in this artifact")
+    ko = SimpleNamespace(status=terminal_panel.TeamServerApi_pb2.KO, result="Done")
+    assert not terminal_panel.isTerminalResponseError(ok)
+    assert terminal_panel.isTerminalResponseError(ko)
+
+
+def test_terminal_command_parser_and_host_preserve_quoted_argument(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setattr(terminal_panel, "HistoryFileName", str(tmp_path / "history"))
+    monkeypatch.setattr(terminal_panel, "logsDir", str(tmp_path))
+    assert terminal_panel.splitTerminalCommand("host 'artifact with spaces' listener") == [
+        "host", "artifact with spaces", "listener",
+    ]
+    parent = QWidget()
+    grpc = FakeGrpc()
+    terminal = terminal_panel.Terminal(parent, grpc)
+    qtbot.addWidget(parent)
+    terminal.commandEditor.setText("host 'artifact with spaces' listener")
+    terminal.runCommand()
+    qtbot.waitUntil(lambda: terminal._terminalWorker is None, timeout=3000)
+    assert "hostArtifact listener 'artifact with spaces'" in grpc.commands
+
+
+def test_dropper_worker_preserves_quoted_additional_argument():
+    worker = terminal_panel.DropperWorker(
+        FakeGrpc(), "dropper module dl beacon 'value with spaces'", "module", "dl", "beacon",
+        "'value with spaces' --flag", terminal_panel.ShellcodeGeneratorDonut,
+    )
+    assert worker.additionalArgs == ["value with spaces", "--flag"]
+
+
+def test_terminal_history_and_audit_redact_sensitive_values(qtbot, tmp_path, monkeypatch):
+    history_path = tmp_path / "history"
+    history_path.write_text("help --token old-secret\n")
+    monkeypatch.setattr(terminal_panel, "HistoryFileName", str(history_path))
+    monkeypatch.setattr(terminal_panel, "logsDir", str(tmp_path))
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, FakeGrpc())
+    qtbot.addWidget(parent)
+    assert "old-secret" not in history_path.read_text()
+    terminal.commandEditor.setText("help --token super-secret")
+    terminal.runCommand()
+    history = history_path.read_text()
+    audit = (tmp_path / terminal_panel.AuditFileName).read_text()
+    assert "super-secret" not in history + audit + terminal.editorOutput.toPlainText()
+    assert "[REDACTED]" in history
+    assert json.loads(audit.splitlines()[-1])["command"] == history.splitlines()[-1]
+    assert "secret-value" not in terminal_panel.redactTerminalResult("token=secret-value Bearer secret-value")
+    assert terminal_panel.redactTerminalResult("Rejected super-secret", "help --token super-secret") == "Rejected [REDACTED]"
+
+
+def test_terminal_tab_refresh_stays_async_when_server_is_slow(qtbot):
+    started = Event()
+    release = Event()
+
+    class SlowCompletionGrpc(FakeGrpc):
+        def listListeners(self):
+            started.set()
+            release.wait(2)
+            return iter([])
+
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, SlowCompletionGrpc())
+    qtbot.addWidget(parent)
+    terminal.commandEditor.setText("host")
+    try:
+        terminal.commandEditor.nextCompletion()
+        qtbot.waitUntil(started.is_set, timeout=1000)
+        terminal.runHelp("help")
+        assert "Available terminal commands:" in terminal.editorOutput.toPlainText()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: terminal._completionWorker is None, timeout=3000)
+
+
+def test_batcave_bundle_is_sent_as_one_request(qtbot, tmp_path, monkeypatch):
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    first.write_bytes(b"A\x00B")
+    second.write_bytes(b"SECOND")
+    monkeypatch.setattr(terminal_panel.batcave, "downloadBatBundle", lambda name: [str(first), str(second)])
+
+    parent = QWidget()
+    grpc = FakeGrpc()
+    terminal = terminal_panel.Terminal(parent, grpc)
+    qtbot.addWidget(parent)
+    terminal.runBatcave("batcave bundleInstall demo", ["batcave", "bundleInstall", "demo"])
+
+    assert grpc.commands == [terminal_panel.GrpcBatcaveUploadBundleInstruction]
+    manifest, body = grpc.requests[0].data.split(b"\n", 1)
+    assert json.loads(manifest) == [["first.bin", 3], ["second.bin", 6]]
+    assert body == b"A\x00BSECOND"
+    assert "Batcave bundle installed" in terminal.editorOutput.toPlainText()
+
+
+def test_batcave_empty_bundle_never_uploads(qtbot, monkeypatch):
+    monkeypatch.setattr(terminal_panel.batcave, "downloadBatBundle", lambda name: [])
+    parent = QWidget()
+    grpc = FakeGrpc()
+    terminal = terminal_panel.Terminal(parent, grpc)
+    qtbot.addWidget(parent)
+
+    terminal.runBatcave("batcave bundleInstall missing", ["batcave", "bundleInstall", "missing"])
+
+    assert grpc.commands == []
+    assert "bundle not found or empty" in terminal.editorOutput.toPlainText()
 
 
 def test_terminal_shows_welcome_message(qtbot):

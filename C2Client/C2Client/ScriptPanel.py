@@ -2,6 +2,11 @@ import sys
 import os
 import logging
 import importlib
+import ast
+import json
+import tempfile
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from datetime import datetime
 
@@ -28,8 +33,8 @@ from .console_style import (
     append_console_spacing,
     move_editor_to_end,
 )
-from .autocomplete import CompletionInput
 from .panel_style import apply_dark_panel_style, style_dark_combo_popup
+from .hook_runtime import HookAudit, HookRuntime, hook_config_path
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +75,11 @@ HOOK_ORDER = [
 HOOK_TRIGGER_NOTES = {
     "ManualStart": "Manual-only hook launched from the Hooks panel.",
     "OnStart": "Client window connected/reconnected to the TeamServer.",
-    "OnStop": "Client window is closing; this depends on Qt widget teardown.",
+    "OnStop": "Client window is closing; execution waits up to two seconds.",
     "OnListenerStart": "Listener table saw a listener start event.",
     "OnListenerStop": "Listener table saw a listener stop event.",
     "OnSessionStart": "Session table saw a new beacon.",
-    "OnSessionUpdate": "Session table saw updated beacon data; this can repeat often during refresh.",
+    "OnSessionUpdate": "Session table saw a meaningful change in beacon data.",
     "OnSessionStop": "Session table saw a killed/stopped beacon.",
     "OnConsoleSend": "Operator sent a command from a beacon console.",
     "OnConsoleReceive": "Beacon console received command output.",
@@ -97,10 +102,6 @@ CONSOLE_HOOKS = {
     "send": "OnConsoleSend",
     "receive": "OnConsoleReceive",
 }
-SCRIPT_COMPLETIONS = [
-    ("help", []),
-]
-
 SCRIPT_NAME_ROLE = Qt.ItemDataRole.UserRole
 
 COL_ENABLED = 0
@@ -110,26 +111,49 @@ COL_LAST_RUN = 3
 COL_ACTIVATIONS = 4
 COL_ERRORS = 5
 
-# ----------------------------
-# Load all scripts as modules
-# ----------------------------
+@dataclass(frozen=True)
+class HookDefinition:
+    module_name: str
+    hooks: list[str]
+    description: str
+    hook_descriptions: dict[str, str]
+
+
+def inspectHookFile(path: Path) -> HookDefinition:
+    """Read hook metadata without executing user Python code."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hooks = [node.name for node in tree.body
+             if isinstance(node, ast.FunctionDef) and node.name in HOOK_ORDER]
+    description = ""
+    descriptions = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name) or target.id not in {"DESCRIPTION", "HOOK_DESCRIPTIONS"}:
+                continue
+            try:
+                value = ast.literal_eval(node.value)
+            except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+                continue
+            if target.id == "DESCRIPTION" and isinstance(value, str):
+                description = value.strip()
+            elif target.id == "HOOK_DESCRIPTIONS" and isinstance(value, dict):
+                descriptions = {str(key): str(text) for key, text in value.items()}
+    return HookDefinition(f"{package_name}.{path.stem}", hooks, description, descriptions)
+
+
+# Discover hook names and descriptions without importing disabled modules.
 LoadedScripts = []
 FailedScripts = []
 for entry in scripts_path.iterdir():
     if entry.suffix == ".py" and entry.name != "__init__.py":
         modname = f"{package_name}.{entry.stem}"
         try:
-            m = importlib.import_module(modname)
-            LoadedScripts.append(m)
-            logger.debug("Imported script module %s", modname)
+            LoadedScripts.append(inspectHookFile(entry))
         except Exception as exc:
             FailedScripts.append(f"{modname}: {exc}")
-            logger.warning(
-                "Failed to import script module %s: %s",
-                modname,
-                exc,
-                exc_info=logger.isEnabledFor(logging.DEBUG),
-            )
+            logger.warning("Failed to inspect hook module %s: %s", modname, exc)
 
 
 #
@@ -137,6 +161,7 @@ for entry in scripts_path.iterdir():
 #
 class Script(QWidget):
     tabPressed = pyqtSignal()
+    hookActivationChanged = pyqtSignal()
     logFileName=""
     sem = Semaphore()
 
@@ -152,6 +177,13 @@ class Script(QWidget):
         self.lastHookContexts = {}
         self.clientStateProvider = self.emptyClientState
         self._tableUpdating = False
+        self._statePath = hook_config_path("hook-state.json", "C2_HOOK_STATE_PATH")
+        self._enabledState = self._loadEnabledState()
+        self.hookAudit = HookAudit()
+        self.hookRuntime = HookRuntime(
+            grpcClient, getattr(grpcClient, "username", "unknown"), self.hookAudit, self,
+        )
+        self.hookRuntime.finished.connect(self._onHookFinished)
 
         # self.logFileName=LogFileName
 
@@ -189,11 +221,6 @@ class Script(QWidget):
         apply_console_output_style(self.editorOutput)
         self.editorOutput.setReadOnly(True)
         self.layout.addWidget(self.editorOutput, 5)
-
-        self.commandEditor = CommandEditor()
-        self.commandEditor.setPlaceholderText("Hooks command")
-        self.layout.addWidget(self.commandEditor, 0)
-        self.commandEditor.returnPressed.connect(self.runCommand)
 
         self.buildAutomationStates()
         self.refreshAutomationTable()
@@ -318,7 +345,9 @@ class Script(QWidget):
         event = dict(event or {})
         objectType = str(objectType or "")
         objectId = str(objectId or "")
-        resolvedObject = self.resolveSnapshotObject(snapshot, objectType, objectId)
+        resolvedObject = self.resolveSnapshotObject(snapshot, objectType, objectId, event)
+        if resolvedObject is None and objectType in {"session", "listener"}:
+            resolvedObject = dict(event)
 
         context = {
             "hook": hookName,
@@ -336,7 +365,7 @@ class Script(QWidget):
             context["snapshot_error"] = snapshot["error"]
         return context
 
-    def resolveSnapshotObject(self, snapshot, objectType, objectId):
+    def resolveSnapshotObject(self, snapshot, objectType, objectId, event=None):
         if not objectType or not objectId:
             return None
 
@@ -350,7 +379,10 @@ class Script(QWidget):
             return None
 
         objectId = str(objectId)
+        listener_hash = str((event or {}).get("listener_hash", ""))
         for item in collection:
+            if objectType == "session" and listener_hash and str(item.get("listener_hash", "")) != listener_hash:
+                continue
             for key in keys:
                 if str(item.get(key, "")) == objectId:
                     return dict(item)
@@ -358,26 +390,31 @@ class Script(QWidget):
 
     def buildAutomationStates(self):
         self.scriptStates = {}
-        for script in LoadedScripts:
-            scriptName = self.scriptName(script)
-            hooks = self.scriptHooks(script)
+        for source in LoadedScripts:
+            definition = source if isinstance(source, HookDefinition) else None
+            scriptName = definition.module_name if definition else self.scriptName(source)
+            enabled = self._enabledState.get(scriptName, definition is None)
+            script = source if definition is None else None
+            hooks = definition.hooks if definition else self.scriptHooks(script)
             self.scriptStates[scriptName] = {
                 "script": script,
-                "enabled": True,
+                "definition": definition,
+                "enabled": enabled,
                 "hooks": hooks,
                 "last_run": "Never",
                 "activations": 0,
                 "errors": 0,
                 "last_error": "",
                 "load_error": "",
-                "description": self.scriptDescription(script),
-                "hook_descriptions": self.scriptHookDescriptions(script),
+                "description": definition.description if definition else self.scriptDescription(script),
+                "hook_descriptions": definition.hook_descriptions if definition else self.scriptHookDescriptions(script),
             }
 
         for failure in FailedScripts:
             scriptName, error = self.parseFailedScript(failure)
             self.scriptStates[scriptName] = {
                 "script": None,
+                "definition": None,
                 "enabled": False,
                 "hooks": [],
                 "last_run": "Never",
@@ -388,6 +425,34 @@ class Script(QWidget):
                 "description": "",
                 "hook_descriptions": {},
             }
+
+    def _loadEnabledState(self):
+        try:
+            if self._statePath.is_file():
+                state = json.loads(self._statePath.read_text(encoding="utf-8"))
+                if isinstance(state, dict):
+                    return {str(name): enabled for name, enabled in state.items() if isinstance(enabled, bool)}
+        except (OSError, ValueError):
+            logger.exception("Could not load hook activation state")
+        return {}
+
+    def _saveEnabledState(self):
+        temporary_path = None
+        try:
+            self._statePath.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self._statePath.parent,
+                prefix=".hook-state-", delete=False,
+            ) as temporary:
+                temporary_path = temporary.name
+                os.chmod(temporary_path, 0o600)
+                json.dump(self._enabledState, temporary, sort_keys=True)
+            os.replace(temporary_path, self._statePath)
+        except OSError:
+            logger.exception("Could not persist hook activation state")
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def refreshAutomationTable(self):
         self._tableUpdating = True
@@ -403,7 +468,7 @@ class Script(QWidget):
                 (enabledItem.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 & ~Qt.ItemFlag.ItemIsEditable
             )
-            if state["script"] is None:
+            if state["script"] is None and state.get("definition") is None:
                 enabledItem.setFlags(enabledItem.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             enabledItem.setCheckState(
                 Qt.CheckState.Checked if state["enabled"] else Qt.CheckState.Unchecked
@@ -468,20 +533,29 @@ class Script(QWidget):
 
         scriptName = item.data(SCRIPT_NAME_ROLE)
         state = self.scriptStates.get(scriptName)
-        if not state or state["script"] is None:
+        if not state or (state["script"] is None and state.get("definition") is None):
             return
 
         enabled = item.checkState() == Qt.CheckState.Checked
         state["enabled"] = enabled
+        self._enabledState[scriptName] = enabled
+        self._saveEnabledState()
         self.updateAutomationRow(scriptName)
         self.updateManualHookSelector()
+        self.hookActivationChanged.emit()
+
+    def hasEnabledHook(self, hookName):
+        return any(
+            state["enabled"] and hookName in state["hooks"]
+            for state in self.scriptStates.values()
+        )
 
     def updateManualHookSelector(self):
         scriptName = self.selectedScriptName()
         state = self.scriptStates.get(scriptName)
         self.manualHookSelector.clear()
 
-        if not state or state["script"] is None or not state["hooks"]:
+        if not state or (state["script"] is None and state.get("definition") is None) or not state["hooks"]:
             self.runHookButton.setEnabled(False)
             return
 
@@ -544,14 +618,15 @@ class Script(QWidget):
     def printLoadedAutomationSummary(self):
         loaded = []
         for scriptName, state in sorted(self.scriptStates.items()):
-            if state["script"] is None:
+            if state["script"] is None and state.get("definition") is None:
                 continue
-            loaded.append(f"{self.displayScriptName(scriptName)}: {', '.join(state['hooks']) or 'no hooks'}")
-        self.printInTerminal("Loaded hooks:", "\n".join(loaded) or "No hook file loaded.")
+            status = "enabled" if state["enabled"] else "disabled"
+            loaded.append(f"{self.displayScriptName(scriptName)} ({status}): {', '.join(state['hooks']) or 'no hooks'}")
+        self.printInTerminal("Available hooks:", "\n".join(loaded) or "No hook file found.")
 
         failed = []
         for scriptName, state in sorted(self.scriptStates.items()):
-            if state["script"] is None:
+            if state["load_error"]:
                 failed.append(f"{scriptName}: {state['last_error']}")
         if failed:
             self.printInTerminal("Hook load errors:", "\n".join(failed))
@@ -560,21 +635,29 @@ class Script(QWidget):
         self.lastHookContexts[hookName] = context
 
         for state in self.scriptStates.values():
-            script = state["script"]
-            if script is not None:
-                self.runScriptHook(script, hookName, hookName, context)
+            source = state["script"] or state.get("definition")
+            if source is not None and state["enabled"]:
+                self.runScriptHook(source, hookName, hookName, context)
 
     def runScriptHook(self, script, hookName, displayName, context):
-        scriptName = getattr(script, "__name__", script.__class__.__name__)
-        hook = getattr(script, hookName, None)
-        if hook is None:
-            return False
+        definition = script if isinstance(script, HookDefinition) else None
+        scriptName = definition.module_name if definition else getattr(script, "__name__", script.__class__.__name__)
+        if definition is not None:
+            if hookName not in definition.hooks:
+                return False
+            def hook(client, hook_context):
+                loaded = importlib.import_module(definition.module_name)
+                return getattr(loaded, hookName)(client, hook_context)
+        else:
+            hook = getattr(script, hookName, None)
+            if hook is None:
+                return False
 
         state = self.scriptStates.get(scriptName)
         if state is None:
             state = {
                 "script": script,
-                "enabled": True,
+                "enabled": self._enabledState.get(scriptName, not scriptName.startswith(package_name + ".")),
                 "hooks": self.scriptHooks(script),
                 "last_run": "Never",
                 "activations": 0,
@@ -591,31 +674,35 @@ class Script(QWidget):
             self.updateAutomationRow(scriptName)
             return False
 
+        completion = self.hookRuntime.submit(
+            scriptName, hookName, hook, context, immediate=hookName == "OnStop",
+        )
+        if completion is None:
+            state["errors"] += 1
+            state["last_error"] = f"{hookName}: hook queue is full."
+            self.updateAutomationRow(scriptName)
+            return False
         state["activations"] += 1
         state["last_run"] = datetime.now().strftime("%H:%M:%S")
         self.updateAutomationRow(scriptName)
+        return completion
 
-        try:
-            output = self.invokeScriptHook(hook, context)
-        except Exception as exc:
+    def _onHookFinished(self, payload):
+        origin, status, output = payload
+        scriptName = origin["script"]
+        hookName = origin["hook"]
+        state = self.scriptStates.get(scriptName)
+        if state is None:
+            return
+        if status != "ok":
             state["errors"] += 1
-            state["last_error"] = f"{hookName}: {exc}"
-            self.updateAutomationRow(scriptName)
-            logger.warning(
-                "Script hook %s.%s failed: %s",
-                scriptName,
-                hookName,
-                exc,
-                exc_info=logger.isEnabledFor(logging.DEBUG),
-            )
-            self.printInTerminal("Script error:", f"{scriptName}.{hookName}: {exc}")
-            return False
-
-        state["last_error"] = ""
+            state["last_error"] = f"{hookName}: {output}"
+            self.printInTerminal("Script error:", f"{scriptName}.{hookName}: {output}")
+        else:
+            state["last_error"] = ""
+            if output:
+                self.printInTerminal(hookName, output)
         self.updateAutomationRow(scriptName)
-        if output:
-            self.printInTerminal(displayName, output)
-        return True
 
     def invokeScriptHook(self, hook, context):
         return hook(self.grpcClient, context)
@@ -624,7 +711,7 @@ class Script(QWidget):
         scriptName = self.selectedScriptName()
         state = self.scriptStates.get(scriptName)
         hookName = self.manualHookSelector.currentData()
-        if not state or state["script"] is None or not hookName:
+        if not state or (state["script"] is None and state.get("definition") is None) or not hookName:
             self.printInTerminal("Manual run blocked:", "Select a loaded script and hook first.")
             return
 
@@ -635,7 +722,19 @@ class Script(QWidget):
         if hookName == "ManualStart":
             context = self.buildHookContext(hookName, "manual", event={"action": "manual"})
         else:
-            context = self.lastHookContexts.get(hookName)
+            captured = self.lastHookContexts.get(hookName)
+            context = None
+            if captured is not None:
+                context = self.buildHookContext(
+                    hookName, "manual", objectType=captured.get("object_type", ""),
+                    objectId=captured.get("object_id", ""), event=captured.get("event", {}),
+                )
+                if context["object_type"] and not self.resolveSnapshotObject(
+                    {"sessions": context["sessions"], "listeners": context["listeners"]},
+                    context["object_type"], context["object_id"], context["event"],
+                ):
+                    self.printInTerminal("Manual run blocked:", "The captured target is no longer available.")
+                    return
 
         if context is None:
             self.printInTerminal(
@@ -644,7 +743,7 @@ class Script(QWidget):
             )
             return
         self.printInTerminal("Manual run:", f"{self.displayScriptName(scriptName)}.{hookName}")
-        self.runScriptHook(state["script"], hookName, hookName, context)
+        self.runScriptHook(state["script"] or state.get("definition"), hookName, hookName, context)
 
 
     def event(self, event):
@@ -674,7 +773,7 @@ class Script(QWidget):
     def _console_role_for_header(self, header):
         normalized = str(header or "").strip().rstrip(":").lower()
         if normalized in {
-            "loaded hooks",
+            "loaded hooks", "available hooks",
             "hook command",
             "manual context error",
             "manual run blocked",
@@ -687,32 +786,21 @@ class Script(QWidget):
         return "[script]", "script"
 
 
-    def runCommand(self):
-        commandLine = self.commandEditor.displayText()
-        self.commandEditor.clearLine()
-        self.setCursorEditorAtEnd()
-
-        if commandLine == "":
-            self.printInTerminal("", "")
-
-        else:
-            self.printInTerminal(
-                "Hook command:",
-                "Use the table to enable hook files and run hooks manually.",
-            )
-            
-
-        self.setCursorEditorAtEnd()
+    def closeHooks(self):
+        context = self.buildHookContext("OnStop", "stop", event={"action": "stop"})
+        completions = []
+        for state in self.scriptStates.values():
+            source = state["script"] or state.get("definition")
+            if source is not None and state["enabled"]:
+                completion = self.runScriptHook(source, "OnStop", "OnStop", context)
+                if completion:
+                    completions.append(completion)
+        deadline = time.monotonic() + 2
+        for completion in completions:
+            completion.wait(max(0, deadline - time.monotonic()))
+        self.hookRuntime.close()
 
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         move_editor_to_end(self.editorOutput)
-
-
-class CommandEditor(CompletionInput):
-    def __init__(self, parent=None):
-        super().__init__(parent, completion_data=SCRIPT_COMPLETIONS)
-
-    def clearLine(self):
-        self.clear()

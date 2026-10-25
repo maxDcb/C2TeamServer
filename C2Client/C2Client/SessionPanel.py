@@ -1,4 +1,9 @@
+import hashlib
+import json
+import os
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from PyQt6.QtCore import QObject, QRunnable, Qt, QThread, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -17,7 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
-from .env import env_int
+from .env import env_int, env_path
 from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style, create_dark_context_menu
 from .refresh_worker import RefreshWorker
@@ -29,7 +34,13 @@ SESSION_STATE_KILLED = "Killed"
 SESSION_STATE_STOPPED = "Stopped"
 SESSION_STATE_UNKNOWN = "Unknown"
 SESSION_STATE_STOPPING = "Stopping"
-SESSION_STATE_STOP_FAILED = "Stop failed"
+SESSION_STATE_STOP_FAILED = "Stop unconfirmed"
+SESSION_STATE_UNAVAILABLE = "Unavailable"
+HIDDEN_STOP_STATES = {
+    TeamServerApi_pb2.SESSION_STATE_STOPPING,
+    TeamServerApi_pb2.SESSION_STATE_STOP_FAILED,
+    TeamServerApi_pb2.SESSION_STATE_STOPPED,
+}
 SESSION_STATE_COLORS = {
     SESSION_STATE_ALIVE: "#0a7f2e",
     SESSION_STATE_STALE: "#a05a00",
@@ -37,7 +48,8 @@ SESSION_STATE_COLORS = {
     SESSION_STATE_STOPPED: "#6b7280",
     SESSION_STATE_UNKNOWN: "#6b7280",
     SESSION_STATE_STOPPING: "#a05a00",
-    SESSION_STATE_STOP_FAILED: "#b00020",
+    SESSION_STATE_STOP_FAILED: "#a05a00",
+    SESSION_STATE_UNAVAILABLE: "#6b7280",
 }
 HIGH_PRIVILEGE_COLOR = "#a05a00"
 DEFAULT_SESSION_STALE_AFTER_MS = 30000
@@ -153,9 +165,9 @@ def resolve_session_state(killed, lastProofOfLife, staleAfterMs=DEFAULT_SESSION_
     if serverState == TeamServerApi_pb2.SESSION_STATE_STOPPING:
         return SESSION_STATE_STOPPING, "Stop request queued; waiting for beacon confirmation."
     if serverState == TeamServerApi_pb2.SESSION_STATE_STOP_FAILED:
-        return SESSION_STATE_STOP_FAILED, "Stop was not confirmed in time; retry is available."
+        return SESSION_STATE_STOP_FAILED, "No final stop result was received. The beacon may have exited; retry only if it is still running."
     if serverState == TeamServerApi_pb2.SESSION_STATE_STOPPED:
-        return SESSION_STATE_STOPPED, "Beacon confirmed stop; this row will expire."
+        return SESSION_STATE_STOPPED, "Beacon confirmed stop; command history remains available."
     if _is_truthy(killed):
         return SESSION_STATE_KILLED, "Killed flag set by TeamServer."
 
@@ -192,7 +204,7 @@ def color_table_item(item, color):
 #
 class Session():
 
-    def __init__(self, id, listenerHash, beaconHash, hostname, username, arch, privilege, os, lastProofOfLife, killed, internalIps, processId, additionalInformation, state=None):
+    def __init__(self, id, listenerHash, beaconHash, hostname, username, arch, privilege, os, lastProofOfLife, killed, internalIps, processId, additionalInformation, state=None, available=True, archivedAtMs=0):
         self.id = id
         self.listenerHash = listenerHash
         self.beaconHash = beaconHash
@@ -207,6 +219,8 @@ class Session():
         self.processId = processId
         self.additionalInformation = additionalInformation
         self.state = state
+        self.available = available
+        self.archivedAtMs = archivedAtMs
 
 
 class SessionStopSignals(QObject):
@@ -229,13 +243,13 @@ class SessionStopWorker(QRunnable):
 
 class Sessions(QWidget):
 
-    interactWithSession = pyqtSignal(str, str, str, str)
+    interactWithSession = pyqtSignal(str, str, str, str, bool)
     sessionScriptSignal = pyqtSignal(str, str, str, str, str, str, str, str, str, bool)
     sessionsRefreshed = pyqtSignal(object)
 
     idSession = 0
     listSessionObject = []
-    COLUMN_WIDTHS = [76, 76, 140, 116, 62, 84, 92, 64, 156, 92, 78]
+    COLUMN_WIDTHS = [76, 76, 140, 116, 62, 84, 92, 64, 156, 92, 130]
     STRETCH_COLUMN = 8
 
 
@@ -245,6 +259,7 @@ class Sessions(QWidget):
         self.grpcClient = grpcClient
         self.idSession = 0
         self.listSessionObject = []
+        self._history_path = self._sessionHistoryPath(grpcClient)
         self._stop_pending = False
         self._pending_stop_key = None
         self._has_snapshot = False
@@ -273,7 +288,7 @@ class Sessions(QWidget):
         self.headerLayout.addWidget(self.label)
         self.headerLayout.addStretch(1)
 
-        self.interactButton = self.createToolbarButton("Open", "Open an interactive console for the selected session.")
+        self.interactButton = self.createToolbarButton("Open", "Open an interactive console for the selected session.", width=72)
         self.interactButton.setToolTip("Open an interactive console for the selected session.")
         self.interactButton.clicked.connect(self.interactWithSelectedSession)
         self.headerLayout.addWidget(self.interactButton)
@@ -289,6 +304,16 @@ class Sessions(QWidget):
         self.refreshButton = self.createToolbarButton("Refresh", "Refresh sessions now.", width=70)
         self.refreshButton.clicked.connect(self.requestRefresh)
         self.headerLayout.addWidget(self.refreshButton)
+
+        self.hideInactiveButton = self.createToolbarButton(
+            "Hide inactive", "Hide stopped, unconfirmed, and unavailable sessions.", width=112,
+        )
+        self.hideInactiveButton.setCheckable(True)
+        self.hideInactiveButton.setStyleSheet(
+            "QPushButton:checked { background-color: #17343b; color: #d5f7ef; border-color: #317f75; }"
+        )
+        self.hideInactiveButton.toggled.connect(self._onHideInactiveToggled)
+        self.headerLayout.addWidget(self.hideInactiveButton)
         self.layout.addLayout(self.headerLayout, 0, 0)
 
         self.statusLabel = QLabel("")
@@ -311,6 +336,8 @@ class Sessions(QWidget):
         self.listSession.verticalHeader().setVisible(False)
         self.configureTableColumns()
         self.layout.addWidget(self.listSession, 2, 0)
+        self._loadSessionHistory()
+        self.printSessions()
 
         # Thread to fetch sessions every second
         # https://realpython.com/python-pyqt-qthread/
@@ -345,6 +372,86 @@ class Sessions(QWidget):
                 header.setSectionResizeMode(index, QHeaderView.ResizeMode.Interactive)
                 self.listSession.setColumnWidth(index, width)
 
+    @staticmethod
+    def _sessionHistoryPath(grpcClient):
+        endpoint = _to_text(getattr(grpcClient, "endpoint", ""))
+        if not endpoint:
+            return None
+        identity = endpoint + "\n" + _to_text(getattr(grpcClient, "username", ""))
+        suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+        directory = env_path("C2_LOG_DIR") or Path(__file__).parent / "logs"
+        return Path(directory) / f"sessions_{suffix}.json"
+
+    def _loadSessionHistory(self):
+        path = self._history_path
+        if path is None or not path.exists():
+            return
+        try:
+            records = json.loads(path.read_text(encoding="utf-8")).get("sessions", [])
+            for record in records:
+                beacon_hash = _to_text(record.get("beacon_hash"))
+                listener_hash = _to_text(record.get("listener_hash"))
+                if not beacon_hash or not listener_hash:
+                    continue
+                self.listSessionObject.append(Session(
+                    self.idSession, listener_hash, beacon_hash,
+                    *(_to_text(record.get(field)) for field in (
+                        "hostname", "username", "arch", "privilege", "os", "last_proof_of_life")),
+                    _is_truthy(record.get("killed")),
+                    *(_to_text(record.get(field)) for field in (
+                        "internal_ips", "process_id", "additional_information")),
+                    record.get("state"), available=False,
+                    archivedAtMs=int(record.get("archived_at_ms") or 0),
+                ))
+                self.idSession += 1
+                self._seen_beacons.add(beacon_hash)
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            self.setInlineStatus(f"Session history could not be loaded: {exc}", False)
+
+    def _saveSessionHistory(self):
+        path = self._history_path
+        if path is None:
+            return
+        records = []
+        for item in self.listSessionObject:
+            last_seen = parse_last_seen(item.lastProofOfLife)
+            records.append({
+                "beacon_hash": item.beaconHash,
+                "listener_hash": item.listenerHash,
+                "hostname": item.hostname,
+                "username": item.username,
+                "arch": item.arch,
+                "privilege": item.privilege,
+                "os": item.os,
+                "last_proof_of_life": last_seen.isoformat() if last_seen else item.lastProofOfLife,
+                "killed": _is_truthy(item.killed),
+                "internal_ips": item.internalIps,
+                "process_id": item.processId,
+                "additional_information": item.additionalInformation,
+                "state": item.state,
+                "archived_at_ms": item.archivedAtMs,
+            })
+        temp_name = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor, temp_name = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                json.dump({"version": 1, "sessions": records}, output, ensure_ascii=False)
+            os.replace(temp_name, path)
+        except OSError as exc:
+            self.setInlineStatus(f"Session history could not be saved: {exc}", False)
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+
+    @staticmethod
+    def _canSendCommands(session):
+        return bool(session and session.available and not _is_truthy(session.killed)
+                    and session.state in {
+                        None, TeamServerApi_pb2.SESSION_STATE_UNSPECIFIED,
+                        TeamServerApi_pb2.SESSION_STATE_RUNNING,
+                    })
+
     def setStatusMessage(self, ack, successFallback, action="Operation"):
         message = operation_ack_text(ack, successFallback)
         self.setInlineStatus(format_action_status(action, message), is_response_ok(ack))
@@ -355,16 +462,19 @@ class Sessions(QWidget):
     def updateActionButtons(self):
         selected = self.selectedSession()
         hasSelection = selected is not None
-        state = getattr(selected, "state", None) if selected else None
-        self.interactButton.setEnabled(hasSelection and state not in {
-            TeamServerApi_pb2.SESSION_STATE_STOPPING,
-            TeamServerApi_pb2.SESSION_STATE_STOP_FAILED,
-            TeamServerApi_pb2.SESSION_STATE_STOPPED,
-        })
-        self.stopButton.setEnabled(hasSelection and not self._stop_pending and state not in {
-            TeamServerApi_pb2.SESSION_STATE_STOPPING,
-            TeamServerApi_pb2.SESSION_STATE_STOPPED,
-        })
+        self.interactButton.setEnabled(hasSelection)
+        history_only = hasSelection and not self._canSendCommands(selected)
+        self.interactButton.setText("History" if history_only else "Open")
+        self.interactButton.setToolTip(
+            "View saved commands and responses (read-only)." if history_only
+            else "Open an interactive console for the selected session."
+        )
+        self.stopButton.setEnabled(hasSelection and not self._stop_pending
+                                   and selected.available and not _is_truthy(selected.killed)
+                                   and selected.state not in {
+                                       TeamServerApi_pb2.SESSION_STATE_STOPPING,
+                                       TeamServerApi_pb2.SESSION_STATE_STOPPED,
+                                   })
         self.copySessionIdButton.setEnabled(hasSelection)
 
     def selectedSession(self):
@@ -373,9 +483,23 @@ class Sessions(QWidget):
             return None
 
         row = selectedRows[0].row()
-        if row < 0 or row >= len(self.listSessionObject):
+        if row < 0 or row >= len(self.listSessionObject) or self.listSession.isRowHidden(row):
             return None
         return self.listSessionObject[row]
+
+    def _onHideInactiveToggled(self, hideInactive):
+        self.hideInactiveButton.setText("Show inactive" if hideInactive else "Hide inactive")
+        self._applyInactiveRowFilter()
+
+    def _applyInactiveRowFilter(self):
+        for row, sessionStore in enumerate(self.listSessionObject):
+            self.listSession.setRowHidden(
+                row,
+                self.hideInactiveButton.isChecked() and not self._canSendCommands(sessionStore),
+            )
+        if self.selectedSession() is None:
+            self.listSession.clearSelection()
+        self.updateActionButtons()
 
     def sessionByShortBeaconHash(self, beaconHashPrefix):
         for sessionStore in self.listSessionObject:
@@ -386,6 +510,8 @@ class Sessions(QWidget):
     def scriptSnapshot(self):
         snapshots = []
         for sessionStore in self.listSessionObject:
+            if not sessionStore.available:
+                continue
             state, stateTooltip = resolve_session_state(
                 sessionStore.killed,
                 sessionStore.lastProofOfLife,
@@ -419,12 +545,19 @@ class Sessions(QWidget):
         if sessionStore is None:
             self.setInlineStatus("Select a session first.", False)
             return
-        self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
+        self.interactWithSession.emit(
+            sessionStore.beaconHash, sessionStore.listenerHash,
+            sessionStore.hostname, sessionStore.username,
+            not self._canSendCommands(sessionStore),
+        )
 
     def stopSelectedSession(self):
         sessionStore = self.selectedSession()
         if sessionStore is None:
             self.setInlineStatus("Select a session first.", False)
+            return
+        if not sessionStore.available:
+            self.setInlineStatus("Historical session; stop is unavailable.", False)
             return
         self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
 
@@ -459,14 +592,12 @@ class Sessions(QWidget):
         self._context_session_key = (sessionStore.beaconHash, sessionStore.listenerHash)
 
         menu = create_dark_context_menu(self)
-        interactAction = menu.addAction('Interact')
+        history_only = not self._canSendCommands(sessionStore)
+        interactAction = menu.addAction('View history' if history_only else 'Interact')
         stopAction = menu.addAction('Stop')
-        interactAction.setEnabled(sessionStore.state not in {
-            TeamServerApi_pb2.SESSION_STATE_STOPPING,
-            TeamServerApi_pb2.SESSION_STATE_STOP_FAILED,
-            TeamServerApi_pb2.SESSION_STATE_STOPPED,
-        })
-        stopAction.setEnabled(not self._stop_pending and sessionStore.state not in {
+        interactAction.setEnabled(True)
+        stopAction.setEnabled(not self._stop_pending and sessionStore.available
+                              and not _is_truthy(sessionStore.killed) and sessionStore.state not in {
             TeamServerApi_pb2.SESSION_STATE_STOPPING,
             TeamServerApi_pb2.SESSION_STATE_STOPPED,
         })
@@ -480,9 +611,13 @@ class Sessions(QWidget):
         for sessionStore in self.listSessionObject:
             if (sessionStore.beaconHash, sessionStore.listenerHash) != key:
                 continue
-            if action.text() == "Interact":
-                self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
-            elif action.text() == "Stop":
+            if action.text() in {"Interact", "View history"}:
+                self.interactWithSession.emit(
+                    sessionStore.beaconHash, sessionStore.listenerHash,
+                    sessionStore.hostname, sessionStore.username,
+                    not self._canSendCommands(sessionStore),
+                )
+            elif action.text() == "Stop" and sessionStore.available:
                 self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
             break
 
@@ -529,6 +664,18 @@ class Sessions(QWidget):
 
     def _onRefreshFailure(self, _message):
         self._refresh_failed = True
+        changed = False
+        for item in self.listSessionObject:
+            if item.available:
+                item.available = False
+                last_seen = parse_last_seen(item.lastProofOfLife)
+                if last_seen:
+                    item.lastProofOfLife = last_seen.isoformat()
+                changed = True
+        if changed:
+            self._saveSessionHistory()
+            self.printSessions()
+            self.sessionsRefreshed.emit([])
         self.setInlineStatus("Server unavailable; retrying sessions.", False)
 
     def _emitSessionAction(self, action, item):
@@ -548,7 +695,8 @@ class Sessions(QWidget):
 
     def listSessions(self):
         try:
-            sessions = list(self.grpcClient.listSessions())
+            fetch = getattr(self.grpcClient, "listSessionHistory", self.grpcClient.listSessions)
+            sessions = list(fetch())
         except Exception as exc:
             self._onRefreshFailure(str(exc))
             return
@@ -569,64 +717,99 @@ class Sessions(QWidget):
         selected = self.selectedSession()
         selected_key = (selected.beaconHash, selected.listenerHash) if selected else None
         previous = {(item.beaconHash, item.listenerHash): item for item in self.listSessionObject}
-        if previous and not sessions:
+        if not sessions and any(item.available for item in previous.values()):
             self.setInlineStatus("No active sessions on TeamServer; waiting for beacon check-in.")
         current_keys = {(session.beacon_hash, session.listener_hash) for session in sessions}
+        history_changed = False
+        pending_actions = []
         for key, item in previous.items():
-            if key not in current_keys:
-                self._emitSessionAction("retire", item)
+            if key not in current_keys and item.available:
+                pending_actions.append(("retire", item))
+                item.available = False
+                item.archivedAtMs = int(datetime.now().timestamp() * 1000)
+                last_seen = parse_last_seen(item.lastProofOfLife)
+                if last_seen:
+                    item.lastProofOfLife = last_seen.isoformat()
+                history_changed = True
 
         current = []
         for session in sessions:
             key = (session.beacon_hash, session.listener_hash)
+            archived = bool(getattr(session, "archived", False))
+            last_seen_at_ms = getattr(session, "last_seen_at_ms", 0)
+            proof_of_life = (
+                datetime.fromtimestamp(last_seen_at_ms / 1000).isoformat()
+                if archived and last_seen_at_ms > 0 else session.last_proof_of_life
+            )
             item = previous.get(key)
+            existing_item = item is not None
             previous_fields = self._eventFields(item) if item is not None else None
+            was_available = item.available if item is not None else False
+            previous_archived_at = item.archivedAtMs if item is not None else 0
             if item is None:
                 item = Session(
                     self.idSession, session.listener_hash, session.beacon_hash,
                     session.hostname, session.username, session.arch, session.privilege,
-                    session.os, session.last_proof_of_life, session.killed,
+                    session.os, proof_of_life, session.killed,
                     session.internal_ips, session.process_id, session.additional_information,
-                    getattr(session, "state", None),
+                    getattr(session, "state", None), available=not archived,
+                    archivedAtMs=getattr(session, "archived_at_ms", 0) if archived else 0,
                 )
                 self.idSession += 1
+                history_changed = True
             else:
                 item.hostname = session.hostname
                 item.username = session.username
                 item.arch = session.arch
                 item.privilege = session.privilege
                 item.os = session.os
-                item.lastProofOfLife = session.last_proof_of_life
+                item.lastProofOfLife = proof_of_life
                 item.killed = session.killed
                 item.internalIps = session.internal_ips
                 item.processId = session.process_id
                 item.additionalInformation = session.additional_information
                 item.state = getattr(session, "state", None)
+                item.available = not archived
+                item.archivedAtMs = getattr(session, "archived_at_ms", 0) if archived else 0
+                if (item.available != was_available or previous_archived_at != item.archivedAtMs
+                        or previous_fields != self._eventFields(item)):
+                    history_changed = True
             current.append(item)
-            if baseline or (previous_fields is None and session.beacon_hash in self._seen_beacons):
+            if archived:
+                action = "retire" if was_available else None
+            elif baseline or (existing_item and not was_available) or (previous_fields is None and session.beacon_hash in self._seen_beacons):
                 action = "sync"
             elif previous_fields is None:
                 action = "start"
             elif item.state == TeamServerApi_pb2.SESSION_STATE_STOPPED and previous_fields[-1] != item.state:
                 action = "stop"
+                self.setInlineStatus("Stop session: beacon confirmed termination.")
+            elif item.state == TeamServerApi_pb2.SESSION_STATE_STOP_FAILED and previous_fields[-1] != item.state:
+                action = "update"
+                self.setInlineStatus("Stop session: no final confirmation from beacon; verify whether it exited.", False)
             elif previous_fields != self._eventFields(item):
                 action = "update"
             else:
                 action = None
             if action is not None:
-                self._emitSessionAction(action, item)
+                pending_actions.append((action, item))
             self._seen_beacons.add(session.beacon_hash)
 
+        current.extend(item for key, item in previous.items() if key not in current_keys)
         self.listSessionObject = current
         self._has_snapshot = True
+        for action, item in pending_actions:
+            self._emitSessionAction(action, item)
+        if history_changed:
+            self._saveSessionHistory()
         self.listSession.clearSelection()
         self.printSessions()
         if selected_key is not None:
             for row, item in enumerate(current):
-                if (item.beaconHash, item.listenerHash) == selected_key:
+                if (item.beaconHash, item.listenerHash) == selected_key and not self.listSession.isRowHidden(row):
                     self.listSession.selectRow(row)
                     break
-        self.sessionsRefreshed.emit(sessions)
+        self.sessionsRefreshed.emit([session for session in sessions if not getattr(session, "archived", False)])
 
 
     # don't clear the list each time but just when it's necessary
@@ -687,19 +870,26 @@ class Sessions(QWidget):
             pol.setToolTip(lastSeenTooltip)
             self.listSession.setItem(ix, 9, pol)
 
-            state, stateTooltip = resolve_session_state(
-                sessionStore.killed,
-                sessionStore.lastProofOfLife,
-                staleAfterMs=self.sessionStaleAfterMs,
-                serverState=getattr(sessionStore, "state", None),
-            )
+            if not sessionStore.available and sessionStore.state not in HIDDEN_STOP_STATES and not _is_truthy(sessionStore.killed):
+                state, stateTooltip = SESSION_STATE_UNAVAILABLE, "No longer listed by TeamServer; saved command history is read-only."
+            else:
+                state, stateTooltip = resolve_session_state(
+                    sessionStore.killed,
+                    sessionStore.lastProofOfLife,
+                    staleAfterMs=self.sessionStaleAfterMs,
+                    serverState=getattr(sessionStore, "state", None),
+                )
+            if not sessionStore.available and sessionStore.archivedAtMs:
+                archived_at = datetime.fromtimestamp(sessionStore.archivedAtMs / 1000)
+                stateTooltip += f" Archived: {archived_at.isoformat(sep=' ', timespec='seconds')}."
             stateItem = color_table_item(QTableWidgetItem(state), SESSION_STATE_COLORS[state])
             stateItem.setToolTip(stateTooltip)
             stateItem.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.listSession.setItem(ix, 10, stateItem)
-        self.updateActionButtons()
+        self._applyInactiveRowFilter()
 
 
 class GetSessionsWorker(RefreshWorker):
     def __init__(self, grpc_client):
-        super().__init__(grpc_client.listSessions, env_int("C2_SESSION_REFRESH_MS", 2000, minimum=100))
+        fetch = getattr(grpc_client, "listSessionHistory", grpc_client.listSessions)
+        super().__init__(fetch, env_int("C2_SESSION_REFRESH_MS", 2000, minimum=100))

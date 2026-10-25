@@ -4,6 +4,7 @@ import re, html
 import uuid
 import json
 import logging
+from collections import OrderedDict
 from datetime import datetime
 from typing import Any
 
@@ -1053,6 +1054,10 @@ class ConsolesTab(QWidget):
         self.tabs.setCurrentIndex(self.tabs.count()-1)
 
         self.script = Script(self, self.grpcClient)
+        self._hookResultSubscriptions = {}
+        self._hookPendingCommands = OrderedDict()
+        if hasattr(self.script, "hookActivationChanged"):
+            self.script.hookActivationChanged.connect(self._syncHookResultSubscriptions)
         tab = self.createConsolePage(self.script)
         self.tabs.addTab(tab, "Hooks")
         self.tabs.setCurrentIndex(self.tabs.count()-1)
@@ -1131,10 +1136,18 @@ class ConsolesTab(QWidget):
                 routes.setdefault(beacon_hash, set()).add(listener_hash)
         self._activeRoutesByBeacon = routes
         self._routesSnapshotReceived = True
+        for beacon_hash, listener_hashes in routes.items():
+            for listener_hash in listener_hashes:
+                self._ensureHookResultSubscription(beacon_hash, listener_hash)
+        self._pruneHookResultSubscriptions()
 
         for index in range(SYSTEM_TAB_COUNT, self.tabs.count()):
             console = self.consoleFromTab(index)
             if console is None:
+                continue
+            if getattr(console, "historyOnly", False):
+                if hasattr(console, "setSessionAvailable"):
+                    console.setSessionAvailable(False)
                 continue
             active_routes = routes.get(console.beaconHash, set())
             previous_route = console.listenerHash
@@ -1166,23 +1179,28 @@ class ConsolesTab(QWidget):
     def _sessionTabTitle(beaconHash, listenerHash):
         return f"{beaconHash[:8]} / {listenerHash[:8]}"
 
-    def addConsole(self, beaconHash, listenerHash, hostname, username):
+    def addConsole(self, beaconHash, listenerHash, hostname, username, historyOnly=False):
         active_routes = self._activeRoutesByBeacon.get(beaconHash, set())
-        if active_routes and listenerHash not in active_routes and len(active_routes) == 1:
+        if not historyOnly and active_routes and listenerHash not in active_routes and len(active_routes) == 1:
             listenerHash = next(iter(active_routes))
         tabAlreadyOpen=False
         for idx in range(SYSTEM_TAB_COUNT, self.tabs.count()):
             console = self.consoleFromTab(idx)
-            if console is not None and console.beaconHash == beaconHash and console.listenerHash == listenerHash:
-                if self._routesSnapshotReceived and hasattr(console, "setSessionAvailable"):
-                    console.setSessionAvailable(listenerHash in active_routes)
+            if (console is not None and console.beaconHash == beaconHash
+                    and console.listenerHash == listenerHash
+                    and getattr(console, "historyOnly", False) == historyOnly):
+                if hasattr(console, "setSessionAvailable"):
+                    console.setSessionAvailable(not historyOnly and (
+                        listenerHash in active_routes if self._routesSnapshotReceived else True))
                 self.tabs.setCurrentIndex(idx)
                 tabAlreadyOpen=True
                 break
-        if not tabAlreadyOpen and self._routesSnapshotReceived and len(active_routes) == 1:
+        if not historyOnly and not tabAlreadyOpen and self._routesSnapshotReceived and len(active_routes) == 1:
             for idx in range(SYSTEM_TAB_COUNT, self.tabs.count()):
                 console = self.consoleFromTab(idx)
-                if console is not None and console.beaconHash == beaconHash and hasattr(console, "rebindSessionRoute"):
+                if (console is not None and console.beaconHash == beaconHash
+                        and not getattr(console, "historyOnly", False)
+                        and hasattr(console, "rebindSessionRoute")):
                     console.rebindSessionRoute(listenerHash)
                     self.tabs.setTabText(idx, self._sessionTabTitle(beaconHash, listenerHash))
                     self.tabs.setTabToolTip(idx, f"Beacon: {beaconHash}\nListener: {listenerHash}")
@@ -1193,18 +1211,22 @@ class ConsolesTab(QWidget):
                     break
 
         if tabAlreadyOpen==False:
-            if hasattr(self.assistant, "watchSession"):
+            if not historyOnly:
+                self._ensureHookResultSubscription(beaconHash, listenerHash)
+            if not historyOnly and hasattr(self.assistant, "watchSession"):
                 self.assistant.watchSession(beaconHash, listenerHash)
             console = Console(
                 self, self.grpcClient, beaconHash, listenerHash, hostname, username,
-                result_hub=self.command_result_hub,
+                result_hub=self.command_result_hub, historyOnly=historyOnly,
             )
-            if self._routesSnapshotReceived and hasattr(console, "setSessionAvailable"):
-                console.setSessionAvailable(listenerHash in active_routes)
+            if hasattr(console, "setSessionAvailable"):
+                console.setSessionAvailable(not historyOnly and (
+                    listenerHash in active_routes if self._routesSnapshotReceived else True))
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self._forward_console_send)
             tab = self.createConsolePage(console)
-            index = self.tabs.addTab(tab, self._sessionTabTitle(beaconHash, listenerHash))
+            title = self._sessionTabTitle(beaconHash, listenerHash)
+            index = self.tabs.addTab(tab, title + " · history" if historyOnly else title)
             self.tabs.setTabToolTip(index, f"Beacon: {beaconHash}\nListener: {listenerHash}")
             close_container = QWidget(self.tabs.tabBar())
             close_layout = QHBoxLayout(close_container)
@@ -1257,11 +1279,61 @@ class ConsolesTab(QWidget):
 
     def _forward_console_send(self, action, beacon_hash, listener_hash, context, command, output, command_id):
         if action == "send":
+            if command_id:
+                self._hookPendingCommands[command_id] = (beacon_hash, listener_hash)
+                while len(self._hookPendingCommands) > 4096:
+                    self._hookPendingCommands.popitem(last=False)
             self.assistant.consoleAssistantMethod(
                 action, beacon_hash, listener_hash, context, command, output, command_id,
             )
 
+    def _ensureHookResultSubscription(self, beacon_hash, listener_hash):
+        if not hasattr(self.script, "hasEnabledHook") or not self.script.hasEnabledHook("OnConsoleReceive"):
+            return
+        key = (beacon_hash, listener_hash)
+        if key in self._hookResultSubscriptions:
+            return
+        self._hookResultSubscriptions[key] = self.command_result_hub.subscribe(
+            beacon_hash, listener_hash, self._onHookResult,
+        )
+
+    def _syncHookResultSubscriptions(self):
+        if not hasattr(self.script, "hasEnabledHook") or not self.script.hasEnabledHook("OnConsoleReceive"):
+            for subscription in self._hookResultSubscriptions.values():
+                subscription.close()
+            self._hookResultSubscriptions.clear()
+            return
+        for beacon_hash, listener_hashes in self._activeRoutesByBeacon.items():
+            for listener_hash in listener_hashes:
+                self._ensureHookResultSubscription(beacon_hash, listener_hash)
+        for beacon_hash, listener_hash in self._hookPendingCommands.values():
+            self._ensureHookResultSubscription(beacon_hash, listener_hash)
+
+    def _pruneHookResultSubscriptions(self):
+        active = {(beacon_hash, listener_hash)
+                  for beacon_hash, routes in self._activeRoutesByBeacon.items()
+                  for listener_hash in routes}
+        pending = set(self._hookPendingCommands.values())
+        for key, subscription in list(self._hookResultSubscriptions.items()):
+            if key not in active and key not in pending:
+                subscription.close()
+                del self._hookResultSubscriptions[key]
+
+    def _onHookResult(self, event):
+        outcome = event.outcome
+        if not outcome.command_id or outcome.command_id not in self._hookPendingCommands:
+            return
+        self._hookPendingCommands.pop(outcome.command_id, None)
+        self.script.consoleScriptMethod(
+            "receive", outcome.beacon_hash, outcome.listener_hash, "",
+            outcome.command_line, event.display_output, outcome.command_id,
+        )
+        self._pruneHookResultSubscriptions()
+
     def shutdown(self):
+        for subscription in self._hookResultSubscriptions.values():
+            subscription.close()
+        self._hookResultSubscriptions.clear()
         if hasattr(self.assistant, "closeResultSubscriptions"):
             self.assistant.closeResultSubscriptions()
         self.command_result_hub.shutdown()
@@ -1283,7 +1355,7 @@ class Console(QWidget):
     logFileName=""
     listenerHash=""
 
-    def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub: CommandEventHub):
+    def __init__(self, parent, grpcClient, beaconHash, listenerHash, hostname, username, *, result_hub: CommandEventHub, historyOnly=False):
         super(QWidget, self).__init__(parent)
         apply_dark_panel_style(self)
         self.layout = QVBoxLayout(self)
@@ -1292,6 +1364,7 @@ class Console(QWidget):
 
         self.grpcClient = grpcClient
         self.result_hub = result_hub
+        self.historyOnly = historyOnly
 
         self.beaconHash=beaconHash
         self.listenerHash=listenerHash
@@ -1369,6 +1442,8 @@ class Console(QWidget):
             self.displayResponse(event)
 
     def rebindSessionRoute(self, listenerHash):
+        if getattr(self, "historyOnly", False):
+            return
         if not listenerHash or listenerHash == self.listenerHash:
             return
         self.listenerHash = listenerHash
@@ -1392,7 +1467,11 @@ class Console(QWidget):
         if available:
             self.setConsoleNotice("Session available.")
         else:
-            self.setConsoleNotice("Session unavailable; waiting for an active route.", True)
+            self.setConsoleNotice(
+                "Session history: read-only." if getattr(self, "historyOnly", False)
+                else "Session unavailable; waiting for an active route.",
+                not getattr(self, "historyOnly", False),
+            )
 
     def closeResultSubscription(self):
         for subscription in getattr(self, "_result_subscriptions", []):
@@ -1762,8 +1841,8 @@ class Console(QWidget):
             return
         command_text = outcome.command_line
         decoded_response = event.display_output
-        self.consoleScriptSignal.emit("receive", self.beaconHash, outcome.listener_hash, context, command_text, decoded_response, command_id)
-        self.commandOutcomeSignal.emit(outcome)
+        if not self.historyOnly:
+            self.commandOutcomeSignal.emit(outcome)
         status = "done" if outcome.ok else "error"
         self.setCommandStatus(command_id, status, command_text, decoded_response if not outcome.ok else "")
         self.printCommandStatusInTerminal(command_id, status, command_text)

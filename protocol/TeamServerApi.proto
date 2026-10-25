@@ -12,6 +12,7 @@ service TeamServerApi
   rpc StopListener(ListenerSelector) returns (OperationAck) {}
 
   rpc ListSessions(Empty) returns (stream Session) {}
+  rpc ListSessionHistory(Empty) returns (stream Session) {}
   rpc StopSession(SessionSelector) returns (OperationAck) {}
 
   rpc ListArtifacts(ArtifactQuery) returns (stream ArtifactSummary) {}
@@ -137,6 +138,9 @@ message Session
   string process_id = 11;
   string additional_information = 12;
   SessionState state = 13;
+  bool archived = 14;
+  int64 last_seen_at_ms = 15;
+  int64 archived_at_ms = 16;
 }
 
 
@@ -381,6 +385,9 @@ message SubmitJobRequest
   string job_id = 1;
   string operation = 2;
   string input = 3;
+  // Client-declared origin such as a hook invocation. The server stores the
+  // authenticated operator separately and does not use origin for authorization.
+  string origin = 4;
 }
 
 message GetJobExecutionRequest
@@ -402,6 +409,8 @@ message JobExecutionRecord
   string error_message = 10;
   bytes output_inline = 11;
   int64 output_size = 12;
+  string operator_username = 13;
+  string origin = 14;
 }
 
 message ListJobExecutionsRequest

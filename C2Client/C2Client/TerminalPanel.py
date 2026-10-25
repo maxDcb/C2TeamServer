@@ -1,11 +1,13 @@
 import sys
 import os
 import logging
+import json
 import re
 import subprocess
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from typing import Any
-from PyQt6.QtCore import Qt, QEvent, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QShortcut, QTextCursor, QTextDocument
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -176,6 +178,7 @@ if not os.path.exists(logsDir):
 # Constant
 #
 LogFileName = "Terminal.log"
+AuditFileName = "Terminal.audit.jsonl"
 HistoryFileName = ".termHistory"
 
 HttpType = "http"
@@ -186,17 +189,15 @@ GrpcHostArtifactInstruction = "hostArtifact"
 GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
 GrpcInfoListenerInstruction = "infoListener"
 GrpcBatcaveUploadToolInstruction = "batcaveUpload"
+GrpcBatcaveUploadBundleInstruction = "batcaveUploadBundle"
 GrpcSocksInstruction = "socks"
 GrpcReloadModulesInstruction = "reloadModules";
 
 BeaconFileWindowsPattern = "Beacon-{}.exe"
 BeaconFileLinuxGenerated = "Beacon-linux"
 
-ErrorInstruction = "Error"
-
-
 def isTerminalResponseError(response):
-    return not is_response_ok(response) or ErrorInstruction in terminal_response_text(response)
+    return not is_response_ok(response)
 
 HelpInstruction = "help"
 
@@ -337,8 +338,162 @@ Use help <command> for command-specific details.
   reloadModules - Reload TeamServer module libraries."""
 
 
+def splitTerminalCommand(commandLine: str) -> list[str]:
+    """Match TeamServerCommandLine::splitInput, including its single quotes."""
+    tokens = []
+    token = ""
+    index = 0
+    while index < len(commandLine):
+        char = commandLine[index]
+        if char == " ":
+            if token:
+                tokens.append(token)
+            token = ""
+        elif char == "'":
+            closing = commandLine.find("'", index + 1)
+            if closing < 0:
+                raise ValueError("Unclosed single quote.")
+            token += commandLine[index + 1:closing]
+            index = closing
+        else:
+            token += char
+        index += 1
+    if token:
+        tokens.append(token)
+    return tokens
+
+
+def quoteServerToken(token: str) -> str:
+    if not token or "'" in token:
+        raise ValueError("An argument cannot be empty or contain an apostrophe.")
+    return f"'{token}'" if " " in token else token
+
+
+_sensitiveKeys = {"password", "passwd", "token", "secret", "api-key", "apikey", "access-token", "authorization"}
+_sensitiveResultPattern = re.compile(
+    r"(?i)([\"']?\b(?:password|passwd|token|secret|api[-_]?key|access[-_]?token|authorization)"
+    r"[\"']?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,}]+)"
+)
+_bearerPattern = re.compile(r"(?i)\bBearer\s+[^\s,}]+")
+
+
 def redactTerminalCommand(commandLine: str) -> str:
-    return commandLine
+    try:
+        tokens = splitTerminalCommand(commandLine)
+    except ValueError:
+        return "[invalid command redacted]"
+    redacted = []
+    redact_next = False
+    dropper_tail = bool(tokens and tokens[0].lower() == DropperInstruction and len(tokens) > 4)
+    arch_value = False
+    tail_redacted = False
+    for index, token in enumerate(tokens):
+        if dropper_tail and index >= 4:
+            lowered = token.lower()
+            if arch_value:
+                redacted.append(token)
+                arch_value = False
+                continue
+            if lowered == "--arch" or lowered == "--beacon-arch":
+                redacted.append(token)
+                arch_value = True
+                continue
+            if DropperArchFlagPattern.match(token):
+                redacted.append(token)
+                continue
+            if not tail_redacted:
+                redacted.append("[arguments redacted]")
+                tail_redacted = True
+            continue
+        if redact_next:
+            redacted.append("[REDACTED]")
+            redact_next = False
+            continue
+        key, separator, value = token.partition("=")
+        normalized = key.lstrip("-").lower().replace("_", "-")
+        if normalized in _sensitiveKeys:
+            if separator:
+                redacted.append(key + "=[REDACTED]")
+            else:
+                redacted.append(token)
+                redact_next = True
+            continue
+        redacted.append(token)
+    return " ".join(quoteServerToken(token) for token in redacted)
+
+
+def _sensitiveCommandValues(commandLine: str) -> set[str]:
+    try:
+        tokens = splitTerminalCommand(commandLine)
+    except ValueError:
+        return set()
+    values = set()
+    redact_next = False
+    dropper_tail = bool(tokens and tokens[0].lower() == DropperInstruction and len(tokens) > 4)
+    arch_value = False
+    for index, token in enumerate(tokens):
+        if dropper_tail and index >= 4:
+            if arch_value:
+                arch_value = False
+                continue
+            if token.lower() in ("--arch", "--beacon-arch"):
+                arch_value = True
+                continue
+            if DropperArchFlagPattern.match(token):
+                continue
+            values.add(token)
+            continue
+        if redact_next:
+            values.add(token)
+            redact_next = False
+            continue
+        key, separator, value = token.partition("=")
+        if key.lstrip("-").lower().replace("_", "-") in _sensitiveKeys:
+            if separator:
+                values.add(value)
+            else:
+                redact_next = True
+    return {value for value in values if value}
+
+
+def redactTerminalResult(result: str, commandLine: str = "") -> str:
+    text = _sensitiveResultPattern.sub(lambda match: match.group(1) + "[REDACTED]", str(result))
+    text = _bearerPattern.sub("Bearer [REDACTED]", text)
+    for value in sorted(_sensitiveCommandValues(commandLine), key=len, reverse=True):
+        text = text.replace(value, "[REDACTED]")
+    return text
+
+
+def _appendPrivateLine(path: str, line: str) -> None:
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+        output.write(line + "\n")
+
+
+def _readSanitizedTerminalHistory(path: str) -> list[str]:
+    if not os.path.isfile(path):
+        return []
+    with open(path, encoding="utf-8") as history_file:
+        original = history_file.readlines()
+    sanitized = [redactTerminalCommand(line.rstrip("\r\n")) + "\n" for line in original]
+    if sanitized != original:
+        directory = os.path.dirname(os.path.abspath(path))
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=directory, prefix=".terminal-history-",
+                delete=False,
+            ) as temporary:
+                temporary_path = temporary.name
+                os.chmod(temporary_path, 0o600)
+                temporary.writelines(sanitized)
+            os.replace(temporary_path, path)
+        except OSError:
+            logger.exception("Could not sanitize terminal history on disk")
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+    return sanitized
 
 
 def normalizeWindowsArch(arch):
@@ -715,6 +870,9 @@ class Terminal(QWidget):
         self._terminalThread = None
         self._completionWorker = None
         self._completionThread = None
+        self._completionTimer = QTimer(self)
+        self._completionTimer.setInterval(30000)
+        self._completionTimer.timeout.connect(self._refreshCompletionAsync)
 
         self.searchInput = QLineEdit()
         self.searchInput.setPlaceholderText("Search output")
@@ -755,6 +913,7 @@ class Terminal(QWidget):
 
         self.commandEditor = CommandEditor(grpcClient=self.grpcClient, load_remote=False)
         self.commandEditor._asyncRefresh = self._refreshCompletionAsync
+        self.commandEditor._refreshOnFocus = True
         self.commandEditor.setPlaceholderText("Terminal command")
         self.commandEditor.setMinimumHeight(28)
         self.layout.addWidget(self.commandEditor, 0)
@@ -763,7 +922,12 @@ class Terminal(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._completionTimer.start()
         self._refreshCompletionAsync()
+
+    def hideEvent(self, event):
+        self._completionTimer.stop()
+        super().hideEvent(event)
 
     def _refreshCompletionAsync(self):
         if self._completionWorker is not None:
@@ -778,8 +942,11 @@ class Terminal(QWidget):
 
     def _applyCompletions(self, data):
         if data != self.commandEditor.completionData:
+            popup_visible = self.commandEditor.dropdown.isVisible()
             self.commandEditor.completionData = data
             self.commandEditor.hideCompletionPopup()
+            if popup_visible:
+                self.commandEditor.showCompletionPopup()
         self._completionWorker = None
         self._completionThread = None
 
@@ -801,6 +968,7 @@ class Terminal(QWidget):
         self.setTerminalNotice("")
         self._terminalWorker = None
         self._terminalThread = None
+        self._refreshCompletionAsync()
 
 
     def event(self, event):
@@ -813,15 +981,26 @@ class Terminal(QWidget):
     def printInTerminal(self, cmd, result, role="user"):
         normalized_role = role if role in {"system", "user"} else "user"
         has_entry = bool(cmd or result)
+        display_cmd = redactTerminalCommand(cmd) if normalized_role == "user" and cmd else cmd
         append_console_block(
             self.editorOutput,
-            cmd,
+            display_cmd,
             result,
             marker=f"[{normalized_role}]",
             tone=normalized_role,
         )
         if has_entry:
             append_console_spacing(self.editorOutput)
+        if normalized_role == "user" and cmd and result != InfoProcessing:
+            try:
+                audit = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "command": display_cmd,
+                    "result": redactTerminalResult(result, cmd),
+                }
+                _appendPrivateLine(os.path.join(logsDir, AuditFileName), json.dumps(audit, ensure_ascii=False))
+            except OSError:
+                logger.exception("Could not append terminal audit entry")
         self.setCursorEditorAtEnd()
 
 
@@ -878,6 +1057,11 @@ class Terminal(QWidget):
 
     def runCommand(self):
         commandLine = self.commandEditor.displayText()
+        try:
+            instructions = splitTerminalCommand(commandLine)
+        except ValueError as exc:
+            self.setTerminalNotice(str(exc), True)
+            return
         self.commandEditor.clearLine()
         self.setCursorEditorAtEnd()
 
@@ -886,18 +1070,11 @@ class Terminal(QWidget):
 
         else:
             commandLineForLog = redactTerminalCommand(commandLine)
-            cmdHistoryFile = open(HistoryFileName, 'a')
-            cmdHistoryFile.write(commandLineForLog)
-            cmdHistoryFile.write('\n')
-            cmdHistoryFile.close()
-
-            logFile = open(logsDir+"/"+self.logFileName, 'a')
-            logFile.write('[+] send: \"' + commandLineForLog + '\"')
-            logFile.write('\n')
-            logFile.close()
-
-            self.commandEditor.setCmdHistory()
-            instructions = commandLine.split()
+            try:
+                _appendPrivateLine(HistoryFileName, commandLineForLog)
+                self.commandEditor.setCmdHistory()
+            except OSError:
+                logger.exception("Could not append terminal history")
             if len(instructions) < 1:
                 return;
 
@@ -1012,7 +1189,11 @@ class Terminal(QWidget):
                 self.printInTerminal(commandLine, ErrorFileNotFound)
                 return  
 
-            commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
+            try:
+                commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + quoteServerToken(filename)
+            except ValueError as exc:
+                self.printInTerminal(commandLine, f"Error: {exc}")
+                return
             termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
             resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
@@ -1027,7 +1208,11 @@ class Terminal(QWidget):
         elif cmd == "BundleInstall".lower():
 
             filePathList = batcave.downloadBatBundle(batgadget)
-            line = ""
+            if not filePathList:
+                self.printInTerminal(commandLine, "Error: Batcave bundle not found or empty.")
+                return
+            files = []
+            names = set()
             for filePath in filePathList:
                 try:
                     filename = os.path.basename(filePath)
@@ -1036,19 +1221,24 @@ class Terminal(QWidget):
                 except IOError:
                     self.printInTerminal(commandLine, ErrorFileNotFound)
                     return  
+                if filename in names:
+                    self.printInTerminal(commandLine, f"Error: duplicate Batcave filename {filename}.")
+                    return
+                names.add(filename)
+                files.append((filename, payload))
 
-                commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + filename
-                termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
-                resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-                result = terminal_response_text(resultTermCommand)
-                if isTerminalResponseError(resultTermCommand):
-                    self.printInTerminal(commandLine, result)
-                    return  
-
-                line += f"Added {filename} to TeamServer Tools.\n"
-            line += f"BatBundle {batgadget} successfully installed!"
-            self.printInTerminal(commandLine, line)
+            manifest = json.dumps(
+                [[filename, len(payload)] for filename, payload in files],
+                separators=(",", ":"),
+            ).encode("utf-8")
+            bundlePayload = manifest + b"\n" + b"".join(payload for _, payload in files)
+            termCommand = TeamServerApi_pb2.TerminalCommandRequest(
+                command=GrpcBatcaveUploadBundleInstruction, data=bundlePayload,
+            )
+            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            result = terminal_response_text(resultTermCommand)
+            self.printInTerminal(commandLine, result)
+            return
 
         elif cmd == "Search".lower():
             result = batcave.searchTheBatcave(batgadget)
@@ -1071,33 +1261,16 @@ class Terminal(QWidget):
         hostListenerHash = instructions[2]
         hostedFilename = instructions[3] if len(instructions) >= 4 else ""
 
-        commandTeamServer = GrpcInfoListenerInstruction+" "+hostListenerHash
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-        result = terminal_response_text(resultTermCommand)
-        if isTerminalResponseError(resultTermCommand):
-            self.printInTerminal(commandLine, result)
-            return        
-
-        results = result.split("\n")
-        if len(results)<4:
+        try:
+            arguments = [hostListenerHash, artifactReference]
+            if hostedFilename:
+                arguments.append(hostedFilename)
+            commandTeamServer = GrpcHostArtifactInstruction + " " + " ".join(
+                quoteServerToken(argument) for argument in arguments
+            )
+        except ValueError as exc:
+            self.printInTerminal(commandLine, f"Error: {exc}")
             return
-
-        schemeDownload = results[0]
-        ipDownload = results[1]
-        portDownload = results[2]
-        downloadPath = results[3]
-        if not downloadPath:
-            self.printInTerminal(commandLine, ErrorListener)
-            return
-
-        if downloadPath[0]=="/":
-            downloadPath = downloadPath[1:]
-
-        commandTeamServer = GrpcHostArtifactInstruction+" "+hostListenerHash+" "+artifactReference
-        if hostedFilename:
-            commandTeamServer += " " + hostedFilename
         termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
         resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
 
@@ -1106,12 +1279,11 @@ class Terminal(QWidget):
             self.printInTerminal(commandLine, result)
             return  
 
-        hostedFilename = result.strip()
-        if not hostedFilename:
-            self.printInTerminal(commandLine, "Error: hosted artifact filename missing.")
+        hostedUrl = result.strip()
+        if not hostedUrl.startswith(("http://", "https://")):
+            self.printInTerminal(commandLine, "Error: TeamServer did not return a hosted artifact URL.")
             return
 
-        hostedUrl =  schemeDownload + "://" + ipDownload + ":" + portDownload + "/" + downloadPath + hostedFilename
         self.printInTerminal(commandLine, hostedUrl)
 
 
@@ -1240,7 +1412,7 @@ class Terminal(QWidget):
                 if not targetArch:
                     self.printInTerminal(commandLine, DropperConfigUnknownArchError)
                     return
-                additionalArgss = " ".join(remainingArgs)
+                additionalArgs = remainingArgs
 
                 if self.dropperWorker:
                     self.printInTerminal(commandLine, DropperThreadRunningMessage)
@@ -1256,7 +1428,7 @@ class Terminal(QWidget):
                         moduleName,
                         listenerDownload,
                         listenerBeacon,
-                        additionalArgss,
+                        additionalArgs,
                         shellcodeGenerator,
                         targetArch,
                     )
@@ -1276,6 +1448,7 @@ class Terminal(QWidget):
         self.printInTerminal(cmd, result)
         self.dropperWorker = None
         self.thread = None
+        self._refreshCompletionAsync()
 
 
     # setCursorEditorAtEnd
@@ -1354,7 +1527,10 @@ class DropperWorker(QObject):
         self.moduleName = moduleName
         self.listenerDownload = listenerDownload
         self.listenerBeacon = listenerBeacon
-        self.additionalArgs = additionalArgs
+        self.additionalArgs = (
+            splitTerminalCommand(additionalArgs)
+            if isinstance(additionalArgs, str) else list(additionalArgs)
+        )
         self.shellcodeGenerator = shellcodeGenerator or ShellcodeGeneratorDonut
         self.targetArch = normalizeWindowsArch(targetArch) or DefaultWindowsArch
         self._resultSent = False
@@ -1498,7 +1674,7 @@ class DropperWorker(QObject):
                             rawshellcode = ModuleShellcodeFileName
 
                 genPayload = getattr(module, DropperModuleGeneratePayloadFunction)
-                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, rawshellcode, urlDownload, self.additionalArgs.split(" "))
+                droppersPath, shellcodesPath, cmdToRun = genPayload(beaconFilePath, beaconArg, rawshellcode, urlDownload, self.additionalArgs)
 
         # Upload the file and get the path
         for dropperPath in droppersPath:
@@ -1554,10 +1730,8 @@ class CommandEditor(CompletionInput):
         self.cmdHistory = []
         self.idx = 0
 
-        if os.path.isfile(HistoryFileName):
-            with open(HistoryFileName, encoding="utf-8") as cmdHistoryFile:
-                self.cmdHistory = cmdHistoryFile.readlines()
-                self.idx = len(self.cmdHistory) - 1
+        self.cmdHistory = _readSanitizedTerminalHistory(HistoryFileName)
+        self.idx = len(self.cmdHistory) - 1
 
         QShortcut(Qt.Key.Key_Up, self.lineEdit, self.historyUp)
         QShortcut(Qt.Key.Key_Down, self.lineEdit, self.historyDown)
@@ -1566,10 +1740,13 @@ class CommandEditor(CompletionInput):
         return build_terminal_completer_data(self.grpcClient)
 
     def refreshCompleter(self, force=False):
+        self.refreshCompletions(force)
+
+    def refreshCompletions(self, force=False):
         if self._asyncRefresh is not None:
             self._asyncRefresh()
         else:
-            self.refreshCompletions(force)
+            super().refreshCompletions(force)
 
     def completionLookupPrefix(self):
         return self.completionPrefix()
@@ -1587,9 +1764,8 @@ class CommandEditor(CompletionInput):
             self.setText(cmd.strip())
 
     def setCmdHistory(self):
-        with open(HistoryFileName, encoding="utf-8") as cmdHistoryFile:
-            self.cmdHistory = cmdHistoryFile.readlines()
-            self.idx = len(self.cmdHistory) - 1
+        self.cmdHistory = _readSanitizedTerminalHistory(HistoryFileName)
+        self.idx = len(self.cmdHistory) - 1
 
     def clearLine(self):
         self.clear()

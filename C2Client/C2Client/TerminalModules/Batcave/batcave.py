@@ -17,7 +17,7 @@ def getLatestRelease(githubUrl: str):
 
 def fetchBatcaveJson():
     urlToFetch = getLatestRelease(BatcaveUrl)
-    response = requests.get(urlToFetch)
+    response = requests.get(urlToFetch, timeout=(5, 30))
 
     res = {}
     if response.status_code == 200:
@@ -26,7 +26,7 @@ def fetchBatcaveJson():
             if asset["name"].endswith(".json"):
                 json_url = asset["browser_download_url"]
             
-                json_response = requests.get(json_url)
+                json_response = requests.get(json_url, timeout=(5, 30))
                 if json_response.status_code == 200:
                     json_data = json_response.json()
                     return json_data
@@ -74,14 +74,14 @@ def searchTheBatcave(name: str):
 
 def saveZipInLocalCache(releaseURL: str):
     os.makedirs(BatcaveCache, exist_ok=True)
-    response = requests.get(releaseURL)
+    response = requests.get(releaseURL, timeout=(5, 30))
     if response.status_code == 200:
         release_data = response.json()
         for asset in release_data.get("assets", []):
             if asset["name"].endswith(".zip"):  # Assuming the file is a ZIP
                 zip_url = asset["browser_download_url"]
                 zip_file_path = os.path.join(BatcaveCache, asset["name"])
-                with requests.get(zip_url, stream=True) as r:
+                with requests.get(zip_url, stream=True, timeout=(5, 30)) as r:
                     r.raise_for_status()
                     with open(zip_file_path, "wb") as f:
                         for chunk in r.iter_content(chunk_size=8192):
@@ -124,7 +124,8 @@ def downloadBatBundle(name: str):
         if name.lower() == bundleName.lower():
             for gadgetName in bundle.get(bundleName):
                 batGadgetPath = downloadBatGadget(gadgetName)
-                if  batGadgetPath != "":
-                    res.append(batGadgetPath)
+                if not batGadgetPath:
+                    raise RuntimeError(f"Batcave gadget {gadgetName} is unavailable.")
+                res.append(batGadgetPath)
             return res
     return []

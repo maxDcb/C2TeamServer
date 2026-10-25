@@ -22,7 +22,8 @@ public:
     void configure(const nlohmann::json& config);
 
     grpc::Status authenticate(const teamserverapi::AuthRequest& request, teamserverapi::AuthResponse& response);
-    grpc::Status ensureAuthenticated(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata);
+    grpc::Status ensureAuthenticated(const std::multimap<grpc::string_ref, grpc::string_ref>& metadata,
+        std::string* authenticatedUsername = nullptr);
 
 private:
     std::string generateToken() const;
@@ -34,7 +35,12 @@ private:
     std::shared_ptr<spdlog::logger> m_logger;
     std::string m_authCredentialsFile;
     std::unordered_map<std::string, std::string> m_userPasswordHashes;
-    std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_activeTokens;
+    struct ActiveToken
+    {
+        std::chrono::steady_clock::time_point expiresAt;
+        std::string username;
+    };
+    std::unordered_map<std::string, ActiveToken> m_activeTokens;
     std::chrono::minutes m_tokenValidityDuration;
     mutable std::mutex m_authMutex;
 };
