@@ -82,8 +82,23 @@ def test_grpc_client_lists_artifacts(tmp_path, monkeypatch):
     client.set_status_callback(lambda operation, ok, message: events.append((operation, ok, message)))
 
     assert list(client.listArtifacts(query)) == [artifact]
-    stub.ListArtifacts.assert_called_once_with(query, metadata=client.metadata)
+    stub.ListArtifacts.assert_called_once_with(query, metadata=client.metadata, timeout=10.0)
     assert events == [("ListArtifacts", True, "")]
+
+
+def test_terminal_rpc_uses_configurable_deadline(monkeypatch):
+    client = object.__new__(GrpcClient)
+    client.stub = mock.MagicMock()
+    client.metadata = []
+    client._unary_rpc = lambda operation, call: call()
+    monkeypatch.setenv("C2_GRPC_TERMINAL_TIMEOUT_SEC", "7")
+
+    command = TeamServerApi_pb2.TerminalCommandRequest(command="reloadModules")
+    client.executeTerminalCommand(command)
+
+    client.stub.ExecuteTerminalCommand.assert_called_once_with(
+        command, metadata=[], timeout=7,
+    )
 
 
 def test_grpc_client_downloads_artifact(tmp_path, monkeypatch):

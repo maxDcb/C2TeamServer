@@ -35,6 +35,18 @@ from .TerminalModules.Batcave import batcave
 from git import Repo 
 
 logger = logging.getLogger(__name__)
+_activeWorkerThreads = set()
+
+
+def _keepWorkerThreadAlive(thread, worker):
+    # A Terminal tab may close while its bounded network request is in flight.
+    # Keep both Qt objects alive until the worker has stopped.
+    pair = (thread, worker)
+    _activeWorkerThreads.add(pair)
+    worker.finished.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+    thread.finished.connect(worker.deleteLater)
+    thread.finished.connect(thread.deleteLater)
+    thread.finished.connect(lambda: _activeWorkerThreads.discard(pair))
 
 
 #
@@ -699,6 +711,10 @@ class Terminal(QWidget):
         self.logFileName = LogFileName
         self.dropperWorker = None
         self.thread = None
+        self._terminalWorker = None
+        self._terminalThread = None
+        self._completionWorker = None
+        self._completionThread = None
 
         self.searchInput = QLineEdit()
         self.searchInput.setPlaceholderText("Search output")
@@ -737,12 +753,54 @@ class Terminal(QWidget):
         self.editorOutput.setLineWrapColumnOrWidth(0)
         self.layout.addWidget(self.editorOutput, 8)
 
-        self.commandEditor = CommandEditor(grpcClient=self.grpcClient)
+        self.commandEditor = CommandEditor(grpcClient=self.grpcClient, load_remote=False)
+        self.commandEditor._asyncRefresh = self._refreshCompletionAsync
         self.commandEditor.setPlaceholderText("Terminal command")
         self.commandEditor.setMinimumHeight(28)
         self.layout.addWidget(self.commandEditor, 0)
         self.commandEditor.returnPressed.connect(self.runCommand)
         self.printInTerminal("Terminal", TerminalWelcomeMessage, role="system")
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._refreshCompletionAsync()
+
+    def _refreshCompletionAsync(self):
+        if self._completionWorker is not None:
+            return
+        self._completionThread = QThread()
+        self._completionWorker = TerminalCompletionWorker(self.grpcClient)
+        self._completionWorker.moveToThread(self._completionThread)
+        self._completionThread.started.connect(self._completionWorker.run)
+        self._completionWorker.finished.connect(self._applyCompletions)
+        _keepWorkerThreadAlive(self._completionThread, self._completionWorker)
+        self._completionThread.start()
+
+    def _applyCompletions(self, data):
+        if data != self.commandEditor.completionData:
+            self.commandEditor.completionData = data
+            self.commandEditor.hideCompletionPopup()
+        self._completionWorker = None
+        self._completionThread = None
+
+    def _startTerminalCommand(self, commandLine, instructions, action):
+        if self._terminalWorker is not None:
+            self.printInTerminal(commandLine, "Error: another terminal command is still running.")
+            return
+        self._terminalThread = QThread()
+        self._terminalWorker = TerminalCommandWorker(self.grpcClient, commandLine, instructions, action)
+        self._terminalWorker.moveToThread(self._terminalThread)
+        self._terminalThread.started.connect(self._terminalWorker.run)
+        self._terminalWorker.finished.connect(self._finishTerminalCommand)
+        _keepWorkerThreadAlive(self._terminalThread, self._terminalWorker)
+        self._terminalThread.start()
+        self.setTerminalNotice("Processing...")
+
+    def _finishTerminalCommand(self, commandLine, result):
+        self.printInTerminal(commandLine, result)
+        self.setTerminalNotice("")
+        self._terminalWorker = None
+        self._terminalThread = None
 
 
     def event(self, event):
@@ -866,15 +924,15 @@ class Terminal(QWidget):
                     else:
                         self.printInTerminal(commandLine, f"No terminal help available for {instructions[1]}.")
             elif instructions[0].lower()==BatcaveInstruction.lower():
-                self.runBatcave(commandLine, instructions)
+                self._startTerminalCommand(commandLine, instructions, "batcave")
             elif instructions[0].lower()==HostInstruction.lower():
-                self.runHost(commandLine, instructions)
+                self._startTerminalCommand(commandLine, instructions, "host")
             elif instructions[0].lower()==DropperInstruction.lower():
                 self.runDropper(commandLine, instructions)
             elif instructions[0].lower()==SocksInstruction.lower():
-                self.runSocks(commandLine, instructions)
+                self._startTerminalCommand(commandLine, instructions, "socks")
             elif instructions[0].lower()==ReloadModulesInstruction.lower():
-                self.runReloadModules(commandLine, instructions)
+                self._startTerminalCommand(commandLine, instructions, "reloadmodules")
             else:
                 self.printInTerminal(commandLine, ErrorCmdUnknow)
 
@@ -1205,6 +1263,7 @@ class Terminal(QWidget):
                     self.dropperWorker.moveToThread(self.thread)
                     self.thread.started.connect(self.dropperWorker.run)
                     self.dropperWorker.finished.connect(self.printDropperResult)
+                    _keepWorkerThreadAlive(self.thread, self.dropperWorker)
                     self.thread.start()
 
                     self.printInTerminal(commandLine, InfoProcessing)
@@ -1216,13 +1275,63 @@ class Terminal(QWidget):
     def printDropperResult(self, cmd, result):
         self.printInTerminal(cmd, result)
         self.dropperWorker = None
-        self.thread.quit()
-        self.thread.wait()
+        self.thread = None
 
 
     # setCursorEditorAtEnd
     def setCursorEditorAtEnd(self):
         move_editor_to_end(self.editorOutput)
+
+
+class TerminalCompletionWorker(QObject):
+    finished = pyqtSignal(object)
+
+    def __init__(self, grpcClient):
+        super().__init__()
+        self.grpcClient = grpcClient
+
+    def run(self):
+        try:
+            data = build_terminal_completer_data(self.grpcClient)
+        except Exception:
+            logger.exception("Terminal completion refresh failed")
+            data = build_terminal_completer_data()
+        self.finished.emit(data)
+
+
+class TerminalCommandWorker(QObject):
+    finished = pyqtSignal(str, str)
+
+    def __init__(self, grpcClient, commandLine, instructions, action):
+        super().__init__()
+        self.grpcClient = grpcClient
+        self.commandLine = commandLine
+        self.instructions = instructions
+        self.action = action
+        self._resultSent = False
+
+    def printInTerminal(self, commandLine, result):
+        self._resultSent = True
+        self.finished.emit(commandLine, result)
+
+    def run(self):
+        # These handlers use only grpcClient and printInTerminal. The worker
+        # supplies both, so no QWidget is accessed from its thread.
+        handlers = {
+            "batcave": Terminal.runBatcave,
+            "host": Terminal.runHost,
+            "socks": Terminal.runSocks,
+            "reloadmodules": Terminal.runReloadModules,
+        }
+        try:
+            handlers[self.action](self, self.commandLine, self.instructions)
+        except Exception as exc:
+            logger.exception("Terminal command failed: %s", self.action)
+            if not self._resultSent:
+                self.printInTerminal(self.commandLine, f"Error: {exc}")
+        finally:
+            if not self._resultSent:
+                self.printInTerminal(self.commandLine, "Error: terminal command returned no result.")
 
 
 class DropperWorker(QObject):
@@ -1248,8 +1357,23 @@ class DropperWorker(QObject):
         self.additionalArgs = additionalArgs
         self.shellcodeGenerator = shellcodeGenerator or ShellcodeGeneratorDonut
         self.targetArch = normalizeWindowsArch(targetArch) or DefaultWindowsArch
+        self._resultSent = False
 
     def run(self):
+        try:
+            self._run()
+        except Exception as exc:
+            logger.exception("Dropper generation failed")
+            self._finish(f"Error: {exc}")
+        finally:
+            self._finish("Error: dropper ended without a result.")
+
+    def _finish(self, result):
+        if not self._resultSent:
+            self._resultSent = True
+            self.finished.emit(self.commandLine, result)
+
+    def _run(self):
 
         commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerDownload
         termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
@@ -1259,11 +1383,12 @@ class DropperWorker(QObject):
 
         result = terminal_response_text(resultTermCommand)
         if isTerminalResponseError(resultTermCommand):
-            self.finished.emit(self.commandLine, result)
+            self._finish(result)
             return        
 
         results = result.split("\n")
         if len(results)<4:
+            self._finish("Error: invalid listener response from TeamServer.")
             return
 
         schemeDownload = results[0].lower()
@@ -1271,7 +1396,7 @@ class DropperWorker(QObject):
         portDownload = results[2]
         downloadPath = results[3]
         if not downloadPath:
-            self.printInTerminal(self.commandLine, ErrorListener)
+            self._finish(ErrorListener)
             return
 
         if downloadPath[0]=="/":
@@ -1284,11 +1409,12 @@ class DropperWorker(QObject):
 
             result = terminal_response_text(resultTermCommand)
             if isTerminalResponseError(resultTermCommand):
-                self.finished.emit(self.commandLine, result)
+                self._finish(result)
                 return   
 
             results = result.split("\n")
             if len(results)<4:
+                self._finish("Error: invalid listener response from TeamServer.")
                 return
 
             scheme = results[0]
@@ -1319,7 +1445,7 @@ class DropperWorker(QObject):
 
         result = terminal_response_text(resultTermCommand)
         if isTerminalResponseError(resultTermCommand):
-            self.finished.emit(self.commandLine, result)
+            self._finish(result)
             return   
 
         beaconFilePath = makeBeaconFilePath(targetOs, self.targetArch)
@@ -1351,7 +1477,7 @@ class DropperWorker(QObject):
                     logger.debug(DonutShellcodeGeneratorMessage)
                     donutError = createDonutShellcode(beaconFilePath, beaconArg, self.targetArch)
                     if donutError:
-                        self.finished.emit(self.commandLine, "Error: " + donutError)
+                        self._finish("Error: " + donutError)
                         return
                     beaconArg = ""
                     beaconFilePath = ""
@@ -1380,7 +1506,7 @@ class DropperWorker(QObject):
                 with open(dropperPath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self.printInTerminal(self.commandLine, ErrorFileNotFound)
+                self._finish(ErrorFileNotFound)
                 return  
 
             filename = os.path.basename(dropperPath)
@@ -1390,7 +1516,7 @@ class DropperWorker(QObject):
 
             result = terminal_response_text(resultTermCommand)
             if isTerminalResponseError(resultTermCommand):
-                self.finished.emit(self.commandLine, result)
+                self._finish(result)
                 return  
             
         for shellcodePath in shellcodesPath:
@@ -1398,7 +1524,7 @@ class DropperWorker(QObject):
                 with open(shellcodePath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self.printInTerminal(self.commandLine, ErrorFileNotFound)
+                self._finish(ErrorFileNotFound)
                 return  
 
             filename = os.path.basename(shellcodePath)
@@ -1408,21 +1534,22 @@ class DropperWorker(QObject):
 
             result = terminal_response_text(resultTermCommand)
             if isTerminalResponseError(resultTermCommand):
-                self.finished.emit(self.commandLine, result)
+                self._finish(result)
                 return  
                 
         result = cmdToRun 
-        self.finished.emit(self.commandLine, result)
+        self._finish(result)
         return
 
 
 class CommandEditor(CompletionInput):
-    def __init__(self, parent=None, grpcClient=None):
+    def __init__(self, parent=None, grpcClient=None, load_remote=True):
         super().__init__(
             parent,
-            completion_data=build_terminal_completer_data(grpcClient),
+            completion_data=build_terminal_completer_data(grpcClient if load_remote else None),
         )
         self.grpcClient = grpcClient
+        self._asyncRefresh = None
         self._completionProvider = self.loadCompletionData
         self.cmdHistory = []
         self.idx = 0
@@ -1439,7 +1566,10 @@ class CommandEditor(CompletionInput):
         return build_terminal_completer_data(self.grpcClient)
 
     def refreshCompleter(self, force=False):
-        self.refreshCompletions(force)
+        if self._asyncRefresh is not None:
+            self._asyncRefresh()
+        else:
+            self.refreshCompletions(force)
 
     def completionLookupPrefix(self):
         return self.completionPrefix()

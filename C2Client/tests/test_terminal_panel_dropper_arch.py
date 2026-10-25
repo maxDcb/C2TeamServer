@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from threading import Event
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget
@@ -137,7 +138,7 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
 def test_terminal_command_error_message_uses_status_message(qtbot):
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeKoGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.runReloadModules("reloadModules", ["reloadModules"])
 
@@ -145,11 +146,111 @@ def test_terminal_command_error_message_uses_status_message(qtbot):
     assert "raw failure" not in terminal.editorOutput.toPlainText()
 
 
+def test_terminal_command_keeps_ui_responsive_and_reports_disconnect(qtbot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    started = Event()
+    release = Event()
+
+    class DisconnectedGrpc(FakeGrpc):
+        def executeTerminalCommand(self, command):
+            started.set()
+            release.wait(2)
+            raise RuntimeError("server unavailable")
+
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, DisconnectedGrpc())
+    qtbot.addWidget(parent)
+    terminal.commandEditor.setText("reloadModules")
+    try:
+        terminal.runCommand()
+        assert started.wait(1)
+        assert terminal._terminalWorker is not None
+        terminal.runHelp("help")  # GUI work remains possible while the RPC waits.
+        assert "Available terminal commands:" in terminal.editorOutput.toPlainText()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: terminal._terminalWorker is None, timeout=3000)
+    assert "Error: server unavailable" in terminal.editorOutput.toPlainText()
+
+
+def test_terminal_initial_completion_does_not_wait_for_server(qtbot):
+    started = Event()
+    release = Event()
+
+    class SlowCompletionGrpc(FakeGrpc):
+        def listListeners(self):
+            started.set()
+            release.wait(2)
+            return iter([])
+
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, SlowCompletionGrpc())
+    qtbot.addWidget(parent)
+    assert not started.is_set()
+    try:
+        parent.show()
+        terminal.show()
+        qtbot.waitUntil(started.is_set, timeout=1000)
+        terminal.runHelp("help")
+        assert "Available terminal commands:" in terminal.editorOutput.toPlainText()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: terminal._completionWorker is None, timeout=3000)
+
+
+def test_terminal_can_close_while_rpc_is_in_flight(qtbot, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    started = Event()
+    release = Event()
+
+    class SlowGrpc(FakeGrpc):
+        def executeTerminalCommand(self, command):
+            started.set()
+            release.wait(2)
+            raise RuntimeError("server unavailable")
+
+    parent = QWidget()
+    terminal = terminal_panel.Terminal(parent, SlowGrpc())
+    qtbot.addWidget(parent)
+    baseline = len(terminal_panel._activeWorkerThreads)
+    terminal.commandEditor.setText("reloadModules")
+    try:
+        terminal.runCommand()
+        assert started.wait(1)
+        parent.close()
+        parent.deleteLater()
+    finally:
+        release.set()
+    qtbot.waitUntil(lambda: len(terminal_panel._activeWorkerThreads) == baseline, timeout=3000)
+
+
+def test_dropper_worker_always_emits_one_result_on_bad_response_or_exception():
+    class MalformedGrpc:
+        def executeTerminalCommand(self, command):
+            return SimpleNamespace(result="incomplete", data=b"")
+
+    class FailedGrpc:
+        def executeTerminalCommand(self, command):
+            raise RuntimeError("server unavailable")
+
+    for grpc in (MalformedGrpc(), FailedGrpc()):
+        worker = terminal_panel.DropperWorker(
+            grpc, "dropper test", "test", "download", "beacon", "",
+            terminal_panel.ShellcodeGeneratorDonut,
+        )
+        results = []
+        worker.finished.connect(lambda command, result: results.append((command, result)))
+        worker.run()
+        assert len(results) == 1
+        assert results[0][0] == "dropper test"
+        assert results[0][1].startswith("Error:")
+
+
 def test_terminal_host_uses_artifact_reference(qtbot):
     parent = QWidget()
     grpc = FakeGrpc()
     terminal = terminal_panel.Terminal(parent, grpc)
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.runHost("host artifact-123 listener-pri", ["host", "artifact-123", "listener-pri"])
 
@@ -164,7 +265,7 @@ def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
     parent = QWidget()
     grpc = FakeGrpc()
     terminal = terminal_panel.Terminal(parent, grpc)
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.runHost(
         "host dropper.exe(artifact-123) listener-pri",
@@ -177,7 +278,7 @@ def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
 def test_terminal_shows_welcome_message(qtbot):
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     output = terminal.editorOutput.toPlainText()
     lines = output.splitlines()
@@ -192,7 +293,7 @@ def test_terminal_shows_welcome_message(qtbot):
 def test_terminal_uses_dark_panel_toolbar(qtbot):
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     assert "#0b1117" in terminal.styleSheet()
     assert terminal.layout.spacing() == 6
@@ -206,7 +307,7 @@ def test_terminal_user_commands_use_user_badge(qtbot, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.commandEditor.setText("help")
     terminal.runCommand()
@@ -220,7 +321,7 @@ def test_terminal_user_commands_use_user_badge(qtbot, tmp_path, monkeypatch):
 def test_terminal_help_lists_lowercase_commands_with_descriptions(qtbot):
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.runHelp("help")
 
@@ -237,7 +338,7 @@ def test_terminal_specific_help_matches_command_spec_style(qtbot, tmp_path, monk
     monkeypatch.chdir(tmp_path)
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.commandEditor.setText("help host")
     terminal.runCommand()
@@ -255,7 +356,7 @@ def test_terminal_unknown_help_is_explicit(qtbot, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     parent = QWidget()
     terminal = terminal_panel.Terminal(parent, FakeGrpc())
-    qtbot.addWidget(terminal)
+    qtbot.addWidget(parent)
 
     terminal.commandEditor.setText("help doesNotExist")
     terminal.runCommand()

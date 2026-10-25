@@ -295,7 +295,7 @@ class GrpcClient:
 
         if query is None:
             query = TeamServerApi_pb2.ArtifactQuery()
-        return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata))
+        return self._stream_rpc("ListArtifacts", lambda: self.stub.ListArtifacts(query, metadata=self.metadata, timeout=10.0))
 
     def downloadArtifact(self, artifact_id: str) -> Any:
         """Return artifact payload bytes by id."""
@@ -466,5 +466,9 @@ class GrpcClient:
 
         return self._unary_rpc(
             "ExecuteTerminalCommand",
-            lambda: self.stub.ExecuteTerminalCommand(command, metadata=self.metadata),
+            lambda: self.stub.ExecuteTerminalCommand(
+                command,
+                metadata=self.metadata,
+                timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
+            ),
         )
