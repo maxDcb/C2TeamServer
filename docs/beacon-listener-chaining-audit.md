@@ -25,4 +25,4 @@ Points d'appui : [validation des métadonnées](../core/listener/Listener.cpp), 
 
 ## Limite de validation
 
-Les suites CI et les tests de l'installateur valident compilation, transports directs, service et déploiement. Ils ne démontrent pas encore le cycle pivot de bout en bout. Les constats ci-dessus sont établis par lecture du code et des tests ; les scénarios de chaîne complète restent à exécuter avant publication.
+Les suites CI et les tests de l'installateur valident compilation, transports directs, service et déploiement. Les [résultats manuels antérieurs](testing/manual-results.yaml) enregistrent aussi le démarrage et l'arrêt de listeners enfants TCP/SMB ainsi que la réapparition d'un listener TCP après redémarrage du TeamServer. Ils ne démontrent pas le passage d'un **second beacon** à travers le listener enfant et sa remontée sur plusieurs sauts. Les constats ci-dessus sont établis par lecture du code et des tests ; ces scénarios de chaîne complète restent à exécuter avant publication.
