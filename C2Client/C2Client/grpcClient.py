@@ -69,6 +69,9 @@ class GrpcClient:
         self.listener_mutation_timeout_seconds = env_int(
             "C2_LISTENER_MUTATION_TIMEOUT_SECONDS", 8, minimum=1,
         )
+        self.session_stop_timeout_seconds = env_int(
+            "C2_SESSION_STOP_TIMEOUT_SECONDS", 8, minimum=1,
+        )
 
         configured_cert_path = env_path("C2_CERT_PATH")
 
@@ -380,7 +383,12 @@ class GrpcClient:
     def stopSession(self, session: Any) -> Any:
         """Terminate a session."""
 
-        return self._unary_rpc("StopSession", lambda: self.stub.StopSession(session, metadata=self.metadata))
+        return self._unary_rpc(
+            "StopSession",
+            lambda: self.stub.StopSession(
+                session, metadata=self.metadata, timeout=self.session_stop_timeout_seconds,
+            ),
+        )
 
     def sendSessionCommand(self, command: Any) -> Any:
         """Submit a session command through the durable V2 job API."""

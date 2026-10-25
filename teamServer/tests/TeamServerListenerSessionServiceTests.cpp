@@ -159,6 +159,7 @@ void testCollectListenersAndSessions()
                .ok());
     assert(streamedSessions.size() == 1);
     assert(streamedSessions[0].beacon_hash() == "ABCDEFGH12345678ABCDEFGH12345678");
+    assert(streamedSessions[0].state() == teamserverapi::SESSION_STATE_RUNNING);
 
     primaryListener->fail();
     streamedListeners.clear();
@@ -794,7 +795,7 @@ void testDurableSessionCommandBridge()
         R"({"command":"whoami","beacon_hash":"ABCDEFGH12345678ABCDEFGH12345678","listener_hash":"listener-primary"})");
     requireBridge(afterStop.state == "failed" && afterStop.errorCode == "dispatch_failed",
         "Command after stop should fail during dispatch");
-    requireBridge(afterStop.errorMessage == "Session is stopped.",
+    requireBridge(afterStop.errorMessage == "Session stop in progress.",
         "Command after stop should explain why it was rejected");
     requireBridge(listener->getTask("ABCDEFGH12345678ABCDEFGH12345678").instruction().empty(),
         "Command after stop must not be queued");
@@ -853,7 +854,7 @@ void testStopDuringPreparationRejectsCommand()
     teamserverapi::CommandAck ack;
     requireStop(service.sendSessionCommand(request, &ack).ok(), "Session command RPC failed");
     requireStop(stopAck.status() == teamserverapi::OK, "Stop during preparation was not accepted");
-    requireStop(ack.status() == teamserverapi::KO && ack.message() == "Session is stopped.",
+    requireStop(ack.status() == teamserverapi::KO && ack.message() == "Session stop in progress.",
         "Command prepared before stop should be rejected at enqueue");
     requireStop(listener->getTask(beaconHash).instruction() == EndCmd,
         "Stop task should be the only queued task");
@@ -903,8 +904,25 @@ void testStaleListenerRouteUsesUniqueActiveSession()
     teamserverapi::OperationAck stopResponse;
     requireRoute(service.stopSession(stop, &stopResponse).ok(), "Rerouted stop RPC failed");
     requireRoute(stopResponse.status() == teamserverapi::OK, "Rerouted stop was rejected");
+    requireRoute(stopResponse.session_beacon_hash() == beaconHash
+        && stopResponse.session_listener_hash() == "current-listener"
+        && stopResponse.session_state() == teamserverapi::SESSION_STATE_STOPPING,
+        "Rerouted stop acknowledgement did not identify the active route and state");
+    std::vector<teamserverapi::Session> stoppingSessions;
+    requireRoute(service.streamSessions([&](const teamserverapi::Session& item)
+        { stoppingSessions.push_back(item); return true; }).ok(), "Stopping session listing failed");
+    requireRoute(stoppingSessions.size() == 1
+        && stoppingSessions[0].state() == teamserverapi::SESSION_STATE_STOPPING
+        && !stoppingSessions[0].killed(), "Queued stop disappeared before confirmation");
     requireRoute(current->getTask(beaconHash).instruction() == EndCmd,
         "Rerouted stop was not queued on the active listener");
+    requireRoute(current->markSessionKilled(beaconHash, "current-listener"), "Confirmation was not recorded");
+    stoppingSessions.clear();
+    requireRoute(service.streamSessions([&](const teamserverapi::Session& item)
+        { stoppingSessions.push_back(item); return true; }).ok(), "Confirmed session listing failed");
+    requireRoute(stoppingSessions.size() == 1
+        && stoppingSessions[0].state() == teamserverapi::SESSION_STATE_STOPPED
+        && stoppingSessions[0].killed(), "Confirmed stop was not visible");
 }
 
 void testStaleListenerRouteDoesNotGuessBetweenActivePaths()
@@ -943,6 +961,18 @@ void testStaleListenerRouteDoesNotGuessBetweenActivePaths()
     requireRoute(response.message().find("Multiple active routes") != std::string::npos,
         "Ambiguous route did not explain the conflict");
     requireRoute(sentCommands.empty(), "Ambiguous route queued a command");
+
+    teamserverapi::SessionSelector stop;
+    stop.set_beacon_hash(beaconHash);
+    stop.set_listener_hash("stale-listener");
+    teamserverapi::OperationAck stopResponse;
+    requireRoute(service.stopSession(stop, &stopResponse).ok(), "Ambiguous stop RPC failed");
+    requireRoute(stopResponse.status() == teamserverapi::KO
+        && stopResponse.message().find("Multiple active routes") != std::string::npos,
+        "Ambiguous stop did not reject the request");
+    for (const auto& listener : listeners)
+        requireRoute(listener->getTask(beaconHash).instruction().empty(),
+            "Ambiguous stop queued a task on a route");
 
     command.mutable_session()->set_listener_hash("route-two");
     teamserverapi::CommandAck exactResponse;

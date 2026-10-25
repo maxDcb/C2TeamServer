@@ -1,4 +1,5 @@
 from datetime import datetime
+from threading import Event
 from types import SimpleNamespace
 
 from PyQt6.QtWidgets import QApplication, QHeaderView, QWidget
@@ -119,6 +120,7 @@ def test_stop_session_ack_message_is_displayed(qtbot, monkeypatch):
 
     sessions.stopSession("beacon", "listener")
 
+    qtbot.waitUntil(lambda: sessions.statusLabel.text() == "Stop session: Session not found.")
     assert sessions.statusLabel.text() == "Stop session: Session not found."
     assert "#b00020" in sessions.statusLabel.styleSheet()
 
@@ -173,6 +175,7 @@ def test_session_toolbar_actions_use_selected_session(qtbot, monkeypatch):
     assert sessions.statusLabel.text() == "Beacon ID copied to clipboard."
 
     sessions.stopButton.click()
+    qtbot.waitUntil(lambda: bool(grpc.stopped_sessions))
     assert grpc.stopped_sessions[-1].beacon_hash == "beacon-full-hash"
     assert grpc.stopped_sessions[-1].listener_hash == "listener-full-hash"
 
@@ -319,9 +322,134 @@ def test_session_refresh_replaces_removed_listener_route(qtbot, monkeypatch):
     assert sessions.selectedSession() is None
     assert not sessions.interactButton.isEnabled()
     assert sessions.statusLabel.text() == "No active sessions on TeamServer; waiting for beacon check-in."
-    assert any(event[0:3] == ("stop", "beacon-full-hash", "old-listener") for event in events)
+    assert any(event[0:3] == ("retire", "beacon-full-hash", "old-listener") for event in events)
+    assert not any(event[0] == "stop" for event in events)
 
     sessions._applySessions([snapshot("new-listener")])
     assert sessions.listSession.rowCount() == 1
     assert sessions.listSessionObject[0].listenerHash == "new-listener"
     assert sessions.selectedSession() is None
+    assert not any(event[0] == "start" for event in events)
+
+
+def test_stop_session_runs_outside_gui_and_prevents_duplicate_request(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+
+    class DelayedGrpc(StubGrpc):
+        def __init__(self):
+            super().__init__()
+            self.started = Event()
+            self.release = Event()
+
+        def stopSession(self, session):
+            self.started.set()
+            self.release.wait(timeout=3)
+            return super().stopSession(session)
+
+    grpc = DelayedGrpc()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    qtbot.addWidget(sessions)
+    sessions.stopSession("beacon", "listener")
+    assert grpc.started.wait(timeout=2)
+    assert sessions._stop_pending is True
+    assert "waiting for TeamServer" in sessions.statusLabel.text()
+    sessions.stopSession("beacon", "listener")
+    assert grpc.stopped_sessions == []
+    grpc.release.set()
+    qtbot.waitUntil(lambda: not sessions._stop_pending)
+    assert len(grpc.stopped_sessions) == 1
+
+
+def test_stop_session_transport_error_is_visible_and_not_replayed(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+
+    class FailedGrpc(StubGrpc):
+        def stopSession(self, session):
+            self.stopped_sessions.append(session)
+            raise RuntimeError("deadline exceeded")
+
+    grpc = FailedGrpc()
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    qtbot.addWidget(sessions)
+    sessions.stopSession("beacon", "listener")
+    qtbot.waitUntil(lambda: not sessions._stop_pending)
+    assert "did not confirm" in sessions.statusLabel.text()
+    assert "deadline exceeded" in sessions.statusLabel.text()
+    assert len(grpc.stopped_sessions) == 1
+
+
+def test_context_action_targets_full_session_key_with_prefix_collision(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    parent = QWidget()
+    sessions = Sessions(parent, StubGrpc())
+    qtbot.addWidget(sessions)
+    sessions.listSessionObject = [
+        Session(0, "route-one", "abcdefgh-one", "host1", "user", "x64", "user", "Linux", "0", False, "", "1", ""),
+        Session(1, "route-two", "abcdefgh-two", "host2", "user", "x64", "user", "Linux", "0", False, "", "2", ""),
+    ]
+    class FakeMenu:
+        def __init__(self):
+            self.labels = []
+            self.triggered = SimpleNamespace(connect=lambda callback: None)
+
+        def addAction(self, label):
+            self.labels.append(label)
+            return SimpleNamespace(setEnabled=lambda enabled: None)
+
+        def exec(self, position):
+            return None
+
+    menu = FakeMenu()
+    monkeypatch.setattr(session_panel, "create_dark_context_menu", lambda parent: menu)
+    sessions.printSessions()
+    sessions.show()
+    position = sessions.listSession.visualItemRect(sessions.listSession.item(1, 0)).center()
+    sessions.showContextMenu(position)
+    assert menu.labels == ["Interact", "Stop"]
+    assert sessions._context_session_key == ("abcdefgh-two", "route-two")
+    emitted = []
+    sessions.interactWithSession.connect(lambda *args: emitted.append(args))
+    sessions.actionClicked(SimpleNamespace(text=lambda: "Interact"))
+    assert emitted == [("abcdefgh-two", "route-two", "host2", "user")]
+    sessions.actionClicked(SimpleNamespace(text=lambda: "Delete"))
+    assert len(sessions.listSessionObject) == 2
+
+
+def test_session_hooks_use_confirmed_transitions_and_ignore_poll_age(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.SessionPanel.QThread.start", lambda self: None)
+    grpc = StubGrpc()
+    grpc.auth_generation = 1
+    parent = QWidget()
+    sessions = Sessions(parent, grpc)
+    qtbot.addWidget(sessions)
+    events = []
+    sessions.sessionScriptSignal.connect(lambda *args: events.append(args))
+
+    def snapshot(route="listener", age="0.1", state=TeamServerApi_pb2.SESSION_STATE_RUNNING, user="user", beacon="beacon"):
+        return SimpleNamespace(
+            beacon_hash=beacon, listener_hash=route, hostname="host", username=user,
+            arch="x64", privilege="user", os="Linux", last_proof_of_life=age,
+            killed=state == TeamServerApi_pb2.SESSION_STATE_STOPPED,
+            internal_ips="", process_id="1", additional_information="", state=state,
+        )
+
+    sessions._applySessions([snapshot()])
+    assert [event[0] for event in events] == ["sync"]
+    sessions._applySessions([snapshot(age="1.1")])
+    assert [event[0] for event in events] == ["sync"]
+    sessions._applySessions([snapshot(user="changed")])
+    assert events[-1][0] == "update"
+    grpc.auth_generation = 2
+    sessions._applySessions([snapshot(route="new-listener")])
+    assert [event[0] for event in events[-2:]] == ["retire", "sync"]
+    sessions._applySessions([snapshot(route="new-listener", state=TeamServerApi_pb2.SESSION_STATE_STOPPING)])
+    assert events[-1][0] == "update"
+    sessions._applySessions([snapshot(route="new-listener", state=TeamServerApi_pb2.SESSION_STATE_STOPPED)])
+    assert events[-1][0] == "stop"
+    sessions._applySessions([])
+    assert events[-1][0] == "retire"
+    assert sum(event[0] == "stop" for event in events) == 1
+    sessions._applySessions([snapshot(beacon="new-beacon")])
+    assert events[-1][0] == "start"

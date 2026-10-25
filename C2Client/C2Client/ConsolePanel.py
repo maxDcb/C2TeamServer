@@ -1123,7 +1123,11 @@ class ConsolesTab(QWidget):
         for session in sessions:
             beacon_hash = getattr(session, "beacon_hash", "")
             listener_hash = getattr(session, "listener_hash", "")
-            if beacon_hash and listener_hash:
+            state = getattr(session, "state", TeamServerApi_pb2.SESSION_STATE_RUNNING)
+            if beacon_hash and listener_hash and not getattr(session, "killed", False) and state in {
+                TeamServerApi_pb2.SESSION_STATE_UNSPECIFIED,
+                TeamServerApi_pb2.SESSION_STATE_RUNNING,
+            }:
                 routes.setdefault(beacon_hash, set()).add(listener_hash)
         self._activeRoutesByBeacon = routes
         self._routesSnapshotReceived = True
@@ -1136,7 +1140,18 @@ class ConsolesTab(QWidget):
             previous_route = console.listenerHash
             was_available = getattr(console, "sessionAvailable", True)
             if console.listenerHash not in active_routes and len(active_routes) == 1 and hasattr(console, "rebindSessionRoute"):
-                console.rebindSessionRoute(next(iter(active_routes)))
+                next_route = next(iter(active_routes))
+                route_tab_exists = any(
+                    other_index != index
+                    and (other := self.consoleFromTab(other_index)) is not None
+                    and other.beaconHash == console.beaconHash
+                    and other.listenerHash == next_route
+                    for other_index in range(SYSTEM_TAB_COUNT, self.tabs.count())
+                )
+                if not route_tab_exists:
+                    console.rebindSessionRoute(next_route)
+                    self.tabs.setTabText(index, self._sessionTabTitle(console.beaconHash, next_route))
+                    self.tabs.setTabToolTip(index, f"Beacon: {console.beaconHash}\nListener: {next_route}")
             if hasattr(console, "setSessionAvailable"):
                 console.setSessionAvailable(console.listenerHash in active_routes)
             if (index == self.tabs.currentIndex()
@@ -1147,20 +1162,35 @@ class ConsolesTab(QWidget):
                 else:
                     self.assistant.setActiveSession("", "")
 
+    @staticmethod
+    def _sessionTabTitle(beaconHash, listenerHash):
+        return f"{beaconHash[:8]} / {listenerHash[:8]}"
+
     def addConsole(self, beaconHash, listenerHash, hostname, username):
         active_routes = self._activeRoutesByBeacon.get(beaconHash, set())
         if active_routes and listenerHash not in active_routes and len(active_routes) == 1:
             listenerHash = next(iter(active_routes))
         tabAlreadyOpen=False
-        for idx in range(0,self.tabs.count()):
+        for idx in range(SYSTEM_TAB_COUNT, self.tabs.count()):
             console = self.consoleFromTab(idx)
-            if console is not None and console.beaconHash == beaconHash:
-                if hasattr(console, "rebindSessionRoute"):
-                    console.rebindSessionRoute(listenerHash)
+            if console is not None and console.beaconHash == beaconHash and console.listenerHash == listenerHash:
                 if self._routesSnapshotReceived and hasattr(console, "setSessionAvailable"):
                     console.setSessionAvailable(listenerHash in active_routes)
                 self.tabs.setCurrentIndex(idx)
                 tabAlreadyOpen=True
+                break
+        if not tabAlreadyOpen and self._routesSnapshotReceived and len(active_routes) == 1:
+            for idx in range(SYSTEM_TAB_COUNT, self.tabs.count()):
+                console = self.consoleFromTab(idx)
+                if console is not None and console.beaconHash == beaconHash and hasattr(console, "rebindSessionRoute"):
+                    console.rebindSessionRoute(listenerHash)
+                    self.tabs.setTabText(idx, self._sessionTabTitle(beaconHash, listenerHash))
+                    self.tabs.setTabToolTip(idx, f"Beacon: {beaconHash}\nListener: {listenerHash}")
+                    if hasattr(console, "setSessionAvailable"):
+                        console.setSessionAvailable(listenerHash in active_routes)
+                    self.tabs.setCurrentIndex(idx)
+                    tabAlreadyOpen=True
+                    break
 
         if tabAlreadyOpen==False:
             if hasattr(self.assistant, "watchSession"):
@@ -1174,7 +1204,8 @@ class ConsolesTab(QWidget):
             console.consoleScriptSignal.connect(self.script.consoleScriptMethod)
             console.consoleScriptSignal.connect(self._forward_console_send)
             tab = self.createConsolePage(console)
-            index = self.tabs.addTab(tab, beaconHash[0:8])
+            index = self.tabs.addTab(tab, self._sessionTabTitle(beaconHash, listenerHash))
+            self.tabs.setTabToolTip(index, f"Beacon: {beaconHash}\nListener: {listenerHash}")
             close_container = QWidget(self.tabs.tabBar())
             close_layout = QHBoxLayout(close_container)
             close_layout.setContentsMargins(2, 0, 6, 0)
@@ -1722,6 +1753,8 @@ class Console(QWidget):
     def displayResponse(self, event: CommandResultEvent):
         context = "Host " + self.hostname + " - Username " + self.username
         outcome = event.outcome
+        if outcome.listener_hash != self.listenerHash:
+            self.printInTerminal("", "", f"Result from previous route {outcome.listener_hash[:8]}\n")
         command_id = outcome.command_id
         if event.event_id and event.event_id in self.renderedResponseEventIds:
             return

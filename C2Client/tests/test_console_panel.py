@@ -457,6 +457,22 @@ def test_consoles_tab_polls_only_active_beacon_console(qtbot, monkeypatch):
     consoles.reconcileRoutes([SimpleNamespace(beacon_hash="beacon-1", listener_hash="latest-listener")])
     assert first.listenerHash == "latest-listener"
     assert first.sessionAvailable is True
+    consoles.reconcileRoutes([SimpleNamespace(
+        beacon_hash="beacon-1", listener_hash="latest-listener",
+        state=TeamServerApi_pb2.SESSION_STATE_STOPPING,
+    )])
+    assert first.sessionAvailable is False
+
+    consoles.reconcileRoutes([
+        SimpleNamespace(beacon_hash="beacon-1", listener_hash="route-one"),
+        SimpleNamespace(beacon_hash="beacon-1", listener_hash="route-two"),
+    ])
+    consoles.addConsole("beacon-1", "route-one", "host", "user")
+    consoles.addConsole("beacon-1", "route-two", "host", "user")
+    assert consoles.tabs.count() == SYSTEM_TAB_COUNT + 4
+    assert FakeConsole.instances[-2].listenerHash == "route-one"
+    assert FakeConsole.instances[-1].listenerHash == "route-two"
+    assert "route-on" in consoles.tabs.tabText(SYSTEM_TAB_COUNT + 2)
 
 
 def test_console_route_change_preserves_old_result_subscription(tmp_path, qtbot, monkeypatch):

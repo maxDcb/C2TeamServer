@@ -51,6 +51,15 @@ enum ListenerState
   LISTENER_STATE_STOP_FAILED = 4;
 }
 
+enum SessionState
+{
+  SESSION_STATE_UNSPECIFIED = 0;
+  SESSION_STATE_RUNNING = 1;
+  SESSION_STATE_STOPPING = 2;
+  SESSION_STATE_STOP_FAILED = 3;
+  SESSION_STATE_STOPPED = 4;
+}
+
 
 message Empty
 {
@@ -63,6 +72,9 @@ message OperationAck
   string message = 2;
   string listener_hash = 3;
   ListenerState listener_state = 4;
+  string session_beacon_hash = 5;
+  string session_listener_hash = 6;
+  SessionState session_state = 7;
 }
 
 
@@ -124,6 +136,7 @@ message Session
   string internal_ips = 10;
   string process_id = 11;
   string additional_information = 12;
+  SessionState state = 13;
 }
 
 

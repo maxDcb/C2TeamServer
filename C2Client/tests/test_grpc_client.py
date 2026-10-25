@@ -466,6 +466,7 @@ def test_listener_mutations_have_deadlines_and_auth_advertises_types(tmp_path, m
     cert.write_text("cert")
     monkeypatch.setenv("C2_CERT_PATH", str(cert))
     monkeypatch.setenv("C2_LISTENER_MUTATION_TIMEOUT_SECONDS", "6")
+    monkeypatch.setenv("C2_SESSION_STOP_TIMEOUT_SECONDS", "7")
     monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
     monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
     monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
@@ -481,8 +482,10 @@ def test_listener_mutations_have_deadlines_and_auth_advertises_types(tmp_path, m
     assert client.auth_generation == 1
     client.addListener(TeamServerApi_pb2.Listener(type="tcp", ip="127.0.0.1", port=4444))
     client.stopListener(TeamServerApi_pb2.ListenerSelector(listener_hash="listener"))
+    client.stopSession(TeamServerApi_pb2.SessionSelector(beacon_hash="beacon", listener_hash="listener"))
     assert stub.AddListener.call_args.kwargs["timeout"] == 6
     assert stub.StopListener.call_args.kwargs["timeout"] == 6
+    assert stub.StopSession.call_args.kwargs["timeout"] == 7
 
 
 def test_parallel_polls_share_one_token_refresh(tmp_path, monkeypatch):

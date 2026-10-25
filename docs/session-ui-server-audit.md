@@ -1,0 +1,48 @@
+# Audit de la gestion des sessions entre GUI et TeamServer — 25 octobre 2026
+
+Périmètre : découverte d'une session, affichage, sélection, interaction, arrêt et réconciliation après changement de route ou redémarrage. Cette passe examine le code au commit `f802fac` et les tests ciblés ; elle ne vaut pas essai avec un beacon réel.
+
+## Parcours observé
+
+| Étape | Comportement | Source |
+| --- | --- | --- |
+| Découverte | Un message beacon crée en mémoire une `Session` identifiée par `beaconHash` et `listenerHash`. Les check-ins suivants mettent à jour le dernier contact. | [C2Core](../core/listener/Listener.cpp), [Session](../core/listener/Session.hpp) |
+| Liste | `ListSessions` parcourt les listeners primaires et n'émet que les sessions non marquées tuées, avec listener primaire et route actifs. Le dernier contact est envoyé en secondes écoulées. | [Service](../teamServer/teamServer/TeamServerListenerSessionService.cpp), [API](../protocol/TeamServerApi.proto) |
+| Affichage | Un worker interroge la liste toutes les 2 s par défaut, avec deadline gRPC de 3 s et repli jusqu'à 15 s après erreur. La GUI recalcule l'état « Alive/Stale/Unknown » à partir du dernier contact et remplace ses lignes à chaque instantané réussi. | [Client gRPC](../C2Client/C2Client/grpcClient.py), [worker](../C2Client/C2Client/refresh_worker.py), [panneau](../C2Client/C2Client/SessionPanel.py) |
+| Interaction | Le panneau transmet le couple complet au terminal ; les consoles se réconcilient sur les routes actives, et le serveur peut corriger une ancienne route s'il ne reste qu'une seule route active pour le beacon. Une ambiguïté est refusée. | [Console](../C2Client/C2Client/ConsolePanel.py), [service](../teamServer/teamServer/TeamServerListenerSessionService.cpp) |
+| Arrêt | `StopSession` prépare puis met en file une tâche `end`. Le cœur marque immédiatement la session tuée ; elle disparaît donc de `ListSessions` avant confirmation de livraison ou d'exécution. | [Service](../teamServer/teamServer/TeamServerListenerSessionService.cpp), [C2Core](../core/listener/Listener.cpp) |
+
+## Constats et corrections proposées
+
+| Priorité | Constat | Correction et preuve attendue |
+| --- | --- | --- |
+| Haute | **L'arrêt bloque le fil GUI.** Le bouton et le menu appellent `grpcClient.stopSession` directement depuis Qt ; la RPC n'a pas de deadline. Un serveur lent peut figer toute l'interface et une exception n'est pas présentée comme résultat de l'action. | Exécuter l'arrêt dans un worker avec deadline, état en attente, prévention des doublons, ACK ou erreur visible, puis rafraîchissement. Tester réponse différée, refus et coupure réseau sans rejeu automatique. |
+| Haute | **Le menu utilise huit caractères d'identifiant.** Il lit le hash abrégé de la cellule, puis choisit la première session ayant ce préfixe. En cas de collision, « Interact », « Stop » ou « Delete » vise une autre ligne que celle cliquée. Le bouton de barre d'outils utilise déjà l'objet sélectionné. | Capturer l'objet ou le couple de hashes complet de la ligne cliquée. Tester deux beacons partageant les huit premiers caractères. |
+| Haute | **« Stop accepté » signifie seulement « tâche mise en file ».** `queueStopTaskIfSessionAlive` marque la session tuée immédiatement ; `ListSessions` la retire avant que le beacon ait accusé réception. Si la livraison échoue, la GUI peut afficher une disparition interprétée comme un arrêt réussi. Le nettoyage périodique peut retirer la session quand la file locale est vide, sans preuve de terminaison. | Séparer `STOP_REQUESTED`, `STOPPING`, `STOPPED` et `STOP_FAILED` dans l'état serveur ; confirmer la réponse `EndCmd` ou une preuve de terminaison, puis appliquer une échéance explicite. Tester perte de transport, réapparition du beacon et redémarrage serveur. |
+| Haute | **Les hooks confondent découverte locale et cycle de vie.** Le premier instantané émet `OnSessionStart` pour toutes les sessions déjà présentes. Chaque poll émet `OnSessionUpdate`. Une route remplacée ou un serveur redémarré produit un `stop` puis un `start` locaux. Les scripts sont activés par défaut et `checkSandbox.py` peut envoyer `end` depuis `OnSessionStart`. | Comme pour les listeners, traiter le premier instantané et le premier après réauthentification/erreur comme une synchronisation, puis émettre les transitions établies. N'émettre `update` que sur changement utile ou définir clairement sa cadence. Tester les hooks et leurs effets après reconnexion. |
+| Moyenne | **Une ancienne route est aussi corrigée pour un arrêt.** Le serveur réachemine `StopSession` vers l'unique route active du même beacon ; le test actuel valide ce choix. Une demande d'arrêt ancienne peut donc atteindre une session sur une route nouvellement apparue. | Le mainteneur a choisi de conserver ce réacheminement. Renvoyer la route effective dans l'ACK et refuser explicitement plusieurs routes concurrentes ; tester les deux cas. |
+| Moyenne | **« Delete » ne supprime que la ligne locale.** Le menu retire l'objet du tableau sans RPC ; le prochain rafraîchissement le recrée. L'action est trompeuse et peut déclencher des événements de hook supplémentaires. | Retirer « Delete » ou la nommer explicitement comme masquage local avec état persistant et sémantique documentée. |
+| Moyenne | **La GUI déduit `Alive` du dernier contact mais le serveur ne publie pas un état de session.** Une session sans check-in récent reste listée tant que sa route est active ; inversement, une session marquée tuée n'est jamais montrée comme `Killed` par `ListSessions`. Le seuil client de 30 s dépend de la fréquence du beacon. | Définir dans le protocole l'état serveur et les horodatages pertinents, puis réserver le dernier contact à l'indication de fraîcheur. Tester des intervalles de check-in variés et les états d'arrêt. |
+| Moyenne | **La console regroupe les onglets par `beaconHash`.** Si deux routes simultanées portent le même hash, ouvrir la seconde réutilise l'onglet et change sa route, tandis que les abonnements aux anciens résultats sont conservés. | Définir si l'onglet représente le beacon logique ou le couple beacon/route ; afficher la route active et distinguer les résultats historiques. Tester deux routes actives et une bascule pendant une commande en cours. |
+
+## Corrections appliquées dans l'arbre de travail
+
+- `StopSession` s'exécute dans un worker Qt avec une deadline gRPC de 8 s configurable. La GUI empêche les doublons, montre les erreurs et ne rejoue pas une mutation dont la réponse est incertaine.
+- Le menu contextuel capture le couple complet de la ligne cliquée ; l'action locale « Delete » a été retirée.
+- C2Core conserve la session en `Stopping` après mise en file de `end`. La réponse du beacon confirme `Stopped` ; faute de confirmation après 30 s, l'état devient `StopFailed` et un nouvel arrêt peut être demandé sans dupliquer une tâche encore en file. Une session confirmée reste visible 30 s avant nettoyage.
+- Le protocole publie l'état de session et l'ACK d'arrêt donne le beacon et la route effectivement ciblés. `StopSession` conserve le réacheminement vers une route unique ; les routes ambiguës sont refusées.
+- Le premier instantané et le premier après réauthentification/erreur n'exécutent pas les hooks de cycle de vie. `OnSessionUpdate` ne part que sur changement de données utiles ; `OnSessionStop` correspond à l'état `Stopped` confirmé. L'assistant reçoit une synchronisation distincte.
+- Deux routes simultanées du même beacon ouvrent deux consoles distinctes. Une console sans route `Running` désactive l'envoi ; les résultats conservés d'une ancienne route portent une indication dans la console.
+
+## Contrôles déjà présents
+
+- Les appels de liste passent hors du fil GUI avec une deadline et une gestion d'erreur ; la table se vide sur un instantané vide réussi.
+- Les actions de barre d'outils utilisent les hashes complets de la session sélectionnée.
+- Le serveur refuse une route ambiguë et les commandes ne sont pas mises en file sur une session marquée tuée.
+- Une console sans route active désactive la saisie ; elle se réassocie lorsqu'une unique route valide apparaît.
+
+## Validation de cette passe et prochaine preuve
+
+Après correction, **282 tests client passent**. Les tests ajoutés couvrent le délai et l'erreur d'arrêt dans la GUI, les collisions de préfixe, les hooks, les deux routes simultanées, l'ACK de la route réacheminée, les états `Stopping`/`Stopped`, le refus d'une réponse `end` en erreur et le délai de confirmation dans C2Core. Le build TeamServer et **103/103 CTest** passent (11 scénarios dépendants de l'environnement sont sautés). Le test DNS fonctionnel, précédemment rouge car il omettait `ListenerDns::init()`, a été corrigé dans C2Core. Le candidat partagé `15adf12` compile et passe **86/86 CTest** dans l'implant Linux et **64/64 CTest** dans l'implant Windows avec MSVC.
+
+Un essai de bout en bout avec un beacon réel, perte de transport pendant `end` et redémarrage du TeamServer reste à faire. Le [gate des trois parents](submodule-release-policy.md) valide les builds et tests locaux ; l'alignement des gitlinks et leur publication sont vérifiés séparément.

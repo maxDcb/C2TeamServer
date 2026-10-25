@@ -1,6 +1,6 @@
 # Audit des prérogatives des composants — première passe, 25 octobre 2026
 
-Cet audit examine **qui décide, qui détient l'état et qui exécute** dans les versions actuellement épinglées par les trois parents. Il complète les [inventaires](inventory-index.md), le [suivi des transports](audit-status-2026-10-25.md) et la [revue détaillée GUI ↔ serveur des listeners](listener-ui-server-audit.md). Une capacité observée dans le code n'est pas une approbation de son périmètre. Cette première passe est statique : les scénarios de fonctionnement et la validation de la release restent à faire.
+Cet audit examine **qui décide, qui détient l'état et qui exécute** dans les versions actuellement épinglées par les trois parents. Il complète les [inventaires](inventory-index.md), le [suivi des transports](audit-status-2026-10-25.md), la [revue GUI ↔ serveur des listeners](listener-ui-server-audit.md) et celle des [sessions](session-ui-server-audit.md). Une capacité observée dans le code n'est pas une approbation de son périmètre. Cette première passe est statique : les scénarios de fonctionnement et la validation de la release restent à faire.
 
 ## Frontières et responsabilités observées
 

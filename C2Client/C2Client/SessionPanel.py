@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QRunnable, Qt, QThread, QThreadPool, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -26,12 +26,18 @@ from .ui_status import apply_status, format_action_status, status_kind_for_ok
 SESSION_STATE_ALIVE = "Alive"
 SESSION_STATE_STALE = "Stale"
 SESSION_STATE_KILLED = "Killed"
+SESSION_STATE_STOPPED = "Stopped"
 SESSION_STATE_UNKNOWN = "Unknown"
+SESSION_STATE_STOPPING = "Stopping"
+SESSION_STATE_STOP_FAILED = "Stop failed"
 SESSION_STATE_COLORS = {
     SESSION_STATE_ALIVE: "#0a7f2e",
     SESSION_STATE_STALE: "#a05a00",
     SESSION_STATE_KILLED: "#b00020",
+    SESSION_STATE_STOPPED: "#6b7280",
     SESSION_STATE_UNKNOWN: "#6b7280",
+    SESSION_STATE_STOPPING: "#a05a00",
+    SESSION_STATE_STOP_FAILED: "#b00020",
 }
 HIGH_PRIVILEGE_COLOR = "#a05a00"
 DEFAULT_SESSION_STALE_AFTER_MS = 30000
@@ -143,7 +149,13 @@ def humanize_last_seen(value, now=None):
     return label, f"Last proof of life: {text}", parse_last_seen(text)
 
 
-def resolve_session_state(killed, lastProofOfLife, staleAfterMs=DEFAULT_SESSION_STALE_AFTER_MS, now=None):
+def resolve_session_state(killed, lastProofOfLife, staleAfterMs=DEFAULT_SESSION_STALE_AFTER_MS, now=None, serverState=None):
+    if serverState == TeamServerApi_pb2.SESSION_STATE_STOPPING:
+        return SESSION_STATE_STOPPING, "Stop request queued; waiting for beacon confirmation."
+    if serverState == TeamServerApi_pb2.SESSION_STATE_STOP_FAILED:
+        return SESSION_STATE_STOP_FAILED, "Stop was not confirmed in time; retry is available."
+    if serverState == TeamServerApi_pb2.SESSION_STATE_STOPPED:
+        return SESSION_STATE_STOPPED, "Beacon confirmed stop; this row will expire."
     if _is_truthy(killed):
         return SESSION_STATE_KILLED, "Killed flag set by TeamServer."
 
@@ -180,7 +192,7 @@ def color_table_item(item, color):
 #
 class Session():
 
-    def __init__(self, id, listenerHash, beaconHash, hostname, username, arch, privilege, os, lastProofOfLife, killed, internalIps, processId, additionalInformation):
+    def __init__(self, id, listenerHash, beaconHash, hostname, username, arch, privilege, os, lastProofOfLife, killed, internalIps, processId, additionalInformation, state=None):
         self.id = id
         self.listenerHash = listenerHash
         self.beaconHash = beaconHash
@@ -194,6 +206,25 @@ class Session():
         self.internalIps = internalIps
         self.processId = processId
         self.additionalInformation = additionalInformation
+        self.state = state
+
+
+class SessionStopSignals(QObject):
+    finished = pyqtSignal(object, str)
+
+
+class SessionStopWorker(QRunnable):
+    def __init__(self, grpc_client, request, signals):
+        super().__init__()
+        self.grpc_client = grpc_client
+        self.request = request
+        self.signals = signals
+
+    def run(self):
+        try:
+            self.signals.finished.emit(self.grpc_client.stopSession(self.request), "")
+        except Exception as exc:
+            self.signals.finished.emit(None, str(exc))
 
 
 class Sessions(QWidget):
@@ -214,6 +245,13 @@ class Sessions(QWidget):
         self.grpcClient = grpcClient
         self.idSession = 0
         self.listSessionObject = []
+        self._stop_pending = False
+        self._pending_stop_key = None
+        self._has_snapshot = False
+        self._seen_beacons = set()
+        self._snapshot_auth_generation = getattr(grpcClient, "auth_generation", None)
+        self._stop_signals = SessionStopSignals()
+        self._stop_signals.finished.connect(self._onStopFinished)
         apply_dark_panel_style(self)
         self.sessionStaleAfterMs = env_int(
             "C2_SESSION_STALE_AFTER_MS",
@@ -315,9 +353,18 @@ class Sessions(QWidget):
         apply_status(self.statusLabel, message, status_kind_for_ok(ok))
 
     def updateActionButtons(self):
-        hasSelection = self.selectedSession() is not None
-        self.interactButton.setEnabled(hasSelection)
-        self.stopButton.setEnabled(hasSelection)
+        selected = self.selectedSession()
+        hasSelection = selected is not None
+        state = getattr(selected, "state", None) if selected else None
+        self.interactButton.setEnabled(hasSelection and state not in {
+            TeamServerApi_pb2.SESSION_STATE_STOPPING,
+            TeamServerApi_pb2.SESSION_STATE_STOP_FAILED,
+            TeamServerApi_pb2.SESSION_STATE_STOPPED,
+        })
+        self.stopButton.setEnabled(hasSelection and not self._stop_pending and state not in {
+            TeamServerApi_pb2.SESSION_STATE_STOPPING,
+            TeamServerApi_pb2.SESSION_STATE_STOPPED,
+        })
         self.copySessionIdButton.setEnabled(hasSelection)
 
     def selectedSession(self):
@@ -343,6 +390,7 @@ class Sessions(QWidget):
                 sessionStore.killed,
                 sessionStore.lastProofOfLife,
                 self.sessionStaleAfterMs,
+                serverState=getattr(sessionStore, "state", None),
             )
             snapshots.append(
                 {
@@ -405,38 +453,75 @@ class Sessions(QWidget):
             return
 
         row = index.row()
-        self.item = str(self.listSession.item(row, 0).data(0))
+        if row >= len(self.listSessionObject):
+            return
+        sessionStore = self.listSessionObject[row]
+        self._context_session_key = (sessionStore.beaconHash, sessionStore.listenerHash)
 
         menu = create_dark_context_menu(self)
-        menu.addAction('Interact')
-        menu.addAction('Stop')
-        menu.addAction('Delete')
+        interactAction = menu.addAction('Interact')
+        stopAction = menu.addAction('Stop')
+        interactAction.setEnabled(sessionStore.state not in {
+            TeamServerApi_pb2.SESSION_STATE_STOPPING,
+            TeamServerApi_pb2.SESSION_STATE_STOP_FAILED,
+            TeamServerApi_pb2.SESSION_STATE_STOPPED,
+        })
+        stopAction.setEnabled(not self._stop_pending and sessionStore.state not in {
+            TeamServerApi_pb2.SESSION_STATE_STOPPING,
+            TeamServerApi_pb2.SESSION_STATE_STOPPED,
+        })
         menu.triggered.connect(self.actionClicked)
         menu.exec(self.listSession.viewport().mapToGlobal(position))
 
 
     # catch Interact and Stop menu click
-    def  actionClicked(self, action):
-        hash = self.item
-        for ix, sessionStore in enumerate(list(self.listSessionObject)):
-            if sessionStore.beaconHash[0:8] != hash:
+    def actionClicked(self, action):
+        key = getattr(self, "_context_session_key", None)
+        for sessionStore in self.listSessionObject:
+            if (sessionStore.beaconHash, sessionStore.listenerHash) != key:
                 continue
             if action.text() == "Interact":
                 self.interactWithSession.emit(sessionStore.beaconHash, sessionStore.listenerHash, sessionStore.hostname, sessionStore.username)
             elif action.text() == "Stop":
                 self.stopSession(sessionStore.beaconHash, sessionStore.listenerHash)
-            elif action.text() == "Delete":
-                self.listSessionObject.pop(ix)
             break
-        self.printSessions()
-        self.updateActionButtons()
 
 
     def stopSession(self, beaconHash, listenerHash):
+        if self._stop_pending:
+            return
         session = TeamServerApi_pb2.SessionSelector(
             beacon_hash=beaconHash, listener_hash=listenerHash)
-        ack = self.grpcClient.stopSession(session)
-        self.setStatusMessage(ack, "Session stop command accepted.", action="Stop session")
+        self._stop_pending = True
+        self._pending_stop_key = (beaconHash, listenerHash)
+        self.setInlineStatus("Stopping session; waiting for TeamServer…")
+        self.updateActionButtons()
+        QThreadPool.globalInstance().start(SessionStopWorker(self.grpcClient, session, self._stop_signals))
+
+    def _onStopFinished(self, ack, error):
+        pending_key = self._pending_stop_key
+        self._pending_stop_key = None
+        self._stop_pending = False
+        if error:
+            self.setInlineStatus(
+                format_action_status("Stop session", "Server did not confirm the request; refreshing sessions. " + error),
+                False,
+            )
+        elif not is_response_ok(ack):
+            self.setStatusMessage(ack, "Request rejected.", action="Stop session")
+        else:
+            actual_key = (
+                getattr(ack, "session_beacon_hash", "") or pending_key[0],
+                getattr(ack, "session_listener_hash", "") or pending_key[1],
+            )
+            for sessionStore in self.listSessionObject:
+                if (sessionStore.beaconHash, sessionStore.listenerHash) == actual_key:
+                    sessionStore.state = TeamServerApi_pb2.SESSION_STATE_STOPPING
+            self.setStatusMessage(ack, "Session stop command queued.", action="Stop session")
+            if actual_key[1] != pending_key[1]:
+                self.setInlineStatus(f"Stop session: queued via current route {actual_key[1][:8]}.")
+            self.printSessions()
+        self.updateActionButtons()
         self.requestRefresh()
 
     def requestRefresh(self):
@@ -445,6 +530,20 @@ class Sessions(QWidget):
     def _onRefreshFailure(self, _message):
         self._refresh_failed = True
         self.setInlineStatus("Server unavailable; retrying sessions.", False)
+
+    def _emitSessionAction(self, action, item):
+        self.sessionScriptSignal.emit(
+            action, item.beaconHash, item.listenerHash, item.hostname, item.username,
+            item.arch, item.privilege, item.os, item.lastProofOfLife, item.killed,
+        )
+
+    @staticmethod
+    def _eventFields(item):
+        return (
+            item.hostname, item.username, item.arch, item.privilege, item.os,
+            item.killed, item.internalIps, item.processId, item.additionalInformation,
+            getattr(item, "state", None),
+        )
 
 
     def listSessions(self):
@@ -456,6 +555,13 @@ class Sessions(QWidget):
         self._applySessions(sessions)
 
     def _applySessions(self, sessions):
+        auth_generation = getattr(self.grpcClient, "auth_generation", None)
+        reauthenticated = (
+            self._snapshot_auth_generation is not None
+            and auth_generation != self._snapshot_auth_generation
+        )
+        baseline = not self._has_snapshot or self._refresh_failed or reauthenticated
+        self._snapshot_auth_generation = auth_generation
         if self._refresh_failed:
             self.setInlineStatus("Sessions reconnected." if sessions else "Connected; waiting for beacon check-in.")
             self._refresh_failed = False
@@ -468,22 +574,20 @@ class Sessions(QWidget):
         current_keys = {(session.beacon_hash, session.listener_hash) for session in sessions}
         for key, item in previous.items():
             if key not in current_keys:
-                self.sessionScriptSignal.emit(
-                    "stop", item.beaconHash, item.listenerHash, item.hostname, item.username,
-                    item.arch, item.privilege, item.os, item.lastProofOfLife, item.killed,
-                )
+                self._emitSessionAction("retire", item)
 
         current = []
         for session in sessions:
             key = (session.beacon_hash, session.listener_hash)
             item = previous.get(key)
-            action = "update" if item is not None else "start"
+            previous_fields = self._eventFields(item) if item is not None else None
             if item is None:
                 item = Session(
                     self.idSession, session.listener_hash, session.beacon_hash,
                     session.hostname, session.username, session.arch, session.privilege,
                     session.os, session.last_proof_of_life, session.killed,
                     session.internal_ips, session.process_id, session.additional_information,
+                    getattr(session, "state", None),
                 )
                 self.idSession += 1
             else:
@@ -497,14 +601,24 @@ class Sessions(QWidget):
                 item.internalIps = session.internal_ips
                 item.processId = session.process_id
                 item.additionalInformation = session.additional_information
+                item.state = getattr(session, "state", None)
             current.append(item)
-            self.sessionScriptSignal.emit(
-                action, session.beacon_hash, session.listener_hash, session.hostname,
-                session.username, session.arch, session.privilege, session.os,
-                session.last_proof_of_life, session.killed,
-            )
+            if baseline or (previous_fields is None and session.beacon_hash in self._seen_beacons):
+                action = "sync"
+            elif previous_fields is None:
+                action = "start"
+            elif item.state == TeamServerApi_pb2.SESSION_STATE_STOPPED and previous_fields[-1] != item.state:
+                action = "stop"
+            elif previous_fields != self._eventFields(item):
+                action = "update"
+            else:
+                action = None
+            if action is not None:
+                self._emitSessionAction(action, item)
+            self._seen_beacons.add(session.beacon_hash)
 
         self.listSessionObject = current
+        self._has_snapshot = True
         self.listSession.clearSelection()
         self.printSessions()
         if selected_key is not None:
@@ -577,6 +691,7 @@ class Sessions(QWidget):
                 sessionStore.killed,
                 sessionStore.lastProofOfLife,
                 staleAfterMs=self.sessionStaleAfterMs,
+                serverState=getattr(sessionStore, "state", None),
             )
             stateItem = color_table_item(QTableWidgetItem(state), SESSION_STATE_COLORS[state])
             stateItem.setToolTip(stateTooltip)

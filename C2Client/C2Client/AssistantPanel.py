@@ -120,7 +120,7 @@ class Assistant(QWidget):
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
         self.agent.domain_hooks.record_session_event(
-            action=action,
+            action="stop" if action == "retire" else action,
             beacon_hash=beaconHash,
             listener_hash=listenerHash,
             hostname=hostname,

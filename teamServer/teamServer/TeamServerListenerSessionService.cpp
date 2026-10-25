@@ -272,6 +272,17 @@ std::vector<std::string> splitCommandLine(const std::string& input)
         parts.push_back(current);
     return parts;
 }
+teamserverapi::SessionState toApiSessionState(Session::LifecycleState state)
+{
+    switch (state)
+    {
+    case Session::LifecycleState::Running: return teamserverapi::SESSION_STATE_RUNNING;
+    case Session::LifecycleState::Stopping: return teamserverapi::SESSION_STATE_STOPPING;
+    case Session::LifecycleState::StopFailed: return teamserverapi::SESSION_STATE_STOP_FAILED;
+    case Session::LifecycleState::Stopped: return teamserverapi::SESSION_STATE_STOPPED;
+    }
+    return teamserverapi::SESSION_STATE_UNSPECIFIED;
+}
 } // namespace
 
 TeamServerListenerSessionService::TeamServerListenerSessionService(
@@ -1039,8 +1050,13 @@ grpc::Status TeamServerListenerSessionService::streamSessions(const TeamServerLi
             sessionTmp.set_internal_ips(session->getInternalIps());
             sessionTmp.set_process_id(session->getProcessId());
             sessionTmp.set_additional_information(session->getAdditionalInformation());
+            const auto state = session->getLifecycleState();
+            sessionTmp.set_state(toApiSessionState(state));
 
-            if (!session->isSessionKilled() && listeners[i]->isRunning() && isListenerAlive(session->getListenerHash()))
+            if (listeners[i]->isRunning() &&
+                (state == Session::LifecycleState::Stopped ||
+                 state == Session::LifecycleState::StopFailed ||
+                 isListenerAlive(session->getListenerHash())))
             {
                 if (!emit(sessionTmp))
                     return grpc::Status::OK;
@@ -1077,6 +1093,22 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
         {
             if (listeners[i]->isSessionExist(beaconHash, listenerHash))
             {
+                const auto session = listeners[i]->getSessionPtr(beaconHash, listenerHash);
+                if (!session)
+                    continue;
+                response->set_session_beacon_hash(beaconHash);
+                response->set_session_listener_hash(listenerHash);
+                response->set_session_state(toApiSessionState(session->getLifecycleState()));
+                if (session->getLifecycleState() == Session::LifecycleState::Stopping)
+                {
+                    response->set_message("Session stop already requested.");
+                    return grpc::Status::OK;
+                }
+                if (session->getLifecycleState() == Session::LifecycleState::Stopped)
+                {
+                    response->set_message("Session is stopped.");
+                    return grpc::Status::OK;
+                }
                 C2Message c2Message;
                 int res = m_prepMsg(EndInstruction, c2Message, true, "x64");
 
@@ -1095,12 +1127,13 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
                 }
                 if (!listeners[i]->queueStopTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
                 {
-                    response->set_message("Session is stopped.");
+                    response->set_message("Session stop could not be queued.");
                     return grpc::Status::OK;
                 }
 
                 response->set_status(teamserverapi::OK);
                 response->set_message("Session stop command queued.");
+                response->set_session_state(teamserverapi::SESSION_STATE_STOPPING);
                 m_logger->info("StopSession command queued for beacon {0} on listener {1}", beaconHash, listenerHash);
 
                 m_logger->trace("StopSession end");
@@ -1153,9 +1186,9 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         std::shared_ptr<Session> session = listeners[i]->getSessionPtr(beaconHash, listenerHash);
         if (!session)
             continue;
-        if (session->isSessionKilled())
+        if (session->getLifecycleState() != Session::LifecycleState::Running)
         {
-            response->set_message("Session is stopped.");
+            response->set_message(session->isSessionKilled() ? "Session is stopped." : "Session stop in progress.");
             return grpc::Status::OK;
         }
         bool isWindows = session->getOs() == "Windows";
@@ -1212,7 +1245,7 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
         c2Message.set_uuid(commandId);
         if (!listeners[i]->queueTaskIfSessionAlive(beaconHash, listenerHash, c2Message))
         {
-            response->set_message("Session is stopped.");
+            response->set_message("Session stop in progress.");
             return grpc::Status::OK;
         }
         m_logger->info("Queued command {} for beacon {} -> '{}'", commandId, beaconHash.substr(0, 8), input);
