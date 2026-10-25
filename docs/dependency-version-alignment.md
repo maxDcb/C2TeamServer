@@ -1,6 +1,6 @@
 # Alignement des versions des dépendances
 
-Relevé du 24 octobre 2026, avant l'audit des usages. Références examinées : `C2TeamServer` `codex/dev-general` `3d7a6e6`, `C2Implant` Windows `master` `8a0137a`, `C2LinuxImplant` `master` `17bfe61`, manifestes du client Python dans le TeamServer. Les SHAs ci-dessous sont ceux épinglés par chaque parent ; ils ne décrivent pas nécessairement la dernière branche par défaut des dépôts enfants.
+Relevé historique du 24 octobre 2026, avant l'audit des usages. Références examinées : `C2TeamServer` `codex/dev-general` `3d7a6e6`, `C2Implant` Windows `master` `8a0137a`, `C2LinuxImplant` `master` `17bfe61`, manifestes du client Python dans le TeamServer. Les SHAs ci-dessous sont ceux épinglés à cette date ; **ils ne décrivent plus les branches de travail actuelles**. Voir [l'état de l'audit au 25 octobre](audit-status-2026-10-25.md) pour l'alignement réalisé et les contrôles encore nécessaires.
 
 Ce document conserve le relevé initial. Les versions externes et le minimum Python ont ensuite été modifiés ; voir [la mise à jour des dépendances externes](external-dependency-updates.md) et les manifestes actuels.
 
@@ -48,7 +48,7 @@ Le TeamServer possède [`conan.lock`](../conan.lock) avec 14 références `requi
 
 ## Paquets pip du client
 
-Les déclarations directes se trouvent dans [`pyproject.toml`](../C2Client/pyproject.toml) et [`requirements.txt`](../C2Client/requirements.txt). Une résolution `pip install --dry-run --ignore-installed -e C2Client` du manifeste actuel s'est terminée sans conflit. Aucun lock pip des dépendances transitives n'est suivi.
+Les déclarations directes se trouvent dans [`pyproject.toml`](../C2Client/pyproject.toml) et [`requirements.txt`](../C2Client/requirements.txt). Une résolution `pip install --dry-run --ignore-installed -e C2Client` du manifeste examiné s'est terminée sans conflit. Aucun lock pip des dépendances transitives n'était suivi lors de ce relevé ; [`uv.lock`](../C2Client/uv.lock) a été ajouté ensuite.
 
 | Élément | Version ou référence déclarée | Observation |
 | --- | --- | --- |

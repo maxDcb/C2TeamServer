@@ -2,6 +2,8 @@
 
 Relevé initial du 24 octobre 2026. Sources : manifestes [`conanfile.txt`](../conanfile.txt), [client pip](../C2Client/pyproject.toml), [implant Linux](c2implant-linux-inventory.md), [implant Windows](c2implant-windows-inventory.md), catalogue distant Conan Center interrogé avec `conan list` et index PyPI. Les colonnes « version initiale » décrivent l'état avant les mises à jour. « Plus récente » signifie version publiée, pas compatibilité validée avec le projet.
 
+Après ce relevé, `donut-shellcode` a été épinglé au commit `728289d` et [`C2Client/uv.lock`](../C2Client/uv.lock) a été ajouté pour les dépendances Python résolues. Les résultats chiffrés ci-dessous correspondent à la passe initiale ; voir [le suivi au 25 octobre](audit-status-2026-10-25.md) pour l'état des trois branches après les corrections suivantes.
+
 ## Mise à jour appliquée
 
 - Python `>=3.12` pour le client et Python `3.12` / Conan `2.24.0` dans les CI des deux implants.
@@ -44,7 +46,7 @@ Un graphe Conan candidat `grpc/1.84.0`, `protobuf/6.33.5`, `cpp-httplib/0.62.0`,
 | [`pytest`](https://pypi.org/project/pytest/) | 9.0.3 (tests) | 9.1.1 | Mise à jour facultative des tests |
 | [`pytest-qt`](https://pypi.org/project/pytest-qt/) | 4.5.0 (tests) | 4.5.0 | À conserver |
 
-`setuptools` et `wheel` sont déclarés sans version pour le build du client ; leurs versions publiées relevées sont respectivement 84.2.1 et 0.48.0. Le dépôt `agent-core`, épinglé par commit, déclare huit dépendances pip avec des plages de versions, sans lock transitive partagé avec le client. Le fork `donut-shellcode` reste référencé par `master` dans les deux manifestes pip.
+`setuptools` et `wheel` sont déclarés sans version pour le build du client ; leurs versions publiées relevées sont respectivement 84.2.1 et 0.48.0. Le dépôt `agent-core`, épinglé par commit, déclare huit dépendances pip avec des plages de versions. Au moment du relevé initial, le fork `donut-shellcode` était encore référencé par `master` dans les deux manifestes pip ; il est ensuite passé à un commit exact, et le client suit désormais `uv.lock`.
 
 Avant la mise à jour, `pyqtdarktheme` n'était importé que dans [`GUI.py`](../C2Client/C2Client/GUI.py) pour appliquer la feuille de style globale. Le client possède ses propres styles de panneaux dans [`panel_style.py`](../C2Client/C2Client/panel_style.py). Le remplacement par `qt-material` a été validé sur les thèmes sombre et clair sous Windows et WSL.
 

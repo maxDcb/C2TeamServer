@@ -2,6 +2,8 @@
 
 État au 24 octobre 2026. Ce complément recense les dépendances qui dépassent les seuls manifestes directs des cinq [inventaires principaux](inventory-index.md). Les versions et rôles proviennent des manifestes et scripts suivis dans les dépôts ; les réponses sur la maintenance viennent du propriétaire. Il ne mesure pas encore l'usage réel de chaque bibliothèque transitive.
 
+Les versions et références de ce document correspondent au relevé initial. Depuis, `PyYAML` figure aussi dans `requirements.txt`, `donut-shellcode` est épinglé par commit et `C2Client/uv.lock` suit une résolution Python. Le [suivi du 25 octobre](audit-status-2026-10-25.md) décrit l'état courant et les questions toujours ouvertes.
+
 ## Sous-module imbriqué et services externes
 
 | Élément | Source | Statut et relation |
@@ -29,7 +31,7 @@ Le fork Donut embarque aussi des archives aPLib (`aplib32/64.a` et `.lib`) et un
 | asio | 1.29.0 | Aucune dans `conanfile.txt` |
 | abseil | 20250127.0 | Aucune dans `conanfile.txt` |
 
-Le même lock énumère 4 `build_requires` : CMake 3.31.10, protobuf 6.33.5, zlib 1.3.1 et abseil 20250127.0. Les dépendances Python transitives ne sont pas verrouillées par un fichier équivalent dans `C2Client/` ; les déclarations directes sont dans [`pyproject.toml`](../C2Client/pyproject.toml) et [`requirements.txt`](../C2Client/requirements.txt).
+Le même lock énumère 4 `build_requires` : CMake 3.31.10, protobuf 6.33.5, zlib 1.3.1 et abseil 20250127.0. Au moment de ce relevé, les dépendances Python transitives n'étaient pas verrouillées ; [`C2Client/uv.lock`](../C2Client/uv.lock) a été ajouté ensuite. Les déclarations directes sont dans [`pyproject.toml`](../C2Client/pyproject.toml) et [`requirements.txt`](../C2Client/requirements.txt).
 
 Les dépôts C2Implant Windows (`8a0137a`) et C2LinuxImplant (`17bfe61`) déclarent Conan dans `conanfile.txt`, mais aucun `conan.lock` n'est suivi à ces commits. Leurs graphes transitifs exacts dépendront donc de la résolution Conan retenue pour chaque build.
 
@@ -44,7 +46,7 @@ Les workflows utilisent `actions/checkout@v4`, `actions/cache@v4`, `actions/uplo
 | Source | Référence utilisée par le projet |
 | --- | --- |
 | `agent-core` Python | Commit complet `dfa341b06850600192172a6ffcc422ed022ad244` dans les deux manifestes du client |
-| `donut-shellcode` Python | Branche `master` du fork, sans commit figé dans les deux manifestes |
+| `donut-shellcode` Python | Branche `master` du fork lors du relevé initial ; commit `728289d` dans les deux manifestes actuels |
 | Sept dépôts de modules client | URLs seules dans les fichiers `.conf` ; aucun commit ou tag épinglé dans ces fichiers |
 | Batcave | Release GitHub `latest` recherchée à l'exécution |
 | Releases des implants importées par le packaging | Tag configurable ; `latest` par défaut pour chaque dépôt |
@@ -62,7 +64,7 @@ Le client déclare `pycryptodome==3.23.0`, `pwn==1.0` et `pefile==2024.8.26` san
 | `pefile` | [`PeInjectorSyscall.py`](https://github.com/maxDcb/PeInjectorSyscall/blob/1647e36/PeInjectorSyscall.py) |
 | `pwn` | [`ElfDropper/elfToShellcode/elfToShellcode.py`](https://github.com/maxDcb/ElfDropper/blob/cabd2a7/elfToShellcode/elfToShellcode.py) ; la distribution `pwn==1.0` déclarée dans le client est distincte de la distribution actuelle `pwntools`, qui documente également `from pwn import *` ([PyPI](https://pypi.org/project/pwntools/)). Leur équivalence effective reste à tester. |
 
-`PyYAML>=6,<7` est déclaré dans `pyproject.toml` et importé par les skills de l'assistant ; il manque dans `requirements.txt`. `setuptools` figure dans `pyproject.toml` et son système de build avec `wheel`, mais pas dans `requirements.txt`. Les paquets de tests `pytest` et `pytest-qt` se trouvent dans `requirements.txt` et l'option `test` du projet.
+Lors du relevé initial, `PyYAML>=6,<7` était déclaré dans `pyproject.toml` et importé par les skills de l'assistant, mais manquait dans `requirements.txt`. Les deux manifestes le déclarent désormais en version `6.0.3`. `setuptools` figure dans `pyproject.toml` et son système de build avec `wheel`, mais pas dans `requirements.txt`. Les paquets de tests `pytest` et `pytest-qt` se trouvent dans `requirements.txt` et l'option `test` du projet.
 
 ## Dépendances des dépôts de modules configurés
 
@@ -87,7 +89,7 @@ Les dépôts C++ consultés n'ajoutent pas de gestionnaire de paquets au build p
 ## Questions ouvertes
 
 - Vérifier si la mention `UnmanagedPowerShell` dans le README Windows doit rester documentée comme référence historique.
-- Résoudre l'écart `PyYAML` et `setuptools` entre les deux déclarations Python lors de l'audit des installations.
+- `PyYAML` est désormais déclaré et épinglé dans les deux manifestes. Déterminer si `setuptools`, dépendance de build, doit aussi figurer dans `requirements.txt` lors de l'audit des installations.
 - Vérifier que `pwn==1.0` satisfait bien les symboles utilisés par `ElfDropper` ; l'import seul ne prouve pas la compatibilité du paquet.
 - Retrouver la provenance exacte des archives statiques OpenSSL/zlib vendored par `ElfDropper` ; le propriétaire l'a signalée comme inconnue à ce stade.
-- Relever les dépendances transitives Python dans un environnement de référence si une nomenclature complète des paquets installés est souhaitée.
+- Comparer les dépendances transitives du lock Python avec une installation fraîche et relever les paquets réellement installés si une nomenclature d'environnement est souhaitée.

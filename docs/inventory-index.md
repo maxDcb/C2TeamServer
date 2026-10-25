@@ -1,6 +1,6 @@
 # Index des inventaires Exploration C2
 
-État du catalogue au 24 octobre 2026. Il porte sur les dépôts parents, leurs dépendances **directes**, les sous-modules Git, les dépôts chargés par le client et les fonctions déclarées dans les sources. Les dépendances transitives des gestionnaires de paquets et le comportement runtime seront examinés pendant les audits.
+État initial du catalogue au 24 octobre 2026. Il porte sur les dépôts parents, leurs dépendances **directes**, les sous-modules Git, les dépôts chargés par le client et les fonctions déclarées dans les sources. Les références de ce tableau sont historiques ; voir [l'état de l'audit au 25 octobre](audit-status-2026-10-25.md) pour les versions actuellement épinglées, les validations réalisées et les travaux ouverts.
 
 ## Inventaires par composant
 
@@ -15,6 +15,7 @@
 | Alignement des versions | [Comparaison](dependency-version-alignment.md) | Même références de parents | Matrice des commits partagés, Conan, pip et étapes nécessaires avant l'audit des usages |
 | Mises à jour externes | [Relevé Conan/pip](external-dependency-updates.md) | Catalogues Conan Center et PyPI du 24 octobre 2026 | Versions publiées, contraintes résolues et ordre de mise à jour proposé |
 | Publication des sous-modules | [Procédure de validation](submodule-release-policy.md) | Versions alignées des trois parents | Contrôle des gitlinks, builds et ordre de publication |
+| Suivi de l'audit | [État au 25 octobre](audit-status-2026-10-25.md) | Branches de travail après les changements des 23–24 octobre | Versions courantes, preuves et validations manquantes |
 
 ## Dépôts et maintenance
 
@@ -50,6 +51,6 @@
 | OpenAI/Azure OpenAI | TeamServer/Client | Services externes recensés ; disponibilité et configuration runtime non auditées |
 | Outils, scripts et artefacts de runtime | TeamServer/Client, C2Core | Emplacements et consommateurs recensés ; contenu concret dépend du build ou déploiement |
 
-## État avant l'audit
+## Portée du relevé initial
 
-Le **catalogue des composants principaux et de leurs dépendances directes est établi**. Les audits pourront partir des identifiants `TS`, `CL`, `CORE`, `M`, `WIN` et `LNX`. Pour une nomenclature exhaustive de tout le logiciel, il faudra encore détailler les dépendances transitives, les champs du protocole, les scripts de packaging/intégration et les fonctions propres à chaque dépôt externe maintenu. Ces travaux sont distincts de l'audit d'implémentation des éléments déjà listés.
+Le **catalogue des composants principaux et de leurs dépendances directes est établi**. Les audits partent des identifiants `TS`, `CL`, `CORE`, `M`, `WIN` et `LNX`. Pour une nomenclature exhaustive de tout le logiciel, il faut encore détailler les dépendances transitives, les champs du protocole, les scripts de packaging/intégration et les fonctions propres à chaque dépôt externe maintenu. Le [suivi actuel](audit-status-2026-10-25.md) distingue ces inventaires des audits de fonctionnement déjà entrepris.

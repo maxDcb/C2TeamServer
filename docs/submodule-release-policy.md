@@ -24,8 +24,10 @@ suite. Keep the parent gitlinks pinned so builds remain reproducible.
 
 `MemoryModule` and `COFFLoader` currently have only one consumer, the Windows
 implant. Promote their validated development commits to local `master` and use
-the same build/test rule for that consumer before publishing. `COFFLoader` has
-no remote `master` yet; create it and update its default branch when publishing.
+the same build/test rule for that consumer before publishing. As of 25 October
+2026, `COFFLoader` commit `78b9ade` is published on its remote `master`, and
+that branch is the fork's default branch. The current cross-parent gate status
+is recorded in [the audit follow-up](audit-status-2026-10-25.md).
 Third-party submodules remain pinned to reviewed upstream commits.
 
 This is a release procedure and a version check, not an automatic server-side
