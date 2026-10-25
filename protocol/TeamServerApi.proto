@@ -50,6 +50,7 @@ enum ListenerState
   LISTENER_STATE_STOPPING = 2;
   LISTENER_STATE_FAILED = 3;
   LISTENER_STATE_STOP_FAILED = 4;
+  LISTENER_STATE_UNAVAILABLE = 5;
 }
 
 enum SessionState
@@ -120,6 +121,7 @@ message Listener
   string domain = 8;
   string beacon_hash = 9;
   ListenerState state = 10;
+  string parent_listener_hash = 11;
 }
 
 

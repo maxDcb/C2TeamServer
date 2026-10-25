@@ -407,8 +407,9 @@ class Graph(QWidget):
             for beacon in beacons:
                 sourceDepth = listenerDepthByHash.get(beacon.connectedListenerHash, 0)
                 depth = max(1, sourceDepth + 1)
-                if beaconDepthByHash.get(beacon.beaconHash) != depth:
-                    beaconDepthByHash[beacon.beaconHash] = depth
+                routeKey = (beacon.beaconHash, beacon.connectedListenerHash)
+                if beaconDepthByHash.get(routeKey) != depth:
+                    beaconDepthByHash[routeKey] = depth
                     changed = True
                 for listenerHash in beacon.listenerHash:
                     if listenerDepthByHash.get(listenerHash) != depth:
@@ -416,11 +417,12 @@ class Graph(QWidget):
                         changed = True
 
         for beacon in beacons:
-            depth = beaconDepthByHash.get(beacon.beaconHash, 1)
+            depth = beaconDepthByHash.get((beacon.beaconHash, beacon.connectedListenerHash), 1)
             columns.setdefault(depth, []).append(beacon)
 
         for depth, nodes in columns.items():
-            columns[depth] = sorted(nodes, key=lambda item: (item.type, item.displayLabel, item.beaconHash))
+            columns[depth] = sorted(nodes, key=lambda item: (
+                item.type, item.displayLabel, item.beaconHash, item.connectedListenerHash))
         return columns
 
     def positionNodeColumn(self, nodes, x):
@@ -430,11 +432,13 @@ class Graph(QWidget):
             node.setPos(QPointF(x, self.NODE_Y_START + index * self.NODE_Y_GAP))
             node.autoPositioned = True
 
-    def findBeaconNode(self, beaconHash):
-        for nodeItem in self.listNodeItem:
-            if nodeItem.type == BeaconNodeItemType and nodeItem.beaconHash == beaconHash:
-                return nodeItem
-        return None
+    def findBeaconNode(self, beaconHash, listenerHash=None):
+        matches = [
+            item for item in self.listNodeItem
+            if item.type == BeaconNodeItemType and item.beaconHash == beaconHash
+            and (listenerHash is None or item.connectedListenerHash == listenerHash)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
     def findResponsibleNode(self, listenerHash):
         for nodeItem in self.listNodeItem:
@@ -452,14 +456,15 @@ class Graph(QWidget):
             self.listNodeItem.remove(nodeItem)
 
     def syncBeacons(self, sessions):
-        sessionHashes = {session.beacon_hash for session in sessions}
+        sessionRoutes = {(session.beacon_hash, session.listener_hash) for session in sessions}
         for nodeItem in list(self.listNodeItem):
-            if nodeItem.type == BeaconNodeItemType and nodeItem.beaconHash not in sessionHashes:
+            if nodeItem.type == BeaconNodeItemType and (
+                nodeItem.beaconHash, nodeItem.connectedListenerHash) not in sessionRoutes:
                 logger.debug("Delete graph beacon %s", nodeItem.beaconHash)
                 self.removeNode(nodeItem)
 
         for session in sessions:
-            nodeItem = self.findBeaconNode(session.beacon_hash)
+            nodeItem = self.findBeaconNode(session.beacon_hash, session.listener_hash)
             if nodeItem is None:
                 nodeItem = NodeItem(
                     BeaconNodeItemType,
@@ -504,7 +509,8 @@ class Graph(QWidget):
                 self.listNodeItem.append(item)
                 logger.debug("Add graph primary listener %s", listener.listener_hash)
             else:
-                beaconNode = self.findBeaconNode(beaconHash)
+                parentRoute = _text(getattr(listener, "parent_listener_hash", "")) or None
+                beaconNode = self.findBeaconNode(beaconHash, parentRoute)
                 if beaconNode is not None:
                     beaconNode.addListenerHash(listener.listener_hash)
                     logger.debug("Add graph secondary listener %s", listener.listener_hash)

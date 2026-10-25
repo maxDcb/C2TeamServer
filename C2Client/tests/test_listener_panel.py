@@ -549,3 +549,9 @@ def test_listener_state_and_available_types_are_displayed(qtbot, monkeypatch):
     )])
     assert listeners.listListener.item(0, 4).text() == "Stopping"
     assert not listeners.stopListenerButton.isEnabled()
+    listeners._applyListeners([SimpleNamespace(
+        listener_hash="child", beacon_hash="beacon", type="tcp", ip="127.0.0.1",
+        port=4444, session_count=0, state=TeamServerApi_pb2.LISTENER_STATE_UNAVAILABLE,
+    )])
+    assert listeners.listListener.item(0, 4).text() == "Unavailable"
+    assert listeners.stopListenerButton.isEnabled()

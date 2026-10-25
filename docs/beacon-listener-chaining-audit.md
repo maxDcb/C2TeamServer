@@ -1,6 +1,6 @@
 # Audit du chaînage beacon/listener — 25 octobre 2026
 
-Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des sessions enfant sur un ou plusieurs sauts, commandes et résultats, arrêt, visibilité TeamServer et graphe client. Révision examinée : C2Core `afc23ab`, TeamServer `2a33a43`, C2Implant `3aad52c`, C2LinuxImplant `9ec8907`.
+Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des sessions enfant sur un ou plusieurs sauts, commandes et résultats, arrêt, visibilité TeamServer et graphe client. Révisions de l'audit initial : C2Core `afc23ab`, TeamServer `2a33a43`, C2Implant `3aad52c`, C2LinuxImplant `9ec8907`. La correction C2Core est `6edbbbc`.
 
 ## Parcours constaté
 
@@ -11,7 +11,7 @@ Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des se
 
 Sources principales : [exécution beacon](../core/beacon/Beacon.cpp), [enveloppes listener](../core/listener/Listener.cpp), [service TeamServer](../teamServer/teamServer/TeamServerListenerSessionService.cpp), [panneau client](../C2Client/C2Client/ListenerPanel.py).
 
-## Constats prioritaires
+## Constats initiaux
 
 | Priorité | Constat et impact | Correction et preuve attendues |
 | --- | --- | --- |
@@ -25,4 +25,15 @@ Points d'appui : [validation des métadonnées](../core/listener/Listener.cpp), 
 
 ## Limite de validation
 
-Les suites CI et les tests de l'installateur valident compilation, transports directs, service et déploiement. Les [résultats manuels antérieurs](testing/manual-results.yaml) enregistrent aussi le démarrage et l'arrêt de listeners enfants TCP/SMB ainsi que la réapparition d'un listener TCP après redémarrage du TeamServer. Ils ne démontrent pas le passage d'un **second beacon** à travers le listener enfant et sa remontée sur plusieurs sauts. Les constats ci-dessus sont établis par lecture du code et des tests ; ces scénarios de chaîne complète restent à exécuter avant publication.
+Les suites CI et les tests de l'installateur valident compilation, transports directs, service et déploiement. Les [résultats manuels antérieurs](testing/manual-results.yaml) enregistrent aussi le démarrage et l'arrêt de listeners enfants TCP/SMB ainsi que la réapparition d'un listener TCP après redémarrage du TeamServer. Ils ne démontrent pas le passage d'un **second beacon** à travers le listener enfant et sa remontée sur plusieurs sauts.
+
+## Corrections du 25 octobre
+
+| Constat | Correction et vérification |
+| --- | --- |
+| P0 : métadonnées invalides | C2Core n'enregistre plus un rapport enfant dont le type ou le port TCP est invalide. Le TeamServer vérifie à nouveau les métadonnées avant de produire `ListListeners` et ignore seulement l'entrée fautive. Les tests couvrent ports non numériques, zéro, hors plage, débordement et type inconnu. |
+| P1 : commandes perdues sur route enfant | Le beacon parent poursuit le traitement des autres bundles et renvoie un résultat d'erreur corrélé par UUID pour chaque tâche refusée. Les erreurs sont envoyées en lots bornés et ne rafraîchissent pas artificiellement le dernier signe de vie de l'enfant. Le routage refuse aussi une session enfant arrêtée. Un test de deux niveaux couvre commande et résultat aller-retour, route manquante, file pleine, session arrêtée et 70 erreurs sur deux check-ins. |
+| P1 : état enfant périmé | Chaque rapport de listener enfant rafraîchit son horodatage. Le serveur expose `UNAVAILABLE` après 30 secondes sans rapport récent du listener ou du beacon parent et évite de sélectionner cette route pour une nouvelle commande. La session reste visible. Les tests couvrent perte du listener, retour de son poll et perte du parent. |
+| P2 : graphe ambigu | Le contrat de liste porte la route parent (`parent_listener_hash`). Le graphe identifie chaque nœud par `(beaconHash, listenerHash)` et rattache le listener enfant à la bonne route. Un test couvre deux routes simultanées d'un même beacon, avec deux pivots distincts. |
+
+Validation locale après correction : **84/84 CTest**, **308 tests client** et **10 tests d'installation**. La CI multiplateforme et un essai manuel avec de vrais beacons sur au moins deux sauts restent nécessaires pour confirmer les transports et la reconnexion dans l'environnement de publication.

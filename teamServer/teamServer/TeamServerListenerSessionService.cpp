@@ -3,6 +3,7 @@
 #include <arpa/inet.h>
 #include <algorithm>
 #include <chrono>
+#include <charconv>
 #include <cctype>
 #include <ctime>
 #include <iomanip>
@@ -184,6 +185,14 @@ teamserverapi::ListenerState primaryListenerState(const Listener& listener)
 }
 
 constexpr auto ChildStopTimeout = std::chrono::seconds(30);
+constexpr auto ChildListenerStaleAfter = std::chrono::seconds(30);
+
+bool parseChildTcpPort(const std::string& value, int& port)
+{
+    const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), port);
+    return error == std::errc{} && end == value.data() + value.size()
+        && port >= 1 && port <= 65535;
+}
 
 std::shared_ptr<Listener> findTcpPortConflict(
     const std::vector<std::shared_ptr<Listener>>& listeners,
@@ -339,7 +348,7 @@ std::string TeamServerListenerSessionService::resolveActiveListenerHash(
                 requestedRouteStopped |= route == requestedListenerHash;
                 continue;
             }
-            if (!isListenerAlive(route))
+            if (!isListenerReachable(listeners, route))
                 continue;
             if (route == requestedListenerHash)
             {
@@ -354,6 +363,30 @@ std::string TeamServerListenerSessionService::resolveActiveListenerHash(
     if (ambiguous)
         return {};
     return fallback.empty() && requestedRouteStopped ? requestedListenerHash : fallback;
+}
+
+bool TeamServerListenerSessionService::isListenerReachable(
+    const std::vector<std::shared_ptr<Listener>>& listeners,
+    const std::string& listenerHash) const
+{
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& listener : listeners)
+    {
+        if (!listener || !listener->isRunning())
+            continue;
+        if (listener->getListenerHash() == listenerHash)
+            return true;
+        for (const auto& session : listener->getSessionsSnapshot())
+        {
+            if (!session || !session->recentlySeen(now, ChildListenerStaleAfter))
+                continue;
+            for (const auto& child : session->getListener())
+                if (child.getListenerHash() == listenerHash &&
+                    child.recentlySeen(now, ChildListenerStaleAfter))
+                    return true;
+        }
+    }
+    return false;
 }
 
 void TeamServerListenerSessionService::setJobResultHandler(
@@ -418,6 +451,19 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
             {
                 m_logger->trace("|-> sessionListenerList {0} {1} {2}", it->getType(), it->getParam1(), it->getParam2());
 
+                int childTcpPort = 0;
+                if (it->getType() != ListenerTcpType && it->getType() != ListenerSmbType)
+                {
+                    m_logger->warn("Ignoring unknown child listener type for {}", it->getListenerHash());
+                    continue;
+                }
+                if (it->getType() == ListenerTcpType &&
+                    !parseChildTcpPort(it->getParam2(), childTcpPort))
+                {
+                    m_logger->warn("Ignoring invalid TCP child listener metadata for {}", it->getListenerHash());
+                    continue;
+                }
+
                 teamserverapi::Listener childListener;
                 childListener.set_listener_hash(it->getListenerHash());
                 visibleChildHashes.insert(it->getListenerHash());
@@ -425,17 +471,21 @@ grpc::Status TeamServerListenerSessionService::streamListeners(const TeamServerL
                 childListener.set_state(!listeners[i]->isRunning()
                     ? teamserverapi::LISTENER_STATE_FAILED
                     : pendingStop == pendingChildStops.end()
-                        ? teamserverapi::LISTENER_STATE_RUNNING
+                        ? session->recentlySeen(now, ChildListenerStaleAfter) &&
+                          it->recentlySeen(now, ChildListenerStaleAfter)
+                            ? teamserverapi::LISTENER_STATE_RUNNING
+                            : teamserverapi::LISTENER_STATE_UNAVAILABLE
                         : now - pendingStop->second < ChildStopTimeout
                             ? teamserverapi::LISTENER_STATE_STOPPING
                             : teamserverapi::LISTENER_STATE_STOP_FAILED);
                 childListener.set_beacon_hash(session->getBeaconHash());
+                childListener.set_parent_listener_hash(session->getListenerHash());
                 std::string childType = it->getType();
                 childListener.set_type(childType);
                 if (childType == ListenerTcpType)
                 {
                     childListener.set_ip(it->getParam1());
-                    childListener.set_port(std::stoi(it->getParam2()));
+                    childListener.set_port(childTcpPort);
                 }
                 else if (childType == ListenerSmbType)
                 {
@@ -1321,6 +1371,8 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     if (ccInstructionString == m_commonCommands.getCommand(ii))
                         m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
                 }
+                if (c2Message.errorCode() > 0 && errorMsg.empty())
+                    errorMsg = c2Message.returnvalue().empty() ? "Command failed." : c2Message.returnvalue();
                 if (c2Message.errorCode() == ERROR_MODULE_NOT_FOUND
                     || c2Message.returnvalue() == CmdModuleNotFound)
                     errorMsg = "Error: Module not loaded";

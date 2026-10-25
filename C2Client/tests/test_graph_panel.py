@@ -55,7 +55,32 @@ class PivotGrpc:
     def listListeners(self):
         return [
             SimpleNamespace(listener_hash="listener-primary", beacon_hash="", type="https"),
-            SimpleNamespace(listener_hash="listener-pivot", beacon_hash="beacon-parent", type="tcp"),
+            SimpleNamespace(listener_hash="listener-pivot", beacon_hash="beacon-parent",
+                            parent_listener_hash="listener-primary", type="tcp"),
+        ]
+
+
+class ParallelRoutesGrpc:
+    def listSessions(self):
+        return [
+            SimpleNamespace(beacon_hash="shared-beacon", listener_hash="primary-a",
+                            os="Linux", privilege="user", hostname="shared"),
+            SimpleNamespace(beacon_hash="shared-beacon", listener_hash="primary-b",
+                            os="Linux", privilege="user", hostname="shared"),
+            SimpleNamespace(beacon_hash="child-a", listener_hash="pivot-a",
+                            os="Linux", privilege="user", hostname="child-a"),
+            SimpleNamespace(beacon_hash="child-b", listener_hash="pivot-b",
+                            os="Linux", privilege="user", hostname="child-b"),
+        ]
+
+    def listListeners(self):
+        return [
+            SimpleNamespace(listener_hash="primary-a", beacon_hash="", type="tcp"),
+            SimpleNamespace(listener_hash="primary-b", beacon_hash="", type="tcp"),
+            SimpleNamespace(listener_hash="pivot-a", beacon_hash="shared-beacon",
+                            parent_listener_hash="primary-a", type="tcp"),
+            SimpleNamespace(listener_hash="pivot-b", beacon_hash="shared-beacon",
+                            parent_listener_hash="primary-b", type="tcp"),
         ]
 
 
@@ -113,6 +138,23 @@ def test_graph_layout_places_pivot_children_in_deeper_columns(qtbot, monkeypatch
     assert len(graph.listConnector) == 2
     assert "Hosted listeners: listener-pivot" in parent.toolTip()
     assert "Listener: listener-pivot" in child.toolTip()
+
+
+def test_graph_keeps_parallel_routes_and_their_child_listeners_separate(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
+    graph = Graph(QWidget(), ParallelRoutesGrpc())
+    qtbot.addWidget(graph)
+    graph.updateGraph()
+
+    route_a = graph.findBeaconNode("shared-beacon", "primary-a")
+    route_b = graph.findBeaconNode("shared-beacon", "primary-b")
+    assert route_a is not None and route_b is not None and route_a is not route_b
+    assert graph.findBeaconNode("shared-beacon") is None
+    assert route_a.listenerHash == ["pivot-a"]
+    assert route_b.listenerHash == ["pivot-b"]
+    assert graph.findBeaconNode("child-a", "pivot-a").pos().x() == graph.SECONDARY_LISTENER_X
+    assert graph.findBeaconNode("child-b", "pivot-b").pos().x() == graph.SECONDARY_LISTENER_X
+    assert len(graph.listConnector) == 4
 
 
 def test_graph_auto_button_reclaims_user_moved_nodes(qtbot, monkeypatch):

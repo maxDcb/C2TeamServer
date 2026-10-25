@@ -64,6 +64,7 @@ LISTENER_STATE_LABELS = {
     TeamServerApi_pb2.LISTENER_STATE_STOPPING: "Stopping",
     TeamServerApi_pb2.LISTENER_STATE_FAILED: "Failed",
     TeamServerApi_pb2.LISTENER_STATE_STOP_FAILED: "Stop failed",
+    TeamServerApi_pb2.LISTENER_STATE_UNAVAILABLE: "Unavailable",
 }
 AUTO_FIELD_VALUES = {"0.0.0.0", "8443", "8080", "4444", "53"}
 LISTENER_FORM_CONFIG = {
@@ -713,6 +714,7 @@ class Listeners(QWidget):
             if listenerStore.state in (
                 TeamServerApi_pb2.LISTENER_STATE_FAILED,
                 TeamServerApi_pb2.LISTENER_STATE_STOP_FAILED,
+                TeamServerApi_pb2.LISTENER_STATE_UNAVAILABLE,
             ):
                 state_item.setForeground(QColor("#d97b80"))
             self.listListener.setItem(ix, 4, state_item)

@@ -148,6 +148,7 @@ void testCollectListenersAndSessions()
     assert(streamedListeners[0].listener_hash() == "listener-primary");
     assert(streamedListeners[0].state() == teamserverapi::LISTENER_STATE_RUNNING);
     assert(streamedListeners[1].listener_hash() == "listener-child");
+    assert(streamedListeners[1].parent_listener_hash() == "listener-primary");
     assert(streamedListeners[1].state() == teamserverapi::LISTENER_STATE_RUNNING);
 
     std::vector<teamserverapi::Session> streamedSessions;
@@ -170,6 +171,84 @@ void testCollectListenersAndSessions()
                }).ok());
     assert(streamedListeners[0].state() == teamserverapi::LISTENER_STATE_FAILED);
     assert(streamedListeners[1].state() == teamserverapi::LISTENER_STATE_FAILED);
+}
+
+void testChildListenerMetadataAndLiveness()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto primary = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "primary-route");
+    const std::string parentHash(SizeBeaconHash, 'P');
+    const std::string childHash(SizeBeaconHash, 'C');
+    auto parent = primary->addSession("primary-route", parentHash, "parent", "user", "x64", "user", "Linux");
+    primary->addSession("child-route", childHash, "child", "user", "x64", "user", "Linux");
+    parent->addListener("child-route", ListenerTcpType, "127.0.0.1", "9001",
+        std::chrono::steady_clock::now() - std::chrono::seconds(31));
+    parent->addListener("invalid-port", ListenerTcpType, "127.0.0.1", "not-a-port");
+    parent->addListener("invalid-type", ListenerHttpType, "127.0.0.1", "9002");
+    listeners.push_back(primary);
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commands;
+    std::vector<BeaconCommandContext> sent;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commands, sent, nullptr,
+        [](const std::string&, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction("instruction");
+            return 0;
+        });
+
+    std::vector<teamserverapi::Listener> snapshot;
+    assert(service.streamListeners([&](const teamserverapi::Listener& item)
+        { snapshot.push_back(item); return true; }).ok());
+    assert(snapshot.size() == 2);
+    assert(snapshot[1].listener_hash() == "child-route");
+    assert(snapshot[1].state() == teamserverapi::LISTENER_STATE_UNAVAILABLE);
+    assert(service.isListenerAlive("child-route"));
+    std::vector<teamserverapi::Session> sessions;
+    assert(service.streamSessions([&](const teamserverapi::Session& item)
+        { sessions.push_back(item); return true; }).ok());
+    assert(sessions.size() == 2); // Stale routes remain visible for audit/history.
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash(childHash);
+    command.mutable_session()->set_listener_hash("child-route");
+    command.set_command("ls");
+    command.set_command_id("stale-child-command");
+    teamserverapi::CommandAck rejected;
+    assert(service.sendSessionCommand(command, &rejected).ok());
+    assert(rejected.status() == teamserverapi::KO);
+    assert(sent.empty());
+
+    assert(!parent->addListener("child-route", ListenerTcpType, "127.0.0.1", "9001"));
+    snapshot.clear();
+    assert(service.streamListeners([&](const teamserverapi::Listener& item)
+        { snapshot.push_back(item); return true; }).ok());
+    assert(snapshot[1].state() == teamserverapi::LISTENER_STATE_RUNNING);
+    teamserverapi::CommandAck accepted;
+    assert(service.sendSessionCommand(command, &accepted).ok());
+    assert(accepted.status() == teamserverapi::OK);
+    assert(primary->getTask(childHash, "child-route").uuid() == "stale-child-command");
+
+    std::vector<teamserverapi::CommandResult> reported;
+    service.setJobResultHandler([&](const teamserverapi::CommandResult& result)
+        { reported.push_back(result); });
+    C2Message routeFailure;
+    routeFailure.set_instruction("module-command");
+    routeFailure.set_uuid("lost-child-command");
+    routeFailure.set_errorCode(ERROR_HASH_NOT_FOUND);
+    routeFailure.set_returnvalue("Child listener route is unavailable.");
+    assert(primary->addTaskResult(routeFailure, childHash, "child-route"));
+    service.handleCmdResponse();
+    assert(reported.size() == 1);
+    assert(reported[0].status() == teamserverapi::KO);
+    assert(reported[0].command_id() == "lost-child-command");
+    assert(reported[0].output() == "Child listener route is unavailable.");
+
+    assert(parent->updateProofOfLife("31"));
+    snapshot.clear();
+    assert(service.streamListeners([&](const teamserverapi::Listener& item)
+        { snapshot.push_back(item); return true; }).ok());
+    assert(snapshot[1].state() == teamserverapi::LISTENER_STATE_UNAVAILABLE);
 }
 
 void testQueueStopAndResponseDelivery()
@@ -987,6 +1066,7 @@ void testStaleListenerRouteDoesNotGuessBetweenActivePaths()
 int main()
 {
     testCollectListenersAndSessions();
+    testChildListenerMetadataAndLiveness();
     testQueueStopAndResponseDelivery();
     testAddListenerRejectsTcpBoundPortConflicts();
     testServerValidatesListenerRequests();
