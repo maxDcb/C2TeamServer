@@ -233,8 +233,9 @@ void testChildListenerMetadataAndLiveness()
     service.setJobResultHandler([&](const teamserverapi::CommandResult& result)
         { reported.push_back(result); });
     C2Message routeFailure;
-    routeFailure.set_instruction("module-command");
+    routeFailure.set_instruction(ListenerCmd);
     routeFailure.set_uuid("lost-child-command");
+    routeFailure.set_data(RouteFailureReportTag);
     routeFailure.set_errorCode(ERROR_HASH_NOT_FOUND);
     routeFailure.set_returnvalue("Child listener route is unavailable.");
     assert(primary->addTaskResult(routeFailure, childHash, "child-route"));

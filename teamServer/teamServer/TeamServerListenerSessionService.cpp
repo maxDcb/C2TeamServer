@@ -1372,7 +1372,11 @@ int TeamServerListenerSessionService::handleCmdResponse()
                     if (ccInstructionString == m_commonCommands.getCommand(ii))
                         m_commonCommands.errorCodeToMsg(c2Message, errorMsg);
                 }
-                if (c2Message.errorCode() > 0 && errorMsg.empty())
+                if (c2Message.errorCode() > 0 &&
+                    c2Message.data() == RouteFailureReportTag)
+                    errorMsg = c2Message.returnvalue().empty()
+                        ? "Child listener route unavailable." : c2Message.returnvalue();
+                else if (c2Message.errorCode() > 0 && errorMsg.empty())
                     errorMsg = c2Message.returnvalue().empty() ? "Command failed." : c2Message.returnvalue();
                 if (c2Message.errorCode() == ERROR_MODULE_NOT_FOUND
                     || c2Message.returnvalue() == CmdModuleNotFound)
