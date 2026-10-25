@@ -251,6 +251,45 @@ void testChildListenerMetadataAndLiveness()
     assert(snapshot[1].state() == teamserverapi::LISTENER_STATE_UNAVAILABLE);
 }
 
+void testChildCommandSelectsTheReachableUpstreamPath()
+{
+    nlohmann::json config = {{"LogLevel", "off"}};
+    const std::string parentHash(SizeBeaconHash, 'P');
+    const std::string childHash(SizeBeaconHash, 'C');
+    std::vector<std::shared_ptr<Listener>> listeners;
+    auto stale = std::make_shared<TestListener>("127.0.0.1", "8443", ListenerHttpsType, "primary-a");
+    auto healthy = std::make_shared<TestListener>("127.0.0.1", "8444", ListenerHttpsType, "primary-b");
+    auto staleParent = stale->addSession("primary-a", parentHash, "parent", "user", "x64", "user", "Linux");
+    auto healthyParent = healthy->addSession("primary-b", parentHash, "parent", "user", "x64", "user", "Linux");
+    staleParent->addListener("shared-child-route", ListenerTcpType, "127.0.0.1", "9001");
+    healthyParent->addListener("shared-child-route", ListenerTcpType, "127.0.0.1", "9001");
+    stale->addSession("shared-child-route", childHash, "child", "user", "x64", "user", "Linux");
+    healthy->addSession("shared-child-route", childHash, "child", "user", "x64", "user", "Linux");
+    assert(staleParent->updateProofOfLife("31"));
+    listeners.push_back(stale);
+    listeners.push_back(healthy);
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    CommonCommands commands;
+    std::vector<BeaconCommandContext> sent;
+    TeamServerListenerSessionService service(makeLogger(), config, listeners, modules, commands, sent, nullptr,
+        [](const std::string&, C2Message& message, bool, const std::string&)
+        {
+            message.set_instruction("instruction");
+            return 0;
+        });
+
+    teamserverapi::SessionCommandRequest command;
+    command.mutable_session()->set_beacon_hash(childHash);
+    command.mutable_session()->set_listener_hash("shared-child-route");
+    command.set_command("ls");
+    command.set_command_id("healthy-path-command");
+    teamserverapi::CommandAck response;
+    assert(service.sendSessionCommand(command, &response).ok());
+    assert(response.status() == teamserverapi::OK);
+    assert(stale->getTask(childHash, "shared-child-route").instruction().empty());
+    assert(healthy->getTask(childHash, "shared-child-route").uuid() == "healthy-path-command");
+}
+
 void testQueueStopAndResponseDelivery()
 {
     nlohmann::json config = {{"LogLevel", "off"}};
@@ -1067,6 +1106,7 @@ int main()
 {
     testCollectListenersAndSessions();
     testChildListenerMetadataAndLiveness();
+    testChildCommandSelectsTheReachableUpstreamPath();
     testQueueStopAndResponseDelivery();
     testAddListenerRejectsTcpBoundPortConflicts();
     testServerValidatesListenerRequests();

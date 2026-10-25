@@ -348,7 +348,7 @@ std::string TeamServerListenerSessionService::resolveActiveListenerHash(
                 requestedRouteStopped |= route == requestedListenerHash;
                 continue;
             }
-            if (!isListenerReachable(listeners, route))
+            if (!isListenerReachable(listener, route))
                 continue;
             if (route == requestedListenerHash)
             {
@@ -366,25 +366,22 @@ std::string TeamServerListenerSessionService::resolveActiveListenerHash(
 }
 
 bool TeamServerListenerSessionService::isListenerReachable(
-    const std::vector<std::shared_ptr<Listener>>& listeners,
+    const std::shared_ptr<Listener>& primary,
     const std::string& listenerHash) const
 {
+    if (!primary || !primary->isRunning())
+        return false;
+    if (primary->getListenerHash() == listenerHash)
+        return true;
     const auto now = std::chrono::steady_clock::now();
-    for (const auto& listener : listeners)
+    for (const auto& session : primary->getSessionsSnapshot())
     {
-        if (!listener || !listener->isRunning())
+        if (!session || !session->recentlySeen(now, ChildListenerStaleAfter))
             continue;
-        if (listener->getListenerHash() == listenerHash)
-            return true;
-        for (const auto& session : listener->getSessionsSnapshot())
-        {
-            if (!session || !session->recentlySeen(now, ChildListenerStaleAfter))
-                continue;
-            for (const auto& child : session->getListener())
-                if (child.getListenerHash() == listenerHash &&
-                    child.recentlySeen(now, ChildListenerStaleAfter))
-                    return true;
-        }
+        for (const auto& child : session->getListener())
+            if (child.getListenerHash() == listenerHash &&
+                child.recentlySeen(now, ChildListenerStaleAfter))
+                return true;
     }
     return false;
 }
@@ -1146,6 +1143,9 @@ grpc::Status TeamServerListenerSessionService::stopSession(const teamserverapi::
                 const auto session = listeners[i]->getSessionPtr(beaconHash, listenerHash);
                 if (!session)
                     continue;
+                if (!isListenerReachable(listeners[i], listenerHash) &&
+                    session->getLifecycleState() != Session::LifecycleState::Stopped)
+                    continue;
                 response->set_session_beacon_hash(beaconHash);
                 response->set_session_listener_hash(listenerHash);
                 response->set_session_state(toApiSessionState(session->getLifecycleState()));
@@ -1230,7 +1230,8 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
 
     for (size_t i = 0; i < listeners.size(); i++)
     {
-        if (!listeners[i]->isSessionExist(beaconHash, listenerHash))
+        if (!listeners[i]->isSessionExist(beaconHash, listenerHash) ||
+            !isListenerReachable(listeners[i], listenerHash))
             continue;
 
         std::shared_ptr<Session> session = listeners[i]->getSessionPtr(beaconHash, listenerHash);

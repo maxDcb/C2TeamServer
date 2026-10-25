@@ -65,7 +65,7 @@ private:
         const std::string& beaconHash,
         const std::string& requestedListenerHash,
         bool& ambiguous) const;
-    bool isListenerReachable(const std::vector<std::shared_ptr<Listener>>& listeners,
+    bool isListenerReachable(const std::shared_ptr<Listener>& primary,
                              const std::string& listenerHash) const;
     std::vector<std::unique_ptr<ModuleCmd>>& m_moduleCmd;
     CommonCommands& m_commonCommands;
