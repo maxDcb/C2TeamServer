@@ -399,10 +399,15 @@ def install_client(root: Path, prefix: Path, args: argparse.Namespace) -> None:
         env_file.chmod(0o600)
     uv = ensure_uv(prefix, args.uv)
     environment_path = client / ".venv"
+    environment_backup = client / ".venv.previous"
+    if environment_backup.exists():
+        fail(f"Previous application backup still exists: {environment_backup}")
+    if environment_path.exists():
+        environment_path.rename(environment_backup)
     environment = os.environ.copy()
     environment["UV_PROJECT_ENVIRONMENT"] = str(environment_path)
     subprocess.run([str(uv), "sync", "--project", str(staged), "--locked", "--no-dev",
-                    "--python", "3.12"], check=True, env=environment)
+                    "--no-editable", "--python", "3.12"], check=True, env=environment)
     swap_directory(staged, client / "app")
 
 
@@ -427,8 +432,10 @@ def install(args: argparse.Namespace) -> None:
         validate_release(root, server_selected, client_selected)
         server_app = prefix / "server" / "app"
         client_app = prefix / "client" / "app"
+        client_environment = prefix / "client" / ".venv"
         server_existed = server_app.exists()
         client_existed = client_app.exists()
+        client_environment_existed = client_environment.exists()
         was_running = server_running(prefix) if server_selected else False
         client_was_running = client_pid(prefix) is not None if client_selected else False
         password = None
@@ -464,6 +471,7 @@ def install(args: argparse.Namespace) -> None:
                 finalize_directory(server_app)
             if client_selected:
                 finalize_directory(client_app)
+                finalize_directory(client_environment)
         except Exception:
             if password:
                 print(f"Initial admin password (shown once): {password}")
@@ -475,6 +483,8 @@ def install(args: argparse.Namespace) -> None:
                 restore_directory(server_app, server_existed)
             if client_selected:
                 restore_directory(client_app, client_existed)
+                restore_directory(client_environment, client_environment_existed)
+                shutil.rmtree(prefix / "client" / "app.new", ignore_errors=True)
             if was_running and not server_running(prefix):
                 start_server(prefix)
             if client_was_running and client_pid(prefix) is None:

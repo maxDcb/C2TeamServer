@@ -5,6 +5,7 @@ import ctypes.util
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tarfile
 
@@ -110,3 +111,88 @@ def test_extract_bundle_rejects_unsafe_paths(tmp_path: Path):
     with pytest.raises(RuntimeError, match="unsafe path"):
         installer.extract_bundle(archive, tmp_path / "out")
     assert not (tmp_path / "outside").exists()
+
+
+def test_extract_bundle_rejects_links_and_duplicates(tmp_path: Path):
+    archive = tmp_path / "bundle.tar.gz"
+    with tarfile.open(archive, "w:gz") as output:
+        link = tarfile.TarInfo("Release/TeamServer/TeamServer")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/bin/sh"
+        output.addfile(link)
+    with pytest.raises(RuntimeError, match="link or unsupported entry"):
+        installer.extract_bundle(archive, tmp_path / "links")
+
+    payload = tmp_path / "payload"
+    payload.write_text("duplicate", encoding="utf-8")
+    with tarfile.open(archive, "w:gz") as output:
+        output.add(payload, arcname="Release/duplicate")
+        output.add(payload, arcname="Release/duplicate")
+    with pytest.raises(RuntimeError, match="duplicate entries"):
+        installer.extract_bundle(archive, tmp_path / "duplicates")
+
+
+def test_release_checksum_detects_tampering(tmp_path: Path):
+    import hashlib
+
+    archive = tmp_path / "Release.tar.gz"
+    checksum = tmp_path / "Release.tar.gz.sha256"
+    archive.write_bytes(b"release archive")
+    checksum.write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + "  Release.tar.gz\n")
+    installer.verify_checksum(archive, checksum)
+    archive.write_bytes(b"modified archive")
+    with pytest.raises(RuntimeError, match="checksum mismatch"):
+        installer.verify_checksum(archive, checksum)
+
+
+def test_client_update_restores_app_and_environment_when_sync_fails(
+    tmp_path: Path, monkeypatch,
+):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    prefix = tmp_path / "installed"
+    trust = prefix / "client" / "config" / "trust.crt"
+    trust.parent.mkdir(parents=True)
+    trust.write_text("test certificate", encoding="utf-8")
+
+    uv = tmp_path / "fake-uv"
+    uv.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, pathlib, sys\n"
+        "project = pathlib.Path(sys.argv[sys.argv.index('--project') + 1])\n"
+        "environment = pathlib.Path(os.environ['UV_PROJECT_ENVIRONMENT'])\n"
+        "environment.mkdir(parents=True)\n"
+        "version = (project / 'version').read_text()\n"
+        "(environment / 'version').write_text(version)\n"
+        "sys.exit(7 if version == 'broken' else 0)\n",
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+
+    def release(name: str) -> Path:
+        root = tmp_path / name
+        for relative in ("pyproject.toml", "uv.lock", "C2Client/GUI.py",
+                         "c2client_protocol/TeamServerApi_pb2.py", "version"):
+            target = root / "Client" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(name, encoding="utf-8")
+        return root
+
+    first = _args(prefix, release("first"))
+    first.server_only = False
+    first.client_only = True
+    first.uv = uv
+    installer.install(first)
+    assert (prefix / "client" / ".venv" / "version").read_text() == "first"
+
+    broken = _args(prefix, release("broken"))
+    broken.server_only = False
+    broken.client_only = True
+    broken.uv = uv
+    with pytest.raises(subprocess.CalledProcessError):
+        installer.install(broken)
+
+    assert (prefix / "client" / "app" / "version").read_text() == "first"
+    assert (prefix / "client" / ".venv" / "version").read_text() == "first"
+    assert not (prefix / "client" / "app.new").exists()
+    assert not (prefix / "client" / ".venv.previous").exists()
