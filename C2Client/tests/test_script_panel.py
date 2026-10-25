@@ -1,5 +1,6 @@
 from PyQt6.QtCore import Qt
 from C2Client.ScriptPanel import Script, HookDefinition
+import importlib
 import pytest
 import json
 import time
@@ -399,11 +400,12 @@ def test_hook_activation_persists_and_package_scripts_start_disabled(qtbot, monk
     def import_script(module_name):
         imports.append(module_name)
         return PackageScript
-    monkeypatch.setattr("C2Client.ScriptPanel.importlib.import_module", import_script)
-    monkeypatch.setattr("C2Client.ScriptPanel.LoadedScripts", [
+    script_panel_module = importlib.import_module("C2Client.ScriptPanel")
+    monkeypatch.setattr(script_panel_module, "LoadedScripts", [
         HookDefinition(name, ["OnStart"], "test", {}),
     ])
-    monkeypatch.setattr("C2Client.ScriptPanel.FailedScripts", [])
+    monkeypatch.setattr(script_panel_module, "FailedScripts", [])
+    monkeypatch.setattr(script_panel_module, "importlib", SimpleNamespace(import_module=import_script))
     first = Script(None, object())
     qtbot.addWidget(first)
     assert first.scriptStates[name]["enabled"] is False
