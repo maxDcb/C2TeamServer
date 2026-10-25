@@ -1,6 +1,6 @@
 # Audit du chaînage beacon/listener — 25 octobre 2026
 
-Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des sessions enfant sur un ou plusieurs sauts, commandes et résultats, arrêt, visibilité TeamServer et graphe client. Révisions de l'audit initial : C2Core `afc23ab`, TeamServer `2a33a43`, C2Implant `3aad52c`, C2LinuxImplant `9ec8907`. La correction C2Core est `6edbbbc`.
+Périmètre : listeners TCP et SMB hébergés par un beacon, transmission des sessions enfant sur un ou plusieurs sauts, commandes et résultats, arrêt, visibilité TeamServer et graphe client. Révisions de l'audit initial : C2Core `afc23ab`, TeamServer `2a33a43`, C2Implant `3aad52c`, C2LinuxImplant `9ec8907`. Les corrections C2Core sont `6edbbbc` et `22b523f`.
 
 ## Parcours constaté
 
@@ -32,7 +32,7 @@ Les suites CI et les tests de l'installateur valident compilation, transports di
 | Constat | Correction et vérification |
 | --- | --- |
 | P0 : métadonnées invalides | C2Core n'enregistre plus un rapport enfant dont le type ou le port TCP est invalide. Le TeamServer vérifie à nouveau les métadonnées avant de produire `ListListeners` et ignore seulement l'entrée fautive. Les tests couvrent ports non numériques, zéro, hors plage, débordement et type inconnu. |
-| P1 : commandes perdues sur route enfant | Le beacon parent poursuit le traitement des autres bundles et renvoie un résultat d'erreur corrélé par UUID pour chaque tâche refusée. Les erreurs sont envoyées en lots bornés et ne rafraîchissent pas artificiellement le dernier signe de vie de l'enfant. Le routage refuse aussi une session enfant arrêtée. Un test de deux niveaux couvre commande et résultat aller-retour, route manquante, file pleine, session arrêtée et 70 erreurs sur deux check-ins. |
+| P1 : commandes perdues sur route enfant | Le beacon parent poursuit le traitement des autres bundles et renvoie un résultat d'erreur corrélé par UUID pour chaque tâche refusée, y compris si sa propre file est pleine. Les erreurs sont envoyées en lots bornés et ne rafraîchissent pas artificiellement le dernier signe de vie de l'enfant. Le routage refuse aussi une session enfant arrêtée. Un test de deux niveaux couvre commande et résultat aller-retour, route manquante, files parent/enfant pleines, session arrêtée et 70 erreurs sur deux check-ins. |
 | P1 : état enfant périmé | Chaque rapport de listener enfant rafraîchit son horodatage. Le serveur expose `UNAVAILABLE` après 30 secondes sans rapport récent du listener ou du beacon parent et évite de sélectionner cette route pour une nouvelle commande. La session reste visible. La sélection tient aussi compte du listener primaire qui porte la session : si deux chemins amont signalent le même enfant, une commande passe par le parent encore joignable. Les tests couvrent perte du listener, retour de son poll, perte du parent et chemins parallèles. |
 | P2 : graphe ambigu | Le contrat de liste porte la route parent (`parent_listener_hash`). Le graphe identifie chaque nœud par `(beaconHash, listenerHash)` et rattache le listener enfant à la bonne route. Un test couvre deux routes simultanées d'un même beacon, avec deux pivots distincts. |
 
