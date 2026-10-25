@@ -157,6 +157,49 @@ def test_graph_keeps_parallel_routes_and_their_child_listeners_separate(qtbot, m
     assert len(graph.listConnector) == 4
 
 
+def test_graph_shows_and_removes_shared_child_listener_routes(qtbot, monkeypatch):
+    monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
+
+    class SharedChildGrpc:
+        parent_routes = ["primary-a", "primary-b"]
+
+        def listSessions(self):
+            return [
+                SimpleNamespace(beacon_hash="parent", listener_hash=route,
+                                os="Linux", privilege="user", hostname="parent")
+                for route in self.parent_routes
+            ] + [SimpleNamespace(beacon_hash="child", listener_hash="shared-pivot",
+                                 os="Linux", privilege="user", hostname="child")]
+
+        def listListeners(self):
+            return [
+                SimpleNamespace(listener_hash=route, beacon_hash="", type="tcp")
+                for route in self.parent_routes
+            ] + [
+                SimpleNamespace(listener_hash="shared-pivot", beacon_hash="parent",
+                                parent_listener_hash=route, type="tcp")
+                for route in self.parent_routes
+            ]
+
+    grpc = SharedChildGrpc()
+    graph = Graph(QWidget(), grpc)
+    qtbot.addWidget(graph)
+    graph.updateGraph()
+
+    route_a = graph.findBeaconNode("parent", "primary-a")
+    route_b = graph.findBeaconNode("parent", "primary-b")
+    child = graph.findBeaconNode("child", "shared-pivot")
+    assert route_a.listenerHash == ["shared-pivot"]
+    assert route_b.listenerHash == ["shared-pivot"]
+    assert {edge.listener for edge in graph.listConnector if edge.beacon is child} == {route_a, route_b}
+
+    grpc.parent_routes = ["primary-b"]
+    graph.updateGraph()
+    assert graph.findBeaconNode("parent", "primary-a") is None
+    assert graph.findBeaconNode("parent", "primary-b").listenerHash == ["shared-pivot"]
+    assert {edge.listener for edge in graph.listConnector if edge.beacon is child} == {route_b}
+
+
 def test_graph_auto_button_reclaims_user_moved_nodes(qtbot, monkeypatch):
     monkeypatch.setattr("C2Client.GraphPanel.QThread.start", lambda self: None)
 

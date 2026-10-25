@@ -446,6 +446,9 @@ class Graph(QWidget):
                 return nodeItem
         return None
 
+    def findResponsibleNodes(self, listenerHash):
+        return [node for node in self.listNodeItem if node.isResponsableForListener(listenerHash)]
+
     def removeNode(self, nodeItem):
         for connector in list(self.listConnector):
             if connector.listener is nodeItem or connector.beacon is nodeItem:
@@ -480,25 +483,33 @@ class Graph(QWidget):
             nodeItem.setConnectedListenerHash(getattr(session, "listener_hash", ""))
 
     def syncListeners(self, listeners):
-        activeListenerHashes = {listener.listener_hash for listener in listeners}
+        primaryListenerHashes = {
+            listener.listener_hash for listener in listeners
+            if not getattr(listener, "beacon_hash", "")
+        }
+        hostedListenerRoutes = {
+            (listener.listener_hash, listener.beacon_hash,
+             _text(getattr(listener, "parent_listener_hash", "")))
+            for listener in listeners if getattr(listener, "beacon_hash", "")
+        }
 
         for nodeItem in list(self.listNodeItem):
             if nodeItem.type == ListenerNodeItemType:
-                if not any(listenerHash in activeListenerHashes for listenerHash in nodeItem.listenerHash):
+                if not any(listenerHash in primaryListenerHashes for listenerHash in nodeItem.listenerHash):
                     logger.debug("Delete graph primary listener %s", nodeItem.listenerHash)
                     self.removeNode(nodeItem)
             elif nodeItem.type == BeaconNodeItemType:
                 for listenerHash in list(nodeItem.listenerHash):
-                    if listenerHash not in activeListenerHashes:
+                    if (listenerHash, nodeItem.beaconHash, nodeItem.connectedListenerHash) not in hostedListenerRoutes:
                         logger.debug("Delete graph secondary listener %s", listenerHash)
                         nodeItem.removeListenerHash(listenerHash)
 
         for listener in listeners:
-            if self.findResponsibleNode(listener.listener_hash) is not None:
-                continue
-
             beaconHash = getattr(listener, "beacon_hash", "")
             if not beaconHash:
+                if any(node.type == ListenerNodeItemType
+                       for node in self.findResponsibleNodes(listener.listener_hash)):
+                    continue
                 item = NodeItem(
                     ListenerNodeItemType,
                     listener.listener_hash,
@@ -523,18 +534,16 @@ class Graph(QWidget):
         for nodeItem in self.listNodeItem:
             if nodeItem.type != BeaconNodeItemType:
                 continue
-            listener = self.findResponsibleNode(nodeItem.connectedListenerHash)
-            if listener is None:
-                continue
-            connector = Connector(listener, nodeItem)
-            self.scene.addItem(connector)
-            connector.setZValue(-1)
-            self.listConnector.append(connector)
-            logger.debug(
-                "Add graph connector listener=%s beacon=%s",
-                nodeItem.connectedListenerHash,
-                nodeItem.beaconHash,
-            )
+            for listener in self.findResponsibleNodes(nodeItem.connectedListenerHash):
+                connector = Connector(listener, nodeItem)
+                self.scene.addItem(connector)
+                connector.setZValue(-1)
+                self.listConnector.append(connector)
+                logger.debug(
+                    "Add graph connector listener=%s beacon=%s",
+                    nodeItem.connectedListenerHash,
+                    nodeItem.beaconHash,
+                )
 
     # Update the graph with information from the team server
     def updateGraph(self):
