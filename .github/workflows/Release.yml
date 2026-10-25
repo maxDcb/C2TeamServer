@@ -81,6 +81,12 @@ jobs:
           restore-keys: |
             conan-${{ runner.os }}-
 
+      - name: Cache C++ compilation
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-gcc13-release-${{ hashFiles('conan.lock', 'conan/profiles/linux-gcc13') }}
+          max-size: 500MB
+
       - name: Configure CMake
         run: >
           cmake -S "${{ github.workspace }}"
@@ -91,6 +97,8 @@ jobs:
           -DCONAN_HOST_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
           -DCONAN_BUILD_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
           -DCONAN_LOCKFILE="${{ github.workspace }}/conan.lock"
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build
         run: cmake --build "${{ env.BUILD_DIR }}" --config "${{ env.BUILD_TYPE }}" --parallel "$(nproc)"

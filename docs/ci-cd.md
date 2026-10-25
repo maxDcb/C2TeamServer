@@ -17,6 +17,16 @@ push branches
 workflow_dispatch
 ```
 
+`Decide whether to build` runs first. It skips the expensive build when a push
+to a non-default branch already has an open pull request (the `pull_request`
+run owns validation), or
+when a push/pull request changes only `docs/**` and/or `README.md`. Manual runs
+always build. If the previous commit cannot be inspected, CI builds normally.
+If the pull request lookup fails, the push run still builds unless it is a
+documentation-only change. The build job remains present as a skipped
+successful check when there is no build to run, so it can remain a required PR
+check. New runs cancel older runs for the same event and branch/PR.
+
 Permissions:
 
 ```yaml
@@ -78,7 +88,13 @@ The release publishes `Release.tar.gz`, `Release.tar.gz.sha256` and `install.sh`
 ```text
 pip cache from C2Client dependency files
 Conan cache from conanfile.txt, conan.lock, conan/profiles/linux-gcc13
+ccache (500 MB) for C/C++ compilation in CI and CD; keyed by Linux GCC profile and Conan lock
 ```
+
+Both workflows pass `ccache` as the CMake C and C++ compiler launcher. The
+ccache action reports hit statistics at the end of each build; compare those
+statistics and build time across consecutive code-changing runs to measure the
+benefit.
 
 ## Rules
 
