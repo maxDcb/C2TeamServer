@@ -6,7 +6,7 @@ Ce suivi compare les [inventaires du 24 octobre](inventory-index.md) aux changem
 
 | Parent | Branche examinée | Commit | `origin/master` | Situation |
 | --- | --- | --- | --- | --- |
-| TeamServer | `codex/dev-general` | `0dd554c` | `7f843a6` | 47 commits de la branche ne sont pas dans `origin/master` |
+| TeamServer | `codex/dev-general` | `c37c65c` (avant ce complément documentaire) | `7f843a6` | Branche de travail publiée, non intégrée à `master` |
 | Implant Windows | `codex/dependency-updates` | `021c75e` | `8a0137a` | 8 commits de la branche ne sont pas dans `origin/master` |
 | Implant Linux | `codex/dependency-updates` | `ea09e74` | `17bfe61` | 7 commits de la branche ne sont pas dans `origin/master` |
 
@@ -22,8 +22,21 @@ Les tableaux détaillés de [l'alignement initial](dependency-version-alignment.
 | COFFLoader | L'implant Windows épingle `78b9ade` ; ce commit est publié sur `origin/master` du fork COFFLoader. | `git ls-remote --heads origin master` dans le sous-module. L'écart fonctionnel avec l'amont officiel n'est pas mesuré. |
 | Dépendances Conan directes | Mises à jour appliquées : gRPC `1.84.0` côté TeamServer, cpp-httplib `0.62.0` côté TeamServer/Linux, OpenSSL `3.6.5` dans les trois parents, Catch2 `3.16.0` côté Linux. | Manifestes des trois branches et [relevé des mises à jour](external-dependency-updates.md). Le TeamServer suit `conan.lock` ; les deux implants ne suivent toujours pas de lock Conan. |
 | Dépendances Python | Versions directes rapprochées entre `pyproject.toml` et `requirements.txt`, Donut épinglé à `728289d`, `agent-core` à `dfa341b`, Python minimum `3.12`. `C2Client/uv.lock` suit les transitives résolues. | [Manifestes](../C2Client/pyproject.toml), [lock](../C2Client/uv.lock). Le `pip check` du venv local ne relève aucune dépendance cassée ; cela ne prouve pas que ce venv a été synchronisé avec le lock. |
-| Transports | Corrections et tests ajoutés pour TCP, HTTP, DNS, SMB et SOCKS5 ; [SOCKS5](socks5-audit.md) documente les risques résiduels. | Commits des 23–24 octobre et tests du code. Le [transport GitHub](github-transport-audit.md) a été audité, reste désactivé par défaut et ne doit pas être considéré comme opérationnel. |
+| Transports | Audits ciblés DNS, TCP, HTTP/HTTPS et SOCKS5 réalisés avec corrections et tests ; SMB a aussi reçu des corrections ciblées. [SOCKS5](socks5-audit.md) documente son contrat et ses risques résiduels. | Détail ci-dessous. Le [transport GitHub](github-transport-audit.md) a été audité, reste désactivé par défaut et ne doit pas être considéré comme opérationnel. |
 | Tests consignés | La passe de mise à jour des dépendances consignait 78/78 CTest TeamServer, 62/62 Linux, 58/58 Windows x64 et 257 tests client. Après les changements UI du 24 octobre, 271 tests client passaient sous WSL. | [Relevé initial](external-dependency-updates.md), tests locaux du client. Ces chiffres C++ précèdent plusieurs corrections de transport et de cycle de vie ; ils ne valident pas à eux seuls les gitlinks finaux. |
+
+## Audits de transport et propagation des versions
+
+Les audits de code ciblés des 23–24 octobre ont produit les corrections suivantes. « Réalisé » désigne ici l'examen du contrat et les corrections consignées, pas la validation complète d'une release composée.
+
+| Transport | Périmètre corrigé | Dépôt enfant sur `origin/master` |
+| --- | --- | --- |
+| DNS | Livraison des messages entre listener et beacon ; contrat de la bibliothèque DNS. | `core` `99620af` puis `067be9f` ; `libDns` `4899969` |
+| TCP | Cycle de vie des sockets, liaison des ports, tunnels inactifs, conservation des messages après échec d'envoi. | `core` `8f8f64b` puis `067be9f` ; `libSocketHandler` `abb32a7` |
+| HTTP/HTTPS | Check-ins idempotents, état du listener et échanges beacon/listener. | `core` `ae6d0bc` puis `067be9f` ; pas de sous-module HTTP dédié |
+| SOCKS5 | Contrat listener–beacon, isolation des routes et générations, bornes de concurrence et de tampons. | `core` `bd9b3aa`, `378dd3e`, `75f888d` puis `067be9f` ; `libSocks5` `945038d` ; [audit détaillé](socks5-audit.md) |
+
+Le 25 octobre, `git ls-remote --heads origin master` confirme les commits finaux `core` `067be9f`, `libDns` `4899969`, `libSocketHandler` `abb32a7` et `libSocks5` `945038d` sur les quatre dépôts enfants. Les branches publiées `codex/dev-general` du TeamServer, `codex/dependency-updates` de l'implant Windows et `codex/dependency-updates` de l'implant Linux épinglent toutes ces quatre versions. Le contrôle `scripts/check-submodule-alignment.py` retourne aussi `OK` pour `donut` et `base64`, soit les six gitlinks communs. Les branches `master` **des trois parents** n'ont pas été mises à jour par cette campagne ; la [validation de release](submodule-release-policy.md) reste ouverte.
 
 ## Ce qui reste ouvert
 
@@ -31,9 +44,9 @@ Les tableaux détaillés de [l'alignement initial](dependency-version-alignment.
 2. **Couverture des audits** : les transports TCP/HTTP/DNS/SMB/SOCKS ont reçu des corrections ciblées ; les 45 modules, les dépôts externes chargés par le client, les champs du protocole et les dépendances transitives ne possèdent pas encore un audit d'usage complet. Le transport GitHub conserve ses blocages documentés.
 3. **Reproductibilité** : vérifier une installation fraîche depuis `C2Client/uv.lock`, établir si des locks Conan sont nécessaires pour les implants, et fixer une politique pour les sept URL de modules client encore sans commit dans les fichiers `.conf`. La provenance des archives OpenSSL/zlib embarquées par `ElfDropper` et la compatibilité effective de `pwn==1.0` restent à confirmer.
 4. **Preuves de tests manuels** : [`TEST_STATE.md`](TEST_STATE.md) et [`TEST_GAPS.md`](TEST_GAPS.md) sont générés à partir de résultats manuels datés de mai 2026. Ils ne reflètent pas automatiquement les modifications d'octobre ; les scénarios modifiés doivent être réexécutés avant de changer leurs statuts.
-5. **Arbres de travail locaux** : le parent Windows contient des fichiers non suivis et un état local dans `thirdParty/donut` ; le parent Linux contient une modification de `majSubmodules.sh` et un checkout `thirdParty/base64` modifié. L'alignement `OK` porte sur les commits parents, pas sur ces fichiers locaux.
+5. **Arbres de travail locaux** : lors du contrôle du 25 octobre, le parent Windows contient encore des fichiers non suivis et un état local dans `thirdParty/donut` ; le parent Linux est propre. Le TeamServer contient un répertoire `logs/` non suivi. L'alignement `OK` porte sur les commits parents, pas sur les fichiers locaux non suivis ou modifiés.
 
-L'étape suivante de l'audit consiste à attacher des résultats de build, de tests et de fonctionnement aux versions alignées, puis à mettre à jour les statuts des fonctions `TS`, `CL`, `CORE`, `M`, `WIN` et `LNX` dans les inventaires concernés.
+L'étape suivante comprend l'[audit des prérogatives par composant](component-prerogatives-audit.md), puis l'attachement des résultats de build, de tests et de fonctionnement aux versions alignées et la mise à jour des statuts `TS`, `CL`, `CORE`, `M`, `WIN` et `LNX` dans les inventaires concernés.
 
 ## Angles à ajouter à la campagne
 

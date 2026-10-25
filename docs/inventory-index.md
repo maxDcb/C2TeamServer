@@ -16,6 +16,7 @@
 | Mises à jour externes | [Relevé Conan/pip](external-dependency-updates.md) | Catalogues Conan Center et PyPI du 24 octobre 2026 | Versions publiées, contraintes résolues et ordre de mise à jour proposé |
 | Publication des sous-modules | [Procédure de validation](submodule-release-policy.md) | Versions alignées des trois parents | Contrôle des gitlinks, builds et ordre de publication |
 | Suivi de l'audit | [État au 25 octobre](audit-status-2026-10-25.md) | Branches de travail après les changements des 23–24 octobre | Versions courantes, preuves et validations manquantes |
+| Prérogatives des composants | [Première passe](component-prerogatives-audit.md) | Gitlinks alignés du 25 octobre et code des trois parents | Responsabilités, état détenu, frontières de confiance et vérifications à poursuivre |
 
 ## Dépôts et maintenance
 
