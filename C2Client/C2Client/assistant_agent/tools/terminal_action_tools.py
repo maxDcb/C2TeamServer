@@ -48,13 +48,17 @@ class C2HostArtifactTool:
             ]
             if "hosted_filename" in arguments:
                 tokens.append(_terminal_token(arguments["hosted_filename"]))
+        except (KeyError, ValueError, TypeError) as error:
+            return ToolResult(ok=False, content=f"Invalid hostArtifact arguments: {error}")
+        try:
             response = self.grpc_client.executeTerminalCommand(
                 TeamServerApi_pb2.TerminalCommandRequest(command=" ".join(tokens)),
             )
-        except (KeyError, ValueError, TypeError) as error:
-            return ToolResult(ok=False, content=f"Invalid hostArtifact arguments: {error}")
         except Exception as error:
-            return ToolResult(ok=False, content=f"Could not host artifact: {error}")
+            return ToolResult(
+                ok=False, content=f"Hosting outcome unknown after terminal transport error: {error}",
+                metadata={"outcome_unknown": True},
+            )
         content = terminal_response_text(response).strip()
         if not is_response_ok(response):
             return ToolResult(ok=False, content=content)
@@ -92,11 +96,15 @@ class C2SocksControlTool:
             command = f"socks {action}"
             if action == "bind":
                 command += " " + _terminal_token(arguments["beacon_hash"])
+        except (ValueError, TypeError) as error:
+            return ToolResult(ok=False, content=f"Invalid SOCKS argument: {error}")
+        try:
             response = self.grpc_client.executeTerminalCommand(
                 TeamServerApi_pb2.TerminalCommandRequest(command=command),
             )
-        except (ValueError, TypeError) as error:
-            return ToolResult(ok=False, content=f"Invalid SOCKS argument: {error}")
         except Exception as error:
-            return ToolResult(ok=False, content=f"Could not control SOCKS: {error}")
+            return ToolResult(
+                ok=False, content=f"SOCKS outcome unknown after terminal transport error: {error}",
+                metadata={"outcome_unknown": True},
+            )
         return ToolResult(ok=is_response_ok(response), content=terminal_response_text(response))

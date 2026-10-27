@@ -90,8 +90,8 @@ def test_skills_share_active_session_without_changing_conversation(qtbot, monkey
         "Conversation", "Tasks",
     ]
     assert assistant.skillsPanel.startButton.text() == "Start"
-    assert "Fixed ·" in assistant.skillsPanel.skillSelector.currentText()
-    assert "Missing modules are loaded first" in assistant.skillsPanel.skillHelpButton.toolTip()
+    assert "Skill ·" in assistant.skillsPanel.skillSelector.currentText()
+    assert "follows SKILL.md" in assistant.skillsPanel.skillHelpButton.toolTip()
     assert assistant.skillsPanel.runSelector.currentText() == "No runs yet"
     assistant.setActiveSession("beacon-12345678", "listener-1")
     assert assistant.skillsPanel.active_beacon == "beacon-12345678"

@@ -69,3 +69,16 @@ def test_socks_control_accepts_only_typed_actions():
     assert not tool.execute({"action": "start", "beacon_hash": "beacon-1"}, None).ok
     assert not tool.execute({"action": "status"}, None).ok
     assert len(client.commands) == 1
+
+
+def test_terminal_transport_error_has_uncertain_outcome():
+    client = FakeTerminalGrpc()
+    def disconnected(_request):
+        raise ConnectionError("connection lost")
+    client.executeTerminalCommand = disconnected
+    artifact = C2HostArtifactTool(client).execute({
+        "artifact_reference": "artifact-1", "listener_hash": "listener-1",
+    }, None)
+    socks = C2SocksControlTool(client).execute({"action": "start"}, None)
+    assert not artifact.ok and artifact.metadata["outcome_unknown"]
+    assert not socks.ok and socks.metadata["outcome_unknown"]

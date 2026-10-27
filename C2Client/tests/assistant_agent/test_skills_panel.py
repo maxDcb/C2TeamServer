@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from dataclasses import replace
 
-from C2Client.assistant_agent.skills.catalog import SKILLS, SkillDefinition
+from C2Client.assistant_agent.skills.catalog import SKILLS
 from C2Client.assistant_agent.skills.panel import SkillsPanel, format_run_details
 
 
@@ -44,8 +45,8 @@ class FakeService:
     def get(self, run_id):
         return next(run for run in self.runs if run["run_id"] == run_id)
 
-    def start(self, skill_id, beacon_hash, listener_hash):
-        self.calls.append((skill_id, beacon_hash, listener_hash))
+    def start(self, skill_id, beacon_hash, listener_hash, additional_context):
+        self.calls.append((skill_id, beacon_hash, listener_hash, additional_context))
 
 
 def make_panel(qtbot, monkeypatch, sessions):
@@ -64,7 +65,7 @@ def test_task_auto_selects_only_live_session_and_starts_without_console(qtbot, m
     assert panel.startButton.isEnabled()
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("inventory_local", "beacon-1", "listener-1")]
+    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1", "")]
     panel.shutdown()
 
 
@@ -73,12 +74,13 @@ def test_agentic_skill_appears_and_uses_selected_session(qtbot, monkeypatch):
     skill_index = panel.skillSelector.findData("identify-user")
     assert skill_index >= 0
     panel.skillSelector.setCurrentIndex(skill_index)
-    assert "Agent ·" in panel.skillSelector.currentText()
+    assert "Skill ·" in panel.skillSelector.currentText()
     assert "SKILL.md" in panel.skillHelpButton.toolTip()
     assert "whoami" in panel.skillHelpButton.toolTip()
+    panel.contextInput.setPlainText("Focus on account identity.")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1")]
+    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1", "Focus on account identity.")]
     panel.shutdown()
 
 
@@ -87,12 +89,12 @@ def test_recon_skill_appears_with_multiple_capabilities(qtbot, monkeypatch):
     skill_index = panel.skillSelector.findData("recon-host")
     assert skill_index >= 0
     panel.skillSelector.setCurrentIndex(skill_index)
-    assert "Agent ·" in panel.skillSelector.currentText()
+    assert "Skill ·" in panel.skillSelector.currentText()
     assert "recon.host" in panel.skillHelpButton.toolTip()
     assert "listC2Listeners" in panel.skillHelpButton.toolTip()
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("recon-host", "beacon-1", "listener-1")]
+    assert panel.service.calls == [("recon-host", "beacon-1", "listener-1", "") ]
     panel.shutdown()
 
 
@@ -114,7 +116,7 @@ def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeyp
     assert panel.sessionSelector.currentData() == ("beacon-2", "listener-2")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("inventory_local", "beacon-2", "listener-2")]
+    assert panel.service.calls == [("identify-user", "beacon-2", "listener-2", "")]
     panel.shutdown()
 
 
@@ -130,9 +132,8 @@ def test_any_session_is_visible_but_unavailable_for_single_session_skills(qtbot,
 
 
 def test_any_session_is_available_to_a_multi_session_skill(qtbot, monkeypatch):
-    monkeypatch.setitem(SKILLS, "multi-test", SkillDefinition(
-        skill_id="multi-test", version=1, title="Multi test", description="Test scope",
-        steps=(), supports_any_session=True,
+    monkeypatch.setitem(SKILLS, "multi-test", replace(
+        SKILLS["identify-user"], skill_id="multi-test", title="Multi test", supports_any_session=True,
     ))
     panel, grpc_client = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("multi-test"))
@@ -146,7 +147,7 @@ def test_any_session_is_available_to_a_multi_session_skill(qtbot, monkeypatch):
     assert panel.sessionSelector.currentData() == ("*", "*")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("multi-test", "*", "*")]
+    assert panel.service.calls == [("multi-test", "*", "*", "") ]
     panel.shutdown()
 
 
@@ -166,7 +167,7 @@ def test_task_clears_stopped_session_and_accepts_console_selection(qtbot, monkey
 def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatch):
     panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     run = {
-        "run_id": "run-12345678", "status": "completed", "skill_id": "inventory_local",
+        "run_id": "run-12345678", "status": "completed", "skill_id": "identify-user",
         "beacon_hash": "beacon-1", "manual_failure": "",
         "steps": [{
             "step_id": "load-identity", "command": "loadModule whoami",
@@ -221,7 +222,7 @@ def test_run_dropdown_preserves_selection_and_report_scroll(qtbot, monkeypatch):
     panel.service.runs = [first, second]
     panel._refresh()
     assert panel.runSelector.count() == 2
-    assert panel.runSelector.itemText(0).startswith("Agent ·")
+    assert panel.runSelector.itemText(0).startswith("Skill ·")
     panel.runSelector.setCurrentIndex(1)
     assert "Another report" in panel.details.toPlainText()
     panel._on_run_changed(first)

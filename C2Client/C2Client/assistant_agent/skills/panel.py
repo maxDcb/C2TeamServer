@@ -6,13 +6,13 @@ from threading import Thread
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
     QPushButton, QTextBrowser, QToolTip, QVBoxLayout, QWidget,
 )
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
 from ...panel_style import apply_dark_panel_style, style_dark_combo_popup
-from .catalog import SKILLS, AgenticSkillDefinition
+from .catalog import SKILLS
 from .service import C2SkillService, FINISHED_RUN_STATES, WAITING_STATES
 
 
@@ -20,20 +20,11 @@ ANY_SESSION = ("*", "*")
 
 
 def skill_help(skill) -> str:
-    if isinstance(skill, AgenticSkillDefinition):
-        return (
-            f"{skill.description}\n\nAgent skill: the assistant follows SKILL.md and may call "
-            f"{', '.join(skill.declared_tools)}. "
-            f"Capability bundles: {', '.join(skill.tool_bundles)}. "
-            "The selected session is fixed by the operator."
-        )
-    steps = "\n".join(
-        f"{index}. {step.command_name} — {step.description}"
-        for index, step in enumerate(skill.steps, 1)
-    )
     return (
-        f"{skill.description}\n\nFixed sequence:\n{steps}\n\n"
-        "Missing modules are loaded first. Uncertain commands are never resent with a new ID."
+        f"{skill.description}\n\nThe assistant follows SKILL.md and may call "
+        f"{', '.join(skill.declared_tools)}. "
+        f"Capability bundles: {', '.join(skill.tool_bundles)}. "
+        "The selected session is fixed by the operator."
     )
 
 
@@ -43,8 +34,6 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
     if report:
         if report.get("outcome") == "partial":
             lines.extend(["", "This report is partial."])
-        if report.get("verified_identity"):
-            lines.extend(["", f"Observed account: {report['verified_identity']}"])
         lines.extend(["", str(report.get("summary", ""))])
         findings = [str(item.get("finding", "")) for item in report.get("observations", [])]
         if findings:
@@ -93,7 +82,7 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
                 lines.append(f"  Output:\n{proof['output_preview']}")
             lines.append("")
         for item in run.get("terminal_observations", []):
-            lines.append(f"{item['tool']} · {'succeeded' if item['ok'] else 'failed'}")
+            lines.append(f"{item['tool']} · {item.get('state', 'succeeded' if item['ok'] else 'failed')}")
             lines.append(f"  Observation: {item['observation_id']}")
             if item["observation_id"] in findings_by_job:
                 lines.append(f"  Finding: {findings_by_job[item['observation_id']]}")
@@ -130,8 +119,7 @@ class SkillsPanel(QWidget):
         self.skillSelector = QComboBox()
         style_dark_combo_popup(self.skillSelector)
         for skill in SKILLS.values():
-            kind = "Agent" if isinstance(skill, AgenticSkillDefinition) else "Fixed"
-            self.skillSelector.addItem(f"{kind} · {skill.title} v{skill.version}", skill.skill_id)
+            self.skillSelector.addItem(f"Skill · {skill.title} v{skill.version}", skill.skill_id)
             self.skillSelector.setItemData(
                 self.skillSelector.count() - 1, skill_help(skill), Qt.ItemDataRole.ToolTipRole,
             )
@@ -150,6 +138,12 @@ class SkillsPanel(QWidget):
         self.startButton = QPushButton("Start")
         controls.addWidget(self.startButton)
         layout.addLayout(controls)
+
+        self.contextInput = QPlainTextEdit()
+        apply_console_output_style(self.contextInput)
+        self.contextInput.setPlaceholderText("Additional task context for this run (optional)")
+        self.contextInput.setFixedHeight(64)
+        layout.addWidget(self.contextInput)
 
         runs = QHBoxLayout()
         runs.addWidget(QLabel("Runs"))
@@ -319,6 +313,7 @@ class SkillsPanel(QWidget):
             self.service.start, skill.skill_id,
             "*" if any_selected else self.active_beacon,
             "*" if any_selected else self.active_listener,
+            self.contextInput.toPlainText(),
             key="start",
         )
 
@@ -406,11 +401,8 @@ class SkillsPanel(QWidget):
         if not runs:
             self.runSelector.addItem("No runs yet", None)
         for index, run in enumerate(runs):
-            run_skill = SKILLS.get(run["skill_id"])
-            agentic = run.get("mode") == "agentic_identity" or isinstance(run_skill, AgenticSkillDefinition)
-            kind = "Agent" if agentic else "Fixed" if run_skill is not None else "Task"
             self.runSelector.addItem(
-                f"{kind} · {run['skill_id']} · {run['beacon_hash'][:8]} · "
+                f"Skill · {run['skill_id']} · {run['beacon_hash'][:8]} · "
                 f"{run['status']} · {run['run_id'][:8]}",
                 run["run_id"],
             )

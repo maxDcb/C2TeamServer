@@ -8,9 +8,12 @@ import grpc
 
 from agent_core.llm.base import LLMCompletionResult, LLMToolCall
 
-from C2Client.assistant_agent.skills.catalog import RECON_HOST
+from C2Client.assistant_agent.skills.catalog import SKILLS
 from C2Client.assistant_agent.skills.service import C2SkillService
 from C2Client.grpcClient import TeamServerApi_pb2
+
+
+RECON_HOST = SKILLS["recon-host"]
 
 
 class MissingJob(grpc.RpcError):

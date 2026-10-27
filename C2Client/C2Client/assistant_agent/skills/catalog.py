@@ -1,4 +1,4 @@
-"""Versioned fixed plans and Agent Skills instructions."""
+"""Versioned Agent Skills instructions and C2 capability declarations."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,23 +7,6 @@ import re
 import yaml
 
 from ..capabilities.bundles import TOOL_BUNDLES, resolve_tool_bundles
-
-
-@dataclass(frozen=True, slots=True)
-class SkillStep:
-    step_id: str
-    command_name: str
-    description: str
-
-
-@dataclass(frozen=True, slots=True)
-class SkillDefinition:
-    skill_id: str
-    version: int
-    title: str
-    description: str
-    steps: tuple[SkillStep, ...]
-    supports_any_session: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,17 +90,6 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
     )
 
 
-INVENTORY_LOCAL = SkillDefinition(
-    skill_id="inventory_local",
-    version=2,
-    title="Local inventory",
-    description="Collects identity and network configuration from one beacon session.",
-    steps=(
-        SkillStep("identity", "whoami", "Beacon identity and groups"),
-        SkillStep("network", "ipConfig", "Network interfaces and addresses"),
-    ),
-)
-
 def discover_agentic_skills(root: Path) -> dict[str, AgenticSkillDefinition]:
     discovered = {}
     for path in sorted(root.glob("*/SKILL.md")):
@@ -128,6 +100,4 @@ def discover_agentic_skills(root: Path) -> dict[str, AgenticSkillDefinition]:
     return discovered
 
 
-SKILLS = {INVENTORY_LOCAL.skill_id: INVENTORY_LOCAL, **discover_agentic_skills(Path(__file__).parent)}
-IDENTIFY_USER = SKILLS["identify-user"]
-RECON_HOST = SKILLS["recon-host"]
+SKILLS = discover_agentic_skills(Path(__file__).parent)
