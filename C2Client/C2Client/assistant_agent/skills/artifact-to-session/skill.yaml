@@ -8,5 +8,5 @@ required_tools:
 completion_tools:
   - uploadC2Artifact
   - upload
-max_tool_calls: 10
-max_iterations: 24
+max_tool_calls: 24
+max_iterations: 60

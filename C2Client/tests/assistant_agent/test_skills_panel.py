@@ -126,7 +126,7 @@ def test_teamserver_skill_starts_without_beacon_session(qtbot, monkeypatch):
 def test_artifact_transfer_skill_uses_selected_session_and_shows_input_format(qtbot, monkeypatch):
     panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
-    assert "dans /tmp/toto et /tmp/hotsss" in panel.contextInput.placeholderText()
+    assert "in your own words" in panel.contextInput.placeholderText()
     assert panel.sessionSelector.currentData() == ("beacon-1", "listener-1")
     context = '{"source_file":"/tmp/sample.bin","remote_path":"/tmp/sample.bin"}'
     panel.contextInput.setPlainText(context)
@@ -139,7 +139,7 @@ def test_artifact_transfer_skill_uses_selected_session_and_shows_input_format(qt
 def test_start_error_remains_visible_after_refresh(qtbot, monkeypatch):
     panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     def reject(*_args):
-        raise ValueError("Choose 1 to 8 distinct absolute session file paths.")
+        raise ValueError("A complete session is required.")
     panel.service.start = reject
     panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
     panel.contextInput.setPlainText("ok transfert /etc/hosts dans relative")
@@ -147,7 +147,7 @@ def test_start_error_remains_visible_after_refresh(qtbot, monkeypatch):
     qtbot.waitUntil(lambda: "start" not in panel._inflight)
     panel._refresh()
     assert panel.startError.isVisibleTo(panel)
-    assert "absolute session file paths" in panel.startError.text()
+    assert "complete session" in panel.startError.text()
     panel.shutdown()
 
 

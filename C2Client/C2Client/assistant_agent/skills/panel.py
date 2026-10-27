@@ -32,7 +32,9 @@ def skill_help(skill) -> str:
 def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
     lines = [f"Task {run['run_id'][:8]} · {run['status']}"]
     report = run.get("report")
-    if report:
+    if run.get("error_message"):
+        lines.extend(["", f"Error: {run['error_message']}"])
+    elif report:
         if report.get("outcome") == "partial":
             lines.extend(["", "This report is partial."])
         lines.extend(["", str(report.get("summary", ""))])
@@ -304,7 +306,7 @@ class SkillsPanel(QWidget):
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
         self.contextInput.setPlaceholderText(
-            "transfert /etc/hosts dans /tmp/toto et /tmp/hotsss"
+            "Describe the local file and session destination(s) in your own words."
             if skill.input_kind == "artifact_transfer" else
             "Additional task context for this run (optional)")
         help_text = skill_help(skill)

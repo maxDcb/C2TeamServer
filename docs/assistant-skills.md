@@ -33,31 +33,19 @@ operations. `teamserver-inspect` checks local inventory in read-only mode.
 explicitly named in **Additional task context**, using existing artifact IDs.
 
 `artifact-to-session` runs against one selected beacon session and combines the
-`artifact.to_session` bundle. In **Additional task context**, enter for example
-`transfert /etc/hosts sur /tmp de la session`. Here `/tmp` is a directory on the
-selected session; the file will arrive as `/tmp/hosts`. Quote paths containing
-spaces. To choose the received filename, add `sous le nom hosts-copie`:
-the destination becomes `/tmp/hosts-copie`. To set an exact destination path,
-use JSON:
+`artifact.to_session` bundle. **Additional task context** is free text. For
+example, `transfert /etc/hosts sur /tmp de la session` asks for `/tmp/hosts`;
+`ok transfert /etc/hosts dans /tmp/toto et /tmp/hotsss` asks for two exact
+destination files. The skill interprets the context and passes the source and
+destination paths as tool arguments. If source or destination information is
+missing, the run displays an error instead of a transfer report.
 
-```json
-{"source_file":"/home/operator/sample.bin","remote_path":"/tmp/sample.bin"}
-```
-
-To transfer one source to several exact file paths in the same session, enter
-`ok transfert /etc/hosts dans /tmp/toto et /tmp/hotsss`, or use a JSON
-`remote_paths` array. Up to eight distinct absolute destinations are accepted.
-The Artifacts upload happens once; the skill waits for and reports each beacon
-transfer separately.
-
-The client binds the exact local source and beacon destination at run start. The
-skill calls `uploadC2Artifact` to store the local bytes in the same Artifacts
+The skill calls `uploadC2Artifact` to store the local bytes in the same Artifacts
 catalog used by the Artifacts tab, then calls the beacon `upload` command with
 the verified artifact ID. In this command catalog, `upload` sends data to the
 beacon; `download` retrieves data from it. The skill waits for the beacon job
-result before reporting success. If the local file changes after run start,
-upload stops before the RPC. A lost Artifacts upload response has no durable job
-receipt and is not automatically retried.
+result before reporting success. A lost Artifacts upload response has no durable
+job receipt and is not automatically retried.
 
 `recon-network` uses the narrow `recon.network` bundle: `ipConfig`,
 `hostContext`, `netstat`, optional `ps`, and `listC2Listeners`. The model chooses

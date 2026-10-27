@@ -26,8 +26,10 @@ class BoundBeaconTool:
         if self.name == "upload" and run.get("artifact_transfer") is not None:
             return build_tool_definition(
                 name=self.name,
-                description="Send the verified artifact to the operator-selected session and remote path.",
-                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+                description="Send the verified artifact to the selected session at a destination chosen from the operator's context.",
+                parameters={"type": "object", "properties": {
+                    "remote_path": {"type": "string", "description": "Exact destination file path on the selected session."},
+                }, "required": ["remote_path"], "additionalProperties": False},
             )
         parameters = dict(self.spec.parameters)
         parameters["properties"] = {
