@@ -32,6 +32,23 @@ operations. `teamserver-inspect` checks local inventory in read-only mode.
 `teamserver-publish-test` exercises only the publication action and destination
 explicitly named in **Additional task context**, using existing artifact IDs.
 
+`artifact-to-session` runs against one selected beacon session and combines the
+`artifact.to_session` bundle. Enter **Additional task context** as JSON with two
+paths, for example:
+
+```json
+{"source_file":"/home/operator/sample.bin","remote_path":"/tmp/sample.bin"}
+```
+
+The client binds the exact local source and beacon destination at run start. The
+skill calls `uploadC2Artifact` to store the local bytes in the same Artifacts
+catalog used by the Artifacts tab, then calls the beacon `upload` command with
+the verified artifact ID. In this command catalog, `upload` sends data to the
+beacon; `download` retrieves data from it. The skill waits for the beacon job
+result before reporting success. If the local file changes after run start,
+upload stops before the RPC. A lost Artifacts upload response has no durable job
+receipt and is not automatically retried.
+
 `recon-network` uses the narrow `recon.network` bundle: `ipConfig`,
 `hostContext`, `netstat`, optional `ps`, and `listC2Listeners`. The model chooses
 the command order from observed results. Its report compares beacon-host evidence

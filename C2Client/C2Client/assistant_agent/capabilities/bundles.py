@@ -34,6 +34,9 @@ TEAMSERVER_TOOL_NAMES = frozenset({
 # gains access to an existing skill merely by appearing in the server catalog.
 # Client and TeamServer operations are granted only when an adapter is registered.
 TOOL_BUNDLES: dict[str, ToolBundle] = {
+    "artifact.to_session": ToolBundle("artifact.to_session", (
+        "uploadC2Artifact", "upload", "listC2Artifacts",
+    )),
     "teamserver.inspect": ToolBundle("teamserver.inspect", (
         "listC2Listeners", "infoListener", "listC2Artifacts", "getBeaconBinary",
     )),

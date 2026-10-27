@@ -27,6 +27,7 @@ from ..tools.command_specs import C2CommandSpecToolSpec, load_command_tool_specs
 from ..tools.server_catalog_tools import C2ArtifactsTool, C2ListenersTool, C2ListenerInfoTool, C2BeaconBinaryInfoTool
 from ..tools.server_action_tools import C2HostArtifactTool, C2SocksControlTool, C2ReloadModulesTool
 from ..tools.server_file_tools import C2UploadListenerFileTool, C2InstallToolTool, C2InstallToolBundleTool
+from ..tools.artifact_upload_tool import C2ArtifactUploadTool
 from ...operations import TeamServerOperations
 from ..tools.validation import validate_tool_arguments
 from ..tools.module_state_tool import (
@@ -42,7 +43,9 @@ WAITING_STATES = {"submitting", "submission_uncertain", "waiting_for_job", "wait
 FINISHED_STEP_STATES = {"succeeded", "already_loaded", "failed", "no_result_confirmed", "skipped"}
 FINISHED_RUN_STATES = {"completed", "failed"}
 DURABLE_SERVER_ACTION_TOOLS = {"hostArtifact", "socksControl", "reloadModules"}
-SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {"uploadListenerFile", "installTool", "installToolBundle"}
+SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {
+    "uploadListenerFile", "installTool", "installToolBundle", "uploadC2Artifact",
+}
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +55,39 @@ def _now() -> str:
 
 def _not_found(error: Exception) -> bool:
     return isinstance(error, grpc.RpcError) and error.code() == grpc.StatusCode.NOT_FOUND
+
+
+def _artifact_transfer_input(raw: str, run_id: str) -> dict[str, str]:
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError('Enter JSON with "source_file" and "remote_path" for this skill.') from error
+    if not isinstance(value, dict) or set(value) != {"source_file", "remote_path"} \
+            or not all(isinstance(value.get(key), str) and value[key].strip()
+                       for key in ("source_file", "remote_path")):
+        raise ValueError('Enter JSON with nonempty "source_file" and "remote_path" strings.')
+    source = Path(value["source_file"]).expanduser()
+    if not source.is_absolute() or not source.is_file():
+        raise ValueError("source_file must be an absolute path to an existing local file.")
+    remote_path = value["remote_path"]
+    if remote_path != remote_path.strip() or any(ord(character) < 32 for character in remote_path):
+        raise ValueError("remote_path must have no surrounding whitespace or control characters.")
+    source = source.resolve(strict=True)
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as error:
+        raise ValueError(f"Could not read source_file: {error}") from error
+    suffix = source.suffix
+    if len(suffix) > 12 or not suffix[1:].isalnum():
+        suffix = ".bin"
+    return {
+        "source_file": str(source), "remote_path": remote_path,
+        "source_sha256": digest.hexdigest(),
+        "artifact_name": f"skill-{run_id}{suffix}", "artifact_id": "",
+    }
 
 
 def _serialized_run(method):
@@ -279,7 +315,7 @@ class C2SkillService:
             ),
         )
 
-    def _catalog_tools(self) -> list[Any]:
+    def _catalog_tools(self, artifact_transfer: dict | None = None) -> list[Any]:
         tools = []
         if hasattr(self.grpc_client, "listListeners"):
             tools.append(C2ListenersTool(self.grpc_client))
@@ -303,6 +339,12 @@ class C2SkillService:
             ):
                 if hasattr(self.grpc_client, method):
                     tools.append(adapter(self.grpc_client))
+        if artifact_transfer and hasattr(self.grpc_client, "uploadArtifact") \
+                and hasattr(self.grpc_client, "listArtifacts"):
+            tools.append(C2ArtifactUploadTool(
+                self.grpc_client, artifact_transfer["source_file"],
+                artifact_transfer["source_sha256"], artifact_transfer["artifact_name"],
+            ))
         return tools
 
     def _start_agentic_skill(
@@ -323,6 +365,9 @@ class C2SkillService:
                 field: str(getattr(session, field, "") or "")[:256]
                 for field in ("hostname", "username", "os", "arch")
             }
+        run_id = uuid4().hex
+        artifact_transfer = (_artifact_transfer_input(additional_context, run_id)
+                             if skill.input_kind == "artifact_transfer" else None)
         command_specs = {}
         for spec in (() if server_only else load_command_tool_specs(self.grpc_client)):
             command = spec.command_spec
@@ -333,13 +378,12 @@ class C2SkillService:
             if archs and "any" not in archs and architecture not in archs:
                 continue
             command_specs[spec.name] = self._snapshot_command_spec(spec)
-        catalog_tools = self._catalog_tools()
+        catalog_tools = self._catalog_tools(artifact_transfer)
         resolution = resolve_tool_bundles(
             skill.tool_bundles,
             registered_tools=(*command_specs, *(tool.name for tool in catalog_tools)),
             required_tools=skill.required_tools,
         )
-        run_id = uuid4().hex
         now = _now()
         run = {
             "schema_version": 1, "mode": "agentic_skill", "run_id": run_id,
@@ -349,6 +393,7 @@ class C2SkillService:
             "additional_context": additional_context,
             "session_context": session_context,
             "server_only": server_only,
+            "input_kind": skill.input_kind, "artifact_transfer": artifact_transfer,
             "tool_bundles": list(resolution.bundle_names),
             "allowed_tools": list(resolution.allowed_tools),
             "completion_tools": list(skill.completion_tools),
@@ -414,7 +459,7 @@ class C2SkillService:
         for name, snapshot in run["command_specs"].items():
             if name in allowed:
                 registry.register(BoundBeaconTool(self, run["run_id"], self._restore_command_spec(snapshot)))
-        for tool in self._catalog_tools():
+        for tool in self._catalog_tools(run.get("artifact_transfer")):
             if tool.name in allowed:
                 registry.register(BoundCatalogTool(self, run["run_id"], tool))
         registry = registry.build_subset(allowed)
@@ -571,6 +616,19 @@ class C2SkillService:
             except ValueError as error:
                 return ToolResult(ok=False, content=str(error))
             spec = self._restore_command_spec(snapshot)
+            transfer = run.get("artifact_transfer")
+            if transfer is not None and tool_name == "upload":
+                if arguments:
+                    return ToolResult(ok=False, content="This skill's upload destination is fixed by the operator.")
+                if not transfer.get("artifact_id"):
+                    return ToolResult(ok=False, content="Upload the selected file to Artifacts first.")
+                if any(step["purpose"] == "command" and step["command_name"] == "upload"
+                       for step in run["steps"]):
+                    return ToolResult(ok=False, content="This skill already attempted the beacon transfer.")
+                arguments = {
+                    "upload_artifact": transfer["artifact_id"],
+                    "remote_path": transfer["remote_path"],
+                }
             full_arguments = {
                 **arguments,
                 "beacon_hash": run["beacon_hash"], "listener_hash": run["listener_hash"],
@@ -636,6 +694,10 @@ class C2SkillService:
             run = self.store.get(run_id)
             if run.get("mode") != "agentic_skill" or tool.name not in run["allowed_tools"]:
                 return ToolResult(ok=False, content="Tool is outside this skill's capability bundle.")
+            if tool.name == "uploadC2Artifact" and any(
+                item["tool"] == "uploadC2Artifact" for item in run["terminal_observations"]
+            ):
+                return ToolResult(ok=False, content="This skill already attempted the Artifacts upload.")
             observation_id = f"terminal-{run_id}-{len(run['terminal_observations']) + 1}"
             observation = {
                 "step_id": observation_id, "observation_id": observation_id,
@@ -662,6 +724,8 @@ class C2SkillService:
             observation["content"] = str(result.content)
             if result.metadata.get("job_id"):
                 observation["job_id"] = str(result.metadata["job_id"])
+            if result.ok and tool.name == "uploadC2Artifact" and run.get("artifact_transfer"):
+                run["artifact_transfer"]["artifact_id"] = str(result.metadata["artifact_id"])
             observation["state"] = "outcome_unknown" if unknown else "succeeded" if result.ok else "failed"
             if unknown:
                 run["manual_uncertainty"] = True
@@ -809,7 +873,8 @@ class C2SkillService:
                 checkpoint = state.checkpoint.payload
                 call = checkpoint["pending_tool_calls"][checkpoint["next_tool_call_index"]]
                 tool_name = call["tool_name"]
-                catalog_tool = next((tool for tool in self._catalog_tools() if tool.name == tool_name), None)
+                catalog_tool = next((tool for tool in self._catalog_tools(run.get("artifact_transfer"))
+                                     if tool.name == tool_name), None)
                 if tool_name in SERVER_ACTION_TOOLS:
                     tool_result = self._uncertain_terminal_action(
                         run, tool_name, json.loads(call["arguments_json"]), call["tool_call_id"],

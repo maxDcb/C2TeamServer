@@ -140,6 +140,9 @@ class SkillsPanel(QWidget):
             self.skillSelector.setItemData(
                 self.skillSelector.count() - 1, skill_help(skill), Qt.ItemDataRole.ToolTipRole,
             )
+        default_skill_index = self.skillSelector.findData("identify-user")
+        if default_skill_index >= 0:
+            self.skillSelector.setCurrentIndex(default_skill_index)
         controls.addWidget(self.skillSelector, 1)
         self.skillHelpButton = QPushButton("?")
         self.skillHelpButton.setAccessibleName("Task help")
@@ -295,6 +298,10 @@ class SkillsPanel(QWidget):
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
+        self.contextInput.setPlaceholderText(
+            '{"source_file":"/absolute/local/file","remote_path":"/remote/file"}'
+            if skill.input_kind == "artifact_transfer" else
+            "Additional task context for this run (optional)")
         help_text = skill_help(skill)
         self.skillHelpButton.setToolTip(help_text)
         self.skillSelector.setToolTip(help_text)

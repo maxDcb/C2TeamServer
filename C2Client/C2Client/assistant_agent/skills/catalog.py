@@ -25,6 +25,7 @@ class AgenticSkillDefinition:
     max_iterations: int
     supports_any_session: bool = False
     target_scope: str = "session"
+    input_kind: str = "text"
 
 
 def _string_tuple(value: object, field_name: str, path: Path, *, optional: bool = False) -> tuple[str, ...]:
@@ -75,6 +76,10 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
     target_scope = config.get("target", "session")
     if target_scope not in {"session", "teamserver"}:
         raise ValueError(f"Invalid target in skill configuration: {config_path}")
+    input_kind = config.get("input_kind", "text")
+    if input_kind not in {"text", "artifact_transfer"} or \
+            (input_kind == "artifact_transfer" and target_scope != "session"):
+        raise ValueError(f"Invalid input_kind in skill configuration: {config_path}")
     if type(config.get("max_tool_calls")) is not int or config["max_tool_calls"] < 1:
         raise ValueError(f"Invalid max_tool_calls in skill configuration: {config_path}")
     if type(config.get("max_iterations")) is not int or config["max_iterations"] < 1:
@@ -94,6 +99,7 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
         declared_tools=resolution.allowed_tools,
         max_tool_calls=config["max_tool_calls"], max_iterations=config["max_iterations"],
         supports_any_session=target_scope == "teamserver", target_scope=target_scope,
+        input_kind=input_kind,
     )
 
 

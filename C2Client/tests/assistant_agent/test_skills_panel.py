@@ -123,6 +123,19 @@ def test_teamserver_skill_starts_without_beacon_session(qtbot, monkeypatch):
     panel.shutdown()
 
 
+def test_artifact_transfer_skill_uses_selected_session_and_shows_input_format(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
+    assert "source_file" in panel.contextInput.placeholderText()
+    assert panel.sessionSelector.currentData() == ("beacon-1", "listener-1")
+    context = '{"source_file":"/tmp/sample.bin","remote_path":"/tmp/sample.bin"}'
+    panel.contextInput.setPlainText(context)
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("artifact-to-session", "beacon-1", "listener-1", context)]
+    panel.shutdown()
+
+
 def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeypatch):
     panel, grpc_client = make_panel(qtbot, monkeypatch, [
         session("beacon-1", "listener-1"),

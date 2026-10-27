@@ -22,6 +22,13 @@ class BoundBeaconTool:
         return self.spec.name
 
     def schema(self) -> LLMToolDefinition:
+        run = self.service.get(self.skill_run_id)
+        if self.name == "upload" and run.get("artifact_transfer") is not None:
+            return build_tool_definition(
+                name=self.name,
+                description="Send the verified artifact to the operator-selected session and remote path.",
+                parameters={"type": "object", "properties": {}, "additionalProperties": False},
+            )
         parameters = dict(self.spec.parameters)
         parameters["properties"] = {
             key: value for key, value in parameters["properties"].items()
