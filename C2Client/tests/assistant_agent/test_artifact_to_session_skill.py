@@ -8,7 +8,7 @@ import pytest
 from agent_core.llm.base import LLMCompletionResult, LLMToolCall
 
 from C2Client.assistant_agent.skills.catalog import SKILLS
-from C2Client.assistant_agent.skills.service import C2SkillService
+from C2Client.assistant_agent.skills.service import C2SkillService, _artifact_transfer_input
 from C2Client.assistant_agent.tools.artifact_upload_tool import C2ArtifactUploadTool
 from C2Client.grpcClient import TeamServerApi_pb2
 
@@ -103,7 +103,7 @@ def test_artifact_to_session_uploads_once_then_waits_for_beacon_after_restart(tm
     storage = tmp_path / "skills"
     service = C2SkillService(client, storage_dir=storage, provider=provider)
     provider.service = service
-    context = json.dumps({"source_file": str(source), "remote_path": "/tmp/remote sample.txt"})
+    context = f'transfert "{source}" sur /tmp de la session'
 
     run = service.start("artifact-to-session", "beacon-1", "listener-1", context)
     assert run["status"] == "running"
@@ -112,7 +112,7 @@ def test_artifact_to_session_uploads_once_then_waits_for_beacon_after_restart(tm
     assert client.uploads[0][1:] == (b"local transfer payload", "any", "any")
     assert run["artifact_transfer"]["artifact_id"] == "artifact-verified"
     assert [command for _, command in client.submissions] == [
-        "upload artifact-verified '/tmp/remote sample.txt'",
+        "upload artifact-verified '/tmp/local sample.txt'",
     ]
     assert run["terminal_observations"][0]["state"] == "succeeded"
     assert run["steps"][-1]["state"] == "waiting_for_job"
@@ -140,11 +140,22 @@ def test_transfer_requires_explicit_existing_local_file_and_remote_path(tmp_path
     client = TransferGrpc()
     service = C2SkillService(client, storage_dir=tmp_path / "skills")
     assert SKILLS["artifact-to-session"].required_tools == ("uploadC2Artifact", "upload")
-    for context in ("", "{}", json.dumps({"source_file": "relative.txt", "remote_path": "/tmp/a"}),
+    for context in ("", "{}", "transfert /tmp/file sur dossier de la session",
+                    json.dumps({"source_file": "relative.txt", "remote_path": "/tmp/a"}),
                     json.dumps({"source_file": str(tmp_path / "missing"), "remote_path": "/tmp/a"})):
         with pytest.raises(ValueError):
             service.start("artifact-to-session", "beacon-1", "listener-1", context)
     assert not client.uploads and not client.submissions
+
+
+def test_natural_context_treats_destination_as_session_directory(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_bytes(b"127.0.0.1 localhost\n")
+    transfer = _artifact_transfer_input(f"ok transfert {source} sur /tmp de la session", "run-1", "linux")
+    assert transfer["remote_path"] == "/tmp/hosts"
+    assert transfer["source_file"] == str(source)
+    windows = _artifact_transfer_input(f"transfert {source} sur C:\\Temp de la session", "run-2", "windows")
+    assert windows["remote_path"] == "C:\\Temp\\hosts"
 
 
 def test_upload_tool_rejects_changed_source_before_rpc(tmp_path):

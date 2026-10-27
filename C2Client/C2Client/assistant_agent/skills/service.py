@@ -8,7 +8,10 @@ from functools import wraps
 import hashlib
 import json
 import logging
+import ntpath
 from pathlib import Path
+import posixpath
+import re
 from types import SimpleNamespace
 from threading import Lock, RLock
 from typing import Any, Callable
@@ -47,6 +50,13 @@ SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {
     "uploadListenerFile", "installTool", "installToolBundle", "uploadC2Artifact",
 }
 logger = logging.getLogger(__name__)
+_TRANSFER_REQUEST = re.compile(
+    r"(?:ok[,\s]+)?(?:transfert|transf[eé]rer)\s+"
+    r"(?P<source>\"[^\"]+\"|'[^']+'|\S+)\s+sur\s+"
+    r"(?P<directory>\"[^\"]+\"|'[^']+'|\S+)"
+    r"(?:\s+de\s+la\s+session)?",
+    re.IGNORECASE,
+)
 
 
 def _now() -> str:
@@ -57,11 +67,30 @@ def _not_found(error: Exception) -> bool:
     return isinstance(error, grpc.RpcError) and error.code() == grpc.StatusCode.NOT_FOUND
 
 
-def _artifact_transfer_input(raw: str, run_id: str) -> dict[str, str]:
-    try:
-        value = json.loads(raw)
-    except (TypeError, ValueError) as error:
-        raise ValueError('Enter JSON with "source_file" and "remote_path" for this skill.') from error
+def _unquote_path(value: str) -> str:
+    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
+
+
+def _artifact_transfer_input(raw: str, run_id: str, platform: str) -> dict[str, str]:
+    if raw.lstrip().startswith("{"):
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Enter valid JSON with "source_file" and "remote_path".') from error
+    else:
+        match = _TRANSFER_REQUEST.fullmatch(raw.strip())
+        if match is None:
+            raise ValueError('Use "transfert /local/file sur /remote/directory de la session" '
+                             'or JSON with "source_file" and "remote_path".')
+        source_file = _unquote_path(match.group("source"))
+        directory = _unquote_path(match.group("directory"))
+        path_module = ntpath if platform == "windows" else posixpath
+        if not path_module.isabs(directory):
+            raise ValueError("The session destination must be an absolute directory path.")
+        value = {
+            "source_file": source_file,
+            "remote_path": path_module.join(directory, Path(source_file).name),
+        }
     if not isinstance(value, dict) or set(value) != {"source_file", "remote_path"} \
             or not all(isinstance(value.get(key), str) and value[key].strip()
                        for key in ("source_file", "remote_path")):
@@ -366,7 +395,7 @@ class C2SkillService:
                 for field in ("hostname", "username", "os", "arch")
             }
         run_id = uuid4().hex
-        artifact_transfer = (_artifact_transfer_input(additional_context, run_id)
+        artifact_transfer = (_artifact_transfer_input(additional_context, run_id, platform)
                              if skill.input_kind == "artifact_transfer" else None)
         command_specs = {}
         for spec in (() if server_only else load_command_tool_specs(self.grpc_client)):

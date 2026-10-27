@@ -33,8 +33,10 @@ operations. `teamserver-inspect` checks local inventory in read-only mode.
 explicitly named in **Additional task context**, using existing artifact IDs.
 
 `artifact-to-session` runs against one selected beacon session and combines the
-`artifact.to_session` bundle. Enter **Additional task context** as JSON with two
-paths, for example:
+`artifact.to_session` bundle. In **Additional task context**, enter for example
+`transfert /etc/hosts sur /tmp de la session`. Here `/tmp` is a directory on the
+selected session; the file will arrive as `/tmp/hosts`. Quote paths containing
+spaces. To set an exact destination filename, use JSON:
 
 ```json
 {"source_file":"/home/operator/sample.bin","remote_path":"/tmp/sample.bin"}

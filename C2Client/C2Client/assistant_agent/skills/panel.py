@@ -299,7 +299,7 @@ class SkillsPanel(QWidget):
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
         self.contextInput.setPlaceholderText(
-            '{"source_file":"/absolute/local/file","remote_path":"/remote/file"}'
+            "transfert /etc/hosts sur /tmp de la session"
             if skill.input_kind == "artifact_transfer" else
             "Additional task context for this run (optional)")
         help_text = skill_help(skill)
