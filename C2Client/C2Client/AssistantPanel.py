@@ -115,7 +115,7 @@ class Assistant(QWidget):
         else:
             self.printInTerminal(
                 "System",
-                "Assistant ready. Open a session console from the Sessions tab to provide session context and command output to the assistant. Use /help to list local assistant commands.",
+                "Assistant ready. TeamServer actions are available without a beacon session. Open a session console for beacon commands. Use /bundles to inspect available tools or /help for local commands.",
             )
 
     def sessionAssistantMethod(self, action, beaconHash, listenerHash, hostname, username, arch, privilege, os, lastProofOfLife, killed):
@@ -389,6 +389,10 @@ class Assistant(QWidget):
             self._show_local_help()
             return
 
+        if local_command == "/bundles":
+            self._show_bundles()
+            return
+
         if local_command == "/status":
             self._show_pending_status()
             return
@@ -448,6 +452,7 @@ class Assistant(QWidget):
             "\n".join(
                 [
                     "/help - Show AssistantPanel local commands.",
+                    "/bundles - Show conversation bundles and available tools.",
                     "/status - Show the current assistant pending command state.",
                     "/stop - Stop this assistant wait; the remote command continues.",
                     "/cancel and /reset - Aliases for /stop.",
@@ -455,6 +460,13 @@ class Assistant(QWidget):
                 ]
             ),
         )
+
+
+    def _show_bundles(self):
+        capabilities = self.agent.conversation_capabilities()
+        lines = [f"{name}: {', '.join(tools) if tools else 'unavailable'}"
+                 for name, tools in capabilities.items()]
+        self.printInTerminal("Conversation bundles:", "\n".join(lines))
 
 
     def _show_pending_status(self):

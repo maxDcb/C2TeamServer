@@ -113,6 +113,11 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
 }
 
 
+# Conversation is an operator workspace, so every declared bundle is available
+# when its adapters and TeamServer command specifications are registered.
+CONVERSATION_BUNDLES = tuple(TOOL_BUNDLES)
+
+
 def resolve_tool_bundles(
     bundle_names: Iterable[str],
     *,

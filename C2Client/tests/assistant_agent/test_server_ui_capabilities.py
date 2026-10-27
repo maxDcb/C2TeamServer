@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from C2Client.assistant_agent.capabilities.bundles import TOOL_BUNDLES, resolve_tool_bundles
+from C2Client.assistant_agent.domain.service import C2AssistantAgent
 from C2Client.assistant_agent.skills.service import C2SkillService, _stored_tool_arguments
 from C2Client.assistant_agent.tools.registry import build_c2_tool_registry
 from C2Client.assistant_agent.tools.server_artifact_tools import C2ArtifactDeleteTool, C2ArtifactDownloadTool
@@ -165,6 +166,14 @@ def test_every_ui_business_action_has_a_specific_bundle_and_registered_adapter(t
         resolution = resolve_tool_bundles((bundle_name,), registered_tools=registered,
                                           required_tools=action_tools)
         assert action_tools <= set(resolution.allowed_tools)
+
+
+def test_conversation_grants_every_declared_bundle(tmp_path: Path):
+    agent = C2AssistantAgent(FakeGrpc(), storage_dir=tmp_path)
+    capabilities = agent.conversation_capabilities()
+    assert set(capabilities) == set(TOOL_BUNDLES)
+    for bundle_name, action_tools in UI_ACTION_TOOLS.items():
+        assert action_tools <= set(capabilities[bundle_name])
 
 
 def test_command_catalog_filter_is_shared_with_ui_operations():

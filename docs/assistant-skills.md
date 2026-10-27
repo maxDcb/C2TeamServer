@@ -33,6 +33,11 @@ operations. Focused bundles `teamserver.commands`, `teamserver.listeners`,
 `teamserver.tools` grant the corresponding catalog, lifecycle, artifact, vault,
 and tool installation actions. These adapters are also registered in the
 conversation, while skills receive only the operations in their selected bundles.
+The Conversation tab selects every declared bundle and also retains command tools
+loaded dynamically from the TeamServer catalog. Enter `/bundles` in Conversation
+to see which bundled tools the current client and TeamServer actually provide.
+Listener and session lifecycle actions can be requested without selecting a beacon;
+beacon commands still need a specific session.
 `teamserver-inspect` checks local inventory in read-only mode.
 `teamserver-publish-test` exercises only the publication action and destination
 explicitly named in **Additional task context**, using existing artifact IDs.
