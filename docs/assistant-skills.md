@@ -24,6 +24,12 @@ The effective tool list is the intersection of the declared bundles, registered
 adapters, and platform-compatible commands. A new skill can combine existing
 bundles without adding Python code. A new C2 operation still needs a typed adapter.
 
+`recon-network` uses the narrow `recon.network` bundle: `ipConfig`,
+`hostContext`, `netstat`, optional `ps`, and `listC2Listeners`. The model chooses
+the command order from observed results. Its report compares beacon-host evidence
+with TeamServer listener metadata and cites the IDs of both sources. `ps` is
+reserved for a concrete socket ownership question.
+
 The Tasks panel shows the skill's description, bundles, and tools in its help popup.
 The operator selects a live session and can enter **Additional task context** for
 that run. The client snapshots this text, the skill instructions, TeamServer session
@@ -59,6 +65,13 @@ and exact job output retained in the local run snapshot. Runs are stored under
 `C2Client/C2Client/logs/assistant_sessions/skills/runs/`. Only the `agentic_skill`
 run format is usable. Previous fixed-plan and identity-specific run files are not
 listed or resumed.
+
+Report citation or format mismatches are shown as warnings; they do not discard
+the model's response or otherwise successful observations. The original response
+is retained for review. Complete beacon output is passed to agent-core's artifact
+system, which can page large results; each result states whether its stored bytes
+cover the reported size. The Tasks panel shows a shorter output preview and labels
+it when the preview is incomplete.
 
 ## Local build and tests
 

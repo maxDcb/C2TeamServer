@@ -35,7 +35,11 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
         if report.get("outcome") == "partial":
             lines.extend(["", "This report is partial."])
         lines.extend(["", str(report.get("summary", ""))])
-        findings = [str(item.get("finding", "")) for item in report.get("observations", [])]
+        findings = []
+        for item in report.get("observations", []):
+            finding = str(item.get("finding", ""))
+            source_id = str(item.get("source_id") or item.get("job_id") or "")
+            findings.append(f"{finding} (source: {source_id})" if source_id else finding)
         if findings:
             lines.extend(["", "What I found", ""])
             lines.extend(f"{finding}\n" for finding in findings)
@@ -43,6 +47,10 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
         if limitations:
             lines.extend(["What remains uncertain", ""])
             lines.extend(f"{limitation}\n" for limitation in limitations)
+        warnings = [str(item) for item in report.get("validation_warnings", [])]
+        if warnings:
+            lines.extend(["Report warnings", ""])
+            lines.extend(f"{warning}\n" for warning in warnings)
     elif run.get("manual_failure"):
         lines.extend(["", f"Stopped by the operator: {run['manual_failure']}"])
     else:
@@ -54,11 +62,13 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
 
     if show_evidence:
         lines.extend(["", "Execution details", ""])
+        if report and report.get("raw_output") and report.get("analysis_status") != "raw":
+            lines.extend(["Original model response", str(report["raw_output"]), ""])
         evidence = {
             item["step_id"]: item for item in (report or {}).get("evidence", [])
         }
         findings_by_job = {
-            item.get("job_id", item.get("source_id", "")): item["finding"]
+            item.get("job_id", item.get("source_id", "")): item.get("finding", "")
             for item in (report or {}).get("observations", [])
         }
         for step in run["steps"]:
@@ -79,7 +89,13 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
             if proof.get("output_sha256"):
                 lines.append(f"  Output: {proof['output_size']} bytes · SHA-256 {proof['output_sha256']}")
             if proof.get("output_preview") and step.get("purpose", "command") == "command":
-                lines.append(f"  Output:\n{proof['output_preview']}")
+                label = "Output preview" if proof.get("output_preview_truncated") else "Output"
+                lines.append(f"  {label}:\n{proof['output_preview']}")
+                if proof.get("output_preview_truncated"):
+                    if proof.get("output_complete", True):
+                        lines.append("  Full received output is retained in the run snapshot.")
+                    else:
+                        lines.append("  TeamServer reported more bytes than the run received.")
             lines.append("")
         for item in run.get("terminal_observations", []):
             lines.append(f"{item['tool']} · {item.get('state', 'succeeded' if item['ok'] else 'failed')}")

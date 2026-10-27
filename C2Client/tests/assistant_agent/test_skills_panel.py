@@ -98,6 +98,19 @@ def test_recon_skill_appears_with_multiple_capabilities(qtbot, monkeypatch):
     panel.shutdown()
 
 
+def test_recon_network_appears_with_narrow_capabilities(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    skill_index = panel.skillSelector.findData("recon-network")
+    assert skill_index >= 0
+    panel.skillSelector.setCurrentIndex(skill_index)
+    help_text = panel.skillHelpButton.toolTip()
+    assert "recon.network" in help_text
+    assert "netstat" in help_text
+    assert "listC2Listeners" in help_text
+    assert "screenShot" not in help_text
+    panel.shutdown()
+
+
 def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeypatch):
     panel, grpc_client = make_panel(qtbot, monkeypatch, [
         session("beacon-1", "listener-1"),
@@ -192,6 +205,7 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     visible = panel.details.toPlainText()
     assert "The beacon ran as operator." in visible
     assert "The account is operator." in visible
+    assert "The account is operator. (source: identity-job)" in visible
     assert "load-job" not in visible
     assert '"evidence"' not in visible
 
@@ -202,6 +216,24 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     assert "Output:\noperator" in technical
     assert format_run_details(run) == visible
     panel.shutdown()
+
+
+def test_report_shows_warnings_without_hiding_findings():
+    run = {
+        "run_id": "run-1", "status": "completed", "steps": [],
+        "report": {
+            "outcome": "complete", "analysis_status": "available", "summary": "Network observed.",
+            "observations": [{"source_id": "job-1; terminal-1", "finding": "Port comparison."}],
+            "limitations": [], "validation_warnings": ["Finding 1 has an unusual source_id."],
+            "raw_output": '{"summary":"Network observed.","extra":"retained"}',
+            "evidence": [],
+        },
+    }
+    visible = format_run_details(run)
+    assert "Port comparison. (source: job-1; terminal-1)" in visible
+    assert "Report warnings" in visible
+    assert "partial" not in visible
+    assert "Original model response" in format_run_details(run, show_evidence=True)
 
 
 def test_run_dropdown_preserves_selection_and_report_scroll(qtbot, monkeypatch):

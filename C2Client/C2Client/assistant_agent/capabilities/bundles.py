@@ -29,6 +29,9 @@ class BundleResolution:
 # their typed Agent Skill adapters have not yet been registered.
 TOOL_BUNDLES: dict[str, ToolBundle] = {
     "recon.identity": ToolBundle("recon.identity", ("whoami",)),
+    "recon.network": ToolBundle("recon.network", (
+        "ipConfig", "hostContext", "netstat", "ps", "listC2Listeners",
+    )),
     "recon.host": ToolBundle("recon.host", (
         "listLiveSessions", "listLoadedModules", "getCommandHelp",
         "whoami", "ipConfig", "hostContext", "getEnv", "netstat", "ps", "pwd", "ls", "tree",
