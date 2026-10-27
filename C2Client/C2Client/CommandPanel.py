@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 
 from .console_style import CONSOLE_COLORS, apply_console_output_style
 from .grpcClient import TeamServerApi_pb2
+from .operations import TeamServerOperations
 from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .ui_status import StatusKind, apply_status, compact_message
 
@@ -87,6 +88,7 @@ class Commands(QWidget):
     def __init__(self, parent: QWidget | None, grpcClient: Any) -> None:
         super().__init__(parent)
         self.grpcClient = grpcClient
+        self.operations = TeamServerOperations(grpcClient)
         self.commands: list[Any] = []
         apply_dark_panel_style(self)
 
@@ -188,7 +190,7 @@ class Commands(QWidget):
 
     def refreshCommands(self) -> None:
         try:
-            self.commands = list(self.grpcClient.listCommands(self.buildQuery()))
+            self.commands = self.operations.list_commands(self.buildQuery())
         except Exception as exc:
             self.commands = []
             self.printCommands()

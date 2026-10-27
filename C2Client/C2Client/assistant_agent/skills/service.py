@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from copy import deepcopy
 from datetime import datetime, timezone
 from functools import wraps
 import hashlib
@@ -24,10 +25,7 @@ from ..domain.settings import build_c2_agent_settings
 from ..storage.paths import default_storage_dir
 from ..tools.command_builder import build_command_line
 from ..tools.command_specs import C2CommandSpecToolSpec, load_command_tool_specs
-from ..tools.server_catalog_tools import C2ArtifactsTool, C2ListenersTool, C2ListenerInfoTool, C2BeaconBinaryInfoTool
-from ..tools.server_action_tools import C2HostArtifactTool, C2SocksControlTool, C2ReloadModulesTool
-from ..tools.server_file_tools import C2UploadListenerFileTool, C2InstallToolTool, C2InstallToolBundleTool
-from ..tools.artifact_upload_tool import C2ArtifactUploadTool
+from ..tools.server_tool_catalog import server_tools
 from ...operations import TeamServerOperations
 from ..tools.validation import validate_tool_arguments
 from ..tools.module_state_tool import (
@@ -45,8 +43,21 @@ FINISHED_RUN_STATES = {"completed", "failed"}
 DURABLE_SERVER_ACTION_TOOLS = {"hostArtifact", "socksControl", "reloadModules"}
 SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {
     "uploadListenerFile", "installTool", "installToolBundle", "uploadC2Artifact",
+    "downloadC2Artifact", "deleteC2Artifact", "addC2Listener", "stopC2Listener",
+    "stopC2Session", "addC2Credential", "updateC2Credential", "deleteC2Credential",
 }
 logger = logging.getLogger(__name__)
+
+
+def _stored_tool_arguments(tool_name: str, arguments: dict) -> dict:
+    stored = deepcopy(arguments)
+    if tool_name == "addC2Listener" and "token" in stored:
+        stored["token"] = "[redacted]"
+    if tool_name in {"addC2Credential", "updateC2Credential"}:
+        for secret in stored.get("secrets", []):
+            if isinstance(secret, dict) and "value" in secret:
+                secret["value"] = "[redacted]"
+    return stored
 
 
 def _now() -> str:
@@ -283,35 +294,10 @@ class C2SkillService:
         )
 
     def _catalog_tools(self, artifact_transfer: dict | None = None) -> list[Any]:
-        tools = []
-        if hasattr(self.grpc_client, "listListeners"):
-            tools.append(C2ListenersTool(self.grpc_client))
-        if hasattr(self.grpc_client, "listArtifacts"):
-            tools.append(C2ArtifactsTool(self.grpc_client))
-        if hasattr(self.grpc_client, "getListenerInfo"):
-            tools.append(C2ListenerInfoTool(self.grpc_client))
-        if hasattr(self.grpc_client, "getBeaconBinary"):
-            tools.append(C2BeaconBinaryInfoTool(self.grpc_client))
-        if hasattr(self.grpc_client, "hostArtifact"):
-            tools.append(C2HostArtifactTool(self.grpc_client))
-        if hasattr(self.grpc_client, "controlSocks"):
-            tools.append(C2SocksControlTool(self.grpc_client))
-        if hasattr(self.grpc_client, "reloadModules"):
-            tools.append(C2ReloadModulesTool(self.grpc_client))
-        if hasattr(self.grpc_client, "downloadArtifact"):
-            for method, adapter in (
-                ("uploadListenerFile", C2UploadListenerFileTool),
-                ("installTool", C2InstallToolTool),
-                ("installToolBundle", C2InstallToolBundleTool),
-            ):
-                if hasattr(self.grpc_client, method):
-                    tools.append(adapter(self.grpc_client))
-        if artifact_transfer is not None and hasattr(self.grpc_client, "uploadArtifact") \
-                and hasattr(self.grpc_client, "listArtifacts"):
-            tools.append(C2ArtifactUploadTool(
-                self.grpc_client, artifact_transfer["artifact_name"],
-            ))
-        return tools
+        return server_tools(
+            self.grpc_client,
+            artifact_name=artifact_transfer["artifact_name"] if artifact_transfer else "",
+        )
 
     def _start_agentic_skill(
         self, skill: AgenticSkillDefinition, beacon_hash: str, listener_hash: str,
@@ -662,7 +648,7 @@ class C2SkillService:
             run = self.store.get(run_id)
             if run.get("mode") != "agentic_skill" or tool.name not in run["allowed_tools"]:
                 return ToolResult(ok=False, content="Tool is outside this skill's capability bundle.")
-            if tool.name == "uploadC2Artifact" and any(
+            if tool.name == "uploadC2Artifact" and run.get("artifact_transfer") and any(
                 item["tool"] == "uploadC2Artifact" and item.get("upload_attempted")
                 for item in run["terminal_observations"]
             ):
@@ -670,7 +656,7 @@ class C2SkillService:
             observation_id = f"terminal-{run_id}-{len(run['terminal_observations']) + 1}"
             observation = {
                 "step_id": observation_id, "observation_id": observation_id,
-                "tool": tool.name, "arguments": arguments,
+                "tool": tool.name, "arguments": _stored_tool_arguments(tool.name, arguments),
                 "ok": False, "content": "", "created_at": _now(),
                 "state": "dispatching" if tool.name in SERVER_ACTION_TOOLS else "pending",
             }
@@ -717,7 +703,7 @@ class C2SkillService:
             observation_id = f"terminal-{run['run_id']}-{len(run['terminal_observations']) + 1}"
             observation = {
                 "step_id": observation_id, "observation_id": observation_id,
-                "tool": tool_name, "arguments": arguments, "created_at": _now(),
+                "tool": tool_name, "arguments": _stored_tool_arguments(tool_name, arguments), "created_at": _now(),
             }
             run["terminal_observations"].append(observation)
         job_id = observation.get("job_id")

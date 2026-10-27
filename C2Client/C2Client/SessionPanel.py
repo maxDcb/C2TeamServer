@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .operations import TeamServerOperations
 from .env import env_int, env_path
 from .grpc_status import is_response_ok, operation_ack_text
 from .panel_style import apply_dark_panel_style, create_dark_context_menu
@@ -245,7 +246,7 @@ class SessionStopLookupWorker(QRunnable):
 
     def run(self):
         try:
-            listeners = list(self.grpc_client.listListeners())
+            listeners = TeamServerOperations(self.grpc_client).list_listeners()
             self.signals.finished.emit(self.beacon_hash, self.listener_hash, listeners, "")
         except Exception as exc:
             self.signals.finished.emit(self.beacon_hash, self.listener_hash, [], str(exc))
@@ -260,7 +261,7 @@ class SessionStopWorker(QRunnable):
 
     def run(self):
         try:
-            self.signals.finished.emit(self.grpc_client.stopSession(self.request), "")
+            self.signals.finished.emit(TeamServerOperations(self.grpc_client).stop_session(self.request), "")
         except Exception as exc:
             self.signals.finished.emit(None, str(exc))
 
@@ -808,8 +809,9 @@ class Sessions(QWidget):
 
     def listSessions(self):
         try:
-            fetch = getattr(self.grpcClient, "listSessionHistory", self.grpcClient.listSessions)
-            sessions = list(fetch())
+            operations = TeamServerOperations(self.grpcClient)
+            sessions = (operations.list_session_history() if hasattr(self.grpcClient, "listSessionHistory")
+                        else operations.list_sessions())
         except Exception as exc:
             self._onRefreshFailure(str(exc))
             return
@@ -1008,5 +1010,6 @@ class Sessions(QWidget):
 
 class GetSessionsWorker(RefreshWorker):
     def __init__(self, grpc_client):
-        fetch = getattr(grpc_client, "listSessionHistory", grpc_client.listSessions)
+        operations = TeamServerOperations(grpc_client)
+        fetch = operations.list_session_history if hasattr(grpc_client, "listSessionHistory") else operations.list_sessions
         super().__init__(fetch, env_int("C2_SESSION_REFRESH_MS", 2000, minimum=100))

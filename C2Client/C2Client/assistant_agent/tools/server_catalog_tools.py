@@ -20,6 +20,50 @@ from ...grpc_status import is_response_ok, response_message
 
 
 @dataclass(slots=True)
+class C2CommandsTool:
+    grpc_client: Any
+
+    name = "listC2Commands"
+    description = "List TeamServer command specifications with optional catalog filters."
+
+    def schema(self) -> LLMToolDefinition:
+        return build_tool_definition(
+            name=self.name, description=self.description,
+            parameters={"type": "object", "properties": {
+                "kind": {"type": "string", "enum": ["common", "module"]},
+                "target": {"type": "string", "enum": ["beacon", "teamserver", "operator", "any"]},
+                "platform": {"type": "string", "enum": ["windows", "linux", "any"]},
+                "name_contains": {"type": "string"},
+            }, "additionalProperties": False},
+        )
+
+    def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
+        allowed = {"kind", "target", "platform", "name_contains"}
+        if set(arguments) - allowed or any(not isinstance(value, str) for value in arguments.values()) \
+                or arguments.get("kind", "common") not in {"common", "module"} \
+                or arguments.get("target", "any") not in {"beacon", "teamserver", "operator", "any"} \
+                or arguments.get("platform", "any") not in {"windows", "linux", "any"}:
+            return ToolResult(ok=False, content="Invalid listC2Commands arguments.")
+        try:
+            commands = TeamServerOperations(self.grpc_client).list_commands(
+                TeamServerApi_pb2.CommandQuery(**arguments))
+        except Exception as error:
+            return ToolResult(ok=False, content=f"Could not list commands: {error}")
+        entries = [{
+            "name": str(item.name), "display_name": str(item.display_name),
+            "kind": str(item.kind), "target": str(item.target),
+            "description": str(item.description), "requires_session": bool(item.requires_session),
+            "platforms": list(item.platforms), "archs": list(item.archs),
+            "args": [{"name": str(arg.name), "type": str(arg.type),
+                      "required": bool(arg.required), "variadic": bool(arg.variadic)} for arg in item.args],
+            "examples": list(item.examples), "source": str(item.source),
+        } for item in commands[:100]]
+        return ToolResult(ok=True, content=json.dumps({
+            "commands": entries, "total": len(commands), "truncated": len(commands) > 100,
+        }, ensure_ascii=False))
+
+
+@dataclass(slots=True)
 class C2ListenersTool:
     grpc_client: Any
 

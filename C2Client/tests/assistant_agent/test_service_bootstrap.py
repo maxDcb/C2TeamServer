@@ -23,6 +23,7 @@ def test_service_bootstrap_registers_only_c2_tools(tmp_path):
 
     assert service.orchestrator.registry.list_tool_names() == [
         "getCommandHelp",
+        "listC2Commands",
         "listLiveSessions",
         "listLoadedModules",
         "pwd",

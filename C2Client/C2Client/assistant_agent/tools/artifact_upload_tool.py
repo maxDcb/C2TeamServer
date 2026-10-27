@@ -19,25 +19,37 @@ from ...operations import TeamServerOperations
 @dataclass(slots=True)
 class C2ArtifactUploadTool:
     grpc_client: Any
-    artifact_name: str
+    artifact_name: str = ""
 
     name = "uploadC2Artifact"
     description = "Upload a local file named in the operator's task context as a TeamServer artifact."
 
     def schema(self) -> LLMToolDefinition:
+        properties = {
+            "source_file": {"type": "string", "description": "Absolute path to the local source file."},
+        }
+        if not self.artifact_name:
+            properties.update({
+                "name": {"type": "string", "description": "Optional artifact name; defaults to source filename."},
+                "platform": {"type": "string", "description": "Target platform; defaults to any."},
+                "arch": {"type": "string", "description": "Target architecture; defaults to any."},
+            })
         return build_tool_definition(
             name=self.name, description=self.description,
-            parameters={"type": "object", "properties": {
-                "source_file": {"type": "string", "description": "Absolute path to the local source file."},
-            }, "required": ["source_file"], "additionalProperties": False},
+            parameters={"type": "object", "properties": properties,
+                        "required": ["source_file"], "additionalProperties": False},
         )
 
     def execute(self, arguments: dict, context: ExecutionContext,
                 *, operation_id: str | None = None) -> ToolResult:
         source_file = arguments.get("source_file") if isinstance(arguments, dict) else None
-        if not isinstance(arguments, dict) or set(arguments) != {"source_file"} \
+        permitted = {"source_file"} if self.artifact_name else {"source_file", "name", "platform", "arch"}
+        if not isinstance(arguments, dict) or set(arguments) - permitted \
                 or not isinstance(source_file, str) or not source_file.strip():
             return ToolResult(ok=False, content="Choose a local source_file from the operator's context.")
+        for key in permitted - {"source_file"}:
+            if key in arguments and (not isinstance(arguments[key], str) or not arguments[key].strip()):
+                return ToolResult(ok=False, content=f"{key} must be nonempty text.")
         source = Path(source_file).expanduser()
         if not source.is_absolute() or not source.is_file():
             return ToolResult(ok=False, content="source_file must be an absolute path to an existing local file.")
@@ -46,12 +58,18 @@ class C2ArtifactUploadTool:
         except OSError as error:
             return ToolResult(ok=False, content=f"Could not read source_file: {error}")
         digest = hashlib.sha256(data).hexdigest()
+        artifact_name = self.artifact_name or arguments.get("name", source.name)
+        platform = arguments.get("platform", "any")
+        arch = arguments.get("arch", "any")
 
         operations = TeamServerOperations(self.grpc_client)
         try:
-            response = operations.upload_artifact(self.artifact_name, data, "any", "any")
+            response = operations.upload_artifact(artifact_name, data, platform, arch)
         except Exception as error:
             return ToolResult(ok=False, content=f"Artifact upload outcome unknown: {error}",
+                              metadata={"outcome_unknown": True, "upload_attempted": True})
+        if response is None or not hasattr(response, "status"):
+            return ToolResult(ok=False, content="Artifact upload outcome unknown: no acknowledgement.",
                               metadata={"outcome_unknown": True, "upload_attempted": True})
         if not is_response_ok(response):
             return ToolResult(ok=False, content=response_message(response, "Artifact upload failed."),
@@ -59,12 +77,14 @@ class C2ArtifactUploadTool:
 
         try:
             artifacts = operations.list_artifacts(
-                TeamServerApi_pb2.ArtifactQuery(name_contains=self.artifact_name))
+                TeamServerApi_pb2.ArtifactQuery(name_contains=artifact_name))
         except Exception as error:
             return ToolResult(ok=False, content=f"Artifact was accepted but catalog lookup failed: {error}",
                               metadata={"outcome_unknown": True, "upload_attempted": True})
         matches = [item for item in artifacts
-                   if str(item.name) == self.artifact_name
+                   if str(item.name) == artifact_name
+                   and str(getattr(item, "platform", platform)) == platform
+                   and str(getattr(item, "arch", arch)) == arch
                    and str(item.category) == "upload"
                    and str(item.scope) == "operator"
                    and str(item.target) == "beacon"
@@ -75,7 +95,7 @@ class C2ArtifactUploadTool:
                               metadata={"outcome_unknown": True, "upload_attempted": True})
         artifact_id = str(matches[0].artifact_id)
         return ToolResult(ok=True, content=json.dumps({
-            "artifact_id": artifact_id, "artifact_name": self.artifact_name,
+            "artifact_id": artifact_id, "artifact_name": artifact_name,
             "source_file": str(source), "size": len(data), "sha256": digest,
         }, ensure_ascii=False), metadata={
             "artifact_id": artifact_id, "source_file": str(source), "upload_attempted": True,

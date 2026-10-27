@@ -31,4 +31,4 @@ class StubGrpc:
 def test_tool_registry_registers_teamserver_command_specs():
     registry = build_c2_tool_registry(StubGrpc())
 
-    assert registry.list_tool_names() == ["getCommandHelp", "listLiveSessions", "listLoadedModules", "ls", "whoami"]
+    assert registry.list_tool_names() == ["getCommandHelp", "listC2Commands", "listLiveSessions", "listLoadedModules", "ls", "whoami"]

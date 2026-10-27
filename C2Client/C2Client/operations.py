@@ -46,8 +46,23 @@ class TeamServerOperations:
     def list_listeners(self) -> list[Any]:
         return list(self.grpc_client.listListeners())
 
+    def list_commands(self, query: Any = None) -> list[Any]:
+        return list(self.grpc_client.listCommands(query))
+
+    def add_listener(self, listener: Any) -> Any:
+        return self.grpc_client.addListener(listener)
+
+    def stop_listener(self, selector: Any) -> Any:
+        return self.grpc_client.stopListener(selector)
+
     def list_sessions(self) -> list[Any]:
         return list(self.grpc_client.listSessions())
+
+    def list_session_history(self) -> list[Any]:
+        return list(self.grpc_client.listSessionHistory())
+
+    def stop_session(self, selector: Any) -> Any:
+        return self.grpc_client.stopSession(selector)
 
     def list_artifacts(self, query: Any = None) -> list[Any]:
         return list(self.grpc_client.listArtifacts(query))
@@ -60,6 +75,21 @@ class TeamServerOperations:
 
     def delete_artifact(self, artifact_id: str) -> Any:
         return self.grpc_client.deleteArtifact(artifact_id)
+
+    def list_credentials(self, query: Any = None) -> list[Any]:
+        return list(self.grpc_client.listCredentials(query))
+
+    def get_credential(self, credential_id: str, *, reveal_secret: bool = False) -> Any:
+        return self.grpc_client.getCredential(credential_id, reveal_secret=reveal_secret)
+
+    def add_credential(self, request: Any) -> Any:
+        return self.grpc_client.addCredential(request)
+
+    def update_credential(self, request: Any) -> Any:
+        return self.grpc_client.updateCredential(request)
+
+    def delete_credential(self, credential_id: str) -> Any:
+        return self.grpc_client.deleteCredential(credential_id)
 
     def get_operation(self, job_id: str) -> OperationOutcome:
         return _outcome(self.grpc_client.getJobExecution(job_id))

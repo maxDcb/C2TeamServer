@@ -28,7 +28,12 @@ bundles without adding Python code. A new C2 operation still needs a typed adapt
 session** target. It receives only registered TeamServer adapters and does not load
 beacon command specifications. The `teamserver.inspect`, `teamserver.publish`, and
 `teamserver.control` bundles group the typed inventory, publication, and control
-operations. `teamserver-inspect` checks local inventory in read-only mode.
+operations. Focused bundles `teamserver.commands`, `teamserver.listeners`,
+`teamserver.sessions`, `teamserver.artifacts`, `teamserver.credentials`, and
+`teamserver.tools` grant the corresponding catalog, lifecycle, artifact, vault,
+and tool installation actions. These adapters are also registered in the
+conversation, while skills receive only the operations in their selected bundles.
+`teamserver-inspect` checks local inventory in read-only mode.
 `teamserver-publish-test` exercises only the publication action and destination
 explicitly named in **Additional task context**, using existing artifact IDs.
 
@@ -73,14 +78,16 @@ The client performs LLM work only while it is running; TeamServer may receive a
 late beacon result while the client is closed.
 
 Skills can use typed TeamServer operations selected by their bundles:
-`listC2Listeners`, `infoListener`, `listC2Artifacts`, `getBeaconBinary`,
-`hostArtifact`, `uploadListenerFile`, `installTool`, `installToolBundle`,
-`socksControl`, and `reloadModules`. Binary lookup returns a size and digest, not
+command catalog and help; listener inventory, creation and stop; live sessions,
+history and stop; artifact inventory, upload, download, hosting and deletion;
+credential vault listing, detail, creation, update and deletion; tool installation,
+module reload and SOCKS control. The same `TeamServerOperations` layer serves the
+corresponding UI panels and assistant adapters. Binary lookup returns a size and digest, not
 the binary itself. File actions download an existing artifact by ID before sending
 its bytes to the typed RPC; they accept an explicit safe destination filename.
 `hostArtifact`, `socksControl`, and `reloadModules` have durable V2 job receipts.
 The client saves the job ID before dispatch and can resolve an interrupted action
-from that receipt. File actions return a direct acknowledgement and have no job
+from that receipt. Other mutations return a direct acknowledgement and have no job
 receipt. If interrupted, their outcome is marked unknown and they are not replayed
 automatically. The operator should inspect TeamServer state before retrying. The
 skill has no free-form TeamServer terminal command tool.

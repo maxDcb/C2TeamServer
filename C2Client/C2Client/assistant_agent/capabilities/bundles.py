@@ -24,9 +24,14 @@ class BundleResolution:
 
 
 TEAMSERVER_TOOL_NAMES = frozenset({
+    "listC2Commands", "getCommandHelp", "listLoadedModules",
     "listC2Listeners", "infoListener", "listC2Artifacts", "getBeaconBinary",
     "hostArtifact", "uploadListenerFile", "installTool", "installToolBundle",
-    "socksControl", "reloadModules",
+    "socksControl", "reloadModules", "addC2Listener", "stopC2Listener",
+    "listLiveSessions", "listC2SessionHistory", "stopC2Session",
+    "uploadC2Artifact", "downloadC2Artifact", "deleteC2Artifact",
+    "listC2Credentials", "getC2Credential", "addC2Credential",
+    "updateC2Credential", "deleteC2Credential",
 })
 
 
@@ -34,6 +39,27 @@ TEAMSERVER_TOOL_NAMES = frozenset({
 # gains access to an existing skill merely by appearing in the server catalog.
 # Client and TeamServer operations are granted only when an adapter is registered.
 TOOL_BUNDLES: dict[str, ToolBundle] = {
+    "teamserver.commands": ToolBundle("teamserver.commands", (
+        "listC2Commands", "getCommandHelp",
+    )),
+    "teamserver.listeners": ToolBundle("teamserver.listeners", (
+        "listC2Listeners", "infoListener", "addC2Listener", "stopC2Listener",
+        "getBeaconBinary", "uploadListenerFile",
+    )),
+    "teamserver.sessions": ToolBundle("teamserver.sessions", (
+        "listLiveSessions", "listC2SessionHistory", "stopC2Session", "listLoadedModules",
+    )),
+    "teamserver.artifacts": ToolBundle("teamserver.artifacts", (
+        "listC2Artifacts", "uploadC2Artifact", "downloadC2Artifact",
+        "deleteC2Artifact", "hostArtifact",
+    )),
+    "teamserver.credentials": ToolBundle("teamserver.credentials", (
+        "listC2Credentials", "getC2Credential", "addC2Credential",
+        "updateC2Credential", "deleteC2Credential",
+    )),
+    "teamserver.tools": ToolBundle("teamserver.tools", (
+        "installTool", "installToolBundle", "reloadModules",
+    )),
     "artifact.to_session": ToolBundle("artifact.to_session", (
         "uploadC2Artifact", "upload", "listC2Artifacts",
     )),
@@ -65,7 +91,7 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     )),
     "pivot": ToolBundle("pivot", (
         "listener", "reversePortForward", "chisel", "listC2Listeners",
-        "addC2Listener", "stopC2Listener", "socksControl",
+        "socksControl",
     )),
     "file_ops": ToolBundle("file_ops", (
         "cd", "mkDir", "remove", "upload", "download", "cat", "ls",
@@ -73,17 +99,16 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     )),
     "payload_delivery": ToolBundle("payload_delivery", (
         "upload", "listC2Artifacts", "downloadC2Artifact", "uploadC2Artifact",
-        "deleteC2Artifact", "hostArtifact", "generateDropper", "getBeaconBinary",
+        "hostArtifact", "generateDropper", "getBeaconBinary",
         "uploadListenerFile", "installTool", "installToolBundle",
     )),
     "credentials": ToolBundle("credentials", (
         "makeToken", "kerberosUseTicket", "keyLogger", "miniDump",
         "stealToken", "rev2self", "listC2Credentials", "getC2Credential",
-        "addC2Credential", "updateC2Credential", "deleteC2Credential",
     )),
     "session_management": ToolBundle("session_management", (
         "end", "sleep", "loadModule", "unloadModule", "listModule",
-        "help", "stopC2Session", "reloadModules",
+        "help", "reloadModules",
     )),
 }
 
