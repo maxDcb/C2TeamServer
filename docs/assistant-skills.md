@@ -44,6 +44,12 @@ use JSON:
 {"source_file":"/home/operator/sample.bin","remote_path":"/tmp/sample.bin"}
 ```
 
+To transfer one source to several exact file paths in the same session, enter
+`ok transfert /etc/hosts dans /tmp/toto et /tmp/hotsss`, or use a JSON
+`remote_paths` array. Up to eight distinct absolute destinations are accepted.
+The Artifacts upload happens once; the skill waits for and reports each beacon
+transfer separately.
+
 The client binds the exact local source and beacon destination at run start. The
 skill calls `uploadC2Artifact` to store the local bytes in the same Artifacts
 catalog used by the Artifacts tab, then calls the beacon `upload` command with

@@ -57,6 +57,12 @@ _TRANSFER_REQUEST = re.compile(
     rf"(?P<directory>{_TRANSFER_TOKEN})(?P<rest>.*)",
     re.IGNORECASE,
 )
+_TRANSFER_EXACT_REQUEST = re.compile(
+    r"(?:ok[,\s]+)?(?:transfert|transf[eé]rer)\s+"
+    rf"(?P<source>{_TRANSFER_TOKEN})\s+dans\s+(?P<destinations>.+)",
+    re.IGNORECASE,
+)
+_TRANSFER_DESTINATION = re.compile(rf"(?P<path>{_TRANSFER_TOKEN})(?:\s+et\s+|$)", re.IGNORECASE)
 _TRANSFER_RECEIVED_NAME = re.compile(
     rf"(?:sous\s+le\s+nom|avec\s+le\s+nom|nomm[eé]|"
     rf"nom\s+(?:du\s+fichier\s+)?de\s+r[eé]ception)"
@@ -77,49 +83,63 @@ def _unquote_path(value: str) -> str:
     return value[1:-1] if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'" else value
 
 
-def _artifact_transfer_input(raw: str, run_id: str, platform: str) -> dict[str, str]:
+def _artifact_transfer_input(raw: str, run_id: str, platform: str) -> dict:
+    path_module = ntpath if platform == "windows" else posixpath
     if raw.lstrip().startswith("{"):
         try:
             value = json.loads(raw)
         except (TypeError, ValueError) as error:
-            raise ValueError('Enter valid JSON with "source_file" and "remote_path".') from error
+            raise ValueError('Enter valid JSON with "source_file" and "remote_path" or "remote_paths".') from error
     else:
-        match = _TRANSFER_REQUEST.fullmatch(raw.strip())
-        if match is None:
-            raise ValueError('Use "transfert /local/file sur /remote/directory de la session" '
-                             'or JSON with "source_file" and "remote_path".')
-        source_file = _unquote_path(match.group("source"))
-        directory = _unquote_path(match.group("directory"))
-        rest = match.group("rest").strip()
-        if rest.lower().startswith("de la session"):
-            rest = rest[len("de la session"):].strip()
-        received_name = Path(source_file).name
-        if rest:
-            name_match = _TRANSFER_RECEIVED_NAME.fullmatch(rest)
-            if name_match is None:
-                raise ValueError('Use "sous le nom filename" to name the received file.')
-            received_name = _unquote_path(name_match.group("name"))
-            if received_name in {"", ".", ".."} or received_name != received_name.strip() \
-                    or any(character in received_name for character in "/\\") \
-                    or any(ord(character) < 32 for character in received_name):
-                raise ValueError("The received file name must be a single filename without path separators.")
-        path_module = ntpath if platform == "windows" else posixpath
-        if not path_module.isabs(directory):
-            raise ValueError("The session destination must be an absolute directory path.")
-        value = {
-            "source_file": source_file,
-            "remote_path": path_module.join(directory, received_name),
-        }
-    if not isinstance(value, dict) or set(value) != {"source_file", "remote_path"} \
-            or not all(isinstance(value.get(key), str) and value[key].strip()
-                       for key in ("source_file", "remote_path")):
-        raise ValueError('Enter JSON with nonempty "source_file" and "remote_path" strings.')
+        exact = _TRANSFER_EXACT_REQUEST.fullmatch(raw.strip())
+        if exact is not None:
+            destinations = exact.group("destinations").strip()
+            if destinations.lower().endswith(" de la session"):
+                destinations = destinations[:-len(" de la session")].rstrip()
+            remote_paths = []
+            while destinations:
+                match = _TRANSFER_DESTINATION.match(destinations)
+                if match is None:
+                    raise ValueError('Separate exact session file paths with " et ".')
+                remote_paths.append(_unquote_path(match.group("path")))
+                destinations = destinations[match.end():]
+            value = {"source_file": _unquote_path(exact.group("source")), "remote_paths": remote_paths}
+        else:
+            match = _TRANSFER_REQUEST.fullmatch(raw.strip())
+            if match is None:
+                raise ValueError('Use "transfert /local/file sur /remote/directory de la session" '
+                                 'or "transfert /local/file dans /remote/file et /remote/other".')
+            source_file = _unquote_path(match.group("source"))
+            directory = _unquote_path(match.group("directory"))
+            rest = match.group("rest").strip()
+            if rest.lower().startswith("de la session"):
+                rest = rest[len("de la session"):].strip()
+            received_name = Path(source_file).name
+            if rest:
+                name_match = _TRANSFER_RECEIVED_NAME.fullmatch(rest)
+                if name_match is None:
+                    raise ValueError('Use "sous le nom filename" to name the received file.')
+                received_name = _unquote_path(name_match.group("name"))
+                if received_name in {"", ".", ".."} or received_name != received_name.strip() \
+                        or any(character in received_name for character in "/\\") \
+                        or any(ord(character) < 32 for character in received_name):
+                    raise ValueError("The received file name must be a single filename without path separators.")
+            if not path_module.isabs(directory):
+                raise ValueError("The session destination must be an absolute directory path.")
+            value = {"source_file": source_file, "remote_paths": [path_module.join(directory, received_name)]}
+    if not isinstance(value, dict) or set(value) not in (
+        {"source_file", "remote_path"}, {"source_file", "remote_paths"},
+    ) or not isinstance(value.get("source_file"), str) or not value["source_file"].strip():
+        raise ValueError('Enter JSON with "source_file" and "remote_path" or "remote_paths".')
+    remote_paths = value.get("remote_paths", [value.get("remote_path")])
+    if not isinstance(remote_paths, list) or not 1 <= len(remote_paths) <= 8 \
+            or any(not isinstance(path, str) or not path.strip() or path != path.strip()
+                   or any(ord(character) < 32 for character in path) or not path_module.isabs(path)
+                   for path in remote_paths) or len(set(remote_paths)) != len(remote_paths):
+        raise ValueError("Choose 1 to 8 distinct absolute session file paths.")
     source = Path(value["source_file"]).expanduser()
     if not source.is_absolute() or not source.is_file():
         raise ValueError("source_file must be an absolute path to an existing local file.")
-    remote_path = value["remote_path"]
-    if remote_path != remote_path.strip() or any(ord(character) < 32 for character in remote_path):
-        raise ValueError("remote_path must have no surrounding whitespace or control characters.")
     source = source.resolve(strict=True)
     digest = hashlib.sha256()
     try:
@@ -132,7 +152,7 @@ def _artifact_transfer_input(raw: str, run_id: str, platform: str) -> dict[str, 
     if len(suffix) > 12 or not suffix[1:].isalnum():
         suffix = ".bin"
     return {
-        "source_file": str(source), "remote_path": remote_path,
+        "source_file": str(source), "remote_path": remote_paths[0], "remote_paths": remote_paths,
         "source_sha256": digest.hexdigest(),
         "artifact_name": f"skill-{run_id}{suffix}", "artifact_id": "",
     }
@@ -558,6 +578,16 @@ class C2SkillService:
             item["tool"] for item in run["terminal_observations"] if item["ok"]
         )
         missing_completion = set(run.get("completion_tools", [])) - successful_tools
+        transfer = run.get("artifact_transfer")
+        transfer_paths = (transfer.get("remote_paths", [transfer["remote_path"]])
+                          if transfer is not None else [])
+        transfer_steps = [step for step in run["steps"]
+                          if step["purpose"] == "command" and step["command_name"] == "upload"]
+        incomplete_transfers = [
+            (path, transfer_steps[index]["state"] if index < len(transfer_steps) else "not attempted")
+            for index, path in enumerate(transfer_paths)
+            if index >= len(transfer_steps) or transfer_steps[index]["state"] != "succeeded"
+        ]
         output = getattr(result, "output", None)
         raw_output = str(getattr(result, "raw_content", "") or "")
         validation_warnings = []
@@ -600,7 +630,7 @@ class C2SkillService:
             stored_size = len(base64.b64decode(step["output_base64"]))
             if stored_size < step["output_size"]:
                 incomplete_outputs.append((step["command_name"], stored_size, step["output_size"]))
-        partial = bool(missing_completion) or run["manual_uncertainty"] or any(
+        partial = bool(missing_completion) or bool(incomplete_transfers) or run["manual_uncertainty"] or any(
             step["purpose"] == "command" and step["state"] != "succeeded" for step in run["steps"]
         ) or bool(incomplete_outputs) or analysis_status == "unavailable"
         unknown_terminal = any(
@@ -627,6 +657,8 @@ class C2SkillService:
             limitations.append(
                 f"{command_name} returned {stored_size} of {output_size} bytes; the analysis may be incomplete."
             )
+        for path, state in incomplete_transfers:
+            limitations.append(f"Transfer to {path} is not confirmed (state: {state}).")
         if unknown_terminal:
             limitations.append("A TeamServer operation has an unknown outcome after interruption or transport loss.")
         if validation_warnings and not raw_output and isinstance(output, dict):
@@ -670,12 +702,14 @@ class C2SkillService:
                     return ToolResult(ok=False, content="This skill's upload destination is fixed by the operator.")
                 if not transfer.get("artifact_id"):
                     return ToolResult(ok=False, content="Upload the selected file to Artifacts first.")
-                if any(step["purpose"] == "command" and step["command_name"] == "upload"
-                       for step in run["steps"]):
-                    return ToolResult(ok=False, content="This skill already attempted the beacon transfer.")
+                attempted = sum(step["purpose"] == "command" and step["command_name"] == "upload"
+                                for step in run["steps"])
+                remote_paths = transfer.get("remote_paths", [transfer["remote_path"]])
+                if attempted >= len(remote_paths):
+                    return ToolResult(ok=False, content="All requested beacon destinations have been attempted.")
                 arguments = {
                     "upload_artifact": transfer["artifact_id"],
-                    "remote_path": transfer["remote_path"],
+                    "remote_path": remote_paths[attempted],
                 }
             full_arguments = {
                 **arguments,

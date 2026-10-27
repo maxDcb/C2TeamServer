@@ -164,6 +164,11 @@ class SkillsPanel(QWidget):
         self.contextInput.setPlaceholderText("Additional task context for this run (optional)")
         self.contextInput.setFixedHeight(64)
         layout.addWidget(self.contextInput)
+        self.startError = QLabel("")
+        self.startError.setWordWrap(True)
+        self.startError.setStyleSheet("color: #ff8e8e;")
+        self.startError.hide()
+        layout.addWidget(self.startError)
 
         runs = QHBoxLayout()
         runs.addWidget(QLabel("Runs"))
@@ -299,7 +304,7 @@ class SkillsPanel(QWidget):
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
         self.contextInput.setPlaceholderText(
-            "transfert /etc/hosts sur /tmp de la session sous le nom hosts-copie"
+            "transfert /etc/hosts dans /tmp/toto et /tmp/hotsss"
             if skill.input_kind == "artifact_transfer" else
             "Additional task context for this run (optional)")
         help_text = skill_help(skill)
@@ -349,6 +354,8 @@ class SkillsPanel(QWidget):
         Thread(target=work, daemon=True).start()
 
     def _start(self) -> None:
+        self.startError.clear()
+        self.startError.hide()
         skill = SKILLS[self.skillSelector.currentData()]
         any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
         if not any_selected and (not self.active_beacon or not self.active_listener):
@@ -427,6 +434,8 @@ class SkillsPanel(QWidget):
             self._refresh()
 
     def _on_error(self, message: str) -> None:
+        self.startError.setText(f"Task error: {message}")
+        self.startError.show()
         self.details.setPlainText(f"Error: {message}")
 
     def _refresh(self, select_id: str = "") -> None:

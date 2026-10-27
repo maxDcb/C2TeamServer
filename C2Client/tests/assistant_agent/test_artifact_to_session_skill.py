@@ -95,6 +95,26 @@ class TransferProvider:
         }))
 
 
+class TwoDestinationProvider(TransferProvider):
+    def complete_with_tools(self, **kwargs):
+        self.calls += 1
+        if self.calls <= 3:
+            name = "uploadC2Artifact" if self.calls == 1 else "upload"
+            return LLMCompletionResult(content="", tool_calls=[LLMToolCall(
+                id=f"transfer-{self.calls}", name=name, arguments_json="{}")])
+        run = self.service.list_runs()[0]
+        return LLMCompletionResult(content=json.dumps({
+            "summary": "Both requested session paths were transferred.",
+            "observations": [
+                {"source_id": run["terminal_observations"][0]["observation_id"],
+                 "finding": "The artifact was stored."},
+                *({"source_id": step["job_id"], "finding": f"Transfer {index} succeeded."}
+                  for index, step in enumerate(run["steps"], 1)
+                  if step["purpose"] == "command"),
+            ], "limitations": [],
+        }))
+
+
 def test_artifact_to_session_uploads_once_then_waits_for_beacon_after_restart(tmp_path):
     source = tmp_path / "local sample.txt"
     source.write_bytes(b"local transfer payload")
@@ -175,6 +195,77 @@ def test_natural_context_uses_explicit_received_filename(tmp_path):
         with pytest.raises(ValueError):
             _artifact_transfer_input(
                 f"transfert {source} sur /tmp sous le nom {unsafe}", "run-3", "linux")
+
+
+def test_exact_destination_context_accepts_two_names_and_rejects_invalid_paths(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_text("127.0.0.1 localhost\n")
+    transfer = _artifact_transfer_input(
+        f"ok transfert {source} dans /tmp/toto et /tmp/hotsss", "run-1", "linux")
+    assert transfer["remote_paths"] == ["/tmp/toto", "/tmp/hotsss"]
+    quoted = _artifact_transfer_input(
+        f'transfert "{source}" dans "/tmp/first name" et "/tmp/second name" de la session',
+        "run-2", "linux")
+    assert quoted["remote_paths"] == ["/tmp/first name", "/tmp/second name"]
+    for context in (
+        f"transfert {source} dans /tmp/toto et relative",
+        f"transfert {source} dans /tmp/toto et /tmp/toto",
+        f"transfert {source} dans /tmp/toto et",
+    ):
+        with pytest.raises(ValueError):
+            _artifact_transfer_input(context, "run-3", "linux")
+
+
+def test_two_exact_destinations_upload_artifact_once_and_resume_each_beacon_job(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_bytes(b"127.0.0.1 localhost\n")
+    client = TransferGrpc()
+    provider = TwoDestinationProvider()
+    storage = tmp_path / "skills"
+    service = C2SkillService(client, storage_dir=storage, provider=provider)
+    provider.service = service
+    run = service.start("artifact-to-session", "beacon-1", "listener-1",
+                        f"ok transfert {source} dans /tmp/toto et /tmp/hotsss")
+    assert run["status"] == "running"
+    assert len(client.uploads) == 1
+    assert [command for _, command in client.submissions] == ["upload artifact-verified /tmp/toto"]
+
+    service = C2SkillService(client, storage_dir=storage, provider=provider)
+    provider.service = service
+    client.complete(client.submissions[0][0])
+    run = service.reconcile(run["run_id"])
+    assert run["status"] == "running"
+    assert [command for _, command in client.submissions] == [
+        "upload artifact-verified /tmp/toto", "upload artifact-verified /tmp/hotsss",
+    ]
+    client.complete(client.submissions[1][0])
+    run = service.reconcile(run["run_id"])
+    assert run["status"] == "completed"
+    assert run["report"]["outcome"] == "complete"
+    assert len(client.uploads) == 1
+    assert {item["source_id"] for item in run["report"]["observations"]} == {
+        run["terminal_observations"][0]["observation_id"],
+        client.submissions[0][0], client.submissions[1][0],
+    }
+
+
+def test_report_is_partial_if_model_stops_before_second_destination(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_bytes(b"127.0.0.1 localhost\n")
+    client = TransferGrpc()
+    provider = TransferProvider()
+    service = C2SkillService(client, storage_dir=tmp_path / "skills", provider=provider)
+    provider.service = service
+    run = service.start("artifact-to-session", "beacon-1", "listener-1",
+                        json.dumps({"source_file": str(source),
+                                    "remote_paths": ["/tmp/toto", "/tmp/hotsss"]}))
+    client.complete(client.submissions[0][0])
+    run = service.reconcile(run["run_id"])
+    assert run["status"] == "completed"
+    assert run["report"]["outcome"] == "partial"
+    assert run["report"]["summary"] == "File transferred to the selected session."
+    assert any("/tmp/hotsss" in item and "not attempted" in item
+               for item in run["report"]["limitations"])
 
 
 def test_received_filename_reaches_the_beacon_command(tmp_path):
