@@ -28,6 +28,7 @@ from ..tools.module_state_tool import (
 from .catalog import SKILLS, AgenticSkillDefinition, SkillDefinition, SkillStep
 from .identity_tool import BoundWhoamiTool
 from .store import SkillRunStore
+from .tool_bundles import resolve_tool_bundles
 
 
 WAITING_STATES = {"submitting", "submission_uncertain", "waiting_for_job", "waiting_uncertain"}
@@ -342,7 +343,11 @@ class C2SkillService:
     def _start_agentic_identity(
         self, skill: AgenticSkillDefinition, beacon_hash: str, listener_hash: str,
     ) -> dict:
-        if skill.allowed_tools != ("whoami",):
+        resolution = resolve_tool_bundles(
+            skill.tool_bundles, registered_tools=("whoami",),
+            required_tools=skill.required_tools,
+        )
+        if resolution.allowed_tools != ("whoami",):
             raise ValueError("The identity skill may only use whoami.")
         session = self._session(beacon_hash, listener_hash)
         run_id = uuid4().hex
@@ -357,6 +362,10 @@ class C2SkillService:
             "schema_version": 1, "mode": "agentic_identity", "run_id": run_id,
             "skill_id": skill.skill_id, "skill_version": skill.version,
             "skill_instructions": skill.instructions,
+            "tool_bundles": list(resolution.bundle_names),
+            "allowed_tools": list(resolution.allowed_tools),
+            "max_tool_calls": skill.max_tool_calls,
+            "max_iterations": skill.max_iterations,
             "beacon_hash": beacon_hash, "listener_hash": listener_hash,
             "created_at": now, "updated_at": now, "status": "running",
             "after_event_id": 0, "pending_id": f"identity-{run_id}",
@@ -383,6 +392,7 @@ class C2SkillService:
                 },
             },
         )
+        allowed_tools = list(run.get("allowed_tools", ["whoami"]))
         spec = StructuredTaskSpec(
             task_id=f"{run['skill_id']}:v{run['skill_version']}",
             system_prompt=(
@@ -393,11 +403,13 @@ class C2SkillService:
             ),
             objective="Verify the user account running the selected beacon session.",
             context="The operator selected one beacon session. Call whoami once before reporting.",
-            allowed_tools=["whoami"], output_contract=contract,
-            max_tool_calls=1, max_iterations=3,
+            allowed_tools=allowed_tools, output_contract=contract,
+            max_tool_calls=int(run.get("max_tool_calls", 1)),
+            max_iterations=int(run.get("max_iterations", 3)),
         )
         registry = ToolRegistry()
         registry.register(BoundWhoamiTool(self, run["run_id"]))
+        registry = registry.build_subset(allowed_tools)
         agent = AgentRunService(
             settings=self.settings,
             provider=self.provider if self.provider is not None else build_provider(self.settings),

@@ -1,0 +1,7 @@
+# C2 execution policy lives beside the portable Agent Skills instructions.
+tool_bundles:
+  - recon.identity
+required_tools:
+  - whoami
+max_tool_calls: 1
+max_iterations: 3

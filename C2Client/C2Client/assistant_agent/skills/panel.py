@@ -23,7 +23,9 @@ def skill_help(skill) -> str:
     if isinstance(skill, AgenticSkillDefinition):
         return (
             f"{skill.description}\n\nAgent skill: the assistant follows SKILL.md and may call "
-            f"{', '.join(skill.allowed_tools)}. The selected session is fixed by the operator."
+            f"{', '.join(skill.declared_tools)}. "
+            f"Capability bundles: {', '.join(skill.tool_bundles)}. "
+            "The selected session is fixed by the operator."
         )
     steps = "\n".join(
         f"{index}. {step.command_name} — {step.description}"

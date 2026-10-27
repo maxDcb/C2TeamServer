@@ -1,0 +1,101 @@
+"""Business capabilities available to client-owned Agent Skills.
+
+Bundle entries describe capabilities, not an implicit grant. A run only receives
+tools that are both present in its selected bundles and registered at runtime.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Iterable
+
+
+@dataclass(frozen=True, slots=True)
+class ToolBundle:
+    name: str
+    tools: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BundleResolution:
+    bundle_names: tuple[str, ...]
+    allowed_tools: tuple[str, ...]
+    unavailable_tools: tuple[str, ...]
+
+
+# CommandSpec names are kept explicit so a newly installed beacon module never
+# gains access to an existing skill merely by appearing in the server catalog.
+# Client and TeamServer operations below are included in the inventory even when
+# their typed Agent Skill adapters have not yet been registered.
+TOOL_BUNDLES: dict[str, ToolBundle] = {
+    "recon.identity": ToolBundle("recon.identity", ("whoami",)),
+    "recon.host": ToolBundle("recon.host", (
+        "listLiveSessions", "listLoadedModules", "getCommandHelp",
+        "whoami", "ipConfig", "getEnv", "netstat", "ps", "pwd", "ls", "tree",
+        "cat", "enumerateShares", "enumerateRdpSessions", "screenShot",
+        "listC2Listeners", "infoListener",
+    )),
+    "exec": ToolBundle("exec", (
+        "run", "shell", "powershell", "pwSh", "script", "assemblyExec",
+        "dotnetExec", "coffLoader", "cimExec", "dcomExec", "sshExec",
+        "wmiExec", "winRm", "psExec", "spawnAs", "inject", "killProcess",
+        "evasion", "taskScheduler", "registry",
+    )),
+    "pivot": ToolBundle("pivot", (
+        "listener", "reversePortForward", "chisel", "listC2Listeners",
+        "addC2Listener", "stopC2Listener", "socksControl",
+    )),
+    "file_ops": ToolBundle("file_ops", (
+        "cd", "mkDir", "remove", "upload", "download", "cat", "ls",
+        "tree", "pwd",
+    )),
+    "payload_delivery": ToolBundle("payload_delivery", (
+        "upload", "listC2Artifacts", "downloadC2Artifact", "uploadC2Artifact",
+        "deleteC2Artifact", "hostArtifact", "generateDropper", "getBeaconBinary",
+        "putIntoUploadDir", "batcaveUpload", "batcaveUploadBundle",
+    )),
+    "credentials": ToolBundle("credentials", (
+        "makeToken", "kerberosUseTicket", "keyLogger", "miniDump",
+        "stealToken", "rev2self", "listC2Credentials", "getC2Credential",
+        "addC2Credential", "updateC2Credential", "deleteC2Credential",
+    )),
+    "session_management": ToolBundle("session_management", (
+        "end", "sleep", "loadModule", "unloadModule", "listModule",
+        "help", "stopC2Session", "reloadModules",
+    )),
+}
+
+
+def resolve_tool_bundles(
+    bundle_names: Iterable[str],
+    *,
+    registered_tools: Iterable[str],
+    required_tools: Iterable[str] = (),
+) -> BundleResolution:
+    """Resolve a skill grant against actual adapters; reject missing requirements."""
+    names = tuple(dict.fromkeys(bundle_names))
+    if not names:
+        raise ValueError("A skill must select at least one tool bundle.")
+    available = set(registered_tools)
+    selected: list[str] = []
+    for name in names:
+        bundle = TOOL_BUNDLES.get(name)
+        if bundle is None:
+            raise ValueError(f"Unknown C2 tool bundle: {name}")
+        selected.extend(bundle.tools)
+    declared = tuple(dict.fromkeys(selected))
+    required = tuple(dict.fromkeys(required_tools))
+    undeclared = set(required) - set(declared)
+    if undeclared:
+        raise ValueError(f"Required tools are outside the selected bundles: {', '.join(sorted(undeclared))}")
+    missing = set(required) - available
+    if missing:
+        raise ValueError(f"Required C2 tools are unavailable: {', '.join(sorted(missing))}")
+    allowed = tuple(tool for tool in declared if tool in available)
+    if not allowed:
+        raise ValueError("No tools from the selected C2 bundles are available.")
+    return BundleResolution(
+        bundle_names=names,
+        allowed_tools=allowed,
+        unavailable_tools=tuple(tool for tool in declared if tool not in available),
+    )

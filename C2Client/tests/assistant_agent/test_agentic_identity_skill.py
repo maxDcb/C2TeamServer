@@ -99,14 +99,34 @@ def service(tmp_path, grpc_client, provider):
 def test_skill_md_follows_agent_skills_frontmatter(tmp_path):
     assert IDENTIFY_USER.skill_id == "identify-user"
     assert IDENTIFY_USER.version == 1
-    assert IDENTIFY_USER.allowed_tools == ("whoami",)
+    assert IDENTIFY_USER.tool_bundles == ("recon.identity",)
+    assert IDENTIFY_USER.declared_tools == ("whoami",)
     assert "Call the `whoami` tool once" in IDENTIFY_USER.instructions
 
     path = tmp_path / "wrong-name" / "SKILL.md"
     path.parent.mkdir()
     path.write_text("---\nname: identify-user\ndescription: Test\n---\n# Body\n")
     with pytest.raises(ValueError, match="match its directory"):
-        load_agentic_skill(path, allowed_tools=("whoami",))
+        load_agentic_skill(path)
+
+
+def test_skill_manifest_allows_optional_requirements_and_rejects_boolean_limits(tmp_path):
+    skill_dir = tmp_path / "inspect-host"
+    skill_dir.mkdir()
+    path = skill_dir / "SKILL.md"
+    path.write_text(
+        "---\nname: inspect-host\ndescription: Inspect a host.\nmetadata:\n  version: '1'\n---\nInspect the selected host.\n",
+        encoding="utf-8",
+    )
+    manifest = skill_dir / "skill.yaml"
+    manifest.write_text("tool_bundles: [recon.host]\nmax_tool_calls: 3\nmax_iterations: 5\n", encoding="utf-8")
+    skill = load_agentic_skill(path)
+    assert skill.required_tools == ()
+    assert "ipConfig" in skill.declared_tools
+
+    manifest.write_text("tool_bundles: [recon.host]\nmax_tool_calls: true\nmax_iterations: 5\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="max_tool_calls"):
+        load_agentic_skill(path)
 
 
 def test_identity_skill_uses_structured_pending_and_resumes_after_restart(tmp_path):
@@ -116,6 +136,8 @@ def test_identity_skill_uses_structured_pending_and_resumes_after_restart(tmp_pa
 
     run = tasks.start("identify-user", "beacon-1", "listener-1")
     assert run["mode"] == "agentic_identity"
+    assert run["tool_bundles"] == ["recon.identity"]
+    assert run["allowed_tools"] == ["whoami"]
     assert run["status"] == "running"
     assert provider.calls == 1
     assert [(command) for _, command in grpc_client.submissions] == ["whoami"]

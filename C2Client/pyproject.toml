@@ -43,7 +43,8 @@ C2Client = [
     "ShellCodeModules.conf",
     "assistant_agent/prompts/system/*.md",
     "assistant_agent/prompts/memory/*.md",
-    "assistant_agent/skills/*/SKILL.md"
+    "assistant_agent/skills/*/SKILL.md",
+    "assistant_agent/skills/*/skill.yaml"
 ]
 
 [project.scripts]

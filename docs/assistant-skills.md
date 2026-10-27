@@ -2,6 +2,27 @@
 
 ## Premier skill agentique : identify-user
 
+### Bundles de capacités C2
+
+Les skills agentiques associent désormais leur `SKILL.md` portable à un fichier
+`skill.yaml` contrôlé par le client. Le manifeste indique les bundles métier,
+les outils requis et les limites d'appels. `identify-user` demande
+`recon.identity`, qui n'accorde que `whoami`. La liste résolue est enregistrée
+dans le run pour que sa reprise conserve les mêmes permissions après une mise
+à jour du catalogue.
+
+Le catalogue [`tool_bundles.py`](../C2Client/C2Client/assistant_agent/skills/tool_bundles.py)
+recense les capacités par objectif : `recon.identity`, `recon.host`, `exec`, `pivot`, `file_ops`,
+`payload_delivery`, `credentials` et `session_management`. Il inclut les
+commandes beacon et les opérations TeamServer ou locales destinées aux futurs
+adaptateurs, notamment SOCKS, hébergement d'artifact et génération de dropper.
+Le résolveur ne transmet à agent-core que les outils réellement enregistrés ;
+un outil requis absent fait échouer le démarrage du skill. À cette étape, les
+opérations terminal et dropper sont **inventoriées mais pas encore exposées**
+comme outils AI. Les intégrer demandera des adaptateurs typés indépendants des
+widgets Qt. Le seul skill agentique exécutable reste `identify-user` ; le plan
+fixe `inventory_local` est conservé.
+
 Le dossier `C2Client/C2Client/assistant_agent/skills/identify-user/` contient un
 `SKILL.md` au format [Agent Skills](https://agentskills.io/specification) :
 frontmatter YAML `name` et `description`, puis instructions Markdown. Le client
