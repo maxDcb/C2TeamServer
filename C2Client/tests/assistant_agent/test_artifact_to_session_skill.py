@@ -158,6 +158,38 @@ def test_natural_context_treats_destination_as_session_directory(tmp_path):
     assert windows["remote_path"] == "C:\\Temp\\hosts"
 
 
+def test_natural_context_uses_explicit_received_filename(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_bytes(b"127.0.0.1 localhost\n")
+    for context in (
+        f"transfert {source} sur /tmp de la session sous le nom hosts-copie",
+        f"transfert {source} sur /tmp sous le nom hosts-copie de la session",
+        f"transfert {source} sur /tmp nom du fichier de réception hosts-copie",
+    ):
+        transfer = _artifact_transfer_input(context, "run-1", "linux")
+        assert transfer["remote_path"] == "/tmp/hosts-copie"
+    quoted = _artifact_transfer_input(
+        f'transfert {source} sur /tmp de la session sous le nom "hosts copie"', "run-2", "linux")
+    assert quoted["remote_path"] == "/tmp/hosts copie"
+    for unsafe in ('"../other"', '"sub/file"', '""', '".."'):
+        with pytest.raises(ValueError):
+            _artifact_transfer_input(
+                f"transfert {source} sur /tmp sous le nom {unsafe}", "run-3", "linux")
+
+
+def test_received_filename_reaches_the_beacon_command(tmp_path):
+    source = tmp_path / "hosts"
+    source.write_bytes(b"127.0.0.1 localhost\n")
+    client = TransferGrpc()
+    provider = TransferProvider()
+    service = C2SkillService(client, storage_dir=tmp_path / "skills", provider=provider)
+    provider.service = service
+    run = service.start("artifact-to-session", "beacon-1", "listener-1",
+                        f"transfert {source} sur /tmp de la session sous le nom hosts-copie")
+    assert run["artifact_transfer"]["remote_path"] == "/tmp/hosts-copie"
+    assert [command for _, command in client.submissions] == ["upload artifact-verified /tmp/hosts-copie"]
+
+
 def test_upload_tool_rejects_changed_source_before_rpc(tmp_path):
     source = tmp_path / "selected.bin"
     source.write_bytes(b"original")

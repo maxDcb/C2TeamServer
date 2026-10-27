@@ -36,7 +36,9 @@ explicitly named in **Additional task context**, using existing artifact IDs.
 `artifact.to_session` bundle. In **Additional task context**, enter for example
 `transfert /etc/hosts sur /tmp de la session`. Here `/tmp` is a directory on the
 selected session; the file will arrive as `/tmp/hosts`. Quote paths containing
-spaces. To set an exact destination filename, use JSON:
+spaces. To choose the received filename, add `sous le nom hosts-copie`:
+the destination becomes `/tmp/hosts-copie`. To set an exact destination path,
+use JSON:
 
 ```json
 {"source_file":"/home/operator/sample.bin","remote_path":"/tmp/sample.bin"}

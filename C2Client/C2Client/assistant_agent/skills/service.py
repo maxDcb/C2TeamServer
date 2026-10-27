@@ -50,11 +50,17 @@ SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {
     "uploadListenerFile", "installTool", "installToolBundle", "uploadC2Artifact",
 }
 logger = logging.getLogger(__name__)
+_TRANSFER_TOKEN = r'"[^"]+"|\'[^\']+\'|\S+'
 _TRANSFER_REQUEST = re.compile(
     r"(?:ok[,\s]+)?(?:transfert|transf[eé]rer)\s+"
-    r"(?P<source>\"[^\"]+\"|'[^']+'|\S+)\s+sur\s+"
-    r"(?P<directory>\"[^\"]+\"|'[^']+'|\S+)"
-    r"(?:\s+de\s+la\s+session)?",
+    rf"(?P<source>{_TRANSFER_TOKEN})\s+sur\s+"
+    rf"(?P<directory>{_TRANSFER_TOKEN})(?P<rest>.*)",
+    re.IGNORECASE,
+)
+_TRANSFER_RECEIVED_NAME = re.compile(
+    rf"(?:sous\s+le\s+nom|avec\s+le\s+nom|nomm[eé]|"
+    rf"nom\s+(?:du\s+fichier\s+)?de\s+r[eé]ception)"
+    rf"\s+(?P<name>{_TRANSFER_TOKEN})(?:\s+de\s+la\s+session)?",
     re.IGNORECASE,
 )
 
@@ -84,12 +90,25 @@ def _artifact_transfer_input(raw: str, run_id: str, platform: str) -> dict[str, 
                              'or JSON with "source_file" and "remote_path".')
         source_file = _unquote_path(match.group("source"))
         directory = _unquote_path(match.group("directory"))
+        rest = match.group("rest").strip()
+        if rest.lower().startswith("de la session"):
+            rest = rest[len("de la session"):].strip()
+        received_name = Path(source_file).name
+        if rest:
+            name_match = _TRANSFER_RECEIVED_NAME.fullmatch(rest)
+            if name_match is None:
+                raise ValueError('Use "sous le nom filename" to name the received file.')
+            received_name = _unquote_path(name_match.group("name"))
+            if received_name in {"", ".", ".."} or received_name != received_name.strip() \
+                    or any(character in received_name for character in "/\\") \
+                    or any(ord(character) < 32 for character in received_name):
+                raise ValueError("The received file name must be a single filename without path separators.")
         path_module = ntpath if platform == "windows" else posixpath
         if not path_module.isabs(directory):
             raise ValueError("The session destination must be an absolute directory path.")
         value = {
             "source_file": source_file,
-            "remote_path": path_module.join(directory, Path(source_file).name),
+            "remote_path": path_module.join(directory, received_name),
         }
     if not isinstance(value, dict) or set(value) != {"source_file", "remote_path"} \
             or not all(isinstance(value.get(key), str) and value[key].strip()

@@ -126,7 +126,7 @@ def test_teamserver_skill_starts_without_beacon_session(qtbot, monkeypatch):
 def test_artifact_transfer_skill_uses_selected_session_and_shows_input_format(qtbot, monkeypatch):
     panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
-    assert "transfert /etc/hosts sur /tmp" in panel.contextInput.placeholderText()
+    assert "sous le nom hosts-copie" in panel.contextInput.placeholderText()
     assert panel.sessionSelector.currentData() == ("beacon-1", "listener-1")
     context = '{"source_file":"/tmp/sample.bin","remote_path":"/tmp/sample.bin"}'
     panel.contextInput.setPlainText(context)

@@ -299,7 +299,7 @@ class SkillsPanel(QWidget):
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
         self.contextInput.setPlaceholderText(
-            "transfert /etc/hosts sur /tmp de la session"
+            "transfert /etc/hosts sur /tmp de la session sous le nom hosts-copie"
             if skill.input_kind == "artifact_transfer" else
             "Additional task context for this run (optional)")
         help_text = skill_help(skill)

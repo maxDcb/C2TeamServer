@@ -2,7 +2,7 @@
 name: artifact-to-session
 description: Upload a local file to Artifacts and transfer it to the selected beacon session in one run.
 metadata:
-  version: "2"
+  version: "3"
 ---
 
 # Transfer a local file through Artifacts to the selected session
@@ -10,7 +10,9 @@ metadata:
 The operator selects the beacon session and can write Additional task context as
 `transfert /etc/hosts sur /tmp de la session`. In this form, `/tmp` is a directory
 on the beacon and the destination is `/tmp/hosts`. Quoted paths may contain spaces.
-The JSON form remains available when an exact destination filename is wanted:
+If the operator specifies `sous le nom hosts-copie`, the destination is
+`/tmp/hosts-copie`; preserve that name exactly. The JSON form remains available
+for an exact destination path:
 `{"source_file":"/absolute/local/path/file.bin","remote_path":"/destination/on/beacon/file.bin"}`.
 The client fixes both paths at run start and checks that the local file has not changed.
 Do not choose another file, artifact, session, or remote path.
