@@ -8,8 +8,9 @@ metadata:
 # Inspect the selected host
 
 Identify the current user, network configuration, and relevant local context.
-Start with `whoami` and `ipConfig`. On Linux, use `hostContext` when available
-to collect the hostname, OS release, resolver configuration, and IPv4 routes.
+Start with `whoami` and `ipConfig`. On Windows and Linux, use `hostContext`
+when available to collect the hostname, OS release, resolver configuration,
+and IPv4 routes.
 Use `netstat` for socket state and ownership, and `ps` only when process details
 would clarify a socket observation. Choose any other recon tool only to answer
 a concrete question raised by the evidence. Call `listC2Listeners` once to

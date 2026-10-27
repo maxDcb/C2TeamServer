@@ -40,12 +40,12 @@ Le rapport cite les `job_id` et les
 Un rapport sans résultat réussi de `whoami`, `ipConfig` et `listC2Listeners`
 reste partiel, même si le modèle conclut autrement.
 
-Sur Linux, `recon.host` expose aussi `hostContext` pour collecter le nom d'hôte,
-la version de l'OS et du noyau, la configuration du résolveur et les routes IPv4.
+Sur Windows et Linux, `recon.host` expose aussi `hostContext` pour collecter le
+nom d'hôte, la version de l'OS et du noyau, la configuration du résolveur et les routes IPv4.
 Le module `netstat` restitue les adresses dans l'ordre réseau, nomme les états
 et associe les sockets aux processus lorsque `/proc/<pid>/fd` est accessible.
 L'absence d'association reste explicite (`Owner:unknown`). `hostContext` est
-facultatif sur les autres plateformes ; le skill signale les observations non
+facultatif si le module n'est pas chargé ; le skill signale les observations non
 collectées plutôt que de les inventer.
 
 Les adaptateurs `listC2Listeners` et `listC2Artifacts` sont des lectures
