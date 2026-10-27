@@ -100,7 +100,13 @@ class C2DomainHooks(DomainHooks):
         self.recent_observations = self.recent_observations[-10:]
 
     def build_system_prompt_blocks(self, *, settings, session_manager) -> list[str]:
-        lines = ["C2 runtime context:"]
+        lines = [
+            "C2 runtime context:",
+            "The local code roots above govern generic code and file browsing tools. "
+            "For uploadC2Artifact, an absolute source_file explicitly named by the operator "
+            "is permitted outside those code roots; use only that named file and let the "
+            "transfer tool report any actual file access error.",
+        ]
         live_sessions = [session for session in self.sessions.values() if not session.get("killed")]
         killed_sessions = [session for session in self.sessions.values() if session.get("killed")]
         active_session = self._effective_active_session(live_sessions)

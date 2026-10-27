@@ -16,13 +16,54 @@ from ...grpc_status import is_response_ok, response_message
 from ...operations import TeamServerOperations
 
 
+def upload_verified_artifact(grpc_client: Any, *, name: str, data: bytes,
+                             platform: str = "any", arch: str = "any") -> ToolResult:
+    """Upload bytes and return only an exact, usable operator-upload catalog ID."""
+    digest = hashlib.sha256(data).hexdigest()
+    operations = TeamServerOperations(grpc_client)
+    try:
+        response = operations.upload_artifact(name, data, platform, arch)
+    except Exception as error:
+        return ToolResult(ok=False, content=f"Artifact upload outcome unknown: {error}",
+                          metadata={"outcome_unknown": True, "upload_attempted": True})
+    if response is None or not hasattr(response, "status"):
+        return ToolResult(ok=False, content="Artifact upload outcome unknown: no acknowledgement.",
+                          metadata={"outcome_unknown": True, "upload_attempted": True})
+    if not is_response_ok(response):
+        return ToolResult(ok=False, content=response_message(response, "Artifact upload failed."),
+                          metadata={"upload_attempted": True})
+    try:
+        artifacts = operations.list_artifacts(TeamServerApi_pb2.ArtifactQuery(name_contains=name))
+    except Exception as error:
+        return ToolResult(ok=False, content=f"Artifact was accepted but catalog lookup failed: {error}",
+                          metadata={"outcome_unknown": True, "upload_attempted": True})
+    acknowledged_id = str(getattr(response, "artifact_id", ""))
+    matches = [item for item in artifacts
+               if str(item.name) == name
+               and (not acknowledged_id or str(item.artifact_id) == acknowledged_id)
+               and str(getattr(item, "platform", platform)) == platform
+               and str(getattr(item, "arch", arch)) == arch
+               and str(item.category) == "upload" and str(item.scope) == "operator"
+               and str(item.target) == "beacon" and int(item.size) == len(data)
+               and str(item.sha256) == digest]
+    if len(matches) != 1:
+        return ToolResult(ok=False, content="Artifact was accepted but its exact catalog entry could not be verified.",
+                          metadata={"outcome_unknown": True, "upload_attempted": True})
+    artifact_id = str(matches[0].artifact_id)
+    return ToolResult(ok=True, content=json.dumps({
+        "artifact_id": artifact_id, "artifact_name": name,
+        "size": len(data), "sha256": digest,
+    }, ensure_ascii=False), metadata={"artifact_id": artifact_id, "upload_attempted": True})
+
+
 @dataclass(slots=True)
 class C2ArtifactUploadTool:
     grpc_client: Any
     artifact_name: str = ""
 
     name = "uploadC2Artifact"
-    description = "Upload a local file named in the operator's task context as a TeamServer artifact."
+    description = ("Upload the exact local absolute file named by the operator as a TeamServer artifact; "
+                   "this transfer tool can read outside the generic code roots.")
 
     def schema(self) -> LLMToolDefinition:
         properties = {
@@ -57,46 +98,15 @@ class C2ArtifactUploadTool:
             data = source.read_bytes()
         except OSError as error:
             return ToolResult(ok=False, content=f"Could not read source_file: {error}")
-        digest = hashlib.sha256(data).hexdigest()
         artifact_name = self.artifact_name or arguments.get("name", source.name)
         platform = arguments.get("platform", "any")
         arch = arguments.get("arch", "any")
-
-        operations = TeamServerOperations(self.grpc_client)
-        try:
-            response = operations.upload_artifact(artifact_name, data, platform, arch)
-        except Exception as error:
-            return ToolResult(ok=False, content=f"Artifact upload outcome unknown: {error}",
-                              metadata={"outcome_unknown": True, "upload_attempted": True})
-        if response is None or not hasattr(response, "status"):
-            return ToolResult(ok=False, content="Artifact upload outcome unknown: no acknowledgement.",
-                              metadata={"outcome_unknown": True, "upload_attempted": True})
-        if not is_response_ok(response):
-            return ToolResult(ok=False, content=response_message(response, "Artifact upload failed."),
-                              metadata={"upload_attempted": True})
-
-        try:
-            artifacts = operations.list_artifacts(
-                TeamServerApi_pb2.ArtifactQuery(name_contains=artifact_name))
-        except Exception as error:
-            return ToolResult(ok=False, content=f"Artifact was accepted but catalog lookup failed: {error}",
-                              metadata={"outcome_unknown": True, "upload_attempted": True})
-        matches = [item for item in artifacts
-                   if str(item.name) == artifact_name
-                   and str(getattr(item, "platform", platform)) == platform
-                   and str(getattr(item, "arch", arch)) == arch
-                   and str(item.category) == "upload"
-                   and str(item.scope) == "operator"
-                   and str(item.target) == "beacon"
-                   and int(item.size) == len(data)
-                   and str(item.sha256) == digest]
-        if len(matches) != 1:
-            return ToolResult(ok=False, content="Artifact was accepted but its exact catalog entry could not be verified.",
-                              metadata={"outcome_unknown": True, "upload_attempted": True})
-        artifact_id = str(matches[0].artifact_id)
-        return ToolResult(ok=True, content=json.dumps({
-            "artifact_id": artifact_id, "artifact_name": artifact_name,
-            "source_file": str(source), "size": len(data), "sha256": digest,
-        }, ensure_ascii=False), metadata={
-            "artifact_id": artifact_id, "source_file": str(source), "upload_attempted": True,
+        result = upload_verified_artifact(self.grpc_client, name=artifact_name, data=data,
+                                          platform=platform, arch=arch)
+        if not result.ok:
+            return result
+        payload = json.loads(result.content)
+        payload["source_file"] = str(source)
+        return ToolResult(ok=True, content=json.dumps(payload, ensure_ascii=False), metadata={
+            **result.metadata, "source_file": str(source),
         })

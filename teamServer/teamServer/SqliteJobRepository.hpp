@@ -18,6 +18,7 @@ public:
 
     std::pair<JobExecution, bool> create(const JobExecution& execution) override;
     JobExecution get(const std::string& jobId) override;
+    JobOutputChunk outputChunk(const std::string& jobId, std::size_t offset, std::size_t maxBytes) override;
     JobListPage list(std::int64_t afterCreatedAt, const std::string& afterJobId, std::size_t limit) override;
     std::vector<JobEvent> events(std::int64_t afterEventId, const JobEventFilter& filter, std::size_t limit) override;
     JobExecution transition(const std::string& jobId, const std::string& fromState,

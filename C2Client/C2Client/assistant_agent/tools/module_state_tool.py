@@ -15,7 +15,7 @@ class C2LoadedModulesTool:
     grpc_client: Any
 
     name = "listLoadedModules"
-    description = "List modules currently tracked for a beacon session. Use this before running module commands."
+    description = "Inspect modules currently tracked for a beacon session, optionally by name."
 
     def schema(self) -> LLMToolDefinition:
         return build_tool_definition(
@@ -32,6 +32,7 @@ class C2LoadedModulesTool:
                         "type": "string",
                         "description": "Full listener hash for the target session.",
                     },
+                    "name_contains": {"type": "string", "description": "Show only matching module names."},
                 },
                 "required": ["beacon_hash", "listener_hash"],
                 "additionalProperties": False,
@@ -47,6 +48,10 @@ class C2LoadedModulesTool:
             beacon_hash=arguments["beacon_hash"],
             listener_hash=arguments["listener_hash"],
         )
+        needle = arguments.get("name_contains", "").casefold()
+        if needle:
+            modules = [module for module in modules
+                       if needle in str(getattr(module, "name", "")).casefold()]
         return ToolResult(ok=True, content=format_loaded_modules(modules))
 
 

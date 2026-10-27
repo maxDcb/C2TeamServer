@@ -12,11 +12,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QTextEdit
 )
-import markdown
 
 from .assistant_agent import C2AssistantAgent
 from .assistant_agent.domain.command_outcome import CommandOutcome
 from .assistant_agent.skills.panel import SkillsPanel
+from .assistant_agent.presentation import render_assistant_answer
 from .assistant_agent.tools.module_state_tool import has_loaded_module, is_module_already_loaded_response
 from .command_event_hub import CommandEventHub, CommandResultEvent
 from .grpcClient import TeamServerApi_pb2
@@ -564,7 +564,7 @@ class Assistant(QWidget):
         if assistant_reply and not is_pending:
             self.printInTerminal(
                 "Analysis:",
-                markdown.markdown(assistant_reply, extensions=["fenced_code", "tables"]),
+                render_assistant_answer(assistant_reply),
                 rich_message=True,
             )
 

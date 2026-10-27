@@ -9,7 +9,8 @@ from .command_help_tool import C2CommandHelpTool
 from .module_state_tool import C2LoadedModulesTool
 from .session_state_tool import C2LiveSessionsTool
 from .server_action_tools import C2HostArtifactTool, C2SocksControlTool, C2ReloadModulesTool
-from .server_artifact_tools import C2ArtifactDownloadTool, C2ArtifactDeleteTool
+from .server_artifact_tools import C2ArtifactDownloadTool, C2ArtifactDeleteTool, C2ArtifactPromoteTool
+from .local_generation_tool import C2LocalDroppersTool, C2GenerateDropperTool
 from .server_catalog_tools import C2ArtifactsTool, C2ListenersTool, C2ListenerInfoTool, C2BeaconBinaryInfoTool, C2CommandsTool
 from .server_credential_tools import (
     C2CredentialsTool, C2CredentialTool, C2AddCredentialTool, C2UpdateCredentialTool, C2DeleteCredentialTool,
@@ -59,4 +60,9 @@ def server_tools(grpc_client: Any, *, artifact_name: str = "") -> list[Any]:
                      if hasattr(grpc_client, method))
     if hasattr(grpc_client, "uploadArtifact") and hasattr(grpc_client, "listArtifacts"):
         tools.append(C2ArtifactUploadTool(grpc_client, artifact_name))
+        if hasattr(grpc_client, "downloadArtifact"):
+            tools.append(C2ArtifactPromoteTool(grpc_client))
+    if all(hasattr(grpc_client, method) for method in (
+            "getListenerInfo", "getBeaconBinary", "uploadListenerFile")):
+        tools.extend((C2LocalDroppersTool(grpc_client), C2GenerateDropperTool(grpc_client)))
     return tools

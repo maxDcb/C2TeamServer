@@ -29,7 +29,8 @@ TEAMSERVER_TOOL_NAMES = frozenset({
     "hostArtifact", "uploadListenerFile", "installTool", "installToolBundle",
     "socksControl", "reloadModules", "addC2Listener", "stopC2Listener",
     "listLiveSessions", "listC2SessionHistory", "stopC2Session",
-    "uploadC2Artifact", "downloadC2Artifact", "deleteC2Artifact",
+    "uploadC2Artifact", "downloadC2Artifact", "deleteC2Artifact", "promoteC2Artifact",
+    "listLocalDroppers", "generateDropper",
     "listC2Credentials", "getC2Credential", "addC2Credential",
     "updateC2Credential", "deleteC2Credential",
 })
@@ -51,7 +52,10 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     )),
     "teamserver.artifacts": ToolBundle("teamserver.artifacts", (
         "listC2Artifacts", "uploadC2Artifact", "downloadC2Artifact",
-        "deleteC2Artifact", "hostArtifact",
+        "deleteC2Artifact", "promoteC2Artifact", "hostArtifact",
+    )),
+    "teamserver.generation": ToolBundle("teamserver.generation", (
+        "listLocalDroppers", "generateDropper", "listC2Listeners", "infoListener",
     )),
     "teamserver.credentials": ToolBundle("teamserver.credentials", (
         "listC2Credentials", "getC2Credential", "addC2Credential",
@@ -61,7 +65,7 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
         "installTool", "installToolBundle", "reloadModules",
     )),
     "artifact.to_session": ToolBundle("artifact.to_session", (
-        "uploadC2Artifact", "upload", "listC2Artifacts",
+        "uploadC2Artifact", "promoteC2Artifact", "download", "upload", "listC2Artifacts",
     )),
     "teamserver.inspect": ToolBundle("teamserver.inspect", (
         "listC2Listeners", "infoListener", "listC2Artifacts", "getBeaconBinary",
@@ -99,6 +103,7 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     )),
     "payload_delivery": ToolBundle("payload_delivery", (
         "upload", "listC2Artifacts", "downloadC2Artifact", "uploadC2Artifact",
+        "promoteC2Artifact", "listLocalDroppers",
         "hostArtifact", "generateDropper", "getBeaconBinary",
         "uploadListenerFile", "installTool", "installToolBundle",
     )),

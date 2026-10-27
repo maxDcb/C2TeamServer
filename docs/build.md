@@ -96,7 +96,9 @@ Current validated client suite:
 
 The TeamServer opens the SQLite database at `JobDatabasePath` before serving gRPC.
 The default is `../data/jobs.sqlite` relative to the TeamServer runtime directory.
-`MaxJobOutputBytes` defaults to `65536`. The server exits with an error if SQLite
+`MaxJobOutputBytes` defaults to `65536` and controls only the inline job-output
+preview. Complete output is retained in SQLite and read through
+`GetJobOutputChunk` when the client needs it. The server exits with an error if SQLite
 cannot open, check, or migrate the file. Preserve the database file together with
 its WAL files when backing it up while the server is running.
 

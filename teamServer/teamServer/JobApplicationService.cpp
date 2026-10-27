@@ -166,6 +166,12 @@ JobExecution JobApplicationService::get(const std::string& jobId) const
     return m_repository->get(jobId);
 }
 
+JobOutputChunk JobApplicationService::outputChunk(const std::string& jobId,
+    std::size_t offset, std::size_t maxBytes) const
+{
+    return m_repository->outputChunk(jobId, offset, maxBytes);
+}
+
 JobListPage JobApplicationService::list(std::int64_t afterCreatedAt, const std::string& afterJobId, std::size_t limit) const
 {
     if (limit == 0 || limit > 500)
@@ -187,13 +193,10 @@ std::vector<JobEvent> JobApplicationService::events(std::int64_t afterEventId,
 JobExecution JobApplicationService::complete(const std::string& jobId, bool success,
     const std::string& output, const std::string& errorCode, const std::string& errorMessage)
 {
-    const bool tooLarge = output.size() > m_maxOutputBytes;
-    const std::string state = success && !tooLarge ? "succeeded" : "failed";
-    const std::string code = tooLarge ? "output_too_large" : errorCode;
-    const std::string message = tooLarge ? "Output exceeds the configured inline limit." : errorMessage;
+    const std::string state = success ? "succeeded" : "failed";
     const std::string currentState = m_repository->get(jobId).state;
-    JobExecution execution = m_repository->transition(jobId, currentState, state, code, message,
-        tooLarge ? std::string{} : output, static_cast<std::int64_t>(output.size()));
+    JobExecution execution = m_repository->transition(jobId, currentState, state, errorCode, errorMessage,
+        output, static_cast<std::int64_t>(output.size()));
     notifyCommitted();
     return execution;
 }

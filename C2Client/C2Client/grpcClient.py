@@ -510,14 +510,42 @@ class GrpcClient:
                                     if isinstance(payload.get(key), str)})
             except (ValueError, TypeError):
                 pass
-        return self._audited_rpc("SubmitJob", lambda: self.stub.SubmitJob(
+        job = self._audited_rpc("SubmitJob", lambda: self.stub.SubmitJob(
             request, metadata=self.metadata,
             timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1),
         ), details)
+        return self._complete_job_output(job)
 
     def getJobExecution(self, job_id: str) -> Any:
         request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)
-        return self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(
+        job = self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(
+            request, metadata=self.metadata, timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1)))
+        return self._complete_job_output(job)
+
+    def _complete_job_output(self, job: Any) -> Any:
+        if not hasattr(job, "output_size"):
+            return job
+        expected = int(job.output_size)
+        data = bytearray(job.output_inline)
+        if expected == 0 and data:
+            # Older/fake records may omit the size while carrying inline bytes.
+            return job
+        while len(data) < expected and job.error_code != "output_too_large":
+            chunk = self.getJobOutputChunk(job.job_id, len(data))
+            if int(chunk.total_size) != expected or int(chunk.next_offset) != len(data) + len(chunk.data) \
+                    or not chunk.data:
+                raise ValueError("TeamServer returned an inconsistent job output chunk.")
+            data.extend(chunk.data)
+        if len(data) != expected and job.error_code != "output_too_large":
+            raise ValueError("TeamServer returned an inconsistent job output length.")
+        if expected > len(job.output_inline):
+            job.output_inline = bytes(data)
+        return job
+
+    def getJobOutputChunk(self, job_id: str, offset: int, max_bytes: int = 64 * 1024) -> Any:
+        request = TeamServerApi_pb2.GetJobOutputChunkRequest(
+            job_id=job_id, offset=offset, max_bytes=max_bytes)
+        return self._unary_rpc("GetJobOutputChunk", lambda: self.stub.GetJobOutputChunk(
             request, metadata=self.metadata, timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1)))
 
     def listJobExecutions(self, after_created_at: int = 0, after_job_id: str = "", page_size: int = 100) -> Any:

@@ -100,7 +100,7 @@ class C2ArtifactsTool:
     grpc_client: Any
 
     name = "listC2Artifacts"
-    description = "List TeamServer artifact metadata without downloading artifact bytes."
+    description = "Find relevant TeamServer artifact metadata using catalog filters; omit bytes."
 
     def schema(self) -> LLMToolDefinition:
         return build_tool_definition(
@@ -108,14 +108,22 @@ class C2ArtifactsTool:
             parameters={
                 "type": "object", "properties": {
                     "name_contains": {"type": "string", "description": "Optional artifact name filter."},
+                    "category": {"type": "string"},
+                    "scope": {"type": "string"},
+                    "platform": {"type": "string"},
+                    "arch": {"type": "string"},
+                    "target": {"type": "string"},
+                    "runtime": {"type": "string"},
+                    "format": {"type": "string"},
                 }, "additionalProperties": False,
             },
         )
 
     def execute(self, arguments: dict, context: ExecutionContext) -> ToolResult:
-        if set(arguments) - {"name_contains"} or not isinstance(arguments.get("name_contains", ""), str):
+        allowed = {"name_contains", "category", "scope", "platform", "arch", "target", "runtime", "format"}
+        if set(arguments) - allowed or any(not isinstance(value, str) for value in arguments.values()):
             return ToolResult(ok=False, content="Invalid listC2Artifacts arguments.")
-        query = TeamServerApi_pb2.ArtifactQuery(name_contains=arguments.get("name_contains", ""))
+        query = TeamServerApi_pb2.ArtifactQuery(**arguments)
         try:
             artifacts = TeamServerOperations(self.grpc_client).list_artifacts(query)
         except Exception as error:

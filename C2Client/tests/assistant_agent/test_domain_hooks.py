@@ -30,6 +30,8 @@ def test_domain_hooks_render_sessions_and_recent_observations():
     assert "beacon_hash=beacon" in rendered
     assert "cmd-2" in rendered
     assert "command=cmd-1," not in rendered
+    assert "uploadC2Artifact" in rendered
+    assert "explicitly named by the operator" in rendered
 
 
 def test_domain_hooks_do_not_keep_killed_session_active():

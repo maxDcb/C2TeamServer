@@ -369,6 +369,22 @@ void testPrepareModuleCommandCaseInsensitive()
     assert(message.cmd() == "arm64");
 }
 
+void testRunPreservesShellQuoting()
+{
+    ScopedPath tempRoot(makeTempDirectory("run-quoting"));
+    CommonCommands commonCommands;
+    std::vector<std::unique_ptr<ModuleCmd>> modules;
+    modules.push_back(std::make_unique<FakeTokenCaptureModule>("run"));
+    TeamServerCommandPreparationService service(
+        makeLogger(), makeRuntimeConfig(tempRoot.path()), commonCommands, modules);
+
+    const std::string shellCommand = "python3 -c 'import sys; sys.stdout.write(\"BEGIN|\" + \"A\"*110000 + \"|END\")'";
+    C2Message message;
+    require(service.prepareMessage("run " + shellCommand, message, false) == 0,
+        "Run command should prepare successfully");
+    require(message.cmd() == shellCommand, "Run must preserve shell quoting verbatim");
+}
+
 void testPrepareMissingCommand()
 {
     ScopedPath tempRoot(makeTempDirectory("missing"));
@@ -1296,6 +1312,7 @@ int main()
 {
     testPrepareCommonCommand();
     testPrepareModuleCommandCaseInsensitive();
+    testRunPreservesShellQuoting();
     testPrepareMissingCommand();
     testPrepareLoadModuleUsesWindowsSessionArchitecture();
     testPrepareLoadModuleUsesLinuxSessionArchitecture();

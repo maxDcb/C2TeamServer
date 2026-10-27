@@ -31,10 +31,13 @@ class TransferGrpc:
             name="upload", kind="module",
             command_template="upload {upload_artifact:q} {remote_path:q}",
             platforms=["linux", "windows"], archs=["any"],
+        ), TeamServerApi_pb2.CommandSpec(
+            name="download", kind="module", command_template="download {remote_path:q}",
+            platforms=["linux", "windows"], archs=["any"],
         )]
 
     def listModules(self, selector):
-        return [SimpleNamespace(name="upload", state="loaded")]
+        return [SimpleNamespace(name=name, state="loaded") for name in ("upload", "download")]
 
     def uploadArtifact(self, name, data, platform="any", arch="any"):
         self.uploads.append((name, data, platform, arch))
@@ -50,6 +53,11 @@ class TransferGrpc:
             return []
         return [self.artifact]
 
+    def downloadArtifact(self, artifact_id):
+        return TeamServerApi_pb2.ArtifactContent(status=TeamServerApi_pb2.OK,
+                                                 artifact_id=artifact_id, name="hosts",
+                                                 data=b"127.0.0.1 localhost\n")
+
     def submitJob(self, job_id, operation, payload):
         assert operation == "session_command"
         self.submissions.append((job_id, json.loads(payload)["command"]))
@@ -62,8 +70,10 @@ class TransferGrpc:
         return self.jobs[job_id]
 
     def complete(self, job_id):
+        command = next(command for current_id, command in self.submissions if current_id == job_id)
+        output = b"Saved as artifact download-id" if command.startswith("download ") else b"Success."
         self.jobs[job_id] = SimpleNamespace(
-            job_id=job_id, state="succeeded", output_inline=b"Success.", output_size=8,
+            job_id=job_id, state="succeeded", output_inline=output, output_size=len(output),
             error_code="", error_message="",
         )
 
@@ -120,6 +130,51 @@ class RetryProvider(TransferProvider):
                 id="upload-beacon", name="upload",
                 arguments_json=json.dumps({"remote_path": self.remote_paths[0]}))])
         return super().complete_with_tools(**kwargs)
+
+
+class RemoteTransferProvider:
+    def __init__(self):
+        self.calls = 0
+        self.service = None
+
+    def complete_with_tools(self, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            name, arguments = "download", {"remote_path": "/etc/hosts"}
+        elif self.calls == 2:
+            name, arguments = "promoteC2Artifact", {"artifact_id": "download-id"}
+        elif self.calls == 3:
+            name, arguments = "upload", {"remote_path": "/tmp/hotsss"}
+        else:
+            run = self.service.list_runs()[0]
+            return LLMCompletionResult(content=json.dumps({
+                "summary": "Session file transferred through Artifacts.",
+                "observations": [{"source_id": step["job_id"], "finding": "Beacon command succeeded."}
+                                 for step in run["steps"] if step["state"] == "succeeded"
+                                 and step["purpose"] == "command"],
+                "limitations": [],
+            }))
+        return LLMCompletionResult(content="", tool_calls=[LLMToolCall(
+            id=f"remote-{self.calls}", name=name, arguments_json=json.dumps(arguments))])
+
+
+def test_session_source_is_downloaded_promoted_and_uploaded_after_resume(tmp_path):
+    client = TransferGrpc()
+    provider = RemoteTransferProvider()
+    service = C2SkillService(client, storage_dir=tmp_path / "skills", provider=provider)
+    provider.service = service
+    run = service.start("artifact-to-session", "beacon-1", "listener-1",
+                        "Move /etc/hosts from this session to /tmp/hotsss on this session")
+    assert client.submissions[0][1] == "download /etc/hosts"
+    client.complete(client.submissions[0][0])
+    run = service.reconcile(run["run_id"])
+    assert run["artifact_transfer"]["artifact_id"] == "artifact-verified"
+    assert client.uploads[0][1] == b"127.0.0.1 localhost\n"
+    assert client.submissions[-1][1] == "upload artifact-verified /tmp/hotsss"
+    client.complete(client.submissions[-1][0])
+    run = service.reconcile(run["run_id"])
+    assert run["status"] == "completed"
+    assert run["report"]["outcome"] == "complete"
 
 
 def test_free_context_drives_one_artifact_and_two_beacon_transfers_after_restart(tmp_path):

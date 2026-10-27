@@ -200,9 +200,9 @@ void testOutputLimitAndConcurrency()
     auto repository = std::make_shared<SqliteJobRepository>(temp.path());
     JobApplicationService application(repository, 3, {});
     auto large = application.submit("large", "echo", "1234");
-    require(large.state == "failed" && large.errorCode == "output_too_large", "Output limit not enforced");
-    require(large.outputInline.empty(), "Oversize output was stored");
-    require(large.outputSize == 4, "Oversize output length was not recorded");
+    require(large.state == "succeeded", "Large output incorrectly failed the job");
+    require(repository->get("large").outputInline == "1234", "Large output was not retained");
+    require(large.outputSize == 4, "Large output length was not recorded");
     std::thread writer([&] {
         for (int i = 0; i < 30; ++i)
             application.submit("concurrent-" + std::to_string(i), "echo", "ok");
@@ -222,6 +222,15 @@ void testOutputLimitAndConcurrency()
     }
     writer.join();
     require(application.events(0, {}, 500).size() == 93, "Concurrent events missing");
+    const std::string biggerThanFormerLimit(128 * 1024, 'x');
+    auto veryLarge = application.submit("very-large", "echo", biggerThanFormerLimit);
+    require(veryLarge.state == "succeeded", "Output beyond the former 64 KiB limit failed");
+    require(repository->get("very-large").outputInline == biggerThanFormerLimit,
+            "Output beyond the former 64 KiB limit was not stored intact");
+    const auto chunk = application.outputChunk("very-large", 65536, 4096);
+    require(chunk.totalSize == static_cast<std::int64_t>(biggerThanFormerLimit.size())
+            && chunk.data == biggerThanFormerLimit.substr(65536, 4096),
+            "Large output chunk was not read intact");
 
     std::atomic<int> dispatches{0};
     JobApplicationService sessions(repository, 65536, [&](const JobExecution&) {

@@ -13,6 +13,7 @@ from agent_core.spi import LLMToolDefinition, ToolResult, build_tool_definition
 
 from ...grpc_status import is_response_ok, response_message
 from ...operations import TeamServerOperations
+from .artifact_upload_tool import upload_verified_artifact
 from .validation import validate_tool_arguments
 
 
@@ -91,3 +92,50 @@ class C2ArtifactDeleteTool:
         return ToolResult(ok=True, content=json.dumps({
             "artifact_id": arguments["artifact_id"], "message": response_message(response, "deleted"),
         }, ensure_ascii=False))
+
+
+@dataclass(slots=True)
+class C2ArtifactPromoteTool:
+    grpc_client: Any
+
+    name = "promoteC2Artifact"
+    description = ("Copy a downloaded or generated TeamServer artifact into the operator upload "
+                   "catalog so its new ID can be sent to a beacon session. No local path is needed.")
+
+    def schema(self) -> LLMToolDefinition:
+        return build_tool_definition(name=self.name, description=self.description, parameters={
+            "type": "object", "properties": {
+                "artifact_id": {"type": "string", "description": "Source TeamServer artifact ID."},
+                "name": {"type": "string", "description": "Name for the upload artifact; defaults to source name."},
+                "platform": {"type": "string", "description": "Target platform; defaults to any."},
+                "arch": {"type": "string", "description": "Target architecture; defaults to any."},
+            }, "required": ["artifact_id"], "additionalProperties": False,
+        })
+
+    def execute(self, arguments: dict, context: ExecutionContext,
+                *, operation_id: str | None = None) -> ToolResult:
+        invalid = validate_tool_arguments(self.name, self.schema().parameters, arguments)
+        if invalid is not None:
+            return invalid
+        source_id = arguments["artifact_id"]
+        if not source_id.strip():
+            return ToolResult(ok=False, content="artifact_id must be nonempty.")
+        try:
+            source = TeamServerOperations(self.grpc_client).download_artifact(source_id)
+        except Exception as error:
+            return ToolResult(ok=False, content=f"Could not read source artifact: {error}")
+        if not is_response_ok(source):
+            return ToolResult(ok=False, content=response_message(source, "Source artifact download failed."))
+        if source.artifact_id and source.artifact_id != source_id:
+            return ToolResult(ok=False, content="Source artifact ID did not match the requested ID.")
+        name = arguments.get("name") or str(source.name or source.display_name or source_id)
+        result = upload_verified_artifact(self.grpc_client, name=name, data=bytes(source.data),
+                                          platform=arguments.get("platform", "any"),
+                                          arch=arguments.get("arch", "any"))
+        if not result.ok:
+            return result
+        payload = json.loads(result.content)
+        payload["source_artifact_id"] = source_id
+        return ToolResult(ok=True, content=json.dumps(payload, ensure_ascii=False), metadata={
+            **result.metadata, "source_artifact_id": source_id,
+        })

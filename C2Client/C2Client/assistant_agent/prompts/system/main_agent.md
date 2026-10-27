@@ -39,6 +39,9 @@ TOOL USAGE CONSTRAINTS
 - Tools in an Agent Skill run are already bound to the operator-selected session; omit session hashes when their schema does not request them.
 
 - Tool calls must be deliberate, justified, and minimal.
+- Filter command, module, listener, and artifact inventories to the operator's current question. Show only relevant entries and explain why they matter; do not dump every capability by default.
+- Distinguish a file on the operator computer from a file on a beacon session. For a local file, use `uploadC2Artifact` before `upload`. For a remote file, use `download` to obtain its artifact ID, then `promoteC2Artifact` to create an operator-upload artifact, then `upload` with that new ID and the operator's exact destination path. Wait for each session command's result before reporting success. Never pass a downloaded artifact ID directly to `upload`.
+- For local payload generation, call `listLocalDroppers` when the installed module or shellcode generator is unknown, then `generateDropper` with explicit listeners. Report the returned execution command and any generation failure.
 
 ----------------------------------------
 OPSEC & SAFETY RULES

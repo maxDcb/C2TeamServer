@@ -30,6 +30,7 @@ service TeamServerApi
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SubmitJob(SubmitJobRequest) returns (JobExecutionRecord) {}
   rpc GetJobExecution(GetJobExecutionRequest) returns (JobExecutionRecord) {}
+  rpc GetJobOutputChunk(GetJobOutputChunkRequest) returns (GetJobOutputChunkResponse) {}
   rpc ListJobExecutions(ListJobExecutionsRequest) returns (ListJobExecutionsResponse) {}
   rpc SubscribeJobEvents(SubscribeJobEventsRequest) returns (stream JobEventRecord) {}
 
@@ -85,6 +86,7 @@ message OperationAck
   string session_beacon_hash = 5;
   string session_listener_hash = 6;
   SessionState session_state = 7;
+  string artifact_id = 8;
 }
 
 
@@ -421,6 +423,21 @@ message JobExecutionRecord
   int64 output_size = 12;
   string operator_username = 13;
   string origin = 14;
+}
+
+message GetJobOutputChunkRequest
+{
+  string job_id = 1;
+  int64 offset = 2;
+  uint32 max_bytes = 3;
+}
+
+message GetJobOutputChunkResponse
+{
+  bytes data = 1;
+  int64 total_size = 2;
+  int64 next_offset = 3;
+  bool complete = 4;
 }
 
 message ListJobExecutionsRequest

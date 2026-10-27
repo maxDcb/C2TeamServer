@@ -43,6 +43,7 @@ FINISHED_RUN_STATES = {"completed", "failed"}
 DURABLE_SERVER_ACTION_TOOLS = {"hostArtifact", "socksControl", "reloadModules"}
 SERVER_ACTION_TOOLS = DURABLE_SERVER_ACTION_TOOLS | {
     "uploadListenerFile", "installTool", "installToolBundle", "uploadC2Artifact",
+    "promoteC2Artifact", "generateDropper",
     "downloadC2Artifact", "deleteC2Artifact", "addC2Listener", "stopC2Listener",
     "stopC2Session", "addC2Credential", "updateC2Credential", "deleteC2Credential",
 }
@@ -577,7 +578,7 @@ class C2SkillService:
             transfer = run.get("artifact_transfer")
             if transfer is not None and tool_name == "upload":
                 if not transfer.get("artifact_id"):
-                    return ToolResult(ok=False, content="Upload the local file to Artifacts first.")
+                    return ToolResult(ok=False, content="Prepare the source file as an Artifacts upload first.")
                 if set(arguments) != {"remote_path"} or not isinstance(arguments["remote_path"], str) \
                         or not arguments["remote_path"].strip():
                     return ToolResult(ok=False, content="Choose a remote_path from the operator's context.")
@@ -680,9 +681,9 @@ class C2SkillService:
             observation["content"] = str(result.content)
             if result.metadata.get("job_id"):
                 observation["job_id"] = str(result.metadata["job_id"])
-            if result.ok and tool.name == "uploadC2Artifact" and run.get("artifact_transfer"):
+            if result.ok and tool.name in {"uploadC2Artifact", "promoteC2Artifact"} and run.get("artifact_transfer"):
                 run["artifact_transfer"]["artifact_id"] = str(result.metadata["artifact_id"])
-                run["artifact_transfer"]["source_file"] = str(result.metadata["source_file"])
+                run["artifact_transfer"]["source_file"] = str(result.metadata.get("source_file", ""))
             observation["state"] = "outcome_unknown" if unknown else "succeeded" if result.ok else "failed"
             if unknown:
                 run["manual_uncertainty"] = True

@@ -306,6 +306,28 @@ def test_v2_job_submit_get_and_cursor(tmp_path, monkeypatch):
     assert stub.SubscribeJobEvents.call_args.args[0].after_event_id == 8
 
 
+def test_job_output_is_reassembled_from_server_chunks(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.GetJobExecution.return_value = TeamServerApi_pb2.JobExecutionRecord(
+        job_id="large-job", state="succeeded", output_inline=b"abc", output_size=8)
+    stub.GetJobOutputChunk.side_effect = [
+        TeamServerApi_pb2.GetJobOutputChunkResponse(data=b"de", total_size=8, next_offset=5),
+        TeamServerApi_pb2.GetJobOutputChunkResponse(data=b"fgh", total_size=8, next_offset=8, complete=True),
+    ]
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+
+    job = client.getJobExecution("large-job")
+    assert job.output_inline == b"abcdefgh"
+    assert [call.args[0].offset for call in stub.GetJobOutputChunk.call_args_list] == [3, 5]
+
+
 def test_session_result_uses_event_state_when_late_result_already_arrived(tmp_path, monkeypatch):
     cert = tmp_path / "cert.crt"
     cert.write_text("cert")

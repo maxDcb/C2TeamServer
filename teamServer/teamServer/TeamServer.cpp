@@ -74,7 +74,7 @@ void configureHostedDownloadFolders(nlohmann::json& config, const TeamServerRunt
     }
 }
 
-void copyJob(const JobExecution& job, teamserverapi::JobExecutionRecord* response)
+void copyJob(const JobExecution& job, teamserverapi::JobExecutionRecord* response, std::size_t previewBytes)
 {
     response->set_job_id(job.jobId);
     response->set_operation(job.operation);
@@ -86,7 +86,7 @@ void copyJob(const JobExecution& job, teamserverapi::JobExecutionRecord* respons
     response->set_completed_at(job.completedAt);
     response->set_error_code(job.errorCode);
     response->set_error_message(job.errorMessage);
-    response->set_output_inline(job.outputInline);
+    response->set_output_inline(job.outputInline.substr(0, previewBytes));
     response->set_output_size(job.outputSize);
     response->set_operator_username(job.operatorUsername);
     response->set_origin(job.origin);
@@ -621,7 +621,7 @@ grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserve
     try
     {
         copyJob(m_jobApplication->submit(request->job_id(), request->operation(), request->input(),
-            operatorUsername, request->origin()), response);
+            operatorUsername, request->origin()), response, m_jobApplication->outputPreviewBytes());
     }
     catch (const JobError& error)
     {
@@ -676,8 +676,36 @@ grpc::Status TeamServer::GetJobExecution(grpc::ServerContext* context, const tea
     auto authStatus = ensureAuthenticated(context);
     if (!authStatus.ok())
         return authStatus;
-    try { copyJob(m_jobApplication->get(request->job_id()), response); }
+    try { copyJob(m_jobApplication->get(request->job_id()), response, m_jobApplication->outputPreviewBytes()); }
     catch (const JobError& error) { return jobStatus(error); }
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::GetJobOutputChunk(grpc::ServerContext* context,
+    const teamserverapi::GetJobOutputChunkRequest* request,
+    teamserverapi::GetJobOutputChunkResponse* response)
+{
+    auto authStatus = ensureAuthenticated(context);
+    if (!authStatus.ok()) return authStatus;
+    constexpr std::size_t MaxChunkBytes = 64 * 1024;
+    if (request->offset() < 0 || request->max_bytes() == 0 || request->max_bytes() > MaxChunkBytes)
+        return {grpc::StatusCode::INVALID_ARGUMENT, "Invalid output chunk offset or size."};
+    try
+    {
+        const auto offset = static_cast<std::size_t>(request->offset());
+        const JobOutputChunk chunk = m_jobApplication->outputChunk(
+            request->job_id(), offset, request->max_bytes());
+        response->set_data(chunk.data);
+        response->set_total_size(chunk.totalSize);
+        response->set_next_offset(static_cast<std::int64_t>(offset + chunk.data.size()));
+        response->set_complete(response->next_offset() == chunk.totalSize);
+    }
+    catch (const JobError& error)
+    {
+        if (error.code() == JobErrorCode::invalid_argument)
+            return {grpc::StatusCode::OUT_OF_RANGE, error.what()};
+        return jobStatus(error);
+    }
     return grpc::Status::OK;
 }
 
@@ -689,7 +717,7 @@ grpc::Status TeamServer::ListJobExecutions(grpc::ServerContext* context, const t
     {
         auto page = m_jobApplication->list(request->after_created_at(), request->after_job_id(),
             request->page_size() ? request->page_size() : 100);
-        for (const auto& job : page.jobs) copyJob(job, response->add_jobs());
+        for (const auto& job : page.jobs) copyJob(job, response->add_jobs(), m_jobApplication->outputPreviewBytes());
         response->set_next_created_at(page.nextCreatedAt);
         response->set_next_job_id(page.nextJobId);
     }
@@ -787,7 +815,7 @@ grpc::Status TeamServer::HostArtifact(grpc::ServerContext* context,
             {"artifact_reference", request->artifact_reference()},
             {"hosted_filename", request->hosted_filename()}};
         copyJob(m_jobApplication->submit(request->job_id(), "host_artifact",
-            input.dump(), actor, request->origin()), response);
+            input.dump(), actor, request->origin()), response, m_jobApplication->outputPreviewBytes());
     }
     catch (const JobError& error)
     {
@@ -815,7 +843,7 @@ grpc::Status TeamServer::ControlSocks(grpc::ServerContext* context,
     {
         const json input = {{"action", request->action()}, {"beacon_hash", request->beacon_hash()}};
         copyJob(m_jobApplication->submit(request->job_id(), "socks_control",
-            input.dump(), actor, request->origin()), response);
+            input.dump(), actor, request->origin()), response, m_jobApplication->outputPreviewBytes());
     }
     catch (const JobError& error)
     {
@@ -841,7 +869,7 @@ grpc::Status TeamServer::ReloadModules(grpc::ServerContext* context,
     try
     {
         copyJob(m_jobApplication->submit(request->job_id(), "reload_modules", "{}",
-            actor, request->origin()), response);
+            actor, request->origin()), response, m_jobApplication->outputPreviewBytes());
     }
     catch (const JobError& error)
     {

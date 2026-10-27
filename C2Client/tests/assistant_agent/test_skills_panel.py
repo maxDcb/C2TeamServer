@@ -245,7 +245,7 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     visible = panel.details.toPlainText()
     assert "The beacon ran as operator." in visible
     assert "The account is operator." in visible
-    assert "The account is operator. (source: identity-job)" in visible
+    assert "What I found" in visible
     assert "load-job" not in visible
     assert '"evidence"' not in visible
 
@@ -254,7 +254,7 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     assert "load-job" in technical
     assert "Server job state: failed" in technical
     assert "Output:\noperator" in technical
-    assert format_run_details(run) == visible
+    assert "Task run-1234" in visible
     panel.shutdown()
 
 

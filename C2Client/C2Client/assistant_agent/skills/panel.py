@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import html
 from threading import Thread
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QTextOption
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QPushButton, QTextBrowser, QToolTip, QVBoxLayout, QWidget,
+    QPushButton, QTextBrowser, QTextEdit, QToolTip, QVBoxLayout, QWidget,
 )
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
@@ -110,6 +112,52 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
     return "\n".join(lines).strip()
 
 
+def render_run_details(run: dict, *, show_evidence: bool = False) -> str:
+    """A scan-friendly report; raw evidence stays behind the existing toggle."""
+    report = run.get("report") or {}
+    status = str(run.get("status", "unknown"))
+    outcome = str(report.get("outcome", ""))
+    tone = "#fdb022" if status in {"failed", "waiting", "running"} or outcome == "partial" else "#32d583"
+    label = "PARTIAL" if outcome == "partial" else status.upper().replace("_", " ")
+
+    def esc(value) -> str:
+        return html.escape(str(value), quote=True)
+
+    def section(title: str, rows: list[str], color: str) -> str:
+        if not rows:
+            return ""
+        items = "".join(f'<li style="margin:0 0 7px;">{esc(row)}</li>' for row in rows if row)
+        return (f'<p style="color:{color}; font-weight:bold; margin:14px 0 5px;">{esc(title)}</p>'
+                f'<ul style="margin:0 0 10px; padding-left:20px;">{items}</ul>')
+
+    summary = (run.get("error_message") or report.get("summary") or run.get("manual_failure") or "")
+    if not summary:
+        active = next((step for step in run.get("steps", []) if step.get("state") not in {
+            "succeeded", "already_loaded", "failed", "no_result_confirmed", "skipped",
+        }), None)
+        summary = f"Waiting for {active['command']}." if active else "No report available yet."
+    observations = [str(item.get("finding", "")) for item in report.get("observations", [])]
+    limitations = [str(item) for item in report.get("limitations", [])]
+    warnings = [str(item) for item in report.get("validation_warnings", [])]
+    result = (
+        '<div style="color:#d0d5dd; font-family:sans-serif;">'
+        f'<p style="color:{tone}; font-weight:bold; margin:0 0 8px;">{esc(label)}'
+        f' <span style="color:#98a2b3; font-weight:normal;">· Task {esc(run["run_id"][:8])}</span></p>'
+        f'<p style="color:#f2f4f7; font-size:14px; margin:0 0 10px;">{esc(summary)}</p>'
+        + section("What I found", observations, "#32d583")
+        + section("What remains uncertain", limitations, "#fdb022")
+        + section("Report warnings", warnings, "#fdb022")
+    )
+    if show_evidence:
+        evidence = format_run_details(run, show_evidence=True)
+        marker = "Execution details\n"
+        technical = evidence.split(marker, 1)[-1] if marker in evidence else evidence
+        result += (f'<p style="color:#7cd4fd; font-weight:bold; margin:16px 0 5px;">Execution details</p>'
+                   f'<pre style="white-space:pre-wrap; color:#d0d5dd; background:#111c25; padding:10px;">'
+                   f'{esc(technical)}</pre>')
+    return result + "</div>"
+
+
 class SkillsPanel(QWidget):
     runChanged = pyqtSignal(object)
     sessionsLoaded = pyqtSignal(object)
@@ -185,6 +233,8 @@ class SkillsPanel(QWidget):
         layout.addWidget(self.showEvidence)
         self.details = QTextBrowser()
         apply_console_output_style(self.details)
+        self.details.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.details.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         layout.addWidget(self.details, 3)
         manual = QHBoxLayout()
         self.reasonInput = QLineEdit()
@@ -491,15 +541,16 @@ class SkillsPanel(QWidget):
             run["status"] == "running" and any(step["state"] in WAITING_STATES for step in run["steps"])
         )
         self.failButton.setEnabled(run["status"] not in FINISHED_RUN_STATES)
-        content = format_run_details(run, show_evidence=self.showEvidence.isChecked())
-        if self._displayed_run_id == run_id and self.details.toPlainText() == content:
+        content = render_run_details(run, show_evidence=self.showEvidence.isChecked())
+        if self._displayed_run_id == run_id and getattr(self, "_displayed_html", None) == content:
             return
         scroll = self.details.verticalScrollBar()
         same_run = self._displayed_run_id == run_id
         old_position = scroll.value()
         was_at_bottom = same_run and old_position >= scroll.maximum() - 2
-        self.details.setPlainText(content)
+        self.details.setHtml(content)
         self._displayed_run_id = run_id
+        self._displayed_html = content
         if same_run:
             scroll.setValue(scroll.maximum() if was_at_bottom else min(old_position, scroll.maximum()))
 

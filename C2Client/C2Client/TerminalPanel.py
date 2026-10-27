@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import tempfile
+from threading import Lock
 from datetime import datetime, timezone
 from typing import Any
 from PyQt6.QtCore import Qt, QEvent, QThread, QTimer, pyqtSignal, QObject
@@ -38,6 +39,7 @@ from git import Repo
 
 logger = logging.getLogger(__name__)
 _activeWorkerThreads = set()
+_dropperGenerationLock = Lock()
 
 
 def _keepWorkerThreadAlive(thread, worker):
@@ -1459,19 +1461,22 @@ class DropperWorker(QObject):
         self.shellcodeGenerator = shellcodeGenerator or ShellcodeGeneratorDonut
         self.targetArch = normalizeWindowsArch(targetArch) or DefaultWindowsArch
         self._resultSent = False
+        self.result_ok = False
 
     def run(self):
-        try:
-            self._run()
-        except Exception as exc:
-            logger.exception("Dropper generation failed")
-            self._finish(f"Error: {exc}")
-        finally:
-            self._finish("Error: dropper ended without a result.")
+        with _dropperGenerationLock:
+            try:
+                self._run()
+            except Exception as exc:
+                logger.exception("Dropper generation failed")
+                self._finish(f"Error: {exc}", ok=False)
+            finally:
+                self._finish("Error: dropper ended without a result.", ok=False)
 
-    def _finish(self, result):
+    def _finish(self, result, *, ok=True):
         if not self._resultSent:
             self._resultSent = True
+            self.result_ok = ok
             self.finished.emit(self.commandLine, result)
 
     def _run(self):
@@ -1480,14 +1485,14 @@ class DropperWorker(QObject):
         listener_info = operations.get_listener_info(self.listenerDownload)
         logger.debug("DropperWorker GenerateAndHostGeneric start")
         if not is_response_ok(listener_info):
-            self._finish(listener_info.message)
+            self._finish(listener_info.message, ok=False)
             return
         schemeDownload = listener_info.type.lower()
         ipDownload = listener_info.address
         portDownload = listener_info.port
         downloadPath = listener_info.download_uri
         if not downloadPath:
-            self._finish(ErrorListener)
+            self._finish(ErrorListener, ok=False)
             return
 
         if downloadPath[0]=="/":
@@ -1496,7 +1501,7 @@ class DropperWorker(QObject):
         if  self.listenerBeacon != self.listenerDownload:
             listener_info = operations.get_listener_info(self.listenerBeacon)
             if not is_response_ok(listener_info):
-                self._finish(listener_info.message)
+                self._finish(listener_info.message, ok=False)
                 return
             scheme = listener_info.type
             ip = listener_info.address
@@ -1521,7 +1526,7 @@ class DropperWorker(QObject):
         binary = operations.get_beacon_binary(
             self.listenerBeacon, targetOs, self.targetArch if targetOs == "windows" else "")
         if not is_response_ok(binary):
-            self._finish(binary.message)
+            self._finish(binary.message, ok=False)
             return
 
         beaconFilePath = makeBeaconFilePath(targetOs, self.targetArch)
@@ -1553,7 +1558,7 @@ class DropperWorker(QObject):
                     logger.debug(DonutShellcodeGeneratorMessage)
                     donutError = createDonutShellcode(beaconFilePath, beaconArg, self.targetArch)
                     if donutError:
-                        self._finish("Error: " + donutError)
+                        self._finish("Error: " + donutError, ok=False)
                         return
                     beaconArg = ""
                     beaconFilePath = ""
@@ -1582,13 +1587,13 @@ class DropperWorker(QObject):
                 with open(dropperPath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self._finish(ErrorFileNotFound)
+                self._finish(ErrorFileNotFound, ok=False)
                 return  
 
             filename = os.path.basename(dropperPath)
             upload = operations.upload_listener_file(self.listenerDownload, filename, payload)
             if not is_response_ok(upload):
-                self._finish(upload.message)
+                self._finish(upload.message, ok=False)
                 return
 
         for shellcodePath in shellcodesPath:
@@ -1596,13 +1601,13 @@ class DropperWorker(QObject):
                 with open(shellcodePath, mode='rb') as fileDesc:
                     payload = fileDesc.read()
             except IOError:
-                self._finish(ErrorFileNotFound)
+                self._finish(ErrorFileNotFound, ok=False)
                 return  
 
             filename = os.path.basename(shellcodePath)
             upload = operations.upload_listener_file(self.listenerDownload, filename, payload)
             if not is_response_ok(upload):
-                self._finish(upload.message)
+                self._finish(upload.message, ok=False)
                 return
 
         result = cmdToRun 

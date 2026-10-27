@@ -9,8 +9,9 @@ from C2Client.assistant_agent.capabilities.bundles import TOOL_BUNDLES, resolve_
 from C2Client.assistant_agent.domain.service import C2AssistantAgent
 from C2Client.assistant_agent.skills.service import C2SkillService, _stored_tool_arguments
 from C2Client.assistant_agent.tools.registry import build_c2_tool_registry
-from C2Client.assistant_agent.tools.server_artifact_tools import C2ArtifactDeleteTool, C2ArtifactDownloadTool
-from C2Client.assistant_agent.tools.server_catalog_tools import C2CommandsTool
+from C2Client.assistant_agent.tools.server_artifact_tools import C2ArtifactDeleteTool, C2ArtifactDownloadTool, C2ArtifactPromoteTool
+from C2Client.assistant_agent.tools.server_catalog_tools import C2CommandsTool, C2ArtifactsTool
+from C2Client.assistant_agent.tools.local_generation_tool import C2GenerateDropperTool, C2LocalDroppersTool
 from C2Client.assistant_agent.tools.server_credential_tools import (
     C2AddCredentialTool, C2CredentialTool, C2CredentialsTool, C2DeleteCredentialTool, C2UpdateCredentialTool,
 )
@@ -27,7 +28,8 @@ UI_ACTION_TOOLS = {
                              "getBeaconBinary", "uploadListenerFile"},
     "teamserver.sessions": {"listLiveSessions", "listC2SessionHistory", "stopC2Session", "listLoadedModules"},
     "teamserver.artifacts": {"listC2Artifacts", "uploadC2Artifact", "downloadC2Artifact",
-                             "deleteC2Artifact", "hostArtifact"},
+                             "deleteC2Artifact", "promoteC2Artifact", "hostArtifact"},
+    "teamserver.generation": {"listLocalDroppers", "generateDropper"},
     "teamserver.credentials": {"listC2Credentials", "getC2Credential", "addC2Credential",
                                "updateC2Credential", "deleteC2Credential"},
     "teamserver.tools": {"installTool", "installToolBundle", "reloadModules"},
@@ -50,6 +52,7 @@ class FakeGrpc:
         self.reveal_flags = []
         self.artifact = None
         self.command_queries = []
+        self.artifact_queries = []
         self.summary = TeamServerApi_pb2.CredentialSummary(
             credential_id="cred-1", display_name="Example", type="password",
             username="alice", secret_fields=["password"],
@@ -93,6 +96,7 @@ class FakeGrpc:
         return TeamServerApi_pb2.OperationAck(status=TeamServerApi_pb2.OK, message="queued")
 
     def listArtifacts(self, _query=None):
+        self.artifact_queries.append(_query)
         return [self.artifact] if self.artifact is not None else []
 
     def uploadArtifact(self, name, data, platform="any", arch="any"):
@@ -186,6 +190,15 @@ def test_command_catalog_filter_is_shared_with_ui_operations():
     assert not C2CommandsTool(client).execute({"target": "bad"}, None).ok
 
 
+def test_artifact_inventory_filters_are_forwarded_to_catalog():
+    client = FakeGrpc()
+    result = C2ArtifactsTool(client).execute({"category": "download", "name_contains": "hosts",
+                                              "platform": "linux"}, None)
+    assert result.ok
+    query = client.artifact_queries[-1]
+    assert (query.category, query.name_contains, query.platform) == ("download", "hosts", "linux")
+
+
 def test_listener_and_session_mutations_use_typed_requests():
     client = FakeGrpc()
     created = C2AddListenerTool(client).execute({"type": "https", "ip": "127.0.0.1", "port": 8443}, None)
@@ -229,6 +242,48 @@ def test_artifact_upload_download_and_delete_cover_the_ui_operations(tmp_path: P
     assert not download.execute({"artifact_id": "artifact-1", "destination_path": str(target)}, None).ok
     assert C2ArtifactDeleteTool(client).execute({"artifact_id": "artifact-1"}, None).ok
     assert client.artifacts_deleted == ["artifact-1"]
+
+
+def test_downloaded_artifact_can_be_promoted_to_verified_beacon_upload():
+    client = FakeGrpc()
+    promoted = C2ArtifactPromoteTool(client).execute({
+        "artifact_id": "download-1", "name": "hosts", "platform": "linux", "arch": "x64",
+    }, None)
+    assert promoted.ok
+    payload = json.loads(promoted.content)
+    assert payload["source_artifact_id"] == "download-1"
+    assert payload["artifact_id"] == "artifact-1"
+    assert client.artifacts_uploaded == [("hosts", b"artifact bytes", "linux", "x64")]
+
+
+def test_local_generation_uses_terminal_generator_registry(monkeypatch):
+    class Signal:
+        def __init__(self):
+            self.callback = None
+
+        def connect(self, callback):
+            self.callback = callback
+
+    class Worker:
+        def __init__(self, _client, _command, module, download, beacon, args, generator, arch):
+            self.values = (module, download, beacon, args, generator, arch)
+            self.finished = Signal()
+
+        def run(self):
+            self.finished.callback("generateDropper", "run generated payload")
+
+    fake = SimpleNamespace(DropperModules=[SimpleNamespace(__name__="Demo")],
+                           ShellCodeModules=[], ShellcodeGeneratorDonut="donut",
+                           DefaultWindowsArch="x64", DropperWorker=Worker)
+    monkeypatch.setattr("C2Client.assistant_agent.tools.local_generation_tool._terminal", lambda: fake)
+    client = FakeGrpc()
+    listed = C2LocalDroppersTool(client).execute({}, None)
+    assert json.loads(listed.content)["droppers"][0]["name"] == "demo"
+    result = C2GenerateDropperTool(client).execute({
+        "module": "demo", "download_listener_hash": "l1", "beacon_listener_hash": "l2",
+        "additional_args": ["--example"],
+    }, None)
+    assert result.ok and json.loads(result.content)["execution_command"] == "run generated payload"
 
 
 def test_credential_crud_and_explicit_reveal():

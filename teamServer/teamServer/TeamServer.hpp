@@ -80,6 +80,7 @@ public:
 
     grpc::Status SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response) override;
     grpc::Status GetJobExecution(grpc::ServerContext* context, const teamserverapi::GetJobExecutionRequest* request, teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status GetJobOutputChunk(grpc::ServerContext* context, const teamserverapi::GetJobOutputChunkRequest* request, teamserverapi::GetJobOutputChunkResponse* response) override;
     grpc::Status ListJobExecutions(grpc::ServerContext* context, const teamserverapi::ListJobExecutionsRequest* request, teamserverapi::ListJobExecutionsResponse* response) override;
     grpc::Status SubscribeJobEvents(grpc::ServerContext* context, const teamserverapi::SubscribeJobEventsRequest* request, grpc::ServerWriter<teamserverapi::JobEventRecord>* writer) override;
 
