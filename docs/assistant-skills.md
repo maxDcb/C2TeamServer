@@ -1,27 +1,52 @@
 # Tâches LLM du client C2
 
-## Premier skill agentique : identify-user
+## Agent Skills et capacités C2
 
 ### Bundles de capacités C2
 
 Les skills agentiques associent désormais leur `SKILL.md` portable à un fichier
 `skill.yaml` contrôlé par le client. Le manifeste indique les bundles métier,
-les outils requis et les limites d'appels. `identify-user` demande
+les outils requis, les observations nécessaires à un rapport complet, l'objectif
+et les limites d'appels. Les dossiers qui contiennent ces deux fichiers sont
+découverts automatiquement au démarrage du client. `identify-user` demande
 `recon.identity`, qui n'accorde que `whoami`. La liste résolue est enregistrée
 dans le run pour que sa reprise conserve les mêmes permissions après une mise
 à jour du catalogue.
 
-Le catalogue [`tool_bundles.py`](../C2Client/C2Client/assistant_agent/skills/tool_bundles.py)
+Le catalogue [`bundles.py`](../C2Client/C2Client/assistant_agent/capabilities/bundles.py)
 recense les capacités par objectif : `recon.identity`, `recon.host`, `exec`, `pivot`, `file_ops`,
 `payload_delivery`, `credentials` et `session_management`. Il inclut les
 commandes beacon et les opérations TeamServer ou locales destinées aux futurs
 adaptateurs, notamment SOCKS, hébergement d'artifact et génération de dropper.
 Le résolveur ne transmet à agent-core que les outils réellement enregistrés ;
-un outil requis absent fait échouer le démarrage du skill. À cette étape, les
-opérations terminal et dropper sont **inventoriées mais pas encore exposées**
-comme outils AI. Les intégrer demandera des adaptateurs typés indépendants des
-widgets Qt. Le seul skill agentique exécutable reste `identify-user` ; le plan
-fixe `inventory_local` est conservé.
+un outil requis absent fait échouer le démarrage du skill. Le catalogue et ses
+tests résident dans `assistant_agent/capabilities`, car il est partagé par les
+skills et la conversation. Le catalogue des définitions de skills reste dans
+`assistant_agent/skills`.
+
+`recon-host` est le premier skill agentique multi outils. Il associe
+`recon.identity` et `recon.host`, exige `whoami`, `ipConfig` et
+`listC2Listeners`, puis laisse le LLM choisir ses appels dans la limite de huit
+outils. Le client fixe la session, valide chaque argument, charge un module
+manquant, crée un job V2 stable avant l'envoi de chaque commande et attend son
+résultat. Le run conserve la liste des outils, leurs spécifications, les jobs,
+les octets exacts et les observations TeamServer. Après redémarrage, il reprend
+le job en cours puis les choix du LLM. Le rapport cite les `job_id` et les
+`observation_id` réellement observés ; une citation inventée invalide l'analyse.
+Un rapport sans résultat réussi de `whoami` et `ipConfig` reste partiel, même si
+le modèle conclut autrement.
+
+Les adaptateurs `listC2Listeners` et `listC2Artifacts` sont des lectures
+TeamServer utilisables par la conversation et les skills. `hostArtifact` et
+`socksControl` sont des opérations terminal typées utilisables par la
+conversation ; elles ne donnent pas accès à une commande terminal libre. Les
+opérations terminal à effet de bord ne sont pas encore enregistrées dans les
+runs de skills, car leur exécution ne possède pas d'identifiant de job V2 pour
+récupérer avec certitude une réponse perdue. La génération de dropper reste
+liée à son parcours local et demande encore un adaptateur sans widget Qt. Le
+plan fixe `inventory_local` et le skill `identify-user` restent disponibles.
+
+## Premier skill agentique : identify-user
 
 Le dossier `C2Client/C2Client/assistant_agent/skills/identify-user/` contient un
 `SKILL.md` au format [Agent Skills](https://agentskills.io/specification) :

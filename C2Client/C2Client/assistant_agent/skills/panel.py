@@ -69,7 +69,8 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
             item["step_id"]: item for item in (report or {}).get("evidence", [])
         }
         findings_by_job = {
-            item["job_id"]: item["finding"] for item in (report or {}).get("observations", [])
+            item.get("job_id", item.get("source_id", "")): item["finding"]
+            for item in (report or {}).get("observations", [])
         }
         for step in run["steps"]:
             state = "already available" if step["state"] == "already_loaded" else step["state"]
@@ -90,6 +91,13 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
                 lines.append(f"  Output: {proof['output_size']} bytes · SHA-256 {proof['output_sha256']}")
             if proof.get("output_preview") and step.get("purpose", "command") == "command":
                 lines.append(f"  Output:\n{proof['output_preview']}")
+            lines.append("")
+        for item in run.get("terminal_observations", []):
+            lines.append(f"{item['tool']} · {'succeeded' if item['ok'] else 'failed'}")
+            lines.append(f"  Observation: {item['observation_id']}")
+            if item["observation_id"] in findings_by_job:
+                lines.append(f"  Finding: {findings_by_job[item['observation_id']]}")
+            lines.append(f"  Result: {item['content']}")
             lines.append("")
     return "\n".join(lines).strip()
 

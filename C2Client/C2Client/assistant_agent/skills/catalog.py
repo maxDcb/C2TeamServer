@@ -6,7 +6,7 @@ import re
 
 import yaml
 
-from .tool_bundles import TOOL_BUNDLES, resolve_tool_bundles
+from ..capabilities.bundles import TOOL_BUNDLES, resolve_tool_bundles
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,9 +32,11 @@ class AgenticSkillDefinition:
     version: int
     title: str
     description: str
+    objective: str
     instructions: str
     tool_bundles: tuple[str, ...]
     required_tools: tuple[str, ...]
+    completion_tools: tuple[str, ...]
     declared_tools: tuple[str, ...]
     max_tool_calls: int
     max_iterations: int
@@ -80,20 +82,26 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError(f"Invalid skill configuration: {config_path}")
+    objective = config.get("objective", description)
+    if not isinstance(objective, str) or not objective.strip():
+        raise ValueError(f"Invalid objective in skill configuration: {config_path}")
     bundles = _string_tuple(config.get("tool_bundles"), "tool_bundles", config_path)
     required = _string_tuple(config.get("required_tools"), "required_tools", config_path, optional=True)
+    completion = _string_tuple(config.get("completion_tools"), "completion_tools", config_path, optional=True)
     if type(config.get("max_tool_calls")) is not int or config["max_tool_calls"] < 1:
         raise ValueError(f"Invalid max_tool_calls in skill configuration: {config_path}")
     if type(config.get("max_iterations")) is not int or config["max_iterations"] < 1:
         raise ValueError(f"Invalid max_iterations in skill configuration: {config_path}")
     declared = {tool for bundle in TOOL_BUNDLES.values() for tool in bundle.tools}
     resolution = resolve_tool_bundles(bundles, registered_tools=declared, required_tools=required)
+    if set(completion) - set(resolution.allowed_tools):
+        raise ValueError(f"Completion tools are outside the selected bundles: {config_path}")
     if version < 1 or not instructions:
         raise ValueError(f"Incomplete skill definition: {path}")
     return AgenticSkillDefinition(
         skill_id=name, version=version, title=name.replace("-", " ").title(),
-        description=description.strip(), instructions=instructions,
-        tool_bundles=bundles, required_tools=required,
+        description=description.strip(), objective=objective.strip(), instructions=instructions,
+        tool_bundles=bundles, required_tools=required, completion_tools=completion,
         declared_tools=resolution.allowed_tools,
         max_tool_calls=config["max_tool_calls"], max_iterations=config["max_iterations"],
     )
@@ -110,8 +118,16 @@ INVENTORY_LOCAL = SkillDefinition(
     ),
 )
 
-IDENTIFY_USER = load_agentic_skill(
-    Path(__file__).parent / "identify-user" / "SKILL.md",
-)
+def discover_agentic_skills(root: Path) -> dict[str, AgenticSkillDefinition]:
+    discovered = {}
+    for path in sorted(root.glob("*/SKILL.md")):
+        skill = load_agentic_skill(path)
+        if skill.skill_id in discovered:
+            raise ValueError(f"Duplicate skill name: {skill.skill_id}")
+        discovered[skill.skill_id] = skill
+    return discovered
 
-SKILLS = {skill.skill_id: skill for skill in (INVENTORY_LOCAL, IDENTIFY_USER)}
+
+SKILLS = {INVENTORY_LOCAL.skill_id: INVENTORY_LOCAL, **discover_agentic_skills(Path(__file__).parent)}
+IDENTIFY_USER = SKILLS["identify-user"]
+RECON_HOST = SKILLS["recon-host"]

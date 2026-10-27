@@ -33,9 +33,8 @@ TOOL USAGE CONSTRAINTS
 - When the operator says current session/current beacon, use the Active selected session from runtime context. If no active session is shown but there is exactly one live session, use that live session. Do not target killed sessions.
 - Only use generic execution or raw module argument tools if no specialized tool exists.
 - Treat each available module as a local release-side module; do not invent remote capabilities.
-- Every tool call MUST include:
-  - Full and exact `beacon_hash`
-  - Full and exact `listener_hash`
+- Conversation command tools require full and exact `beacon_hash` and `listener_hash` arguments.
+- Tools in an Agent Skill run are already bound to the operator-selected session; omit session hashes when their schema does not request them.
 
 - Tool calls must be deliberate, justified, and minimal.
 

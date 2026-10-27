@@ -10,7 +10,7 @@ import pytest
 from agent_core.llm.base import LLMCompletionResult, LLMToolCall
 from agent_core.run_models import AgentRunState
 
-from C2Client.assistant_agent.skills.catalog import IDENTIFY_USER, load_agentic_skill
+from C2Client.assistant_agent.skills.catalog import IDENTIFY_USER, discover_agentic_skills, load_agentic_skill
 from C2Client.assistant_agent.skills.service import C2SkillService
 from C2Client.grpcClient import TeamServerApi_pb2
 
@@ -123,6 +123,7 @@ def test_skill_manifest_allows_optional_requirements_and_rejects_boolean_limits(
     skill = load_agentic_skill(path)
     assert skill.required_tools == ()
     assert "ipConfig" in skill.declared_tools
+    assert discover_agentic_skills(tmp_path)["inspect-host"].objective == "Inspect a host."
 
     manifest.write_text("tool_bundles: [recon.host]\nmax_tool_calls: true\nmax_iterations: 5\n", encoding="utf-8")
     with pytest.raises(ValueError, match="max_tool_calls"):

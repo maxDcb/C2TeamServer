@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from C2Client.assistant_agent.skills.tool_bundles import TOOL_BUNDLES, resolve_tool_bundles
+from C2Client.assistant_agent.capabilities.bundles import TOOL_BUNDLES, resolve_tool_bundles
 
 
 def test_bundle_resolution_preserves_order_and_deduplicates():
@@ -41,7 +41,7 @@ def test_planned_terminal_capabilities_do_not_grant_unregistered_tools():
 
 
 def test_every_shipped_beacon_command_has_a_business_bundle():
-    repository = Path(__file__).resolve().parents[3]
+    repository = Path(__file__).resolve().parents[4]
     command_names = {
         json.loads(path.read_text(encoding="utf-8"))["name"]
         for path in (repository / "core" / "modules").rglob("*.json")

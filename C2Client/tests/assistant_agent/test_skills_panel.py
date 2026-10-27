@@ -82,6 +82,20 @@ def test_agentic_skill_appears_and_uses_selected_session(qtbot, monkeypatch):
     panel.shutdown()
 
 
+def test_recon_skill_appears_with_multiple_capabilities(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    skill_index = panel.skillSelector.findData("recon-host")
+    assert skill_index >= 0
+    panel.skillSelector.setCurrentIndex(skill_index)
+    assert "Agent ·" in panel.skillSelector.currentText()
+    assert "recon.host" in panel.skillHelpButton.toolTip()
+    assert "listC2Listeners" in panel.skillHelpButton.toolTip()
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("recon-host", "beacon-1", "listener-1")]
+    panel.shutdown()
+
+
 def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeypatch):
     panel, grpc_client = make_panel(qtbot, monkeypatch, [
         session("beacon-1", "listener-1"),
