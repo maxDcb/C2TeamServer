@@ -33,9 +33,48 @@ std::string normalize(const std::string& operation, const std::string& input)
 {
     if (operation == "echo")
         return input;
+    nlohmann::json value = nlohmann::json::parse(input, nullptr, false);
+    if (operation == "reload_modules")
+    {
+        if (!value.is_object() || !value.empty())
+            throw JobError(JobErrorCode::invalid_argument, "reload_modules takes no input.");
+        return "{}";
+    }
+    if (operation == "host_artifact")
+    {
+        if (!value.is_object() || value.size() < 2 || value.size() > 3
+            || !value.contains("listener_hash") || !value["listener_hash"].is_string()
+            || !value.contains("artifact_reference") || !value["artifact_reference"].is_string()
+            || value["listener_hash"].get<std::string>().empty()
+            || value["artifact_reference"].get<std::string>().empty()
+            || (value.contains("hosted_filename") && !value["hosted_filename"].is_string()))
+            throw JobError(JobErrorCode::invalid_argument, "Invalid host_artifact input.");
+        for (auto it = value.begin(); it != value.end(); ++it)
+            if (it.key() != "listener_hash" && it.key() != "artifact_reference" && it.key() != "hosted_filename")
+                throw JobError(JobErrorCode::invalid_argument, "Unknown host_artifact field.");
+        return nlohmann::json{
+            {"listener_hash", value["listener_hash"]},
+            {"artifact_reference", value["artifact_reference"]},
+            {"hosted_filename", value.value("hosted_filename", std::string{})}}.dump();
+    }
+    if (operation == "socks_control")
+    {
+        if (!value.is_object() || !value.contains("action") || !value["action"].is_string()
+            || (value.contains("beacon_hash") && !value["beacon_hash"].is_string())
+            || value.size() > 2)
+            throw JobError(JobErrorCode::invalid_argument, "Invalid socks_control input.");
+        for (auto it = value.begin(); it != value.end(); ++it)
+            if (it.key() != "action" && it.key() != "beacon_hash")
+                throw JobError(JobErrorCode::invalid_argument, "Unknown socks_control field.");
+        const std::string action = value["action"].get<std::string>();
+        const std::string beaconHash = value.value("beacon_hash", std::string{});
+        if ((action != "start" && action != "stop" && action != "bind" && action != "unbind")
+            || (action == "bind") != !beaconHash.empty())
+            throw JobError(JobErrorCode::invalid_argument, "Invalid SOCKS action or beacon hash.");
+        return nlohmann::json{{"action", action}, {"beacon_hash", beaconHash}}.dump();
+    }
     if (operation != "session_command")
         throw JobError(JobErrorCode::invalid_argument, "Unknown job operation.");
-    nlohmann::json value = nlohmann::json::parse(input, nullptr, false);
     if (!value.is_object() || !value.contains("command") || !value["command"].is_string()
         || !value.contains("beacon_hash") || !value["beacon_hash"].is_string()
         || !value.contains("listener_hash") || !value["listener_hash"].is_string()
@@ -52,8 +91,9 @@ std::string normalize(const std::string& operation, const std::string& input)
 } // namespace
 
 JobApplicationService::JobApplicationService(std::shared_ptr<IJobRepository> repository,
-    std::size_t maxOutputBytes, SessionCommandDispatcher dispatcher)
-    : m_repository(std::move(repository)), m_maxOutputBytes(maxOutputBytes), m_dispatcher(std::move(dispatcher))
+    std::size_t maxOutputBytes, SessionCommandDispatcher dispatcher, LocalOperationDispatcher localDispatcher)
+    : m_repository(std::move(repository)), m_maxOutputBytes(maxOutputBytes), m_dispatcher(std::move(dispatcher)),
+      m_localDispatcher(std::move(localDispatcher))
 {
     if (!m_repository || !m_maxOutputBytes)
         throw JobError(JobErrorCode::invalid_argument, "A job repository and positive output limit are required.");
@@ -92,6 +132,21 @@ JobExecution JobApplicationService::submit(const std::string& jobId, const std::
     notifyCommitted();
     if (operation == "echo")
         return complete(jobId, true, normalized);
+    if (operation == "host_artifact" || operation == "socks_control" || operation == "reload_modules")
+    {
+        try
+        {
+            const auto result = m_localDispatcher
+                ? m_localDispatcher(execution)
+                : TeamServerOperationResult{false, "No local operation dispatcher is configured."};
+            return complete(jobId, result.ok, result.ok ? result.output : std::string{},
+                result.ok ? std::string{} : "operation_failed", result.ok ? std::string{} : result.output);
+        }
+        catch (const std::exception& error)
+        {
+            return complete(jobId, false, {}, "operation_failed", error.what());
+        }
+    }
 
     try
     {

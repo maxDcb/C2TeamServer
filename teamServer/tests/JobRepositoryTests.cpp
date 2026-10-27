@@ -69,6 +69,40 @@ void testCreateIdempotenceAndReopen()
     }
 }
 
+void testDurableLocalOperations()
+{
+    TempDb temp;
+    const std::string hostInput = R"({"listener_hash":"listener","artifact_reference":"artifact","hosted_filename":"file.bin"})";
+    {
+        auto repository = std::make_shared<SqliteJobRepository>(temp.path());
+        int calls = 0;
+        JobApplicationService application(repository, 65536, {},
+            [&](const JobExecution& job) -> TeamServerOperationResult
+            {
+                ++calls;
+                require(job.operation == "host_artifact", "Wrong local operation dispatched");
+                return {true, "https://example.test/file.bin"};
+            });
+        const auto first = application.submit("host-1", "host_artifact", hostInput, "operator", "assistant");
+        require(first.state == "succeeded", "Local operation did not succeed");
+        require(first.outputInline == "https://example.test/file.bin", "Local output was lost");
+        const auto repeated = application.submit("host-1", "host_artifact", hostInput);
+        require(repeated.outputInline == first.outputInline && calls == 1,
+            "Duplicate local operation was dispatched");
+        expectError([&] { application.submit("host-1", "host_artifact",
+            R"({"listener_hash":"other","artifact_reference":"artifact"})"); }, JobErrorCode::conflict);
+        expectError([&] { application.submit("invalid-bind", "socks_control",
+            R"({"action":"bind"})"); }, JobErrorCode::invalid_argument);
+    }
+    {
+        auto repository = std::make_shared<SqliteJobRepository>(temp.path());
+        JobApplicationService application(repository, 65536, {});
+        const auto recovered = application.submit("host-1", "host_artifact", hostInput);
+        require(recovered.state == "succeeded" && recovered.outputInline == "https://example.test/file.bin",
+            "Completed local operation was lost after restart");
+    }
+}
+
 void testSessionHistorySurvivesRetirementAndRestart()
 {
     TempDb temp;
@@ -244,6 +278,7 @@ int main()
     try
     {
         testCreateIdempotenceAndReopen();
+        testDurableLocalOperations();
         testSessionHistorySurvivesRetirementAndRestart();
         testExistingJobDatabaseGainsSessionHistory();
         testTransitionsAndCursor();

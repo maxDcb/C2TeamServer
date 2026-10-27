@@ -111,6 +111,18 @@ def test_recon_network_appears_with_narrow_capabilities(qtbot, monkeypatch):
     panel.shutdown()
 
 
+def test_teamserver_skill_starts_without_beacon_session(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [])
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("teamserver-inspect"))
+    assert panel.sessionSelector.currentData() == ("*", "*")
+    assert "TeamServer" in panel.sessionSelector.currentText()
+    assert panel.startButton.isEnabled()
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("teamserver-inspect", "*", "*", "")]
+    panel.shutdown()
+
+
 def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeypatch):
     panel, grpc_client = make_panel(qtbot, monkeypatch, [
         session("beacon-1", "listener-1"),

@@ -24,7 +24,7 @@ set(TEAMSERVER_CORE_SOURCES
     teamServer/TeamServerScriptCommandPreparer.cpp
     teamServer/TeamServerShellcodeService.cpp
     teamServer/TeamServerSocksService.cpp
-    teamServer/TeamServerTermLocalService.cpp
+    teamServer/TeamServerLocalOperationService.cpp
     teamServer/TeamServerRuntimeConfig.cpp
     teamServer/TeamServerBootstrap.cpp
     teamServer/TeamServerListenerSessionService.cpp
@@ -212,9 +212,9 @@ if(WITH_TESTS)
     target_link_libraries(testsTeamServerSocksContract PRIVATE MemoryModule PipeHandler)
     set_tests_properties(testsTeamServerSocksContract PROPERTIES TIMEOUT 30 LABELS "functional;transport;socks")
 
-    teamserver_add_test(testsTeamServerTermLocalService
+    teamserver_add_test(testsTeamServerLocalOperationService
         server_core
-        tests/TeamServerTermLocalServiceTests.cpp
+        tests/TeamServerLocalOperationServiceTests.cpp
     )
 
     teamserver_add_test(testsTeamServerListenerSessionService

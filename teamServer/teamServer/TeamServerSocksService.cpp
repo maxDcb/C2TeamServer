@@ -76,32 +76,6 @@ bool defaultPortInUse(unsigned short)
     return false;
 }
 
-std::string joinCommand(const std::vector<std::string>& parts)
-{
-    std::string command;
-    for (const auto& part : parts)
-    {
-        if (!command.empty())
-            command += " ";
-        command += part;
-    }
-    return command;
-}
-
-void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
-{
-    response->set_status(teamserverapi::OK);
-    response->set_result(result);
-    response->clear_message();
-}
-
-void setTerminalError(teamserverapi::TerminalCommandResponse* response, const std::string& result)
-{
-    response->set_status(teamserverapi::KO);
-    response->set_result(result);
-    response->set_message(result);
-}
-
 bool isSocksInitFailure(const std::string& data)
 {
     return data == "fail" || data.rfind("fail:", 0) == 0;
@@ -145,37 +119,23 @@ TeamServerSocksService::~TeamServerSocksService()
     shutdown();
 }
 
-grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string>& splitedCmd, teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerSocksService::control(
+    const std::string& action, const std::string& beaconHash)
 {
     std::lock_guard<std::mutex> lock(m_controlMutex);
-    response->set_status(teamserverapi::OK);
-    response->set_command(joinCommand(splitedCmd));
-    response->set_result("");
-    response->set_data("");
-    response->clear_message();
-
-    if (splitedCmd.size() < 2)
-    {
-        setTerminalError(response, "Error: Socks server command missing.");
-        return grpc::Status::OK;
-    }
-
-    const std::string cmd = splitedCmd[1];
-    if (cmd == "start")
+    if (action == "start")
     {
         if (m_isSocksServerRunning)
         {
             m_logger->warn("Error: Socks server is already running");
-            setTerminalError(response, "Error: Socks server is already running");
-            return grpc::Status::OK;
+            return {false, "Error: Socks server is already running"};
         }
 
         const int port = 1080;
         if (portInUse(static_cast<unsigned short>(port)))
         {
             m_logger->warn("Error: Socks server port already used");
-            setTerminalError(response, "Error: Socks server port already used");
-            return grpc::Status::OK;
+            return {false, "Error: Socks server port already used"};
         }
 
         m_socksServer = createServer(port);
@@ -198,47 +158,42 @@ grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string
         if (m_socksServer->isServerStoped())
         {
             m_logger->warn("Error: Socks server failed to start on port {}", port);
-            setTerminalError(response, "Error: Socks server failed to start on port " + std::to_string(port));
-            return grpc::Status::OK;
+            return {false, "Error: Socks server failed to start on port " + std::to_string(port)};
         }
 
         m_isSocksServerRunning = true;
         m_logger->info("Socks server successfully started on port {}", port);
-        setTerminalOk(response, "Socks server successfully started on port " + std::to_string(port));
-        return grpc::Status::OK;
+        return {true, "Socks server successfully started on port " + std::to_string(port)};
     }
 
-    if (cmd == "stop")
+    if (action == "stop")
     {
         stopServer();
         m_logger->info("Socks server stoped");
-        setTerminalOk(response, "Socks server stoped");
-        return grpc::Status::OK;
+        return {true, "Socks server stoped"};
     }
 
-    if (cmd == "bind")
+    if (action == "bind")
     {
         if (!m_isSocksServerRunning)
         {
             m_logger->warn("Error: Socks server not running");
-            setTerminalError(response, "Error: Socks server not running");
-            return grpc::Status::OK;
+            return {false, "Error: Socks server not running"};
         }
         if (m_isSocksServerBinded.load())
         {
             m_logger->warn("Error: Socks server already bind");
-            setTerminalError(response, "Error: Socks server already bind");
-            return grpc::Status::OK;
+            return {false, "Error: Socks server already bind"};
         }
         // A finished worker remains joinable until its owner joins it.
         // Reap it before replacing the thread or changing its session pointers.
         if (m_socksThread)
             unbindThread();
 
-        if (splitedCmd.size() == 3)
+        if (!beaconHash.empty())
         {
             std::shared_ptr<Listener> listener;
-            std::shared_ptr<Session> session = findSessionByPrefix(splitedCmd[2], listener);
+            std::shared_ptr<Session> session = findSessionByPrefix(beaconHash, listener);
             if (session)
             {
                 m_socksListener = std::move(listener);
@@ -248,27 +203,23 @@ grpc::Status TeamServerSocksService::handleCommand(const std::vector<std::string
                 m_isSocksServerBinded.store(true);
                 m_socksThread = std::make_unique<std::thread>(&TeamServerSocksService::run, this);
                 m_logger->info("Socks server sucessfully binded");
-                setTerminalOk(response, "Socks server sucessfully binded\nThink about setting the sleep time of the beacon to 0.001 to force a good throughput");
-                return grpc::Status::OK;
+                return {true, "Socks server sucessfully binded\nThink about setting the sleep time of the beacon to 0.001 to force a good throughput"};
             }
         }
 
         m_logger->warn("Error: Socks server bind failed, session not found");
-        setTerminalError(response, "Error: Socks server bind failed, session not found");
-        return grpc::Status::OK;
+        return {false, "Error: Socks server bind failed, session not found"};
     }
 
-    if (cmd == "unbind")
+    if (action == "unbind")
     {
         unbindThread();
         m_logger->info("Socks server successfully unbinding");
-        setTerminalOk(response, "Socks server successfully unbinding");
-        return grpc::Status::OK;
+        return {true, "Socks server successfully unbinding"};
     }
 
     m_logger->warn("Error: Socks server command not found.");
-    setTerminalError(response, "Error: Socks server command not found.");
-    return grpc::Status::OK;
+    return {false, "Error: Socks server command not found."};
 }
 
 void TeamServerSocksService::shutdown()

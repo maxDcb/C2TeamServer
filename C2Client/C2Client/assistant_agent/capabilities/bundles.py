@@ -23,11 +23,27 @@ class BundleResolution:
     unavailable_tools: tuple[str, ...]
 
 
+TEAMSERVER_TOOL_NAMES = frozenset({
+    "listC2Listeners", "infoListener", "listC2Artifacts", "getBeaconBinary",
+    "hostArtifact", "uploadListenerFile", "installTool", "installToolBundle",
+    "socksControl", "reloadModules",
+})
+
+
 # CommandSpec names are kept explicit so a newly installed beacon module never
 # gains access to an existing skill merely by appearing in the server catalog.
-# Client and TeamServer operations below are included in the inventory even when
-# their typed Agent Skill adapters have not yet been registered.
+# Client and TeamServer operations are granted only when an adapter is registered.
 TOOL_BUNDLES: dict[str, ToolBundle] = {
+    "teamserver.inspect": ToolBundle("teamserver.inspect", (
+        "listC2Listeners", "infoListener", "listC2Artifacts", "getBeaconBinary",
+    )),
+    "teamserver.publish": ToolBundle("teamserver.publish", (
+        "listC2Listeners", "infoListener", "listC2Artifacts", "hostArtifact",
+        "uploadListenerFile", "installTool", "installToolBundle",
+    )),
+    "teamserver.control": ToolBundle("teamserver.control", (
+        "socksControl", "reloadModules",
+    )),
     "recon.identity": ToolBundle("recon.identity", ("whoami",)),
     "recon.network": ToolBundle("recon.network", (
         "ipConfig", "hostContext", "netstat", "ps", "listC2Listeners",
@@ -55,7 +71,7 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     "payload_delivery": ToolBundle("payload_delivery", (
         "upload", "listC2Artifacts", "downloadC2Artifact", "uploadC2Artifact",
         "deleteC2Artifact", "hostArtifact", "generateDropper", "getBeaconBinary",
-        "putIntoUploadDir", "batcaveUpload", "batcaveUploadBundle",
+        "uploadListenerFile", "installTool", "installToolBundle",
     )),
     "credentials": ToolBundle("credentials", (
         "makeToken", "kerberosUseTicket", "keyLogger", "miniDump",

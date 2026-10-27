@@ -20,7 +20,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .grpcClient import TeamServerApi_pb2
 from .console_style import (
     CONSOLE_COLORS,
     apply_console_output_style,
@@ -30,7 +29,8 @@ from .console_style import (
 )
 from .autocomplete import CompletionInput, completion_options
 from .env import env_path
-from .grpc_status import is_response_ok, terminal_response_text
+from .grpc_status import is_response_ok
+from .operations import TeamServerOperations
 from .panel_style import apply_dark_panel_style
 from .TerminalModules.Batcave import batcave
 
@@ -184,20 +184,8 @@ HistoryFileName = ".termHistory"
 HttpType = "http"
 HttpsType = "https"
 
-GrpcGetBeaconBinaryInstruction = "getBeaconBinary"
-GrpcHostArtifactInstruction = "hostArtifact"
-GrpcPutIntoUploadDirInstruction = "putIntoUploadDir"
-GrpcInfoListenerInstruction = "infoListener"
-GrpcBatcaveUploadToolInstruction = "batcaveUpload"
-GrpcBatcaveUploadBundleInstruction = "batcaveUploadBundle"
-GrpcSocksInstruction = "socks"
-GrpcReloadModulesInstruction = "reloadModules";
-
 BeaconFileWindowsPattern = "Beacon-{}.exe"
 BeaconFileLinuxGenerated = "Beacon-linux"
-
-def isTerminalResponseError(response):
-    return not is_response_ok(response)
 
 HelpInstruction = "help"
 
@@ -776,16 +764,17 @@ def build_terminal_completer_data(grpcClient: Any = None) -> list[tuple[str, lis
     artifacts: list[Any] = []
     sessions: list[Any] = []
     if grpcClient is not None:
+        operations = TeamServerOperations(grpcClient)
         try:
-            listeners = list(grpcClient.listListeners())
+            listeners = operations.list_listeners()
         except Exception as exc:
             logger.debug("Terminal autocomplete could not load listeners: %s", exc)
         try:
-            artifacts = list(grpcClient.listArtifacts())
+            artifacts = operations.list_artifacts()
         except Exception as exc:
             logger.debug("Terminal autocomplete could not load artifacts: %s", exc)
         try:
-            sessions = list(grpcClient.listSessions())
+            sessions = operations.list_sessions()
         except Exception as exc:
             logger.debug("Terminal autocomplete could not load sessions: %s", exc)
 
@@ -1121,52 +1110,26 @@ class Terminal(QWidget):
 
 
     def runReloadModules(self, commandLine, instructions):
-        commandTeamServer = GrpcReloadModulesInstruction
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-        result = terminal_response_text(resultTermCommand)
-        self.printInTerminal(commandLine, result)
-        return   
-        
+        outcome = TeamServerOperations(self.grpcClient).reload_modules()
+        self.printInTerminal(commandLine,
+            outcome.output if not outcome.outcome_unknown else
+            f"{outcome.output} (job_id: {outcome.job_id})")
 
     def runSocks(self, commandLine, instructions):
         if len(instructions) < 2:
             self.printInTerminal(commandLine, SocksHelp)
-            return;
-
-        cmd = instructions[1].lower()
-
-        if cmd == "start" or cmd == "stop" or cmd == "unbind":
-
-            commandTeamServer = GrpcSocksInstruction + " " + cmd
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-            result = terminal_response_text(resultTermCommand)
-            self.printInTerminal(commandLine, result)
-            return   
-            
-        elif cmd == "bind":
-
-            if len(instructions) < 3:
-                self.printInTerminal(commandLine, SocksHelp)
-                return;
-
-            beaconHash = instructions[2]
-
-            commandTeamServer = GrpcSocksInstruction + " " + cmd + " " + beaconHash
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-            result = terminal_response_text(resultTermCommand)
-            self.printInTerminal(commandLine, result)
-        
-        else:
-            self.printInTerminal(commandLine, ErrorCmdUnknow)
-            return;
-
-        return
+            return
+        action = instructions[1].lower()
+        if action not in {"start", "stop", "unbind", "bind"} or (
+            action == "bind" and len(instructions) < 3
+        ):
+            self.printInTerminal(commandLine, SocksHelp)
+            return
+        beacon_hash = instructions[2] if action == "bind" else ""
+        outcome = TeamServerOperations(self.grpcClient).control_socks(action, beacon_hash)
+        self.printInTerminal(commandLine,
+            outcome.output if not outcome.outcome_unknown else
+            f"{outcome.output} (job_id: {outcome.job_id})")
 
     #
     # Batcave
@@ -1189,18 +1152,10 @@ class Terminal(QWidget):
                 self.printInTerminal(commandLine, ErrorFileNotFound)
                 return  
 
-            try:
-                commandTeamServer = GrpcBatcaveUploadToolInstruction + " " + quoteServerToken(filename)
-            except ValueError as exc:
-                self.printInTerminal(commandLine, f"Error: {exc}")
+            result = TeamServerOperations(self.grpcClient).install_tool(filename, payload)
+            if not is_response_ok(result):
+                self.printInTerminal(commandLine, result.message)
                 return
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-            result = terminal_response_text(resultTermCommand)
-            if isTerminalResponseError(resultTermCommand):
-                self.printInTerminal(commandLine, result)
-                return   
 
             self.printInTerminal(commandLine, f"Added {filename} to TeamServer Tools.")
             return    
@@ -1227,17 +1182,8 @@ class Terminal(QWidget):
                 names.add(filename)
                 files.append((filename, payload))
 
-            manifest = json.dumps(
-                [[filename, len(payload)] for filename, payload in files],
-                separators=(",", ":"),
-            ).encode("utf-8")
-            bundlePayload = manifest + b"\n" + b"".join(payload for _, payload in files)
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(
-                command=GrpcBatcaveUploadBundleInstruction, data=bundlePayload,
-            )
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-            result = terminal_response_text(resultTermCommand)
-            self.printInTerminal(commandLine, result)
+            result = TeamServerOperations(self.grpcClient).install_tool_bundle(files)
+            self.printInTerminal(commandLine, result.message)
             return
 
         elif cmd == "Search".lower():
@@ -1255,37 +1201,16 @@ class Terminal(QWidget):
     def runHost(self, commandLine, instructions):
         if len(instructions) < 3:
             self.printInTerminal(commandLine, HostHelp)
-            return;
-
-        artifactReference = _host_artifact_reference_from_token(instructions[1])
-        hostListenerHash = instructions[2]
-        hostedFilename = instructions[3] if len(instructions) >= 4 else ""
-
-        try:
-            arguments = [hostListenerHash, artifactReference]
-            if hostedFilename:
-                arguments.append(hostedFilename)
-            commandTeamServer = GrpcHostArtifactInstruction + " " + " ".join(
-                quoteServerToken(argument) for argument in arguments
-            )
-        except ValueError as exc:
-            self.printInTerminal(commandLine, f"Error: {exc}")
-            return
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-        result = terminal_response_text(resultTermCommand)
-        if isTerminalResponseError(resultTermCommand):
-            self.printInTerminal(commandLine, result)
-            return  
-
-        hostedUrl = result.strip()
-        if not hostedUrl.startswith(("http://", "https://")):
-            self.printInTerminal(commandLine, "Error: TeamServer did not return a hosted artifact URL.")
             return
 
-        self.printInTerminal(commandLine, hostedUrl)
-
+        artifact_reference = _host_artifact_reference_from_token(instructions[1])
+        listener_hash = instructions[2]
+        hosted_filename = instructions[3] if len(instructions) >= 4 else ""
+        outcome = TeamServerOperations(self.grpcClient).host_artifact(
+            listener_hash, artifact_reference, hosted_filename)
+        self.printInTerminal(commandLine,
+            outcome.output if not outcome.outcome_unknown else
+            f"{outcome.output} (job_id: {outcome.job_id})")
 
     def _handle_dropper_config(self, commandLine, instructions):
         if len(instructions) == 2:
@@ -1551,26 +1476,16 @@ class DropperWorker(QObject):
 
     def _run(self):
 
-        commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerDownload
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
+        operations = TeamServerOperations(self.grpcClient)
+        listener_info = operations.get_listener_info(self.listenerDownload)
         logger.debug("DropperWorker GenerateAndHostGeneric start")
-
-        result = terminal_response_text(resultTermCommand)
-        if isTerminalResponseError(resultTermCommand):
-            self._finish(result)
-            return        
-
-        results = result.split("\n")
-        if len(results)<4:
-            self._finish("Error: invalid listener response from TeamServer.")
+        if not is_response_ok(listener_info):
+            self._finish(listener_info.message)
             return
-
-        schemeDownload = results[0].lower()
-        ipDownload = results[1]
-        portDownload = results[2]
-        downloadPath = results[3]
+        schemeDownload = listener_info.type.lower()
+        ipDownload = listener_info.address
+        portDownload = listener_info.port
+        downloadPath = listener_info.download_uri
         if not downloadPath:
             self._finish(ErrorListener)
             return
@@ -1579,23 +1494,13 @@ class DropperWorker(QObject):
             downloadPath = downloadPath[1:]
 
         if  self.listenerBeacon != self.listenerDownload:
-            commandTeamServer = GrpcInfoListenerInstruction+" "+self.listenerBeacon
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)    
-
-            result = terminal_response_text(resultTermCommand)
-            if isTerminalResponseError(resultTermCommand):
-                self._finish(result)
-                return   
-
-            results = result.split("\n")
-            if len(results)<4:
-                self._finish("Error: invalid listener response from TeamServer.")
+            listener_info = operations.get_listener_info(self.listenerBeacon)
+            if not is_response_ok(listener_info):
+                self._finish(listener_info.message)
                 return
-
-            scheme = results[0]
-            ip = results[1]
-            port = results[2]
+            scheme = listener_info.type
+            ip = listener_info.address
+            port = listener_info.port
         else:
             scheme=schemeDownload
             ip=ipDownload
@@ -1613,20 +1518,15 @@ class DropperWorker(QObject):
                 except AttributeError:
                     targetOs = "windows"
 
-        commandTeamServer = GrpcGetBeaconBinaryInstruction+" "+self.listenerBeacon+" "+targetOs
-        if targetOs == "windows":
-            commandTeamServer += " " + self.targetArch
-        termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer)
-        resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
-
-        result = terminal_response_text(resultTermCommand)
-        if isTerminalResponseError(resultTermCommand):
-            self._finish(result)
-            return   
+        binary = operations.get_beacon_binary(
+            self.listenerBeacon, targetOs, self.targetArch if targetOs == "windows" else "")
+        if not is_response_ok(binary):
+            self._finish(binary.message)
+            return
 
         beaconFilePath = makeBeaconFilePath(targetOs, self.targetArch)
         with open(beaconFilePath, "wb") as beaconFile:
-            beaconFile.write(resultTermCommand.data)
+            beaconFile.write(binary.data)
 
         beaconArg = ip+" "+port
         if scheme==HttpType or scheme==HttpsType:
@@ -1686,15 +1586,11 @@ class DropperWorker(QObject):
                 return  
 
             filename = os.path.basename(dropperPath)
-            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            upload = operations.upload_listener_file(self.listenerDownload, filename, payload)
+            if not is_response_ok(upload):
+                self._finish(upload.message)
+                return
 
-            result = terminal_response_text(resultTermCommand)
-            if isTerminalResponseError(resultTermCommand):
-                self._finish(result)
-                return  
-            
         for shellcodePath in shellcodesPath:
             try:
                 with open(shellcodePath, mode='rb') as fileDesc:
@@ -1704,15 +1600,11 @@ class DropperWorker(QObject):
                 return  
 
             filename = os.path.basename(shellcodePath)
-            commandTeamServer = GrpcPutIntoUploadDirInstruction+" "+self.listenerDownload+" "+filename
-            termCommand = TeamServerApi_pb2.TerminalCommandRequest(command=commandTeamServer, data=payload)
-            resultTermCommand = self.grpcClient.executeTerminalCommand(termCommand)
+            upload = operations.upload_listener_file(self.listenerDownload, filename, payload)
+            if not is_response_ok(upload):
+                self._finish(upload.message)
+                return
 
-            result = terminal_response_text(resultTermCommand)
-            if isTerminalResponseError(resultTermCommand):
-                self._finish(result)
-                return  
-                
         result = cmdToRun 
         self._finish(result)
         return

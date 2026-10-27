@@ -65,7 +65,7 @@ BUILD_TARGETS=(
     testsTeamServerCommandCatalog
     testsTeamServerSocksService
     TestsSocksServer
-    testsTeamServerTermLocalService
+    testsTeamServerLocalOperationService
     testsTeamServerListenerSessionService
     testsTeamServerHttpListenerTransport
     testsModuleCmd
@@ -203,7 +203,7 @@ cpp_test "TEAMSERVER-ARTIFACT-CATALOG-001 TEAMSERVER-GENERATED-ARTIFACTS-001 ART
 cpp_test "TEAMSERVER-COMMAND-CATALOG-001 MODULE-COMMANDSPEC-COVERAGE-001 COMMON-HELP-001" "testsTeamServerCommandCatalog"
 cpp_test "TEAMSERVER-SOCKS-SERVICE-001" "testsTeamServerSocksService"
 cpp_test "LIBSOCKS5-PROTOCOL-001" "TestsSocksServer"
-cpp_test "TEAMSERVER-HOSTED-ARTIFACTS-001 C2CLIENT-TERMINAL-HOST-001" "testsTeamServerTermLocalService"
+cpp_test "TEAMSERVER-HOSTED-ARTIFACTS-001 C2CLIENT-TERMINAL-HOST-001" "testsTeamServerLocalOperationService"
 cpp_test "TEAMSERVER-LISTENER-SESSION-SERVICE-001 TEAMSERVER-FILE-TRANSFER-001 BEACON-CORE-MODULE-LIFECYCLE-001 COMMON-LOADMODULE-001 COMMON-UNLOADMODULE-001 COMMON-LISTMODULE-001 BEACON-CORE-TASK-QUEUE-001" "testsTeamServerListenerSessionService"
 cpp_test "LISTENER-HTTPS-001" "testsTeamServerHttpListenerTransport"
 

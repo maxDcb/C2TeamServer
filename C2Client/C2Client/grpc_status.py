@@ -28,10 +28,3 @@ def operation_ack_text(response: Any, success_fallback: str = "", error_fallback
     if is_response_ok(response):
         return response_message(response, success_fallback)
     return response_message(response, error_fallback)
-
-
-def terminal_response_text(response: Any, error_fallback: str = "Terminal command failed.") -> str:
-    result = _to_text(getattr(response, "result", ""))
-    if is_response_ok(response):
-        return result
-    return response_message(response, result or error_fallback)

@@ -24,6 +24,14 @@ The effective tool list is the intersection of the declared bundles, registered
 adapters, and platform-compatible commands. A new skill can combine existing
 bundles without adding Python code. A new C2 operation still needs a typed adapter.
 
+`target: teamserver` defines a skill that runs with the **TeamServer · no beacon
+session** target. It receives only registered TeamServer adapters and does not load
+beacon command specifications. The `teamserver.inspect`, `teamserver.publish`, and
+`teamserver.control` bundles group the typed inventory, publication, and control
+operations. `teamserver-inspect` checks local inventory in read-only mode.
+`teamserver-publish-test` exercises only the publication action and destination
+explicitly named in **Additional task context**, using existing artifact IDs.
+
 `recon-network` uses the narrow `recon.network` bundle: `ipConfig`,
 `hostContext`, `netstat`, optional `ps`, and `listC2Listeners`. The model chooses
 the command order from observed results. Its report compares beacon-host evidence
@@ -49,16 +57,18 @@ mark **No result** to continue toward a partial report, or **Mark failed** to st
 The client performs LLM work only while it is running; TeamServer may receive a
 late beacon result while the client is closed.
 
-Skills can use the typed TeamServer tools already available to the conversation:
-`listC2Listeners`, `listC2Artifacts`, `hostArtifact`, and `socksControl`, when their
-bundles select them. `hostArtifact` and `socksControl` change TeamServer state. The
-client records intent before invoking them. If the client is interrupted or loses
-the terminal response and cannot establish the action's outcome, it records
-`outcome_unknown`, avoids
-automatic replay, and makes the report partial. The operator must inspect TeamServer
-state before deciding whether to run the action again. These terminal actions do not
-have V2 job IDs. Other terminal operations need typed adapters before a skill can call
-them; the skill never receives a free-form terminal command tool.
+Skills can use typed TeamServer operations selected by their bundles:
+`listC2Listeners`, `infoListener`, `listC2Artifacts`, `getBeaconBinary`,
+`hostArtifact`, `uploadListenerFile`, `installTool`, `installToolBundle`,
+`socksControl`, and `reloadModules`. Binary lookup returns a size and digest, not
+the binary itself. File actions download an existing artifact by ID before sending
+its bytes to the typed RPC; they accept an explicit safe destination filename.
+`hostArtifact`, `socksControl`, and `reloadModules` have durable V2 job receipts.
+The client saves the job ID before dispatch and can resolve an interrupted action
+from that receipt. File actions return a direct acknowledgement and have no job
+receipt. If interrupted, their outcome is marked unknown and they are not replayed
+automatically. The operator should inspect TeamServer state before retrying. The
+skill has no free-form TeamServer terminal command tool.
 
 Reports contain a plain-English summary, findings cited by `source_id`, limitations,
 and exact job output retained in the local run snapshot. Runs are stored under

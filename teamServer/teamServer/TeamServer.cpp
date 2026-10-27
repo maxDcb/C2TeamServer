@@ -9,7 +9,6 @@
 #include "TeamServerCommandCatalog.hpp"
 #include "TeamServerCommandCatalogService.hpp"
 #include "TeamServerCommandPreparationService.hpp"
-#include "TeamServerCommandLine.hpp"
 #include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerFileArtifactService.hpp"
 #include "TeamServerFileTransferCommandPreparer.hpp"
@@ -24,7 +23,7 @@
 #include "TeamServerScriptCommandPreparer.hpp"
 #include "TeamServerShellcodeService.hpp"
 #include "TeamServerSocksService.hpp"
-#include "TeamServerTermLocalService.hpp"
+#include "TeamServerLocalOperationService.hpp"
 #include "TeamServerRuntimeConfig.hpp"
 #include "JobApplicationService.hpp"
 #include "SqliteJobRepository.hpp"
@@ -216,6 +215,22 @@ TeamServer::TeamServer(const nlohmann::json& config)
             const auto status = m_listenerSessionService->sendSessionCommand(command, &ack);
             if (!status.ok()) return status.error_message();
             return ack.status() == teamserverapi::OK ? std::string{} : ack.message();
+        },
+        [this](const JobExecution& job) -> TeamServerOperationResult
+        {
+            const auto input = json::parse(job.normalizedInput);
+            if (job.operation == "host_artifact")
+                return m_localOperationService->hostArtifact(
+                    input.at("listener_hash").get<std::string>(),
+                    input.at("artifact_reference").get<std::string>(),
+                    input.at("hosted_filename").get<std::string>());
+            if (job.operation == "reload_modules")
+                return m_localOperationService->reloadModules();
+            if (job.operation == "socks_control")
+                return m_socksService->control(
+                    input.at("action").get<std::string>(),
+                    input.at("beacon_hash").get<std::string>());
+            return {false, "Unknown local operation."};
         });
     m_listenerSessionService->setJobResultHandler([this](const teamserverapi::CommandResult& result)
     {
@@ -290,17 +305,13 @@ TeamServer::TeamServer(const nlohmann::json& config)
         m_moduleCmd,
         std::move(commandPreparers),
         m_credentialVaultService);
-    m_termLocalService = std::make_unique<TeamServerTermLocalService>(
+    m_localOperationService = std::make_unique<TeamServerLocalOperationService>(
         m_logger,
         m_config,
         runtimeConfig,
-        m_listeners,
-        m_credentials,
         m_moduleCmd,
         [this]()
         { return m_moduleLoader->loadModules(); },
-        m_credentialVaultService,
-        &m_listenersMutex,
         m_listenerArtifactService.get(),
         &m_moduleCmdMutex);
 
@@ -590,6 +601,11 @@ grpc::Status TeamServer::SubmitJob(grpc::ServerContext* context, const teamserve
         writeAudit(context, operatorUsername, "SubmitJob", "denied", details);
         return authStatus;
     }
+    if (request->operation() != "echo" && request->operation() != "session_command")
+    {
+        writeAudit(context, operatorUsername, "SubmitJob", "rejected", details);
+        return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Use the typed RPC for this operation.");
+    }
     if (request->operation() == "session_command")
     {
         const json input = json::parse(request->input(), nullptr, false);
@@ -751,88 +767,175 @@ std::string getIPAddress(const std::string& interface)
     return ipAddress;
 }
 
-const std::string SocksInstruction_ = "socks";
 
-grpc::Status TeamServer::ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response)
+grpc::Status TeamServer::HostArtifact(grpc::ServerContext* context,
+    const teamserverapi::HostArtifactRequest* request, teamserverapi::JobExecutionRecord* response)
 {
     std::string actor;
     auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
     if (!authStatus.ok())
     {
-        writeAudit(context, actor, "ExecuteTerminalCommand", "denied");
+        writeAudit(context, actor, "HostArtifact", "denied");
         return authStatus;
     }
-    writeAudit(context, actor, "ExecuteTerminalCommand", "requested");
-
-    std::string auditedInstruction;
-    const auto auditedReturn = [&](grpc::Status status)
+    const json details = {{"job_id", request->job_id()}, {"listener_hash", request->listener_hash()},
+        {"artifact_reference", request->artifact_reference()}};
+    writeAudit(context, actor, "HostArtifact", "requested", details);
+    try
     {
-        json details = json::object();
-        if (!auditedInstruction.empty()) details["instruction"] = auditedInstruction;
-        writeAudit(context, actor, "ExecuteTerminalCommand",
-            auditOutcome(status, response->status()), details);
-        return status;
-    };
-
-    m_logger->trace("ExecuteTerminalCommand");
-
-    std::string cmd = command->command();
-    m_logger->debug("ExecuteTerminalCommand received");
-
-    std::vector<std::string> splitedCmd;
-    const bool validCommand = TeamServerCommandLine::splitInput(cmd, splitedCmd);
-
-    teamserverapi::TerminalCommandResponse responseTmp;
-    std::string none = "";
-    responseTmp.set_status(teamserverapi::KO);
-    responseTmp.set_command(cmd);
-    responseTmp.set_result(none);
-    responseTmp.set_data(none);
-
-    if (!validCommand)
-    {
-        responseTmp.set_result("Error: Unclosed single quote.");
-        responseTmp.set_message("Invalid terminal command.");
-        *response = responseTmp;
-        return auditedReturn(grpc::Status::OK);
+        const json input = {{"listener_hash", request->listener_hash()},
+            {"artifact_reference", request->artifact_reference()},
+            {"hosted_filename", request->hosted_filename()}};
+        copyJob(m_jobApplication->submit(request->job_id(), "host_artifact",
+            input.dump(), actor, request->origin()), response);
     }
+    catch (const JobError& error)
+    {
+        writeAudit(context, actor, "HostArtifact", "error", details);
+        return jobStatus(error);
+    }
+    writeAudit(context, actor, "HostArtifact", response->state(), details);
+    return grpc::Status::OK;
+}
 
-    if (splitedCmd.empty())
+grpc::Status TeamServer::ControlSocks(grpc::ServerContext* context,
+    const teamserverapi::SocksControlRequest* request, teamserverapi::JobExecutionRecord* response)
+{
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!authStatus.ok())
     {
-        responseTmp.set_result("Error: empty command.");
-        responseTmp.set_message("Empty terminal command.");
-        *response = responseTmp;
-        return auditedReturn(grpc::Status::OK);
+        writeAudit(context, actor, "ControlSocks", "denied");
+        return authStatus;
     }
+    const json details = {{"job_id", request->job_id()}, {"action", request->action()},
+        {"beacon_hash", request->beacon_hash()}};
+    writeAudit(context, actor, "ControlSocks", "requested", details);
+    try
+    {
+        const json input = {{"action", request->action()}, {"beacon_hash", request->beacon_hash()}};
+        copyJob(m_jobApplication->submit(request->job_id(), "socks_control",
+            input.dump(), actor, request->origin()), response);
+    }
+    catch (const JobError& error)
+    {
+        writeAudit(context, actor, "ControlSocks", "error", details);
+        return jobStatus(error);
+    }
+    writeAudit(context, actor, "ControlSocks", response->state(), details);
+    return grpc::Status::OK;
+}
 
-    string instruction = splitedCmd[0];
-    if (m_listenerArtifactService->canHandle(instruction) ||
-        m_termLocalService->canHandle(instruction) || instruction == SocksInstruction_)
-        auditedInstruction = instruction;
-    if (m_listenerArtifactService->canHandle(instruction))
+grpc::Status TeamServer::ReloadModules(grpc::ServerContext* context,
+    const teamserverapi::OperationRequest* request, teamserverapi::JobExecutionRecord* response)
+{
+    std::string actor;
+    auto authStatus = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!authStatus.ok())
     {
-        return auditedReturn(m_listenerArtifactService->handleCommand(instruction, splitedCmd, *command, response));
+        writeAudit(context, actor, "ReloadModules", "denied");
+        return authStatus;
     }
-    else if (m_termLocalService->canHandle(instruction))
+    const json details = {{"job_id", request->job_id()}};
+    writeAudit(context, actor, "ReloadModules", "requested", details);
+    try
     {
-        return auditedReturn(m_termLocalService->handleCommand(instruction, splitedCmd, *command, response));
+        copyJob(m_jobApplication->submit(request->job_id(), "reload_modules", "{}",
+            actor, request->origin()), response);
     }
-    else if (instruction == SocksInstruction_)
+    catch (const JobError& error)
     {
-        m_logger->debug("SOCKS terminal command received");
-        return auditedReturn(m_socksService->handleCommand(splitedCmd, response));
+        writeAudit(context, actor, "ReloadModules", "error", details);
+        return jobStatus(error);
     }
-    else
-    {
-        responseTmp.set_result("Error: not implemented.");
-        responseTmp.set_message("Terminal command not implemented.");
-        *response = responseTmp;
-        return auditedReturn(grpc::Status::OK);
-    }
+    writeAudit(context, actor, "ReloadModules", response->state(), details);
+    return grpc::Status::OK;
+}
 
-    *response = responseTmp;
+grpc::Status TeamServer::GetListenerInfo(grpc::ServerContext* context,
+    const teamserverapi::ListenerSelector* request, teamserverapi::ListenerInfoResponse* response)
+{
+    std::string actor;
+    auto auth = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!auth.ok())
+    {
+        writeAudit(context, actor, "GetListenerInfo", "denied");
+        return auth;
+    }
+    m_listenerArtifactService->getListenerInfo(request->listener_hash(), response);
+    writeAudit(context, actor, "GetListenerInfo", response->status() == teamserverapi::OK ? "succeeded" : "failed");
+    return grpc::Status::OK;
+}
 
-    return auditedReturn(grpc::Status::OK);
+grpc::Status TeamServer::GetBeaconBinary(grpc::ServerContext* context,
+    const teamserverapi::BeaconBinaryRequest* request, teamserverapi::BeaconBinaryResponse* response)
+{
+    std::string actor;
+    auto auth = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!auth.ok())
+    {
+        writeAudit(context, actor, "GetBeaconBinary", "denied");
+        return auth;
+    }
+    m_listenerArtifactService->getBeaconBinary(request->listener_hash(), request->target_os(),
+        request->target_arch(), response);
+    writeAudit(context, actor, "GetBeaconBinary", response->status() == teamserverapi::OK ? "succeeded" : "failed");
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::UploadListenerFile(grpc::ServerContext* context,
+    const teamserverapi::ListenerFileRequest* request, teamserverapi::OperationAck* response)
+{
+    std::string actor;
+    auto auth = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!auth.ok())
+    {
+        writeAudit(context, actor, "UploadListenerFile", "denied");
+        return auth;
+    }
+    const auto result = m_localOperationService->uploadListenerFile(request->listener_hash(), request->filename(), request->data());
+    response->set_status(result.ok ? teamserverapi::OK : teamserverapi::KO);
+    response->set_message(result.output);
+    writeAudit(context, actor, "UploadListenerFile", result.ok ? "succeeded" : "failed");
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::InstallTool(grpc::ServerContext* context,
+    const teamserverapi::ToolFile* request, teamserverapi::OperationAck* response)
+{
+    std::string actor;
+    auto auth = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!auth.ok())
+    {
+        writeAudit(context, actor, "InstallTool", "denied");
+        return auth;
+    }
+    const auto result = m_localOperationService->installTool(request->filename(), request->data());
+    response->set_status(result.ok ? teamserverapi::OK : teamserverapi::KO);
+    response->set_message(result.output);
+    writeAudit(context, actor, "InstallTool", result.ok ? "succeeded" : "failed");
+    return grpc::Status::OK;
+}
+
+grpc::Status TeamServer::InstallToolBundle(grpc::ServerContext* context,
+    const teamserverapi::ToolBundleRequest* request, teamserverapi::OperationAck* response)
+{
+    std::string actor;
+    auto auth = m_authManager->ensureAuthenticated(context->client_metadata(), &actor);
+    if (!auth.ok())
+    {
+        writeAudit(context, actor, "InstallToolBundle", "denied");
+        return auth;
+    }
+    std::vector<std::pair<std::string, std::string>> files;
+    files.reserve(static_cast<std::size_t>(request->files_size()));
+    for (const auto& file : request->files())
+        files.emplace_back(file.filename(), file.data());
+    const auto result = m_localOperationService->installToolBundle(files);
+    response->set_status(result.ok ? teamserverapi::OK : teamserverapi::KO);
+    response->set_message(result.output);
+    writeAudit(context, actor, "InstallToolBundle", result.ok ? "succeeded" : "failed");
+    return grpc::Status::OK;
 }
 
 int TeamServer::prepMsg(const std::string& input, C2Message& c2Message, bool isWindows, const std::string& windowsArch)

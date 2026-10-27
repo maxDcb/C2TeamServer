@@ -112,19 +112,54 @@ def test_grpc_client_lists_artifacts(tmp_path, monkeypatch):
     assert events == [("ListArtifacts", True, "")]
 
 
-def test_terminal_rpc_uses_configurable_deadline(monkeypatch):
+def test_listener_info_rpc_uses_configurable_deadline(monkeypatch):
     client = object.__new__(GrpcClient)
     client.stub = mock.MagicMock()
     client.metadata = []
     client._unary_rpc = lambda operation, call: call()
     monkeypatch.setenv("C2_GRPC_TERMINAL_TIMEOUT_SEC", "7")
 
-    command = TeamServerApi_pb2.TerminalCommandRequest(command="reloadModules")
-    client.executeTerminalCommand(command)
+    request = TeamServerApi_pb2.ListenerSelector(listener_hash="listener")
+    client.getListenerInfo(request)
+    client.stub.GetListenerInfo.assert_called_once_with(request, metadata=[], timeout=7)
 
-    client.stub.ExecuteTerminalCommand.assert_called_once_with(
-        command, metadata=[], timeout=7,
-    )
+
+def test_typed_operations_use_their_own_rpcs(monkeypatch):
+    client = object.__new__(GrpcClient)
+    client.stub = mock.MagicMock()
+    client.metadata = []
+    client._audited_rpc = lambda _operation, call, _details: call()
+    client._unary_rpc = lambda _operation, call: call()
+    monkeypatch.setenv("C2_GRPC_TERMINAL_TIMEOUT_SEC", "7")
+
+    host = TeamServerApi_pb2.HostArtifactRequest(job_id="host-1", listener_hash="listener",
+                                                  artifact_reference="artifact")
+    socks = TeamServerApi_pb2.SocksControlRequest(job_id="socks-1", action="start")
+    reload = TeamServerApi_pb2.OperationRequest(job_id="reload-1")
+    client.hostArtifact(host)
+    client.controlSocks(socks)
+    client.reloadModules(reload)
+
+    client.stub.HostArtifact.assert_called_once_with(host, metadata=[], timeout=7)
+    client.stub.ControlSocks.assert_called_once_with(socks, metadata=[], timeout=7)
+    client.stub.ReloadModules.assert_called_once_with(reload, metadata=[], timeout=7)
+
+    listener = TeamServerApi_pb2.ListenerSelector(listener_hash="listener")
+    binary = TeamServerApi_pb2.BeaconBinaryRequest(listener_hash="listener", target_os="windows")
+    upload = TeamServerApi_pb2.ListenerFileRequest(listener_hash="listener", filename="payload.bin", data=b"data")
+    tool = TeamServerApi_pb2.ToolFile(filename="tool.bin", data=b"data")
+    bundle = TeamServerApi_pb2.ToolBundleRequest(files=[tool])
+    client.getListenerInfo(listener)
+    client.getBeaconBinary(binary)
+    client.uploadListenerFile(upload)
+    client.installTool(tool)
+    client.installToolBundle(bundle)
+
+    client.stub.GetListenerInfo.assert_called_once_with(listener, metadata=[], timeout=7)
+    client.stub.GetBeaconBinary.assert_called_once_with(binary, metadata=[], timeout=7)
+    client.stub.UploadListenerFile.assert_called_once_with(upload, metadata=[], timeout=7)
+    client.stub.InstallTool.assert_called_once_with(tool, metadata=[], timeout=7)
+    client.stub.InstallToolBundle.assert_called_once_with(bundle, metadata=[], timeout=7)
 
 
 def test_grpc_client_downloads_artifact(tmp_path, monkeypatch):

@@ -24,9 +24,13 @@ class TerminalGrpc:
     def listCommands(self, query):
         return []
 
-    def executeTerminalCommand(self, request):
-        self.commands.append(request.command)
-        return SimpleNamespace(status=TeamServerApi_pb2.OK, result="https://c2.test/payload.exe")
+    def hostArtifact(self, request):
+        self.commands.append(request)
+        return SimpleNamespace(job_id=request.job_id, state="succeeded",
+                               output_inline=b"https://c2.test/payload.exe", error_message="")
+
+    def getJobExecution(self, job_id):
+        raise LookupError(job_id)
 
 
 class ArtifactProvider:
@@ -68,7 +72,8 @@ def test_skill_can_use_typed_terminal_action_from_bundle(tmp_path, monkeypatch):
     assert run["status"] == "completed"
     assert run["report"]["outcome"] == "complete"
     assert run["terminal_observations"][0]["state"] == "succeeded"
-    assert grpc_client.commands == ["hostArtifact listener-1 artifact-1"]
+    assert [(request.listener_hash, request.artifact_reference) for request in grpc_client.commands] == [
+        ("listener-1", "artifact-1")]
     tasks.reconcile(run["run_id"])
     assert len(grpc_client.commands) == 1
 
@@ -131,9 +136,9 @@ def test_terminal_transport_loss_makes_skill_report_partial(tmp_path, monkeypatc
     grpc_client = TerminalGrpc()
     calls = []
     def lost_response(request):
-        calls.append(request.command)
+        calls.append(request)
         raise ConnectionError("response lost")
-    grpc_client.executeTerminalCommand = lost_response
+    grpc_client.hostArtifact = lost_response
     provider = ArtifactProvider()
     tasks = C2SkillService(grpc_client, storage_dir=tmp_path / "skills", provider=provider)
     provider.service = tasks
@@ -141,4 +146,27 @@ def test_terminal_transport_loss_makes_skill_report_partial(tmp_path, monkeypatc
     assert run["terminal_observations"][0]["state"] == "outcome_unknown"
     assert run["manual_uncertainty"]
     assert run["report"]["outcome"] == "partial"
-    assert calls == ["hostArtifact listener-1 artifact-1"]
+    assert [(request.listener_hash, request.artifact_reference) for request in calls] == [
+        ("listener-1", "artifact-1")]
+
+
+def test_interrupted_action_resolves_persisted_receipt(tmp_path):
+    grpc_client = TerminalGrpc()
+    grpc_client.getJobExecution = lambda job_id: SimpleNamespace(
+        job_id=job_id, state="succeeded", output_inline=b"https://c2.test/payload.exe",
+        error_message="",
+    )
+    tasks = C2SkillService(grpc_client, storage_dir=tmp_path / "skills")
+    observation_id = "terminal-run-1"
+    run = {
+        "run_id": "run", "terminal_observations": [{
+            "observation_id": observation_id, "job_id": observation_id,
+            "tool": "hostArtifact", "state": "dispatching",
+        }], "active_terminal_call": observation_id, "manual_uncertainty": False,
+    }
+    result = tasks._uncertain_terminal_action(run, "hostArtifact", {}, "call-1")
+    assert result.ok
+    assert json.loads(result.content)["state"] == "succeeded"
+    assert run["active_terminal_call"] is None
+    assert not run["manual_uncertainty"]
+    assert grpc_client.commands == []

@@ -10,8 +10,6 @@
 
 namespace
 {
-const std::string InfoListenerInstruction = "infoListener";
-const std::string GetBeaconBinaryInstruction = "getBeaconBinary";
 namespace fs = std::filesystem;
 
 std::string lowerCopy(std::string value)
@@ -45,18 +43,16 @@ bool isWildcardAddress(const std::string& address)
         || address == "[::]";
 }
 
-void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
-{
-    response->set_status(teamserverapi::OK);
-    response->set_result(result);
-    response->clear_message();
-}
-
-void setTerminalError(teamserverapi::TerminalCommandResponse* response, const std::string& result)
+void setError(teamserverapi::ListenerInfoResponse* response, const std::string& message)
 {
     response->set_status(teamserverapi::KO);
-    response->set_result(result);
-    response->set_message(result);
+    response->set_message(message);
+}
+
+void setError(teamserverapi::BeaconBinaryResponse* response, const std::string& message)
+{
+    response->set_status(teamserverapi::KO);
+    response->set_message(message);
 }
 } // namespace
 
@@ -74,34 +70,6 @@ TeamServerListenerArtifactService::TeamServerListenerArtifactService(
       m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
       m_ipResolver(std::move(ipResolver))
 {
-}
-
-bool TeamServerListenerArtifactService::canHandle(const std::string& instruction) const
-{
-    return instruction == InfoListenerInstruction || instruction == GetBeaconBinaryInstruction;
-}
-
-grpc::Status TeamServerListenerArtifactService::handleCommand(
-    const std::string& instruction,
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response) const
-{
-    response->set_status(teamserverapi::OK);
-    response->set_command(command.command());
-    response->set_result("");
-    response->set_data("");
-    response->clear_message();
-
-    if (instruction == InfoListenerInstruction)
-        return handleInfoListener(splitedCmd, command.command(), response);
-    if (instruction == GetBeaconBinaryInstruction)
-        return handleGetBeaconBinary(splitedCmd, command.command(), response);
-
-    response->set_status(teamserverapi::KO);
-    response->set_result("Error: not implemented.");
-    response->set_message("Terminal command not implemented.");
-    return grpc::Status::OK;
 }
 
 std::string TeamServerListenerArtifactService::resolvePublicAddress(const std::shared_ptr<Listener>& listener) const
@@ -132,37 +100,25 @@ std::string TeamServerListenerArtifactService::resolvePublicAddress(const std::s
     return "";
 }
 
-std::string TeamServerListenerArtifactService::resolvePrimaryListenerInfo(const std::shared_ptr<Listener>& listener) const
+bool TeamServerListenerArtifactService::fillPrimaryListenerInfo(
+    const std::shared_ptr<Listener>& listener, teamserverapi::ListenerInfoResponse* response) const
 {
-    const std::string finalAddress = resolvePublicAddress(listener);
-    if (finalAddress.empty())
-        return "";
-
-    std::string uriFileDownload;
+    const std::string address = resolvePublicAddress(listener);
+    if (address.empty())
+        return false;
     const std::string type = listener->getType();
-    if (type == ListenerHttpType)
+    const char* section = type == ListenerHttpType ? "ListenerHttpConfig"
+        : type == ListenerHttpsType ? "ListenerHttpsConfig" : nullptr;
+    response->set_type(type);
+    response->set_address(address);
+    response->set_port(listener->getParam2());
+    if (section)
     {
-        const auto configHttp = m_config["ListenerHttpConfig"];
-        const auto it = configHttp.find("uriFileDownload");
-        if (it != configHttp.end())
-            uriFileDownload = configHttp["uriFileDownload"].get<std::string>();
+        const auto configIt = m_config.find(section);
+        if (configIt != m_config.end() && configIt->is_object())
+            response->set_download_uri(configString(*configIt, "uriFileDownload"));
     }
-    else if (type == ListenerHttpsType)
-    {
-        const auto configHttps = m_config["ListenerHttpsConfig"];
-        const auto it = configHttps.find("uriFileDownload");
-        if (it != configHttps.end())
-            uriFileDownload = configHttps["uriFileDownload"].get<std::string>();
-    }
-
-    std::string result = type;
-    result += "\n";
-    result += finalAddress;
-    result += "\n";
-    result += listener->getParam2();
-    result += "\n";
-    result += uriFileDownload;
-    return result;
+    return true;
 }
 
 std::shared_ptr<Listener> TeamServerListenerArtifactService::resolvePrimaryListener(
@@ -304,149 +260,101 @@ std::string TeamServerListenerArtifactService::resolveBeaconBinaryPath(
     return "";
 }
 
-grpc::Status TeamServerListenerArtifactService::handleInfoListener(
-    const std::vector<std::string>& splitedCmd,
-    const std::string& cmd,
-    teamserverapi::TerminalCommandResponse* response) const
+void TeamServerListenerArtifactService::getListenerInfo(
+    const std::string& listenerHash, teamserverapi::ListenerInfoResponse* response) const
 {
-    m_logger->debug("infoListener {0}", cmd);
-
-    if (splitedCmd.size() != 2)
-    {
-        setTerminalError(response, "Error: infoListener take one arguement.");
-        return grpc::Status::OK;
-    }
-
-    const std::string& listenerHash = splitedCmd[1];
+    response->Clear();
     std::string lookupError;
     const auto primary = resolvePrimaryListener(listenerHash, lookupError);
     if (primary)
     {
-        const std::string result = resolvePrimaryListenerInfo(primary);
-        if (result.empty())
+        if (!fillPrimaryListenerInfo(primary, response))
         {
-            setTerminalError(response, "Error: No IP or Hostname in config.");
-            return grpc::Status::OK;
+            setError(response, "Error: No IP or Hostname in config.");
+            return;
         }
-
-        m_logger->debug("infoListener found in primary listeners {0}", primary->getListenerHash());
-        setTerminalOk(response, result);
-        return grpc::Status::OK;
+        response->set_status(teamserverapi::OK);
+        return;
     }
     if (lookupError != "Error: Listener not found.")
     {
-        setTerminalError(response, lookupError);
-        return grpc::Status::OK;
+        setError(response, lookupError);
+        return;
     }
-
     const auto secondary = resolveSecondaryListener(listenerHash, lookupError);
     if (!secondary)
     {
-        setTerminalError(response, lookupError);
-        return grpc::Status::OK;
+        setError(response, lookupError);
+        return;
     }
-    setTerminalOk(response, secondary->type + "\n" + secondary->address + "\n" + secondary->port + "\nnone");
-    return grpc::Status::OK;
+    response->set_type(secondary->type);
+    response->set_address(secondary->address);
+    response->set_port(secondary->port);
+    response->set_download_uri("none");
+    response->set_status(teamserverapi::OK);
 }
 
-grpc::Status TeamServerListenerArtifactService::handleGetBeaconBinary(
-    const std::vector<std::string>& splitedCmd,
-    const std::string& cmd,
-    teamserverapi::TerminalCommandResponse* response) const
+void TeamServerListenerArtifactService::getBeaconBinary(
+    const std::string& listenerHash, const std::string& os,
+    const std::string& arch, teamserverapi::BeaconBinaryResponse* response) const
 {
-    m_logger->debug("getBeaconBinary {0}", cmd);
-
-    if (splitedCmd.size() < 2 || splitedCmd.size() > 4)
-    {
-        setTerminalError(response, "Error: getBeaconBinary take one listener hash and optional OS/architecture arguments.");
-        return grpc::Status::OK;
-    }
-
-    const std::string& listenerHash = splitedCmd[1];
-    const std::string targetOsArg = splitedCmd.size() >= 3 ? lowerCopy(splitedCmd[2]) : "windows";
-    const std::string targetOs = targetOsArg == "linux" ? "Linux" : "Windows";
-    std::string targetArch = targetOs == "Linux" ? m_runtimeConfig.defaultLinuxArch : m_runtimeConfig.defaultWindowsArch;
+    response->Clear();
+    const std::string targetOs = lowerCopy(os) == "linux" ? "Linux" : "Windows";
+    std::string targetArch = arch.empty()
+        ? (targetOs == "Linux" ? m_runtimeConfig.defaultLinuxArch : m_runtimeConfig.defaultWindowsArch)
+        : arch;
     if (targetOs == "Windows")
     {
-        if (splitedCmd.size() == 4)
-            targetArch = TeamServerRuntimeConfig::normalizeWindowsArch(splitedCmd[3]);
-        else
-            targetArch = TeamServerRuntimeConfig::normalizeWindowsArch(targetArch);
-
-        if (targetArch.empty())
+        targetArch = TeamServerRuntimeConfig::normalizeWindowsArch(targetArch);
+        if (targetArch.empty() || std::find(m_runtimeConfig.supportedWindowsArchs.begin(),
+            m_runtimeConfig.supportedWindowsArchs.end(), targetArch) == m_runtimeConfig.supportedWindowsArchs.end())
         {
-            setTerminalError(response, "Error: Unsupported architecture.");
-            return grpc::Status::OK;
-        }
-
-        if (std::find(m_runtimeConfig.supportedWindowsArchs.begin(), m_runtimeConfig.supportedWindowsArchs.end(), targetArch)
-            == m_runtimeConfig.supportedWindowsArchs.end())
-        {
-            setTerminalError(response, "Error: Unsupported architecture.");
-            return grpc::Status::OK;
+            setError(response, "Error: Unsupported architecture.");
+            return;
         }
     }
     else
     {
-        if (splitedCmd.size() == 4)
-            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(splitedCmd[3]);
-        else
-            targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(targetArch);
-
-        if (targetArch.empty())
+        targetArch = TeamServerRuntimeConfig::normalizeLinuxArch(targetArch);
+        if (targetArch.empty() || std::find(m_runtimeConfig.supportedLinuxArchs.begin(),
+            m_runtimeConfig.supportedLinuxArchs.end(), targetArch) == m_runtimeConfig.supportedLinuxArchs.end())
         {
-            setTerminalError(response, "Error: Unsupported architecture.");
-            return grpc::Status::OK;
-        }
-
-        if (std::find(m_runtimeConfig.supportedLinuxArchs.begin(), m_runtimeConfig.supportedLinuxArchs.end(), targetArch)
-            == m_runtimeConfig.supportedLinuxArchs.end())
-        {
-            setTerminalError(response, "Error: Unsupported architecture.");
-            return grpc::Status::OK;
+            setError(response, "Error: Unsupported architecture.");
+            return;
         }
     }
 
     std::string lookupError;
     const auto primary = resolvePrimaryListener(listenerHash, lookupError);
+    std::string beaconFilePath;
     if (primary)
+        beaconFilePath = resolveBeaconBinaryPath(primary->getType(), targetOs, targetArch, true);
+    else if (lookupError == "Error: Listener not found.")
     {
-        const std::string beaconFilePath = resolveBeaconBinaryPath(primary->getType(), targetOs, targetArch, true);
-        std::ifstream beaconFile(beaconFilePath, std::ios::binary);
-        if (!beaconFile.good())
+        const auto secondary = resolveSecondaryListener(listenerHash, lookupError);
+        if (!secondary)
         {
-            setTerminalError(response, "Error: Beacons not found.");
-            return grpc::Status::OK;
+            setError(response, lookupError);
+            return;
         }
-        response->set_data(readBinaryFile(beaconFilePath));
-        setTerminalOk(response, "ok");
-        return grpc::Status::OK;
+        if (targetOs == "Linux" && secondary->type == ListenerSmbType)
+        {
+            setError(response, "Error: SMB is supported only on Windows.");
+            return;
+        }
+        beaconFilePath = resolveBeaconBinaryPath(secondary->type, targetOs, targetArch, false);
     }
-    if (lookupError != "Error: Listener not found.")
+    else
     {
-        setTerminalError(response, lookupError);
-        return grpc::Status::OK;
+        setError(response, lookupError);
+        return;
     }
-
-    const auto secondary = resolveSecondaryListener(listenerHash, lookupError);
-    if (!secondary)
-    {
-        setTerminalError(response, lookupError);
-        return grpc::Status::OK;
-    }
-    if (targetOs == "Linux" && secondary->type == ListenerSmbType)
-    {
-        setTerminalError(response, "Error: SMB is supported only on Windows.");
-        return grpc::Status::OK;
-    }
-    const std::string beaconFilePath = resolveBeaconBinaryPath(secondary->type, targetOs, targetArch, false);
     std::ifstream beaconFile(beaconFilePath, std::ios::binary);
     if (!beaconFile.good())
     {
-        setTerminalError(response, "Error: Beacons not found.");
-        return grpc::Status::OK;
+        setError(response, "Error: Beacons not found.");
+        return;
     }
     response->set_data(readBinaryFile(beaconFilePath));
-    setTerminalOk(response, "ok");
-    return grpc::Status::OK;
+    response->set_status(teamserverapi::OK);
 }

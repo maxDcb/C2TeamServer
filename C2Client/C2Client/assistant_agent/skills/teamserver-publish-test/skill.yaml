@@ -1,0 +1,9 @@
+target: teamserver
+tool_bundles:
+  - teamserver.publish
+objective: Carry out the operator's explicitly specified local TeamServer publication test and report its observed outcome.
+required_tools:
+  - listC2Artifacts
+completion_tools: []
+max_tool_calls: 10
+max_iterations: 14

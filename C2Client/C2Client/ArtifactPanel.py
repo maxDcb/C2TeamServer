@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .operations import TeamServerOperations
 from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .ui_status import StatusKind, apply_status, compact_message
 
@@ -97,7 +98,7 @@ class Artifacts(QWidget):
 
     def __init__(self, parent: QWidget | None, grpcClient: Any) -> None:
         super().__init__(parent)
-        self.grpcClient = grpcClient
+        self.operations = TeamServerOperations(grpcClient)
         self.artifacts: list[Any] = []
         apply_dark_panel_style(self)
 
@@ -229,7 +230,7 @@ class Artifacts(QWidget):
 
     def refreshArtifacts(self) -> None:
         try:
-            self.artifacts = list(self.grpcClient.listArtifacts(self.buildQuery()))
+            self.artifacts = self.operations.list_artifacts(self.buildQuery())
         except Exception as exc:
             self.artifacts = []
             self.printArtifacts()
@@ -352,7 +353,7 @@ class Artifacts(QWidget):
             return
 
         try:
-            response = self.grpcClient.downloadArtifact(artifact_id)
+            response = self.operations.download_artifact(artifact_id)
         except Exception as exc:
             apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -389,7 +390,7 @@ class Artifacts(QWidget):
 
         platform, arch = self.selectedUploadTarget()
         try:
-            response = self.grpcClient.uploadArtifact(source_path.name, payload, platform, arch)
+            response = self.operations.upload_artifact(source_path.name, payload, platform, arch)
         except Exception as exc:
             apply_status(self.statusLabel, f"Artifacts: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -425,7 +426,7 @@ class Artifacts(QWidget):
             return
 
         try:
-            response = self.grpcClient.deleteArtifact(artifact_id)
+            response = self.operations.delete_artifact(artifact_id)
         except Exception as exc:
             apply_status(
                 self.statusLabel,

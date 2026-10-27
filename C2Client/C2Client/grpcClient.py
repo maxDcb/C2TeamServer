@@ -517,7 +517,8 @@ class GrpcClient:
 
     def getJobExecution(self, job_id: str) -> Any:
         request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)
-        return self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(request, metadata=self.metadata))
+        return self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(
+            request, metadata=self.metadata, timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1)))
 
     def listJobExecutions(self, after_created_at: int = 0, after_job_id: str = "", page_size: int = 100) -> Any:
         request = TeamServerApi_pb2.ListJobExecutionsRequest(
@@ -537,14 +538,65 @@ class GrpcClient:
 
         return self._unary_rpc("GetCommandHelp", lambda: self.stub.GetCommandHelp(command, metadata=self.metadata))
 
-    def executeTerminalCommand(self, command: Any) -> Any:
-        """Send a command to the TeamServer terminal."""
-
+    def hostArtifact(self, request: Any) -> Any:
+        """Host an existing artifact, returning a durable operation receipt."""
         return self._audited_rpc(
-            "ExecuteTerminalCommand",
-            lambda: self.stub.ExecuteTerminalCommand(
-                command,
-                metadata=self.metadata,
+            "HostArtifact",
+            lambda: self.stub.HostArtifact(
+                request, metadata=self.metadata,
                 timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
             ),
+            {"job_id": request.job_id, "listener_hash": request.listener_hash,
+             "artifact_reference": request.artifact_reference},
         )
+
+    def controlSocks(self, request: Any) -> Any:
+        """Control the TeamServer SOCKS bridge with a durable operation receipt."""
+        return self._audited_rpc(
+            "ControlSocks",
+            lambda: self.stub.ControlSocks(
+                request, metadata=self.metadata,
+                timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
+            ),
+            {"job_id": request.job_id, "action": request.action,
+             "beacon_hash": request.beacon_hash},
+        )
+
+    def reloadModules(self, request: Any) -> Any:
+        """Reload TeamServer modules with a durable operation receipt."""
+        return self._audited_rpc(
+            "ReloadModules",
+            lambda: self.stub.ReloadModules(
+                request, metadata=self.metadata,
+                timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
+            ),
+            {"job_id": request.job_id},
+        )
+
+    def getListenerInfo(self, request: Any) -> Any:
+        return self._unary_rpc("GetListenerInfo", lambda: self.stub.GetListenerInfo(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)))
+
+    def getBeaconBinary(self, request: Any) -> Any:
+        return self._unary_rpc("GetBeaconBinary", lambda: self.stub.GetBeaconBinary(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)))
+
+    def uploadListenerFile(self, request: Any) -> Any:
+        return self._audited_rpc("UploadListenerFile", lambda: self.stub.UploadListenerFile(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"listener_hash": request.listener_hash, "filename": request.filename})
+
+    def installTool(self, request: Any) -> Any:
+        return self._audited_rpc("InstallTool", lambda: self.stub.InstallTool(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"filename": request.filename})
+
+    def installToolBundle(self, request: Any) -> Any:
+        return self._audited_rpc("InstallToolBundle", lambda: self.stub.InstallToolBundle(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"file_count": len(request.files)})

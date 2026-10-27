@@ -314,6 +314,26 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
     assert(stub->GetJobExecution(&getContext, getRequest, &stored).ok());
     assert(stored.operator_username() == "admin" && stored.origin() == submitRequest.origin());
 
+    teamserverapi::HostArtifactRequest hostRequest;
+    hostRequest.set_job_id("host-integration-1");
+    hostRequest.set_listener_hash("missing-listener");
+    hostRequest.set_artifact_reference("missing-artifact");
+    hostRequest.set_origin("assistant");
+    grpc::ClientContext hostContext;
+    hostContext.AddMetadata("authorization", "Bearer " + token);
+    teamserverapi::JobExecutionRecord hostResult;
+    assert(stub->HostArtifact(&hostContext, hostRequest, &hostResult).ok());
+    assert(hostResult.job_id() == hostRequest.job_id());
+    assert(hostResult.state() == "failed");
+    assert(hostResult.error_code() == "operation_failed");
+
+    grpc::ClientContext hostLookupContext;
+    hostLookupContext.AddMetadata("authorization", "Bearer " + token);
+    getRequest.set_job_id(hostRequest.job_id());
+    assert(stub->GetJobExecution(&hostLookupContext, getRequest, &stored).ok());
+    assert(stored.state() == hostResult.state());
+    assert(stored.error_message() == hostResult.error_message());
+
     grpc::ClientContext stopContext;
     stopContext.AddMetadata("authorization", "Bearer " + token);
     stopContext.AddMetadata("clientid", "integration-test");
@@ -324,17 +344,18 @@ void testStagedRuntimeSupportsGrpcAuthenticationAndStableRpc()
     assert(stub->StopSession(&stopContext, stopRequest, &stopResponse).ok());
     assert(stopResponse.status() == teamserverapi::KO);
 
-    grpc::ClientContext terminalContext;
-    terminalContext.AddMetadata("authorization", "Bearer " + token);
-    teamserverapi::TerminalCommandRequest terminalRequest;
-    terminalRequest.set_command("unknown private-argument");
-    teamserverapi::TerminalCommandResponse terminalResponse;
-    assert(stub->ExecuteTerminalCommand(&terminalContext, terminalRequest, &terminalResponse).ok());
-    assert(terminalResponse.status() == teamserverapi::KO);
+    grpc::ClientContext infoContext;
+    infoContext.AddMetadata("authorization", "Bearer " + token);
+    teamserverapi::ListenerSelector infoRequest;
+    infoRequest.set_listener_hash("private-argument");
+    teamserverapi::ListenerInfoResponse infoResponse;
+    assert(stub->GetListenerInfo(&infoContext, infoRequest, &infoResponse).ok());
+    assert(infoResponse.status() == teamserverapi::KO);
 
     const std::string audit = readFile(runtimeCopy.path() / "TeamServer" / "logs" / "TeamServer.audit.jsonl");
     assert(audit.find("\"action\":\"Authenticate\"") != std::string::npos);
     assert(audit.find("\"action\":\"SubmitJob\"") != std::string::npos);
+    assert(audit.find("\"action\":\"HostArtifact\"") != std::string::npos);
     assert(audit.find("\"actor\":\"admin\"") != std::string::npos);
     assert(audit.find("\"client_id\":\"integration-test\"") != std::string::npos);
     assert(audit.find("\"beacon_hash\":\"CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\"") != std::string::npos);

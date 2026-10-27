@@ -24,7 +24,8 @@ def skill_help(skill) -> str:
         f"{skill.description}\n\nThe assistant follows SKILL.md and may call "
         f"{', '.join(skill.declared_tools)}. "
         f"Capability bundles: {', '.join(skill.tool_bundles)}. "
-        "The selected session is fixed by the operator."
+        + ("This skill targets TeamServer without a beacon session."
+         if skill.target_scope == "teamserver" else "The selected session is fixed by the operator.")
     )
 
 
@@ -234,7 +235,8 @@ class SkillsPanel(QWidget):
         skill = SKILLS[self.skillSelector.currentData()]
         session_selected = bool(self.active_beacon and self.active_listener)
         any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
-        self.startButton.setEnabled(self.available and (session_selected or any_selected))
+        valid_target = any_selected if skill.target_scope == "teamserver" else session_selected or any_selected
+        self.startButton.setEnabled(self.available and valid_target)
 
     def _refresh_sessions(self) -> None:
         self._run_async(self._load_sessions, key="sessions")
@@ -263,21 +265,27 @@ class SkillsPanel(QWidget):
         self.sessionSelector.blockSignals(True)
         self.sessionSelector.clear()
         self.sessionSelector.addItem("Select a session" if sessions else "No live sessions", None)
-        self.sessionSelector.addItem("Any session · multi-session skills", ANY_SESSION)
+        scope_label = ("TeamServer · no beacon session" if skill.target_scope == "teamserver"
+                       else "Any session · multi-session skills")
+        self.sessionSelector.addItem(scope_label, ANY_SESSION)
         any_index = self.sessionSelector.count() - 1
         self.sessionSelector.setItemData(
-            any_index, "Available when a multi-session skill supports this scope.",
+            any_index, ("Run a TeamServer skill without selecting a beacon session."
+                        if skill.target_scope == "teamserver" else
+                        "Available when a multi-session skill supports this scope."),
             Qt.ItemDataRole.ToolTipRole,
         )
         self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
-        target_index = any_index if selected == ANY_SESSION and skill.supports_any_session else 0
+        target_index = any_index if skill.target_scope == "teamserver" or \
+            (selected == ANY_SESSION and skill.supports_any_session) else 0
         for label, beacon, listener in sessions:
             self.sessionSelector.addItem(label, (beacon, listener))
             index = self.sessionSelector.count() - 1
+            self.sessionSelector.model().item(index).setEnabled(skill.target_scope != "teamserver")
             self.sessionSelector.setItemData(
                 index, f"Beacon: {beacon}\nListener: {listener}", Qt.ItemDataRole.ToolTipRole,
             )
-            if (beacon, listener) == selected:
+            if skill.target_scope != "teamserver" and (beacon, listener) == selected:
                 target_index = index
         if target_index == 0 and len(sessions) == 1:
             target_index = 2
@@ -292,9 +300,23 @@ class SkillsPanel(QWidget):
         self.skillSelector.setToolTip(help_text)
         any_index = self.sessionSelector.findData(ANY_SESSION)
         if any_index >= 0:
+            self.sessionSelector.setItemText(
+                any_index, "TeamServer · no beacon session" if skill.target_scope == "teamserver"
+                else "Any session · multi-session skills")
+            self.sessionSelector.setItemData(
+                any_index, "Run a TeamServer skill without selecting a beacon session."
+                if skill.target_scope == "teamserver" else
+                "Available when a multi-session skill supports this scope.",
+                Qt.ItemDataRole.ToolTipRole)
             self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
+            if skill.target_scope == "teamserver":
+                self.sessionSelector.setCurrentIndex(any_index)
             if not skill.supports_any_session and self.sessionSelector.currentData() == ANY_SESSION:
                 self.sessionSelector.setCurrentIndex(0)
+        for index in range(self.sessionSelector.count()):
+            value = self.sessionSelector.itemData(index)
+            if isinstance(value, tuple) and value != ANY_SESSION:
+                self.sessionSelector.model().item(index).setEnabled(skill.target_scope != "teamserver")
         self._update_start_button()
 
     def _show_skill_help(self) -> None:

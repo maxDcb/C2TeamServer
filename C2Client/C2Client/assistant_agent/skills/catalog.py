@@ -6,7 +6,7 @@ import re
 
 import yaml
 
-from ..capabilities.bundles import TOOL_BUNDLES, resolve_tool_bundles
+from ..capabilities.bundles import TEAMSERVER_TOOL_NAMES, TOOL_BUNDLES, resolve_tool_bundles
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +24,7 @@ class AgenticSkillDefinition:
     max_tool_calls: int
     max_iterations: int
     supports_any_session: bool = False
+    target_scope: str = "session"
 
 
 def _string_tuple(value: object, field_name: str, path: Path, *, optional: bool = False) -> tuple[str, ...]:
@@ -71,12 +72,17 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
     bundles = _string_tuple(config.get("tool_bundles"), "tool_bundles", config_path)
     required = _string_tuple(config.get("required_tools"), "required_tools", config_path, optional=True)
     completion = _string_tuple(config.get("completion_tools"), "completion_tools", config_path, optional=True)
+    target_scope = config.get("target", "session")
+    if target_scope not in {"session", "teamserver"}:
+        raise ValueError(f"Invalid target in skill configuration: {config_path}")
     if type(config.get("max_tool_calls")) is not int or config["max_tool_calls"] < 1:
         raise ValueError(f"Invalid max_tool_calls in skill configuration: {config_path}")
     if type(config.get("max_iterations")) is not int or config["max_iterations"] < 1:
         raise ValueError(f"Invalid max_iterations in skill configuration: {config_path}")
     declared = {tool for bundle in TOOL_BUNDLES.values() for tool in bundle.tools}
     resolution = resolve_tool_bundles(bundles, registered_tools=declared, required_tools=required)
+    if target_scope == "teamserver" and set(resolution.allowed_tools) - TEAMSERVER_TOOL_NAMES:
+        raise ValueError(f"TeamServer skill bundles contain beacon commands: {config_path}")
     if set(completion) - set(resolution.allowed_tools):
         raise ValueError(f"Completion tools are outside the selected bundles: {config_path}")
     if version < 1 or not instructions:
@@ -87,6 +93,7 @@ def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
         tool_bundles=bundles, required_tools=required, completion_tools=completion,
         declared_tools=resolution.allowed_tools,
         max_tool_calls=config["max_tool_calls"], max_iterations=config["max_iterations"],
+        supports_any_session=target_scope == "teamserver", target_scope=target_scope,
     )
 
 

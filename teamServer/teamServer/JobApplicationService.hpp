@@ -6,14 +6,16 @@
 #include <mutex>
 
 #include "JobDomain.hpp"
+#include "TeamServerOperationResult.hpp"
 
 class JobApplicationService
 {
 public:
     using SessionCommandDispatcher = std::function<std::string(const JobExecution&)>;
+    using LocalOperationDispatcher = std::function<TeamServerOperationResult(const JobExecution&)>;
 
     JobApplicationService(std::shared_ptr<IJobRepository> repository, std::size_t maxOutputBytes,
-        SessionCommandDispatcher dispatcher);
+        SessionCommandDispatcher dispatcher, LocalOperationDispatcher localDispatcher = {});
 
     JobExecution submit(const std::string& jobId, const std::string& operation, const std::string& input,
         const std::string& operatorUsername = {}, const std::string& origin = {});
@@ -30,6 +32,7 @@ private:
     std::shared_ptr<IJobRepository> m_repository;
     std::size_t m_maxOutputBytes;
     SessionCommandDispatcher m_dispatcher;
+    LocalOperationDispatcher m_localDispatcher;
     std::mutex m_eventMutex;
     std::condition_variable m_eventCondition;
     std::uint64_t m_generation = 0;
