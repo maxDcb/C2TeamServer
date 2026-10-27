@@ -9,5 +9,6 @@ required_tools:
 completion_tools:
   - whoami
   - ipConfig
-max_tool_calls: 8
-max_iterations: 12
+  - listC2Listeners
+max_tool_calls: 10
+max_iterations: 16

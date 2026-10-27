@@ -24,6 +24,20 @@ class ReconGrpc:
         self.submissions = []
         self.loaded = loaded
         self.lose_submit_response_once = False
+        self.events = []
+        self.skip_event_reads = 0
+
+    def _event(self, job_id, event_type):
+        self.events.append(SimpleNamespace(
+            event_id=len(self.events) + 1, job_id=job_id, event_type=event_type,
+        ))
+
+    def subscribeJobEvents(self, after_event_id=0, *, job_id="", follow=False):
+        if self.skip_event_reads:
+            self.skip_event_reads -= 1
+            return iter(())
+        return iter(event for event in self.events
+                    if event.event_id > after_event_id and (not job_id or event.job_id == job_id))
 
     def listSessions(self):
         return [SimpleNamespace(
@@ -36,11 +50,13 @@ class ReconGrpc:
             command_template=template, platforms=["linux", "windows"], archs=["any"],
         ) for name, template in (
             ("whoami", "whoami"), ("ipConfig", "ipConfig"),
+            ("hostContext", "hostContext"),
             ("loadModule", "loadModule {module:q}"),
         )]
 
     def listModules(self, session):
-        return [SimpleNamespace(name=name, state="loaded") for name in ("whoami", "ipConfig")] if self.loaded else []
+        return [SimpleNamespace(name=name, state="loaded")
+                for name in ("whoami", "ipConfig", "hostContext")] if self.loaded else []
 
     def listListeners(self):
         return [SimpleNamespace(
@@ -51,6 +67,9 @@ class ReconGrpc:
     def submitJob(self, job_id, operation, payload):
         assert operation == "session_command"
         self.submissions.append((job_id, json.loads(payload)["command"]))
+        if job_id not in self.jobs:
+            self._event(job_id, "accepted")
+            self._event(job_id, "queued")
         job = self.jobs.setdefault(job_id, SimpleNamespace(
             job_id=job_id, state="queued", output_inline=b"", output_size=0,
             error_code="", error_message="",
@@ -72,6 +91,7 @@ class ReconGrpc:
         )
         if (job_id, "loadModule whoami") in self.submissions:
             self.loaded = True
+        self._event(job_id, "succeeded")
 
 
 class ReconProvider:
@@ -130,6 +150,86 @@ def test_recon_skill_uses_multiple_capabilities_and_resumes_after_restart(tmp_pa
     assert len(finished["report"]["observations"]) == 3
     assert base64.b64decode(finished["steps"][1]["output_base64"]) == b"eth0 10.0.0.5\x00"
     assert len(grpc_client.submissions) == 2
+    assert finished["after_event_id"] >= 6
+    assert all(step["observed_event_id"] for step in finished["steps"])
+
+
+def test_recon_skill_records_event_when_polling_finishes_first(tmp_path):
+    grpc_client = ReconGrpc()
+    service = C2SkillService(
+        grpc_client, storage_dir=tmp_path / "skills", provider=ReconProvider(grpc_client),
+    )
+    run = service.start("recon-host", "beacon-1", "listener-1")
+    first_job = grpc_client.submissions[0][0]
+    grpc_client.complete(first_job, b"operator")
+    grpc_client.skip_event_reads = 1
+    next_run = service.reconcile(run["run_id"])
+    assert next_run["steps"][0]["observed_event_id"] == 3
+    assert next_run["after_event_id"] >= 3
+    assert [command for _, command in grpc_client.submissions] == ["whoami", "ipConfig"]
+
+
+def test_recon_skill_replays_late_event_after_client_restart(tmp_path):
+    grpc_client = ReconGrpc()
+    provider = ReconProvider(grpc_client)
+    root = tmp_path / "skills"
+    service = C2SkillService(grpc_client, storage_dir=root, provider=provider)
+    run = service.start("recon-host", "beacon-1", "listener-1")
+    first_job = grpc_client.submissions[0][0]
+    restored = C2SkillService(grpc_client, storage_dir=root, provider=provider)
+    grpc_client.complete(first_job, b"operator")
+    resumed = restored.reconcile(run["run_id"])
+    assert resumed["steps"][0]["observed_event_id"] == 3
+    assert resumed["after_event_id"] >= 3
+    assert [command for _, command in grpc_client.submissions] == ["whoami", "ipConfig"]
+    assert restored.reconcile(run["run_id"])["after_event_id"] >= 3
+    assert [command for _, command in grpc_client.submissions] == ["whoami", "ipConfig"]
+
+
+def test_recon_skill_collects_linux_host_and_teamserver_context(tmp_path):
+    grpc_client = ReconGrpc()
+
+    class HostProvider:
+        def __init__(self):
+            self.calls = 0
+
+        def complete_with_tools(self, **kwargs):
+            self.calls += 1
+            if self.calls <= 4:
+                name = ("listC2Listeners", "whoami", "ipConfig", "hostContext")[self.calls - 1]
+                return LLMCompletionResult(content="", tool_calls=[
+                    LLMToolCall(id=f"host-{self.calls}", name=name, arguments_json="{}"),
+                ])
+            jobs = {command: job_id for job_id, command in grpc_client.submissions}
+            run_id = jobs["whoami"].removeprefix("skill-").rsplit("-call-", 1)[0]
+            return LLMCompletionResult(content=json.dumps({
+                "summary": "The selected Linux host and TeamServer listener were inspected.",
+                "observations": [
+                    {"source_id": f"terminal-{run_id}-1", "finding": "A TeamServer listener is active."},
+                    {"source_id": jobs["whoami"], "finding": "The user is operator."},
+                    {"source_id": jobs["ipConfig"], "finding": "The host has eth0."},
+                    {"source_id": jobs["hostContext"], "finding": "The host uses Linux."},
+                ],
+                "limitations": [],
+            }))
+
+    service = C2SkillService(
+        grpc_client, storage_dir=tmp_path / "skills", provider=HostProvider(),
+    )
+    run = service.start("recon-host", "beacon-1", "listener-1")
+    assert "hostContext" in run["allowed_tools"]
+    assert run["terminal_observations"][0]["tool"] == "listC2Listeners"
+    for command, output in (
+        ("whoami", b"operator"), ("ipConfig", b"eth0 10.0.0.5"),
+        ("hostContext", b"Hostname: test\nKernel: Linux\n"),
+    ):
+        job_id = next(job for job, submitted in grpc_client.submissions if submitted == command)
+        grpc_client.complete(job_id, output)
+        run = service.reconcile(run["run_id"])
+    assert run["status"] == "completed"
+    assert run["report"]["outcome"] == "complete"
+    assert {item["tool"] for item in run["terminal_observations"]} == {"listC2Listeners"}
+    assert [step["command"] for step in run["steps"]] == ["whoami", "ipConfig", "hostContext"]
 
 
 def test_recon_skill_rejects_citation_without_evidence(tmp_path):

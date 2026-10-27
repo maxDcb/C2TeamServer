@@ -26,15 +26,27 @@ skills et la conversation. Le catalogue des définitions de skills reste dans
 
 `recon-host` est le premier skill agentique multi outils. Il associe
 `recon.identity` et `recon.host`, exige `whoami`, `ipConfig` et
-`listC2Listeners`, puis laisse le LLM choisir ses appels dans la limite de huit
+`listC2Listeners`, puis laisse le LLM choisir ses appels dans la limite de dix
 outils. Le client fixe la session, valide chaque argument, charge un module
 manquant, crée un job V2 stable avant l'envoi de chaque commande et attend son
 résultat. Le run conserve la liste des outils, leurs spécifications, les jobs,
-les octets exacts et les observations TeamServer. Après redémarrage, il reprend
-le job en cours puis les choix du LLM. Le rapport cite les `job_id` et les
+les octets exacts et les observations TeamServer. Le curseur V2 et l'identifiant
+de l'événement terminal de chaque job sont enregistrés, y compris lorsque le
+polling `GetJobExecution` constate le résultat avant le flux. Après redémarrage,
+le client relit les événements du job en cours depuis le curseur, vérifie son
+état puis reprend les choix du LLM sans renvoyer une commande déjà acceptée.
+Le rapport cite les `job_id` et les
 `observation_id` réellement observés ; une citation inventée invalide l'analyse.
-Un rapport sans résultat réussi de `whoami` et `ipConfig` reste partiel, même si
-le modèle conclut autrement.
+Un rapport sans résultat réussi de `whoami`, `ipConfig` et `listC2Listeners`
+reste partiel, même si le modèle conclut autrement.
+
+Sur Linux, `recon.host` expose aussi `hostContext` pour collecter le nom d'hôte,
+la version de l'OS et du noyau, la configuration du résolveur et les routes IPv4.
+Le module `netstat` restitue les adresses dans l'ordre réseau, nomme les états
+et associe les sockets aux processus lorsque `/proc/<pid>/fd` est accessible.
+L'absence d'association reste explicite (`Owner:unknown`). `hostContext` est
+facultatif sur les autres plateformes ; le skill signale les observations non
+collectées plutôt que de les inventer.
 
 Les adaptateurs `listC2Listeners` et `listC2Artifacts` sont des lectures
 TeamServer utilisables par la conversation et les skills. `hostArtifact` et
@@ -146,6 +158,8 @@ C2Client/.venv/bin/python -m pip install -e './C2Client[test]'
 C2_PROTOCOL_PYTHON_ROOT="$PWD/build/generated/python_protocol" \
   QT_QPA_PLATFORM=offscreen \
   C2Client/.venv/bin/python -m pytest C2Client/tests -q
+ctest --test-dir build -R '^(testsNetstat|testsHostContext|testsJobRuntimeE2E)$' \
+  --output-on-failure --timeout 120
 ```
 
 La dépendance `agent-core` est figée sur le commit qui fournit la suspension et

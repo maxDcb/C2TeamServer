@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from functools import wraps
 import hashlib
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from threading import Lock, RLock
@@ -38,6 +39,7 @@ from ..capabilities.bundles import resolve_tool_bundles
 WAITING_STATES = {"submitting", "submission_uncertain", "waiting_for_job", "waiting_uncertain"}
 FINISHED_STEP_STATES = {"succeeded", "already_loaded", "failed", "no_result_confirmed", "skipped"}
 FINISHED_RUN_STATES = {"completed", "failed"}
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -271,6 +273,7 @@ class C2SkillService:
     def reconcile(self, run_id: str) -> dict:
         run = self.store.get(run_id)
         if run.get("mode") == "agentic_skill":
+            run = self._replay_agentic_skill_events(run)
             return self._reconcile_agentic_skill(run)
         if run.get("mode") == "agentic_identity":
             return self._reconcile_agentic_identity(run)
@@ -553,6 +556,7 @@ class C2SkillService:
             step["output_size"] = int(job.output_size)
             step["error_code"] = str(job.error_code)
             step["error_message"] = str(job.error_message)
+            self._record_agentic_step_event(run, step)
         else:
             step["state"] = "waiting_uncertain" if state == "outcome_unknown" else "waiting_for_job"
             step["error_message"] = str(job.error_message) if state == "outcome_unknown" else ""
@@ -1018,6 +1022,48 @@ class C2SkillService:
             return self._apply_agentic_skill_result(self.store.get(run["run_id"]), result)
         return self._drive_agentic_skill(run)
 
+    def _record_agentic_step_event(self, run: dict, step: dict) -> None:
+        """Keep the durable V2 cursor when polling observes completion first."""
+        subscribe = getattr(self.grpc_client, "subscribeJobEvents", None)
+        if subscribe is None or step.get("observed_event_id", 0):
+            return
+        try:
+            for event in subscribe(after_event_id=0, job_id=step["job_id"], follow=False):
+                if event.event_type in {"succeeded", "failed", "outcome_unknown"}:
+                    event_id = int(event.event_id)
+                    step["observed_event_id"] = max(step["observed_event_id"], event_id)
+                    run["after_event_id"] = max(run["after_event_id"], event_id)
+        except Exception as error:
+            logger.debug("Could not read events for skill job %s: %s", step["job_id"], error)
+
+    def _replay_agentic_skill_events(self, run: dict) -> dict:
+        """Replay the active job's events before polling its current state."""
+        if run["status"] in FINISHED_RUN_STATES:
+            return run
+        subscribe = getattr(self.grpc_client, "subscribeJobEvents", None)
+        current = next((step for step in run["steps"] if step["state"] not in FINISHED_STEP_STATES), None)
+        if subscribe is None or current is None or current["state"] == "ready":
+            return run
+        try:
+            events = list(subscribe(
+                after_event_id=run["after_event_id"], job_id=current["job_id"], follow=False,
+            ))
+        except Exception as error:
+            logger.debug("Could not replay events for skill job %s: %s", current["job_id"], error)
+            return run
+        for event in events:
+            event_id = int(event.event_id)
+            if event_id <= run["after_event_id"]:
+                continue
+            if event.event_type in {"succeeded", "failed", "outcome_unknown"}:
+                run = self._agentic_skill_job_event(run, current["job_id"], event_id)
+                if run["status"] in FINISHED_RUN_STATES:
+                    return run
+            else:
+                run["after_event_id"] = event_id
+                self._save(run)
+        return run
+
     def _reconcile_agentic_skill(self, run: dict) -> dict:
         if run["status"] in FINISHED_RUN_STATES:
             return run
@@ -1065,11 +1111,13 @@ class C2SkillService:
     def _agentic_skill_job_event(self, run: dict, job_id: str, event_id: int) -> dict:
         if event_id <= run["after_event_id"]:
             return run
-        run["after_event_id"] = event_id
         step = next((item for item in run["steps"] if item["job_id"] == job_id), None)
         if step is None:
+            run["after_event_id"] = event_id
             return self._save(run)
         job = self.grpc_client.getJobExecution(job_id)
+        run["after_event_id"] = event_id
+        step["observed_event_id"] = max(step.get("observed_event_id", 0), event_id)
         if run["status"] in FINISHED_RUN_STATES or step["state"] in FINISHED_STEP_STATES:
             step["late_server_state"] = str(job.state)
             return self._save(run)

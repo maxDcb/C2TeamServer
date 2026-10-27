@@ -31,7 +31,7 @@ TOOL_BUNDLES: dict[str, ToolBundle] = {
     "recon.identity": ToolBundle("recon.identity", ("whoami",)),
     "recon.host": ToolBundle("recon.host", (
         "listLiveSessions", "listLoadedModules", "getCommandHelp",
-        "whoami", "ipConfig", "getEnv", "netstat", "ps", "pwd", "ls", "tree",
+        "whoami", "ipConfig", "hostContext", "getEnv", "netstat", "ps", "pwd", "ls", "tree",
         "cat", "enumerateShares", "enumerateRdpSessions", "screenShot",
         "listC2Listeners", "infoListener",
     )),
