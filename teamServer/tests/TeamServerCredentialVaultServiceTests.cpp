@@ -130,27 +130,6 @@ void testAddListRevealAndPersistence()
     require(reloaded.size() == 1, "credential was not persisted");
 }
 
-void testTerminalIntegration()
-{
-    ScopedPath tempRoot(makeTempDirectory("terminal"));
-    TeamServerRuntimeConfig runtimeConfig = makeRuntimeConfig(tempRoot.path());
-    TeamServerCredentialVaultService service(makeLogger(), runtimeConfig);
-
-    teamserverapi::TerminalCommandRequest addCommand;
-    addCommand.set_command("cred add");
-    addCommand.set_data(R"({"username":"bob","domain":"CORP","password":"super-secret"})");
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleTerminalCommand({"cred", "add"}, addCommand, &response).ok(), "terminal cred add RPC status failed");
-    require(response.status() == teamserverapi::OK, "terminal cred add failed: " + response.message());
-
-    teamserverapi::TerminalCommandRequest listCommand;
-    listCommand.set_command("cred list bob");
-    require(service.handleTerminalCommand({"cred", "list", "bob"}, listCommand, &response).ok(), "terminal cred list RPC status failed");
-    require(response.status() == teamserverapi::OK, "terminal cred list failed: " + response.message());
-    require(response.result().find("bob") != std::string::npos, "terminal cred list missing username");
-    require(response.result().find("super-secret") == std::string::npos, "terminal cred list leaked secret");
-}
-
 void testUpdateDeleteAndExpiredFiltering()
 {
     ScopedPath tempRoot(makeTempDirectory("lifecycle"));
@@ -464,7 +443,6 @@ void testUpdateMaskCanClearMetadata()
 int main()
 {
     testAddListRevealAndPersistence();
-    testTerminalIntegration();
     testUpdateDeleteAndExpiredFiltering();
     testRejectsEmptyAndAmbiguousSelectors();
     testCorruptVaultFailsClosed();

@@ -7,6 +7,7 @@ from agent_core import RunContext
 from agent_core.conversation import AgentOrchestrator, AgentTurnResult, SessionManager, SessionRepository
 from agent_core.spi import PolicyEngine, build_memory_provider, build_provider
 
+from ..capabilities.bundles import CONVERSATION_BUNDLES, TOOL_BUNDLES
 from ..storage.migration import import_legacy_sessions
 from ..tools.registry import build_c2_tool_registry
 from .hooks import C2DomainHooks
@@ -36,6 +37,13 @@ class C2AssistantAgent:
             thread_id=session_id,
             context=RunContext(namespace_id="c2client", thread_id=session_id),
         )
+
+    def conversation_capabilities(self) -> dict[str, tuple[str, ...]]:
+        registered = set(self.orchestrator.registry.list_tool_names())
+        return {
+            name: tuple(tool for tool in TOOL_BUNDLES[name].tools if tool in registered)
+            for name in CONVERSATION_BUNDLES
+        }
 
     def resume_pending_tool(
         self,

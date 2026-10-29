@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import html
 from threading import Thread
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QTextOption
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTextBrowser, QToolTip, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
+    QPushButton, QTextBrowser, QTextEdit, QToolTip, QVBoxLayout, QWidget,
 )
 
 from ...console_style import CONSOLE_COLORS, apply_console_output_style
 from ...panel_style import apply_dark_panel_style, style_dark_combo_popup
-from .catalog import SKILLS, AgenticSkillDefinition
+from .catalog import SKILLS
 from .service import C2SkillService, FINISHED_RUN_STATES, WAITING_STATES
 
 
@@ -20,31 +22,29 @@ ANY_SESSION = ("*", "*")
 
 
 def skill_help(skill) -> str:
-    if isinstance(skill, AgenticSkillDefinition):
-        return (
-            f"{skill.description}\n\nAgent skill: the assistant follows SKILL.md and may call "
-            f"{', '.join(skill.allowed_tools)}. The selected session is fixed by the operator."
-        )
-    steps = "\n".join(
-        f"{index}. {step.command_name} — {step.description}"
-        for index, step in enumerate(skill.steps, 1)
-    )
     return (
-        f"{skill.description}\n\nFixed sequence:\n{steps}\n\n"
-        "Missing modules are loaded first. Uncertain commands are never resent with a new ID."
+        f"{skill.description}\n\nThe assistant follows SKILL.md and may call "
+        f"{', '.join(skill.declared_tools)}. "
+        f"Capability bundles: {', '.join(skill.tool_bundles)}. "
+        + ("This skill targets TeamServer without a beacon session."
+         if skill.target_scope == "teamserver" else "The selected session is fixed by the operator.")
     )
 
 
 def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
     lines = [f"Task {run['run_id'][:8]} · {run['status']}"]
     report = run.get("report")
-    if report:
+    if run.get("error_message"):
+        lines.extend(["", f"Error: {run['error_message']}"])
+    elif report:
         if report.get("outcome") == "partial":
             lines.extend(["", "This report is partial."])
-        if report.get("verified_identity"):
-            lines.extend(["", f"Observed account: {report['verified_identity']}"])
         lines.extend(["", str(report.get("summary", ""))])
-        findings = [str(item.get("finding", "")) for item in report.get("observations", [])]
+        findings = []
+        for item in report.get("observations", []):
+            finding = str(item.get("finding", ""))
+            source_id = str(item.get("source_id") or item.get("job_id") or "")
+            findings.append(f"{finding} (source: {source_id})" if source_id else finding)
         if findings:
             lines.extend(["", "What I found", ""])
             lines.extend(f"{finding}\n" for finding in findings)
@@ -52,6 +52,10 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
         if limitations:
             lines.extend(["What remains uncertain", ""])
             lines.extend(f"{limitation}\n" for limitation in limitations)
+        warnings = [str(item) for item in report.get("validation_warnings", [])]
+        if warnings:
+            lines.extend(["Report warnings", ""])
+            lines.extend(f"{warning}\n" for warning in warnings)
     elif run.get("manual_failure"):
         lines.extend(["", f"Stopped by the operator: {run['manual_failure']}"])
     else:
@@ -63,11 +67,14 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
 
     if show_evidence:
         lines.extend(["", "Execution details", ""])
+        if report and report.get("raw_output") and report.get("analysis_status") != "raw":
+            lines.extend(["Original model response", str(report["raw_output"]), ""])
         evidence = {
             item["step_id"]: item for item in (report or {}).get("evidence", [])
         }
         findings_by_job = {
-            item["job_id"]: item["finding"] for item in (report or {}).get("observations", [])
+            item.get("job_id", item.get("source_id", "")): item.get("finding", "")
+            for item in (report or {}).get("observations", [])
         }
         for step in run["steps"]:
             state = "already available" if step["state"] == "already_loaded" else step["state"]
@@ -87,9 +94,68 @@ def format_run_details(run: dict, *, show_evidence: bool = False) -> str:
             if proof.get("output_sha256"):
                 lines.append(f"  Output: {proof['output_size']} bytes · SHA-256 {proof['output_sha256']}")
             if proof.get("output_preview") and step.get("purpose", "command") == "command":
-                lines.append(f"  Output:\n{proof['output_preview']}")
+                label = "Output preview" if proof.get("output_preview_truncated") else "Output"
+                lines.append(f"  {label}:\n{proof['output_preview']}")
+                if proof.get("output_preview_truncated"):
+                    if proof.get("output_complete", True):
+                        lines.append("  Full received output is retained in the run snapshot.")
+                    else:
+                        lines.append("  TeamServer reported more bytes than the run received.")
+            lines.append("")
+        for item in run.get("terminal_observations", []):
+            lines.append(f"{item['tool']} · {item.get('state', 'succeeded' if item['ok'] else 'failed')}")
+            lines.append(f"  Observation: {item['observation_id']}")
+            if item["observation_id"] in findings_by_job:
+                lines.append(f"  Finding: {findings_by_job[item['observation_id']]}")
+            lines.append(f"  Result: {item['content']}")
             lines.append("")
     return "\n".join(lines).strip()
+
+
+def render_run_details(run: dict, *, show_evidence: bool = False) -> str:
+    """A scan-friendly report; raw evidence stays behind the existing toggle."""
+    report = run.get("report") or {}
+    status = str(run.get("status", "unknown"))
+    outcome = str(report.get("outcome", ""))
+    tone = "#fdb022" if status in {"failed", "waiting", "running"} or outcome == "partial" else "#32d583"
+    label = "PARTIAL" if outcome == "partial" else status.upper().replace("_", " ")
+
+    def esc(value) -> str:
+        return html.escape(str(value), quote=True)
+
+    def section(title: str, rows: list[str], color: str) -> str:
+        if not rows:
+            return ""
+        items = "".join(f'<li style="margin:0 0 7px;">{esc(row)}</li>' for row in rows if row)
+        return (f'<p style="color:{color}; font-weight:bold; margin:14px 0 5px;">{esc(title)}</p>'
+                f'<ul style="margin:0 0 10px; padding-left:20px;">{items}</ul>')
+
+    summary = (run.get("error_message") or report.get("summary") or run.get("manual_failure") or "")
+    if not summary:
+        active = next((step for step in run.get("steps", []) if step.get("state") not in {
+            "succeeded", "already_loaded", "failed", "no_result_confirmed", "skipped",
+        }), None)
+        summary = f"Waiting for {active['command']}." if active else "No report available yet."
+    observations = [str(item.get("finding", "")) for item in report.get("observations", [])]
+    limitations = [str(item) for item in report.get("limitations", [])]
+    warnings = [str(item) for item in report.get("validation_warnings", [])]
+    result = (
+        '<div style="color:#d0d5dd; font-family:sans-serif;">'
+        f'<p style="color:{tone}; font-weight:bold; margin:0 0 8px;">{esc(label)}'
+        f' <span style="color:#98a2b3; font-weight:normal;">· Task {esc(run["run_id"][:8])}</span></p>'
+        f'<p style="color:#f2f4f7; font-size:14px; margin:0 0 10px;">{esc(summary)}</p>'
+        + section("What I found", observations, "#32d583")
+        + section("What remains uncertain", limitations, "#fdb022")
+        + section("Report warnings", warnings, "#fdb022")
+    )
+    if show_evidence:
+        evidence = format_run_details(run, show_evidence=True)
+        marker = "Execution details\n"
+        technical = evidence.split(marker, 1)[-1] if marker in evidence else evidence
+        result += (f'<p style="color:#7cd4fd; font-weight:bold; margin:16px 0 5px;">Execution details</p>'
+                   f'<pre style="white-space:pre-wrap; color:#d0d5dd; background:#111c25; padding:10px;">'
+                   f'{esc(technical)}</pre>')
+    return result + "</div>"
 
 
 class SkillsPanel(QWidget):
@@ -120,11 +186,13 @@ class SkillsPanel(QWidget):
         self.skillSelector = QComboBox()
         style_dark_combo_popup(self.skillSelector)
         for skill in SKILLS.values():
-            kind = "Agent" if isinstance(skill, AgenticSkillDefinition) else "Fixed"
-            self.skillSelector.addItem(f"{kind} · {skill.title} v{skill.version}", skill.skill_id)
+            self.skillSelector.addItem(f"Skill · {skill.title} v{skill.version}", skill.skill_id)
             self.skillSelector.setItemData(
                 self.skillSelector.count() - 1, skill_help(skill), Qt.ItemDataRole.ToolTipRole,
             )
+        default_skill_index = self.skillSelector.findData("identify-user")
+        if default_skill_index >= 0:
+            self.skillSelector.setCurrentIndex(default_skill_index)
         controls.addWidget(self.skillSelector, 1)
         self.skillHelpButton = QPushButton("?")
         self.skillHelpButton.setAccessibleName("Task help")
@@ -141,6 +209,17 @@ class SkillsPanel(QWidget):
         controls.addWidget(self.startButton)
         layout.addLayout(controls)
 
+        self.contextInput = QPlainTextEdit()
+        apply_console_output_style(self.contextInput)
+        self.contextInput.setPlaceholderText("Additional task context for this run (optional)")
+        self.contextInput.setFixedHeight(64)
+        layout.addWidget(self.contextInput)
+        self.startError = QLabel("")
+        self.startError.setWordWrap(True)
+        self.startError.setStyleSheet("color: #ff8e8e;")
+        self.startError.hide()
+        layout.addWidget(self.startError)
+
         runs = QHBoxLayout()
         runs.addWidget(QLabel("Runs"))
         self.runSelector = QComboBox()
@@ -154,6 +233,8 @@ class SkillsPanel(QWidget):
         layout.addWidget(self.showEvidence)
         self.details = QTextBrowser()
         apply_console_output_style(self.details)
+        self.details.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.details.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         layout.addWidget(self.details, 3)
         manual = QHBoxLayout()
         self.reasonInput = QLineEdit()
@@ -214,7 +295,8 @@ class SkillsPanel(QWidget):
         skill = SKILLS[self.skillSelector.currentData()]
         session_selected = bool(self.active_beacon and self.active_listener)
         any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
-        self.startButton.setEnabled(self.available and (session_selected or any_selected))
+        valid_target = any_selected if skill.target_scope == "teamserver" else session_selected or any_selected
+        self.startButton.setEnabled(self.available and valid_target)
 
     def _refresh_sessions(self) -> None:
         self._run_async(self._load_sessions, key="sessions")
@@ -243,21 +325,27 @@ class SkillsPanel(QWidget):
         self.sessionSelector.blockSignals(True)
         self.sessionSelector.clear()
         self.sessionSelector.addItem("Select a session" if sessions else "No live sessions", None)
-        self.sessionSelector.addItem("Any session · multi-session skills", ANY_SESSION)
+        scope_label = ("TeamServer · no beacon session" if skill.target_scope == "teamserver"
+                       else "Any session · multi-session skills")
+        self.sessionSelector.addItem(scope_label, ANY_SESSION)
         any_index = self.sessionSelector.count() - 1
         self.sessionSelector.setItemData(
-            any_index, "Available when a multi-session skill supports this scope.",
+            any_index, ("Run a TeamServer skill without selecting a beacon session."
+                        if skill.target_scope == "teamserver" else
+                        "Available when a multi-session skill supports this scope."),
             Qt.ItemDataRole.ToolTipRole,
         )
         self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
-        target_index = any_index if selected == ANY_SESSION and skill.supports_any_session else 0
+        target_index = any_index if skill.target_scope == "teamserver" or \
+            (selected == ANY_SESSION and skill.supports_any_session) else 0
         for label, beacon, listener in sessions:
             self.sessionSelector.addItem(label, (beacon, listener))
             index = self.sessionSelector.count() - 1
+            self.sessionSelector.model().item(index).setEnabled(skill.target_scope != "teamserver")
             self.sessionSelector.setItemData(
                 index, f"Beacon: {beacon}\nListener: {listener}", Qt.ItemDataRole.ToolTipRole,
             )
-            if (beacon, listener) == selected:
+            if skill.target_scope != "teamserver" and (beacon, listener) == selected:
                 target_index = index
         if target_index == 0 and len(sessions) == 1:
             target_index = 2
@@ -267,14 +355,32 @@ class SkillsPanel(QWidget):
 
     def _show_plan(self) -> None:
         skill = SKILLS[self.skillSelector.currentData()]
+        self.contextInput.setPlaceholderText(
+            "Describe the local file and session destination(s) in your own words."
+            if skill.input_kind == "artifact_transfer" else
+            "Additional task context for this run (optional)")
         help_text = skill_help(skill)
         self.skillHelpButton.setToolTip(help_text)
         self.skillSelector.setToolTip(help_text)
         any_index = self.sessionSelector.findData(ANY_SESSION)
         if any_index >= 0:
+            self.sessionSelector.setItemText(
+                any_index, "TeamServer · no beacon session" if skill.target_scope == "teamserver"
+                else "Any session · multi-session skills")
+            self.sessionSelector.setItemData(
+                any_index, "Run a TeamServer skill without selecting a beacon session."
+                if skill.target_scope == "teamserver" else
+                "Available when a multi-session skill supports this scope.",
+                Qt.ItemDataRole.ToolTipRole)
             self.sessionSelector.model().item(any_index).setEnabled(skill.supports_any_session)
+            if skill.target_scope == "teamserver":
+                self.sessionSelector.setCurrentIndex(any_index)
             if not skill.supports_any_session and self.sessionSelector.currentData() == ANY_SESSION:
                 self.sessionSelector.setCurrentIndex(0)
+        for index in range(self.sessionSelector.count()):
+            value = self.sessionSelector.itemData(index)
+            if isinstance(value, tuple) and value != ANY_SESSION:
+                self.sessionSelector.model().item(index).setEnabled(skill.target_scope != "teamserver")
         self._update_start_button()
 
     def _show_skill_help(self) -> None:
@@ -300,6 +406,8 @@ class SkillsPanel(QWidget):
         Thread(target=work, daemon=True).start()
 
     def _start(self) -> None:
+        self.startError.clear()
+        self.startError.hide()
         skill = SKILLS[self.skillSelector.currentData()]
         any_selected = self.sessionSelector.currentData() == ANY_SESSION and skill.supports_any_session
         if not any_selected and (not self.active_beacon or not self.active_listener):
@@ -309,6 +417,7 @@ class SkillsPanel(QWidget):
             self.service.start, skill.skill_id,
             "*" if any_selected else self.active_beacon,
             "*" if any_selected else self.active_listener,
+            self.contextInput.toPlainText(),
             key="start",
         )
 
@@ -377,6 +486,8 @@ class SkillsPanel(QWidget):
             self._refresh()
 
     def _on_error(self, message: str) -> None:
+        self.startError.setText(f"Task error: {message}")
+        self.startError.show()
         self.details.setPlainText(f"Error: {message}")
 
     def _refresh(self, select_id: str = "") -> None:
@@ -396,11 +507,8 @@ class SkillsPanel(QWidget):
         if not runs:
             self.runSelector.addItem("No runs yet", None)
         for index, run in enumerate(runs):
-            run_skill = SKILLS.get(run["skill_id"])
-            agentic = run.get("mode") == "agentic_identity" or isinstance(run_skill, AgenticSkillDefinition)
-            kind = "Agent" if agentic else "Fixed" if run_skill is not None else "Task"
             self.runSelector.addItem(
-                f"{kind} · {run['skill_id']} · {run['beacon_hash'][:8]} · "
+                f"Skill · {run['skill_id']} · {run['beacon_hash'][:8]} · "
                 f"{run['status']} · {run['run_id'][:8]}",
                 run["run_id"],
             )
@@ -433,15 +541,16 @@ class SkillsPanel(QWidget):
             run["status"] == "running" and any(step["state"] in WAITING_STATES for step in run["steps"])
         )
         self.failButton.setEnabled(run["status"] not in FINISHED_RUN_STATES)
-        content = format_run_details(run, show_evidence=self.showEvidence.isChecked())
-        if self._displayed_run_id == run_id and self.details.toPlainText() == content:
+        content = render_run_details(run, show_evidence=self.showEvidence.isChecked())
+        if self._displayed_run_id == run_id and getattr(self, "_displayed_html", None) == content:
             return
         scroll = self.details.verticalScrollBar()
         same_run = self._displayed_run_id == run_id
         old_position = scroll.value()
         was_at_bottom = same_run and old_position >= scroll.maximum() - 2
-        self.details.setPlainText(content)
+        self.details.setHtml(content)
         self._displayed_run_id = run_id
+        self._displayed_html = content
         if same_run:
             scroll.setValue(scroll.maximum() if was_at_bottom else min(old_position, scroll.maximum()))
 

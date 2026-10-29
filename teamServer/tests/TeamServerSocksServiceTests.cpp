@@ -115,15 +115,20 @@ void testStartAndStopLifecycle()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok());
-    require(response.status() == teamserverapi::OK);
-    require(response.result() == "Socks server successfully started on port 1080");
+    const auto typedStart = service.control("start");
+    require(typedStart.ok && service.isRunning());
+    const auto typedStop = service.control("stop");
+    require(typedStop.ok && !service.isRunning());
+
+    TeamServerOperationResult response;
+    response = service.control("start");
+    require(response.ok);
+    require(response.output == "Socks server successfully started on port 1080");
     require(service.isRunning());
 
-    require(service.handleCommand({"socks", "stop"}, &response).ok());
-    require(response.status() == teamserverapi::OK);
-    require(response.result() == "Socks server stoped");
+    response = service.control("stop");
+    require(response.ok);
+    require(response.output == "Socks server stoped");
     require(!service.isRunning());
 }
 
@@ -141,22 +146,20 @@ void testBindAndUnbindLifecycle()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
-    require(response.status() == teamserverapi::KO);
-    require(response.result() == "Error: Socks server not running");
-    require(response.message() == "Error: Socks server not running");
+    TeamServerOperationResult response;
+    response = service.control("bind", "ABCDEFGH");
+    require(!response.ok);
+    require(response.output == "Error: Socks server not running");
 
-    require(service.handleCommand({"socks", "start"}, &response).ok());
-    require(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
-    require(response.status() == teamserverapi::OK);
-    require(response.result().find("Socks server sucessfully binded") != std::string::npos);
-    require(response.message().empty());
+    response = service.control("start");
+    response = service.control("bind", "ABCDEFGH");
+    require(response.ok);
+    require(response.output.find("Socks server sucessfully binded") != std::string::npos);
     require(service.isBound());
 
-    require(service.handleCommand({"socks", "unbind"}, &response).ok());
-    require(response.status() == teamserverapi::OK);
-    require(response.result() == "Socks server successfully unbinding");
+    response = service.control("unbind");
+    require(response.ok);
+    require(response.output == "Socks server successfully unbinding");
     require(!service.isBound());
 
     const C2Message stop = listener->getTask("ABCDEFGH12345678");
@@ -175,15 +178,14 @@ void testPortInUseAndUnknownCommand()
         [](int)
         { return std::make_unique<FakeSocksServer>(); });
 
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok());
-    require(response.status() == teamserverapi::KO);
-    require(response.result() == "Error: Socks server port already used");
-    require(response.message() == "Error: Socks server port already used");
+    TeamServerOperationResult response;
+    response = service.control("start");
+    require(!response.ok);
+    require(response.output == "Error: Socks server port already used");
 
-    require(service.handleCommand({"socks", "nope"}, &response).ok());
-    require(response.status() == teamserverapi::KO);
-    require(response.result() == "Error: Socks server command not found.");
+    response = service.control("nope");
+    require(!response.ok);
+    require(response.output == "Error: Socks server command not found.");
 }
 
 void testRebindAfterSessionKilled()
@@ -198,18 +200,18 @@ void testRebindAfterSessionKilled()
         listeners,
         [](unsigned short) { return false; },
         [](int) { return std::make_unique<FakeSocksServer>(); });
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok());
-    require(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
+    TeamServerOperationResult response;
+    response = service.control("start");
+    response = service.control("bind", "ABCDEFGH");
     require(service.isBound());
 
     first->setSessionKilled();
     require(waitFor([&service] { return !service.isBound(); }));
 
-    require(service.handleCommand({"socks", "bind", "IJKLMNOP"}, &response).ok());
-    require(response.status() == teamserverapi::OK);
+    response = service.control("bind", "IJKLMNOP");
+    require(response.ok);
     require(service.isBound());
-    require(service.handleCommand({"socks", "unbind"}, &response).ok());
+    response = service.control("unbind");
     require(!service.isBound());
 }
 
@@ -223,14 +225,14 @@ void testImmediateUnbindAfterBind()
         listeners,
         [](unsigned short) { return false; },
         [](int) { return std::make_unique<FakeSocksServer>(); });
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok());
+    TeamServerOperationResult response;
+    response = service.control("start");
 
     for (int i = 0; i < 20; ++i)
     {
-        require(service.handleCommand({"socks", "bind", "ABCDEFGH"}, &response).ok());
-        require(response.status() == teamserverapi::OK);
-        require(service.handleCommand({"socks", "unbind"}, &response).ok());
+        response = service.control("bind", "ABCDEFGH");
+        require(response.ok);
+        response = service.control("unbind");
         require(!service.isBound());
     }
 }
@@ -245,10 +247,10 @@ void testAmbiguousSessionPrefixIsRejected()
         makeLogger(), listeners,
         [](unsigned short) { return false; },
         [](int) { return std::make_unique<FakeSocksServer>(); });
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok());
-    require(service.handleCommand({"socks", "bind", "PREFIX"}, &response).ok());
-    require(response.status() == teamserverapi::KO);
+    TeamServerOperationResult response;
+    response = service.control("start");
+    response = service.control("bind", "PREFIX");
+    require(!response.ok);
     require(!service.isBound());
 }
 } // namespace

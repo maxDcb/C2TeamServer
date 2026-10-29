@@ -82,7 +82,10 @@ grpc::Status TeamServerArtifactService::uploadArtifact(
     response->set_status(uploaded ? teamserverapi::OK : teamserverapi::KO);
     response->set_message(message);
     if (uploaded)
+    {
+        response->set_artifact_id(artifact.artifactId);
         m_logger->info("Uploaded artifact {0}", artifact.name);
+    }
     else
         m_logger->warn("Upload artifact failed for {0}: {1}", request.name(), message);
 

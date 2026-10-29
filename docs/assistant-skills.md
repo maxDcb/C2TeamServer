@@ -1,122 +1,130 @@
-# Tâches LLM du client C2
+# Client-owned Agent Skills
 
-## Premier skill agentique : identify-user
+## Skill format and creation
 
-Le dossier `C2Client/C2Client/assistant_agent/skills/identify-user/` contient un
-`SKILL.md` au format [Agent Skills](https://agentskills.io/specification) :
-frontmatter YAML `name` et `description`, puis instructions Markdown. Le client
-charge ces instructions dans un `StructuredTaskSpec` d'agent-core. Le modèle
-choisit d'appeler le tool `whoami` ; le client fixe la session choisie par
-l'opérateur et n'expose aucun autre tool à ce run.
+The client uses one skill format: a directory under
+`C2Client/C2Client/assistant_agent/skills/` containing `SKILL.md` and `skill.yaml`.
+Skills are shipped with the client source. Restart the client after adding or editing one.
+The `SKILL.md` frontmatter supplies a lowercase hyphenated `name` matching the directory
+and a description. Its Markdown body instructs the LLM. `skill.yaml` selects the C2
+capability bundles and sets the execution limits:
 
-L'appel au tool crée un job V2 avec un identifiant stable et retourne `pending`
-à agent-core. Le client attend le résultat, y compris après redémarrage, puis
-appelle `resume_pending_tool` avec la sortie observée. Si `whoami` nécessite un
-module, son chargement est un prérequis technique suivi par le client ; le
-modèle reçoit la sortie de `whoami`, jamais le résultat du chargement comme
-preuve d'identité. **No result** peut terminer l'attente avec un rapport
-partiel. Le rapport et les octets exacts des jobs restent dans le journal local.
+```yaml
+tool_bundles: [recon.identity, recon.host]
+objective: Identify the selected session's user and network context.
+required_tools: [whoami, ipConfig]
+completion_tools: [whoami, ipConfig]
+max_tool_calls: 10
+max_iterations: 16
+```
 
-Le format `SKILL.md` apporte les instructions portables. La permission effective
-du tool et le périmètre de session sont imposés par le code du client ; les
-instructions Markdown ne peuvent pas les élargir. Le premier skill reste
-volontairement limité à un seul appel. `inventory_local` ci-dessous conserve son
-ancien plan fixe pour les runs déjà enregistrés.
+A required tool must be available for the selected session before the run starts.
+Completion tools determine whether the final report can be considered complete.
+The effective tool list is the intersection of the declared bundles, registered
+adapters, and platform-compatible commands. A new skill can combine existing
+bundles without adding Python code. A new C2 operation still needs a typed adapter.
 
-La liste des tâches indique **Agent** pour `identify-user` et **Fixed** pour
-`inventory_local`. Le bouton **?** donne la description et la méthode de la
-tâche au survol ou au clic. Les runs sont dans un menu déroulant ; le rapport
-conserve sa position de lecture lors des rafraîchissements. L'entrée **Any
-session** est visible pour préparer les futurs skills multi sessions, mais
-reste désactivée : les deux skills présents exigent une session précise.
+`target: teamserver` defines a skill that runs with the **TeamServer · no beacon
+session** target. It receives only registered TeamServer adapters and does not load
+beacon command specifications. The `teamserver.inspect`, `teamserver.publish`, and
+`teamserver.control` bundles group the typed inventory, publication, and control
+operations. Focused bundles `teamserver.commands`, `teamserver.listeners`,
+`teamserver.sessions`, `teamserver.artifacts`, `teamserver.credentials`, and
+`teamserver.tools` grant the corresponding catalog, lifecycle, artifact, vault,
+and tool installation actions. These adapters are also registered in the
+conversation, while skills receive only the operations in their selected bundles.
+The Conversation tab selects every declared bundle and also retains command tools
+loaded dynamically from the TeamServer catalog. Enter `/bundles` in Conversation
+to see which bundled tools the current client and TeamServer actually provide.
+Listener and session lifecycle actions can be requested without selecting a beacon;
+beacon commands still need a specific session.
+`teamserver-inspect` checks local inventory in read-only mode.
+`teamserver-publish-test` exercises only the publication action and destination
+explicitly named in **Additional task context**, using existing artifact IDs.
 
-## Inventaire local à plan fixe
+`artifact-to-session` runs against one selected beacon session and combines the
+`artifact.to_session` bundle. **Additional task context** is free text. For
+example, `transfert /etc/hosts sur /tmp de la session` asks for `/tmp/hosts`;
+`ok transfert /etc/hosts dans /tmp/toto et /tmp/hotsss` asks for two exact
+destination files. The skill interprets the context and passes the source and
+destination paths as tool arguments. If source or destination information is
+missing, the run displays an error instead of a transfer report.
 
-La vue **Data AI → Tasks** propose directement les sessions actives du
-TeamServer. Elle sélectionne automatiquement la seule session disponible ;
-sinon, choisir une session dans la liste puis cliquer sur **Start**. Le bouton
-**Refresh** recharge les sessions sans ouvrir de console. Le skill
-`inventory_local`, versionné dans le client, exécute `whoami` puis
-`ipConfig`. Si un module manque, le client exécute d'abord `loadModule` et
-attend sa réponse ; ce chargement possède son propre job et reprend après
-redémarrage du client. Un module déjà en cours de chargement est suivi par son
-identifiant existant, sans nouvelle soumission. La réponse précise
-`Module already loaded` du beacon valide également ce prérequis : le job de
-chargement conserve son état brut d'échec dans les preuves, puis la commande
-demandée est envoyée. Les autres échecs de chargement restent des échecs.
-Le LLM interprète les résultats observés dans un rapport structuré en anglais ;
-il ne choisit ni ne modifie les commandes du plan.
+The skill calls `uploadC2Artifact` to store the local bytes in the same Artifacts
+catalog used by the Artifacts tab, then calls the beacon `upload` command with
+the verified artifact ID. In this command catalog, `upload` sends data to the
+beacon; `download` retrieves data from it. The skill waits for the beacon job
+result before reporting success. A lost Artifacts upload response has no durable
+job receipt and is not automatically retried.
 
-La vue Tasks présente le rapport sous forme de phrases et garde les identifiants
-de jobs, états bruts et sorties dans **Show execution details**. Le stockage
-conserve le rapport structuré et les preuves exactes pour la reprise et l'audit.
+`recon-network` uses the narrow `recon.network` bundle: `ipConfig`,
+`hostContext`, `netstat`, optional `ps`, and `listC2Listeners`. The model chooses
+the command order from observed results. Its report compares beacon-host evidence
+with TeamServer listener metadata and cites the IDs of both sources. `ps` is
+reserved for a concrete socket ownership question.
 
-La conversation applique la même précondition : un appel à un outil de module
-charge automatiquement ce module s'il manque, attend le résultat du chargement,
-puis envoie la commande demandée. `outcome_unknown` maintient l'attente jusqu'à
-un résultat tardif ou `/stop`. Le chargement réussi seul n'est jamais présenté
-comme le résultat de la commande demandée. Une réponse `Module already loaded`
-enchaîne également sur la commande demandée.
+The Tasks panel shows the skill's description, bundles, and tools in its help popup.
+The operator selects a live session and can enter **Additional task context** for
+that run. The client snapshots this text, the skill instructions, TeamServer session
+metadata, available tools, and command specifications. Session metadata and operator
+context help guide the task; the report may cite only observed job or terminal
+observation IDs as evidence. Changing a skill file does not change an existing run.
 
-## Propriété et reprise
+## Execution and recovery
 
-Le client possède l'ordonnanceur et les fichiers de tâche dans
-`C2Client/C2Client/logs/assistant_sessions/skills/runs/`. Le TeamServer possède
-les jobs, leurs résultats et leurs événements V2 dans SQLite. Chaque étape a
-un `job_id` stable. Après un redémarrage du client, les tâches inachevées sont
-relues, les jobs sont interrogés avec `GetJobExecution`, puis le suivi des
-événements reprend. Une soumission dont la réponse s'est perdue est vérifiée
-par son `job_id` avant d'être retentée avec **le même identifiant**.
+Every skill uses agent-core's structured task executor. The LLM chooses tools within
+the selected bundles. Beacon commands are bound to the selected session, validated,
+and submitted as V2 jobs with stable IDs. If a module must be loaded first, its load
+job is recorded separately; its output is not presented as the command result.
+The client waits for each command and resumes from the stored event cursor after a
+restart. An uncertain command is never resubmitted under a new ID. The operator may
+mark **No result** to continue toward a partial report, or **Mark failed** to stop.
+The client performs LLM work only while it is running; TeamServer may receive a
+late beacon result while the client is closed.
 
-Une commande peut rester en attente sans délai automatique, y compris lorsque
-le serveur indique `outcome_unknown`. L'opérateur peut déclarer **No result**
-avec une raison ; l'étape devient incertaine et le rapport est partiel.
-**Mark failed** clôt la tâche entière. Aucune de ces actions n'annule une
-commande déjà envoyée au beacon. Un résultat tardif est enregistré comme état
-tardif et ne réécrit pas un rapport déjà terminé.
+Skills can use typed TeamServer operations selected by their bundles:
+command catalog and help; listener inventory, creation and stop; live sessions,
+history and stop; artifact inventory, upload, download, hosting and deletion;
+credential vault listing, detail, creation, update and deletion; tool installation,
+module reload and SOCKS control. The same `TeamServerOperations` layer serves the
+corresponding UI panels and assistant adapters. Binary lookup returns a size and digest, not
+the binary itself. File actions download an existing artifact by ID before sending
+its bytes to the typed RPC; they accept an explicit safe destination filename.
+`hostArtifact`, `socksControl`, and `reloadModules` have durable V2 job receipts.
+The client saves the job ID before dispatch and can resolve an interrupted action
+from that receipt. Other mutations return a direct acknowledgement and have no job
+receipt. If interrupted, their outcome is marked unknown and they are not replayed
+automatically. The operator should inspect TeamServer state before retrying. The
+skill has no free-form TeamServer terminal command tool.
 
-Les sorties exactes de jobs réussis sont encodées en base64 dans le journal de
-tâche. Le rapport donne un aperçu de 16 000 octets, une taille et un SHA-256.
-Les résultats de `loadModule` restent dans les preuves mais ne sont pas cités
-comme des observations de l'inventaire.
-Une sortie rejetée par la limite du serveur apparaît comme échec du job ; elle
-n'est pas présentée comme preuve complète. Si le LLM échoue, les preuves restent
-consultables et le rapport est marqué partiel, avec analyse indisponible.
+Reports contain a plain-English summary, findings cited by `source_id`, limitations,
+and exact job output retained in the local run snapshot. Runs are stored under
+`C2Client/C2Client/logs/assistant_sessions/skills/runs/`. Only the `agentic_skill`
+run format is usable. Previous fixed-plan and identity-specific run files are not
+listed or resumed.
 
-Le rapport utilise `AgentRunService` et `StructuredTaskSpec` d'agent-core.
-L'ordonnancement du plan fixe et la décision de clôture manuelle restent dans
-le client. `agent-core` expose aussi la suspension et la reprise de tools
-externes pour les tâches structurées, sur le même principe que la conversation,
-sans changer les appels existants de PentestAssistant.
+Report citation or format mismatches are shown as warnings; they do not discard
+the model's response or otherwise successful observations. The original response
+is retained for review. Complete beacon output is passed to agent-core's artifact
+system, which can page large results; each result states whether its stored bytes
+cover the reported size. The Tasks panel shows a shorter output preview and labels
+it when the preview is incomplete.
 
-## Installation et tests locaux
+## Local build and tests
 
-Depuis la racine de C2TeamServer, après génération des bindings Python par le
-build CMake (voir [build.md](build.md)) :
+From the C2TeamServer root, after CMake has generated the Python protocol bindings:
 
 ```bash
-python3 -m venv C2Client/.venv
-C2Client/.venv/bin/python -m pip install -e './C2Client[test]'
-C2_PROTOCOL_PYTHON_ROOT="$PWD/build/generated/python_protocol" \
+C2_PROTOCOL_PYTHON_ROOT="$PWD/build-codex-scratch/generated/python_protocol" \
   QT_QPA_PLATFORM=offscreen \
   C2Client/.venv/bin/python -m pytest C2Client/tests -q
+ctest --test-dir build-codex-scratch -R '^(testsNetstat|testsHostContext|testsJobRuntimeE2E)$' \
+  --output-on-failure --timeout 120
 ```
 
-La dépendance `agent-core` est figée sur le commit qui fournit la suspension et
-la reprise des tâches structurées. Pour développer les deux dépôts ensemble,
-il est possible d'installer le checkout local après le client avec
-`C2Client/.venv/bin/python -m pip install -e /home/mdecaumiabaillenx/Challenges/agent-core --no-deps --no-build-isolation`.
-
-Pour démarrer l'interface avec la configuration locale actuelle (le fichier
-`C2Client/.env` sélectionne Azure et `gpt-5.5`) :
+To run the GUI with the current local LLM settings:
 
 ```bash
-export C2_PROTOCOL_PYTHON_ROOT="$PWD/build/generated/python_protocol"
+export C2_PROTOCOL_PYTHON_ROOT="$PWD/build-codex-scratch/generated/python_protocol"
 C2Client/.venv/bin/python -m C2Client.GUI
 ```
-
-Le lien local `.env` à la racine lit les identifiants de PentestAssistant et
-`C2Client/.env` choisit le modèle, sans copier la clé dans ce dépôt. Le modèle peut également être configuré avec
-`C2_ASSISTANT_PROVIDER`, `OPENAI_API_KEY` et `C2_ASSISTANT_MODEL` pour OpenAI.
-Les tâches n'avancent que lorsque le client est ouvert ; le TeamServer peut
-continuer à recevoir une réponse beacon pendant son absence.

@@ -1,0 +1,14 @@
+tool_bundles:
+  - recon.identity
+  - recon.host
+objective: Identify the selected session's user and network context with verifiable evidence.
+required_tools:
+  - whoami
+  - ipConfig
+  - listC2Listeners
+completion_tools:
+  - whoami
+  - ipConfig
+  - listC2Listeners
+max_tool_calls: 10
+max_iterations: 16

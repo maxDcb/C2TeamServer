@@ -35,6 +35,9 @@ def test_loaded_modules_tool_formats_loaded_modules():
     assert "pwd" in result.content
     assert grpc.sessions[0].beacon_hash == "beacon-12345678"
     assert grpc.sessions[0].listener_hash == "listener-12345678"
+    filtered = tool.execute({"beacon_hash": "beacon-12345678", "listener_hash": "listener-12345678",
+                             "name_contains": "pw"}, context=None)
+    assert "pwd" in filtered.content and "ls" not in filtered.content
 
 
 def test_has_loaded_module_requires_loaded_state():

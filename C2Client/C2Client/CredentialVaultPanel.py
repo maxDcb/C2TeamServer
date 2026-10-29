@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 
 from .console_style import apply_console_output_style
 from .grpcClient import TeamServerApi_pb2
+from .operations import TeamServerOperations
 from .grpc_status import is_response_ok, operation_ack_text, response_message
 from .panel_style import apply_dark_panel_style, style_dark_combo_popup
 from .ui_status import StatusKind, apply_status, compact_message
@@ -214,6 +215,7 @@ class CredentialVault(QWidget):
     def __init__(self, parent: QWidget | None, grpcClient: Any) -> None:
         super().__init__(parent)
         self.grpcClient = grpcClient
+        self.operations = TeamServerOperations(grpcClient)
         self.credentials: list[Any] = []
         self.selectedCredentialId = ""
         self.detailSecretRevealed = False
@@ -373,7 +375,7 @@ class CredentialVault(QWidget):
 
     def refreshCredentials(self) -> None:
         try:
-            self.credentials = list(self.grpcClient.listCredentials(self.buildQuery()))
+            self.credentials = self.operations.list_credentials(self.buildQuery())
         except Exception as exc:
             self.credentials = []
             self.printCredentials()
@@ -535,7 +537,7 @@ class CredentialVault(QWidget):
         if values is None:
             return
         try:
-            ack = self.grpcClient.addCredential(self.buildRequestFromValues(values))
+            ack = self.operations.add_credential(self.buildRequestFromValues(values))
         except Exception as exc:
             apply_status(self.statusLabel, f"Add credential: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -547,7 +549,7 @@ class CredentialVault(QWidget):
             apply_status(self.statusLabel, "Edit credential: select a credential first.", StatusKind.WARNING)
             return
         try:
-            detail = self.grpcClient.getCredential(self.selectedCredentialId, reveal_secret=True)
+            detail = self.operations.get_credential(self.selectedCredentialId, reveal_secret=True)
         except Exception as exc:
             apply_status(self.statusLabel, f"Edit credential: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -571,7 +573,7 @@ class CredentialVault(QWidget):
             return
         try:
             request = self.buildRequestFromValues(values, credential_id=self.selectedCredentialId)
-            ack = self.grpcClient.updateCredential(request)
+            ack = self.operations.update_credential(request)
         except Exception as exc:
             apply_status(self.statusLabel, f"Update credential: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -591,7 +593,7 @@ class CredentialVault(QWidget):
             apply_status(self.statusLabel, "Credential secret hidden.", StatusKind.SUCCESS)
             return
         try:
-            detail = self.grpcClient.getCredential(self.selectedCredentialId, reveal_secret=True)
+            detail = self.operations.get_credential(self.selectedCredentialId, reveal_secret=True)
         except Exception as exc:
             apply_status(self.statusLabel, f"Reveal credential: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return
@@ -628,7 +630,7 @@ class CredentialVault(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
-            ack = self.grpcClient.deleteCredential(self.selectedCredentialId)
+            ack = self.operations.delete_credential(self.selectedCredentialId)
         except Exception as exc:
             apply_status(self.statusLabel, f"Delete credential: {compact_message(exc, limit=120)}", StatusKind.ERROR)
             return

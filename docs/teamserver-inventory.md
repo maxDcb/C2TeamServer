@@ -76,10 +76,10 @@ Les identifiants ci-dessous serviront à suivre les audits ultérieurs. Ils dés
 | TS-06 | Jobs durables : opérations `echo` et `session_command`, état, consultation, liste et flux d'événements | `SubmitJob`, `GetJobExecution`, `ListJobExecutions`, `SubscribeJobEvents`, `JobApplicationService.cpp`, `SqliteJobRepository.cpp` |
 | TS-07 | Catalogue des commandes, aide, état des modules chargés, suivi des chargements et rechargement des modules `.so` | `ListCommands`, `GetCommandHelp`, `ListModules`, `TeamServerCommandCatalogService.cpp`, `TeamServerHelpService.cpp`, `TeamServerModuleLoader.cpp` |
 | TS-08 | Préparateurs spécialisés de commandes | `AssemblyExec`, `Chisel`, transfert de fichiers, `Script`, `MiniDump`, `Inject` et préparateur d'artefacts de modules (`ScreenShot`, `KerberosUseTicket`, `PsExec`, `CoffLoader`, `DotnetExec`, `PwSh`) dans `teamServer/teamServer/TeamServer*CommandPreparer.cpp` |
-| TS-09 | Catalogue d'artefacts, téléversement, téléchargement, suppression des artefacts générés et hébergement de fichiers via listener | `ListArtifacts`, `DownloadArtifact`, `UploadArtifact`, `DeleteGeneratedArtifact`, `TeamServerArtifactService.cpp`, `TeamServerArtifactCatalog.cpp`, `TeamServerTermLocalService.cpp` |
+| TS-09 | Catalogue d'artefacts, téléversement, téléchargement, suppression des artefacts générés et hébergement de fichiers via listener | `ListArtifacts`, `DownloadArtifact`, `UploadArtifact`, `DeleteGeneratedArtifact`, `TeamServerArtifactService.cpp`, `TeamServerArtifactCatalog.cpp`, `TeamServerLocalOperationService.cpp` |
 | TS-10 | Coffre d'identifiants : liste, lecture, ajout, modification, suppression, chiffrement sur disque et références `--vault` dans certaines commandes | API `Credential*`, `TeamServerCredentialVaultService.cpp`, `TeamServerCommandPreparationService.cpp` |
-| TS-11 | Proxy SOCKS : démarrage, arrêt, liaison et déliaison à une session | Commande terminal `socks`, `TeamServerSocksService.cpp`, `libs/libSocks5/` |
-| TS-12 | Commandes terminal locales : informations et binaire d'un listener, hébergement et dépôt d'artefacts, identifiants, rechargement des modules | `ExecuteTerminalCommand`, `TeamServerListenerArtifactService.cpp`, `TeamServerTermLocalService.cpp` |
+| TS-11 | Proxy SOCKS : démarrage, arrêt, liaison et déliaison à une session | `ControlSocks`, `TeamServerSocksService.cpp`, `libs/libSocks5/` |
+| TS-12 | Opérations typées : informations et binaire d’un listener, dépôt de fichiers, installation d’outils, hébergement et rechargement des modules | `GetListenerInfo`, `GetBeaconBinary`, `UploadListenerFile`, `InstallTool`, `InstallToolBundle`, `HostArtifact`, `ReloadModules`, `TeamServerListenerArtifactService.cpp`, `TeamServerLocalOperationService.cpp` |
 | TS-13 | Traitement postérieur des résultats : suivi des modules, erreurs des commandes et artefacts issus des réponses | `TeamServerListenerSessionService::handleCmdResponse`, `TeamServerFileArtifactService.cpp` |
 | TS-14 | Génération et stockage de charges brutes ou Donut pour certains préparateurs de commandes | `TeamServerShellcodeService.cpp`, `TeamServerGeneratedArtifactStore.cpp`, `thirdParty/donut/` |
 
@@ -97,18 +97,12 @@ Les identifiants ci-dessous serviront à suivre les audits ultérieurs. Ils dés
 
 Le TeamServer prépare également les commandes communes et les commandes des modules `.so` chargés ; voir l'[inventaire de `core/`](core-inventory.md) pour leur catalogue.
 
-### Détail du terminal local (TS-11 et TS-12)
+### Surface des opérations (TS-11 et TS-12)
 
-| Service | Commandes reconnues |
-| --- | --- |
-| Informations de listener et binaire de beacon | `infoListener`, `getBeaconBinary` |
-| Artefacts et modules | `hostArtifact`, `putIntoUploadDir`, `batcaveUpload`, `reloadModules` |
-| Identifiants | `addCred`, `getCred`, `cred` |
-| Proxy SOCKS | `socks start`, `socks stop`, `socks bind`, `socks unbind` |
-
-### Surface du protocole gRPC
-
-Les 23 RPC se répartissent ainsi : authentification (`Authenticate`) ; listeners (`ListListeners`, `AddListener`, `StopListener`) ; sessions (`ListSessions`, `StopSession`) ; artefacts (`ListArtifacts`, `DownloadArtifact`, `UploadArtifact`, `DeleteGeneratedArtifact`) ; coffre (`ListCredentials`, `GetCredential`, `AddCredential`, `UpdateCredential`, `DeleteCredential`) ; commandes et modules (`ListCommands`, `ListModules`, `GetCommandHelp`) ; jobs (`SubmitJob`, `GetJobExecution`, `ListJobExecutions`, `SubscribeJobEvents`) ; terminal (`ExecuteTerminalCommand`). Voir [`TeamServerApi.proto`](../protocol/TeamServerApi.proto).
+Le client appelle les méthodes typées de `TeamServerOperations`. Le protocole gRPC
+expose 31 RPC, dont les opérations SOCKS, listener, outils et artefacts ; il
+n'expose plus d'exécution de commande terminal en texte. Voir
+[`TeamServerApi.proto`](../protocol/TeamServerApi.proto).
 
 ### Limite avec le sous-module `core/`
 

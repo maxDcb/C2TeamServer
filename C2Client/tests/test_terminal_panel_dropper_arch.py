@@ -14,8 +14,20 @@ import C2Client.TerminalPanel as terminal_panel
 
 class FakeGrpc:
     def __init__(self):
-        self.commands = []
         self.requests = []
+        self.operations = []
+
+    def hostArtifact(self, request):
+        self.operations.append(request)
+        return SimpleNamespace(job_id=request.job_id, state="succeeded",
+                               output_inline=b"http://127.0.0.1:8080/uploads/hosted.bin",
+                               error_message="")
+
+    def reloadModules(self, request):
+        self.operations.append(request)
+        return SimpleNamespace(job_id=request.job_id, state="succeeded",
+                               output_inline=b"Reloaded 2 TeamServer module(s).",
+                               error_message="")
 
     def listArtifacts(self, query=None):
         return iter([
@@ -43,30 +55,35 @@ class FakeGrpc:
             SimpleNamespace(beacon_hash="beacon-active"),
         ])
 
-    def executeTerminalCommand(self, command):
-        self.commands.append(command.command)
-        self.requests.append(command)
-        if command.command.startswith(terminal_panel.GrpcInfoListenerInstruction):
-            return SimpleNamespace(result="http\n127.0.0.1\n8080\n/uploads/\n", data=b"")
-        if command.command.startswith(terminal_panel.GrpcGetBeaconBinaryInstruction):
-            return SimpleNamespace(result="ok", data=b"beacon")
-        if command.command.startswith(terminal_panel.GrpcHostArtifactInstruction):
-            return SimpleNamespace(result="http://127.0.0.1:8080/uploads/hosted.bin", data=b"")
-        if command.command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction):
-            return SimpleNamespace(result="ok", data=b"")
-        if command.command == terminal_panel.GrpcBatcaveUploadBundleInstruction:
-            return SimpleNamespace(result="Batcave bundle installed (2 tools).", data=b"")
-        return SimpleNamespace(result="Error: unexpected command", data=b"")
+    def getListenerInfo(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK,
+                               type="http", address="127.0.0.1", port="8080",
+                               download_uri="/uploads/", message="")
+
+    def getBeaconBinary(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK,
+                               data=b"beacon", message="")
+
+    def uploadListenerFile(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK, message="ok")
+
+    def installTool(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK, message="ok")
+
+    def installToolBundle(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK,
+                               message="Batcave bundle installed (2 tools).")
 
 
 class FakeKoGrpc:
-    def executeTerminalCommand(self, command):
-        return SimpleNamespace(
-            status=terminal_panel.TeamServerApi_pb2.KO,
-            result="raw failure",
-            message="Reload failed.",
-            data=b"",
-        )
+    def reloadModules(self, request):
+        return SimpleNamespace(job_id=request.job_id, state="failed",
+                               output_inline=b"raw failure", error_message="Reload failed.")
 
 
 class FakeDropperModule:
@@ -133,7 +150,8 @@ def test_dropper_worker_requests_selected_windows_arch(tmp_path, monkeypatch, qt
     captured = capsys.readouterr()
 
     assert captured.out == ""
-    assert "getBeaconBinary beacon windows arm64" in grpc.commands
+    assert any(getattr(request, "listener_hash", "") == "beacon" and
+               getattr(request, "target_arch", "") == "arm64" for request in grpc.requests)
     assert donut_calls[0][0] == "./Beacon-arm64.exe"
     assert donut_calls[0][2] == "arm64"
     assert (tmp_path / "Beacon-arm64.exe").read_bytes() == b"beacon"
@@ -157,7 +175,7 @@ def test_terminal_command_keeps_ui_responsive_and_reports_disconnect(qtbot, tmp_
     release = Event()
 
     class DisconnectedGrpc(FakeGrpc):
-        def executeTerminalCommand(self, command):
+        def reloadModules(self, request):
             started.set()
             release.wait(2)
             raise RuntimeError("server unavailable")
@@ -175,7 +193,7 @@ def test_terminal_command_keeps_ui_responsive_and_reports_disconnect(qtbot, tmp_
     finally:
         release.set()
     qtbot.waitUntil(lambda: terminal._terminalWorker is None, timeout=3000)
-    assert "Error: server unavailable" in terminal.editorOutput.toPlainText()
+    assert "server unavailable" in terminal.editorOutput.toPlainText()
 
 
 def test_terminal_initial_completion_does_not_wait_for_server(qtbot):
@@ -209,7 +227,7 @@ def test_terminal_can_close_while_rpc_is_in_flight(qtbot, tmp_path, monkeypatch)
     release = Event()
 
     class SlowGrpc(FakeGrpc):
-        def executeTerminalCommand(self, command):
+        def reloadModules(self, request):
             started.set()
             release.wait(2)
             raise RuntimeError("server unavailable")
@@ -231,11 +249,12 @@ def test_terminal_can_close_while_rpc_is_in_flight(qtbot, tmp_path, monkeypatch)
 
 def test_dropper_worker_always_emits_one_result_on_bad_response_or_exception():
     class MalformedGrpc:
-        def executeTerminalCommand(self, command):
-            return SimpleNamespace(result="incomplete", data=b"")
+        def getListenerInfo(self, request):
+            return SimpleNamespace(status=grpc_client_module.TeamServerApi_pb2.OK,
+                                   type="http", address="", port="", download_uri="", message="")
 
     class FailedGrpc:
-        def executeTerminalCommand(self, command):
+        def getListenerInfo(self, request):
             raise RuntimeError("server unavailable")
 
     for grpc in (MalformedGrpc(), FailedGrpc()):
@@ -259,11 +278,11 @@ def test_terminal_host_uses_artifact_reference(qtbot):
 
     terminal.runHost("host artifact-123 listener-pri", ["host", "artifact-123", "listener-pri"])
 
-    assert "infoListener listener-pri" not in grpc.commands
-    assert "hostArtifact listener-pri artifact-123" in grpc.commands
+    assert [(request.listener_hash, request.artifact_reference) for request in grpc.operations] == [
+        ("listener-pri", "artifact-123")]
     output = terminal.editorOutput.toPlainText()
     assert "http://127.0.0.1:8080/uploads/hosted.bin" in output
-    assert not any(command.startswith(terminal_panel.GrpcPutIntoUploadDirInstruction) for command in grpc.commands)
+    assert not any(request.DESCRIPTOR.name == "ListenerFileRequest" for request in grpc.requests)
 
 
 def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
@@ -277,14 +296,7 @@ def test_terminal_host_accepts_selected_artifact_label_token(qtbot):
         ["host", "dropper.exe(artifact-123)", "listener-pri"],
     )
 
-    assert "hostArtifact listener-pri artifact-123" in grpc.commands
-
-
-def test_terminal_response_error_uses_rpc_status_only():
-    ok = SimpleNamespace(status=terminal_panel.TeamServerApi_pb2.OK, result="Error is a word in this artifact")
-    ko = SimpleNamespace(status=terminal_panel.TeamServerApi_pb2.KO, result="Done")
-    assert not terminal_panel.isTerminalResponseError(ok)
-    assert terminal_panel.isTerminalResponseError(ko)
+    assert grpc.operations[0].artifact_reference == "artifact-123"
 
 
 def test_terminal_command_parser_and_host_preserve_quoted_argument(qtbot, tmp_path, monkeypatch):
@@ -300,7 +312,7 @@ def test_terminal_command_parser_and_host_preserve_quoted_argument(qtbot, tmp_pa
     terminal.commandEditor.setText("host 'artifact with spaces' listener")
     terminal.runCommand()
     qtbot.waitUntil(lambda: terminal._terminalWorker is None, timeout=3000)
-    assert "hostArtifact listener 'artifact with spaces'" in grpc.commands
+    assert grpc.operations[0].artifact_reference == "artifact with spaces"
 
 
 def test_dropper_worker_preserves_quoted_additional_argument():
@@ -368,10 +380,9 @@ def test_batcave_bundle_is_sent_as_one_request(qtbot, tmp_path, monkeypatch):
     qtbot.addWidget(parent)
     terminal.runBatcave("batcave bundleInstall demo", ["batcave", "bundleInstall", "demo"])
 
-    assert grpc.commands == [terminal_panel.GrpcBatcaveUploadBundleInstruction]
-    manifest, body = grpc.requests[0].data.split(b"\n", 1)
-    assert json.loads(manifest) == [["first.bin", 3], ["second.bin", 6]]
-    assert body == b"A\x00BSECOND"
+    assert len(grpc.requests) == 1
+    assert [(file.filename, file.data) for file in grpc.requests[0].files] == [
+        ("first.bin", b"A\x00B"), ("second.bin", b"SECOND")]
     assert "Batcave bundle installed" in terminal.editorOutput.toPlainText()
 
 
@@ -384,7 +395,7 @@ def test_batcave_empty_bundle_never_uploads(qtbot, monkeypatch):
 
     terminal.runBatcave("batcave bundleInstall missing", ["batcave", "bundleInstall", "missing"])
 
-    assert grpc.commands == []
+    assert grpc.requests == []
     assert "bundle not found or empty" in terminal.editorOutput.toPlainText()
 
 

@@ -453,6 +453,7 @@ void testArtifactServiceUploadsOperatorArtifact()
     query.nameContains = "payload";
     const std::vector<TeamServerArtifactRecord> artifacts = catalog.listArtifacts(query);
     assert(artifacts.size() == 1);
+    assert(response.artifact_id() == artifacts[0].artifactId);
     assert(artifacts[0].name == "payload_v1.exe");
     assert(artifacts[0].scope == "operator");
     assert(artifacts[0].target == "beacon");

@@ -46,7 +46,7 @@ class TeamServerModuleLoader;
 class TeamServerSocksService;
 class TeamServerCommandPreparationService;
 class TeamServerShellcodeService;
-class TeamServerTermLocalService;
+class TeamServerLocalOperationService;
 class JobApplicationService;
 class SqliteJobRepository;
 
@@ -80,12 +80,29 @@ public:
 
     grpc::Status SubmitJob(grpc::ServerContext* context, const teamserverapi::SubmitJobRequest* request, teamserverapi::JobExecutionRecord* response) override;
     grpc::Status GetJobExecution(grpc::ServerContext* context, const teamserverapi::GetJobExecutionRequest* request, teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status GetJobOutputChunk(grpc::ServerContext* context, const teamserverapi::GetJobOutputChunkRequest* request, teamserverapi::GetJobOutputChunkResponse* response) override;
     grpc::Status ListJobExecutions(grpc::ServerContext* context, const teamserverapi::ListJobExecutionsRequest* request, teamserverapi::ListJobExecutionsResponse* response) override;
     grpc::Status SubscribeJobEvents(grpc::ServerContext* context, const teamserverapi::SubscribeJobEventsRequest* request, grpc::ServerWriter<teamserverapi::JobEventRecord>* writer) override;
 
     grpc::Status GetCommandHelp(grpc::ServerContext* context, const teamserverapi::CommandHelpRequest* command, teamserverapi::CommandHelpResponse* commandResponse) override;
 
-    grpc::Status ExecuteTerminalCommand(grpc::ServerContext* context, const teamserverapi::TerminalCommandRequest* command, teamserverapi::TerminalCommandResponse* response) override;
+    grpc::Status HostArtifact(grpc::ServerContext* context, const teamserverapi::HostArtifactRequest* request,
+        teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status ControlSocks(grpc::ServerContext* context, const teamserverapi::SocksControlRequest* request,
+        teamserverapi::JobExecutionRecord* response) override;
+    grpc::Status ReloadModules(grpc::ServerContext* context, const teamserverapi::OperationRequest* request,
+        teamserverapi::JobExecutionRecord* response) override;
+
+    grpc::Status GetListenerInfo(grpc::ServerContext* context, const teamserverapi::ListenerSelector* request,
+        teamserverapi::ListenerInfoResponse* response) override;
+    grpc::Status GetBeaconBinary(grpc::ServerContext* context, const teamserverapi::BeaconBinaryRequest* request,
+        teamserverapi::BeaconBinaryResponse* response) override;
+    grpc::Status UploadListenerFile(grpc::ServerContext* context, const teamserverapi::ListenerFileRequest* request,
+        teamserverapi::OperationAck* response) override;
+    grpc::Status InstallTool(grpc::ServerContext* context, const teamserverapi::ToolFile* request,
+        teamserverapi::OperationAck* response) override;
+    grpc::Status InstallToolBundle(grpc::ServerContext* context, const teamserverapi::ToolBundleRequest* request,
+        teamserverapi::OperationAck* response) override;
 
 protected:
     int handleCmdResponse();
@@ -132,7 +149,7 @@ private:
     std::unique_ptr<TeamServerSocksService> m_socksService;
     std::unique_ptr<TeamServerCommandPreparationService> m_commandPreparationService;
     std::shared_ptr<TeamServerShellcodeService> m_shellcodeService;
-    std::unique_ptr<TeamServerTermLocalService> m_termLocalService;
+    std::unique_ptr<TeamServerLocalOperationService> m_localOperationService;
     std::shared_ptr<SqliteJobRepository> m_jobRepository;
     std::shared_ptr<JobApplicationService> m_jobApplication;
 };

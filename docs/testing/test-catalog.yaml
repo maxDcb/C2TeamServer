@@ -168,7 +168,7 @@ entries:
     validation: auto+manual
     axes: {os: client, arch: n/a, listener: https, artifact_category: hosted}
     evidence:
-      auto: ["C2Client/tests/test_terminal_panel_dropper_arch.py", "teamServer/tests/TeamServerTermLocalServiceTests.cpp"]
+      auto: ["C2Client/tests/test_terminal_panel_dropper_arch.py", "teamServer/tests/TeamServerLocalOperationServiceTests.cpp"]
       manual: ["Run host <listener> <artifact-id-or-name> and fetch the returned URL."]
 
   - id: C2CLIENT-TERMINAL-DROPPER-001
@@ -190,7 +190,7 @@ entries:
     validation: planned
     axes: {os: client, arch: n/a, listener: n/a, artifact_category: n/a}
     evidence:
-      auto: ["teamServer/tests/TeamServerTermLocalServiceTests.cpp"]
+      auto: ["teamServer/tests/TeamServerLocalOperationServiceTests.cpp"]
       manual: ["Use credential add/list/get once the server-side credential store is stabilized."]
 
   - id: C2CLIENT-ARTIFACTS-LIST-001
@@ -344,7 +344,7 @@ entries:
     validation: auto+manual
     axes: {os: teamserver, arch: n/a, listener: https, artifact_category: hosted}
     evidence:
-      auto: ["teamServer/tests/TeamServerTermLocalServiceTests.cpp", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
+      auto: ["teamServer/tests/TeamServerLocalOperationServiceTests.cpp", "teamServer/tests/TeamServerArtifactCatalogTests.cpp"]
       manual: ["Host an artifact, fetch its URL, then delete it from Artifacts tab."]
 
   - id: TEAMSERVER-FILE-TRANSFER-001

@@ -510,14 +510,43 @@ class GrpcClient:
                                     if isinstance(payload.get(key), str)})
             except (ValueError, TypeError):
                 pass
-        return self._audited_rpc("SubmitJob", lambda: self.stub.SubmitJob(
+        job = self._audited_rpc("SubmitJob", lambda: self.stub.SubmitJob(
             request, metadata=self.metadata,
             timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1),
         ), details)
+        return self._complete_job_output(job)
 
     def getJobExecution(self, job_id: str) -> Any:
         request = TeamServerApi_pb2.GetJobExecutionRequest(job_id=job_id)
-        return self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(request, metadata=self.metadata))
+        job = self._unary_rpc("GetJobExecution", lambda: self.stub.GetJobExecution(
+            request, metadata=self.metadata, timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1)))
+        return self._complete_job_output(job)
+
+    def _complete_job_output(self, job: Any) -> Any:
+        if not hasattr(job, "output_size"):
+            return job
+        expected = int(job.output_size)
+        data = bytearray(job.output_inline)
+        if expected == 0 and data:
+            # Older/fake records may omit the size while carrying inline bytes.
+            return job
+        while len(data) < expected and job.error_code != "output_too_large":
+            chunk = self.getJobOutputChunk(job.job_id, len(data))
+            if int(chunk.total_size) != expected or int(chunk.next_offset) != len(data) + len(chunk.data) \
+                    or not chunk.data:
+                raise ValueError("TeamServer returned an inconsistent job output chunk.")
+            data.extend(chunk.data)
+        if len(data) != expected and job.error_code != "output_too_large":
+            raise ValueError("TeamServer returned an inconsistent job output length.")
+        if expected > len(job.output_inline):
+            job.output_inline = bytes(data)
+        return job
+
+    def getJobOutputChunk(self, job_id: str, offset: int, max_bytes: int = 64 * 1024) -> Any:
+        request = TeamServerApi_pb2.GetJobOutputChunkRequest(
+            job_id=job_id, offset=offset, max_bytes=max_bytes)
+        return self._unary_rpc("GetJobOutputChunk", lambda: self.stub.GetJobOutputChunk(
+            request, metadata=self.metadata, timeout=env_int("C2_GRPC_JOB_TIMEOUT_SEC", 10, minimum=1)))
 
     def listJobExecutions(self, after_created_at: int = 0, after_job_id: str = "", page_size: int = 100) -> Any:
         request = TeamServerApi_pb2.ListJobExecutionsRequest(
@@ -537,14 +566,65 @@ class GrpcClient:
 
         return self._unary_rpc("GetCommandHelp", lambda: self.stub.GetCommandHelp(command, metadata=self.metadata))
 
-    def executeTerminalCommand(self, command: Any) -> Any:
-        """Send a command to the TeamServer terminal."""
-
+    def hostArtifact(self, request: Any) -> Any:
+        """Host an existing artifact, returning a durable operation receipt."""
         return self._audited_rpc(
-            "ExecuteTerminalCommand",
-            lambda: self.stub.ExecuteTerminalCommand(
-                command,
-                metadata=self.metadata,
+            "HostArtifact",
+            lambda: self.stub.HostArtifact(
+                request, metadata=self.metadata,
                 timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
             ),
+            {"job_id": request.job_id, "listener_hash": request.listener_hash,
+             "artifact_reference": request.artifact_reference},
         )
+
+    def controlSocks(self, request: Any) -> Any:
+        """Control the TeamServer SOCKS bridge with a durable operation receipt."""
+        return self._audited_rpc(
+            "ControlSocks",
+            lambda: self.stub.ControlSocks(
+                request, metadata=self.metadata,
+                timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
+            ),
+            {"job_id": request.job_id, "action": request.action,
+             "beacon_hash": request.beacon_hash},
+        )
+
+    def reloadModules(self, request: Any) -> Any:
+        """Reload TeamServer modules with a durable operation receipt."""
+        return self._audited_rpc(
+            "ReloadModules",
+            lambda: self.stub.ReloadModules(
+                request, metadata=self.metadata,
+                timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1),
+            ),
+            {"job_id": request.job_id},
+        )
+
+    def getListenerInfo(self, request: Any) -> Any:
+        return self._unary_rpc("GetListenerInfo", lambda: self.stub.GetListenerInfo(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)))
+
+    def getBeaconBinary(self, request: Any) -> Any:
+        return self._unary_rpc("GetBeaconBinary", lambda: self.stub.GetBeaconBinary(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)))
+
+    def uploadListenerFile(self, request: Any) -> Any:
+        return self._audited_rpc("UploadListenerFile", lambda: self.stub.UploadListenerFile(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"listener_hash": request.listener_hash, "filename": request.filename})
+
+    def installTool(self, request: Any) -> Any:
+        return self._audited_rpc("InstallTool", lambda: self.stub.InstallTool(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"filename": request.filename})
+
+    def installToolBundle(self, request: Any) -> Any:
+        return self._audited_rpc("InstallToolBundle", lambda: self.stub.InstallToolBundle(
+            request, metadata=self.metadata,
+            timeout=env_int("C2_GRPC_TERMINAL_TIMEOUT_SEC", 60, minimum=1)),
+            {"file_count": len(request.files)})

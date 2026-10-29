@@ -44,6 +44,10 @@ class FakeAssistantAgent:
         self.stopped_waits.append(kwargs)
         return True
 
+    def conversation_capabilities(self):
+        return {"teamserver.listeners": ("listC2Listeners", "addC2Listener", "stopC2Listener"),
+                "teamserver.sessions": ("listLiveSessions", "stopC2Session")}
+
 
 def build_assistant(qtbot, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -78,10 +82,22 @@ def test_help_command_shows_local_commands(qtbot, monkeypatch):
     output = assistant.editorOutput.toPlainText()
     assert "Assistant commands:" in output
     assert "/help - Show AssistantPanel local commands." in output
+    assert "/bundles - Show conversation bundles and available tools." in output
     assert "/status - Show the current assistant pending command state." in output
     assert "/stop - Stop this assistant wait; the remote command continues." in output
     assert "/cancel and /reset - Aliases for /stop." in output
     assert "no automatic assistant wait timeout" in output
+
+
+def test_bundles_command_shows_available_conversation_tools(qtbot, monkeypatch):
+    assistant = build_assistant(qtbot, monkeypatch)
+    assistant.commandEditor.setText("/bundles")
+    assistant.runCommand()
+    output = assistant.editorOutput.toPlainText()
+    assert "Conversation bundles:" in output
+    assert "teamserver.listeners: listC2Listeners, addC2Listener, stopC2Listener" in output
+    assert "teamserver.sessions: listLiveSessions, stopC2Session" in output
+    assert assistant.agent.turns == []
 
 
 def test_skills_share_active_session_without_changing_conversation(qtbot, monkeypatch):
@@ -90,8 +106,8 @@ def test_skills_share_active_session_without_changing_conversation(qtbot, monkey
         "Conversation", "Tasks",
     ]
     assert assistant.skillsPanel.startButton.text() == "Start"
-    assert "Fixed ·" in assistant.skillsPanel.skillSelector.currentText()
-    assert "Missing modules are loaded first" in assistant.skillsPanel.skillHelpButton.toolTip()
+    assert "Skill ·" in assistant.skillsPanel.skillSelector.currentText()
+    assert "follows SKILL.md" in assistant.skillsPanel.skillHelpButton.toolTip()
     assert assistant.skillsPanel.runSelector.currentText() == "No runs yet"
     assistant.setActiveSession("beacon-12345678", "listener-1")
     assert assistant.skillsPanel.active_beacon == "beacon-12345678"

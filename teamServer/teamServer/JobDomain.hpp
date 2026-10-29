@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -57,12 +58,25 @@ struct JobListPage
     std::string nextJobId;
 };
 
+struct JobOutputChunk
+{
+    std::string data;
+    std::int64_t totalSize = 0;
+};
+
 class IJobRepository
 {
 public:
     virtual ~IJobRepository() = default;
     virtual std::pair<JobExecution, bool> create(const JobExecution& execution) = 0;
     virtual JobExecution get(const std::string& jobId) = 0;
+    virtual JobOutputChunk outputChunk(const std::string& jobId, std::size_t offset, std::size_t maxBytes)
+    {
+        const JobExecution job = get(jobId);
+        if (offset > job.outputInline.size())
+            throw JobError(JobErrorCode::invalid_argument, "Output chunk offset exceeds result size.");
+        return {job.outputInline.substr(offset, maxBytes), static_cast<std::int64_t>(job.outputInline.size())};
+    }
     virtual JobListPage list(std::int64_t afterCreatedAt, const std::string& afterJobId, std::size_t limit) = 0;
     virtual std::vector<JobEvent> events(std::int64_t afterEventId, const JobEventFilter& filter, std::size_t limit) = 0;
     virtual JobExecution transition(const std::string& jobId, const std::string& fromState,

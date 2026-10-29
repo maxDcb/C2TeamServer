@@ -1,0 +1,11 @@
+input_kind: artifact_transfer
+tool_bundles:
+  - artifact.to_session
+objective: Prepare the operator-selected local or session file through Artifacts, then transfer it to the selected session and report both outcomes.
+required_tools:
+  - uploadC2Artifact
+  - upload
+completion_tools:
+  - upload
+max_tool_calls: 24
+max_iterations: 60

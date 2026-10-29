@@ -348,12 +348,12 @@ int main()
         [](unsigned short) { return false; },
         [socksPort](int) { return std::make_unique<RealSocksServer>(socksPort); },
         250ms);
-    teamserverapi::TerminalCommandResponse response;
-    require(service.handleCommand({"socks", "start"}, &response).ok() &&
-                response.status() == teamserverapi::OK,
+    TeamServerOperationResult response;
+    require((response = service.control("start")).ok &&
+                response.ok,
             "SOCKS service start failed");
-    require(service.handleCommand({"socks", "bind", beacon.hash().substr(0, 8)}, &response).ok() &&
-                response.status() == teamserverapi::OK,
+    require((response = service.control("bind", beacon.hash().substr(0, 8))).ok &&
+                response.ok,
             "SOCKS service bind failed");
 
     EchoServer timeoutEcho;
@@ -447,12 +447,12 @@ int main()
               "closing one parallel tunnel did not reach its target");
     require(service.isBound(), "closing one parallel tunnel stopped the SOCKS route");
 
-    require(service.handleCommand({"socks", "unbind"}, &response).ok() &&
-                response.status() == teamserverapi::OK,
+    require((response = service.control("unbind")).ok &&
+                response.ok,
             "SOCKS service unbind failed");
     pumpUntil(beacon, *listener, [&] { return unbindEcho.disconnected(); },
               "beacon target socket remained open after unbind");
-    require(service.handleCommand({"socks", "stop"}, &response).ok(),
+    require((response = service.control("stop")).ok,
             "SOCKS service stop failed");
     return 0;
 }

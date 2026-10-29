@@ -112,19 +112,54 @@ def test_grpc_client_lists_artifacts(tmp_path, monkeypatch):
     assert events == [("ListArtifacts", True, "")]
 
 
-def test_terminal_rpc_uses_configurable_deadline(monkeypatch):
+def test_listener_info_rpc_uses_configurable_deadline(monkeypatch):
     client = object.__new__(GrpcClient)
     client.stub = mock.MagicMock()
     client.metadata = []
     client._unary_rpc = lambda operation, call: call()
     monkeypatch.setenv("C2_GRPC_TERMINAL_TIMEOUT_SEC", "7")
 
-    command = TeamServerApi_pb2.TerminalCommandRequest(command="reloadModules")
-    client.executeTerminalCommand(command)
+    request = TeamServerApi_pb2.ListenerSelector(listener_hash="listener")
+    client.getListenerInfo(request)
+    client.stub.GetListenerInfo.assert_called_once_with(request, metadata=[], timeout=7)
 
-    client.stub.ExecuteTerminalCommand.assert_called_once_with(
-        command, metadata=[], timeout=7,
-    )
+
+def test_typed_operations_use_their_own_rpcs(monkeypatch):
+    client = object.__new__(GrpcClient)
+    client.stub = mock.MagicMock()
+    client.metadata = []
+    client._audited_rpc = lambda _operation, call, _details: call()
+    client._unary_rpc = lambda _operation, call: call()
+    monkeypatch.setenv("C2_GRPC_TERMINAL_TIMEOUT_SEC", "7")
+
+    host = TeamServerApi_pb2.HostArtifactRequest(job_id="host-1", listener_hash="listener",
+                                                  artifact_reference="artifact")
+    socks = TeamServerApi_pb2.SocksControlRequest(job_id="socks-1", action="start")
+    reload = TeamServerApi_pb2.OperationRequest(job_id="reload-1")
+    client.hostArtifact(host)
+    client.controlSocks(socks)
+    client.reloadModules(reload)
+
+    client.stub.HostArtifact.assert_called_once_with(host, metadata=[], timeout=7)
+    client.stub.ControlSocks.assert_called_once_with(socks, metadata=[], timeout=7)
+    client.stub.ReloadModules.assert_called_once_with(reload, metadata=[], timeout=7)
+
+    listener = TeamServerApi_pb2.ListenerSelector(listener_hash="listener")
+    binary = TeamServerApi_pb2.BeaconBinaryRequest(listener_hash="listener", target_os="windows")
+    upload = TeamServerApi_pb2.ListenerFileRequest(listener_hash="listener", filename="payload.bin", data=b"data")
+    tool = TeamServerApi_pb2.ToolFile(filename="tool.bin", data=b"data")
+    bundle = TeamServerApi_pb2.ToolBundleRequest(files=[tool])
+    client.getListenerInfo(listener)
+    client.getBeaconBinary(binary)
+    client.uploadListenerFile(upload)
+    client.installTool(tool)
+    client.installToolBundle(bundle)
+
+    client.stub.GetListenerInfo.assert_called_once_with(listener, metadata=[], timeout=7)
+    client.stub.GetBeaconBinary.assert_called_once_with(binary, metadata=[], timeout=7)
+    client.stub.UploadListenerFile.assert_called_once_with(upload, metadata=[], timeout=7)
+    client.stub.InstallTool.assert_called_once_with(tool, metadata=[], timeout=7)
+    client.stub.InstallToolBundle.assert_called_once_with(bundle, metadata=[], timeout=7)
 
 
 def test_grpc_client_downloads_artifact(tmp_path, monkeypatch):
@@ -269,6 +304,28 @@ def test_v2_job_submit_get_and_cursor(tmp_path, monkeypatch):
     assert client.getJobExecution("id-1") is expected
     assert [event.event_id for event in client.subscribeJobEvents(8)] == [9]
     assert stub.SubscribeJobEvents.call_args.args[0].after_event_id == 8
+
+
+def test_job_output_is_reassembled_from_server_chunks(tmp_path, monkeypatch):
+    cert = tmp_path / "cert.crt"
+    cert.write_text("cert")
+    monkeypatch.setenv("C2_CERT_PATH", str(cert))
+    monkeypatch.setattr(grpc, "ssl_channel_credentials", lambda _: object())
+    monkeypatch.setattr(grpc, "secure_channel", lambda *args, **kwargs: object())
+    monkeypatch.setattr(grpc, "channel_ready_future", lambda channel: DummyFuture())
+    stub = mock.MagicMock()
+    stub.GetJobExecution.return_value = TeamServerApi_pb2.JobExecutionRecord(
+        job_id="large-job", state="succeeded", output_inline=b"abc", output_size=8)
+    stub.GetJobOutputChunk.side_effect = [
+        TeamServerApi_pb2.GetJobOutputChunkResponse(data=b"de", total_size=8, next_offset=5),
+        TeamServerApi_pb2.GetJobOutputChunkResponse(data=b"fgh", total_size=8, next_offset=8, complete=True),
+    ]
+    monkeypatch.setattr(TeamServerApi_pb2_grpc, "TeamServerApiStub", lambda channel: stub)
+    client = GrpcClient("127.0.0.1", 50051, False, token="tok")
+
+    job = client.getJobExecution("large-job")
+    assert job.output_inline == b"abcdefgh"
+    assert [call.args[0].offset for call in stub.GetJobOutputChunk.call_args_list] == [3, 5]
 
 
 def test_session_result_uses_event_state_when_late_result_already_arrived(tmp_path, monkeypatch):

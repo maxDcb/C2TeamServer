@@ -1,0 +1,12 @@
+target: teamserver
+tool_bundles:
+  - teamserver.inspect
+objective: Check TeamServer listener and artifact inventory, then report sourced observations and gaps.
+required_tools:
+  - listC2Listeners
+  - listC2Artifacts
+completion_tools:
+  - listC2Listeners
+  - listC2Artifacts
+max_tool_calls: 6
+max_iterations: 10

@@ -11,9 +11,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <grpcpp/support/status.h>
-
-#include "TeamServerApi.pb.h"
+#include "TeamServerOperationResult.hpp"
 #include "SocksServer.hpp"
 #include "listener/Listener.hpp"
 #include "spdlog/logger.h"
@@ -48,7 +46,7 @@ public:
 
     ~TeamServerSocksService();
 
-    grpc::Status handleCommand(const std::vector<std::string>& splitedCmd, teamserverapi::TerminalCommandResponse* response);
+    TeamServerOperationResult control(const std::string& action, const std::string& beaconHash = {});
     void shutdown();
     void run();
 

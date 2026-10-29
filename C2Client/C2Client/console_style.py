@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 from datetime import datetime
 
-from PyQt6.QtGui import QFont, QTextCursor
+from PyQt6.QtGui import QFont, QTextBlockFormat, QTextCursor
 
 
 CONSOLE_FONT_FAMILY = "JetBrainsMono Nerd Font"
@@ -126,6 +126,15 @@ def append_console_html(editor, body: str) -> None:
     else:
         editor.insertHtml(body)
         editor.insertPlainText("\n")
+    # appendHtml leaves an empty block after rich content. Without resetting its
+    # format, Qt carries the last Markdown paragraph's margins into later turns.
+    move_editor_to_end(editor)
+    cursor = editor.textCursor()
+    if not cursor.block().text():
+        neutral = QTextBlockFormat()
+        neutral.setBottomMargin(4)
+        cursor.setBlockFormat(neutral)
+        editor.setTextCursor(cursor)
 
 
 def append_console_text(editor, text: str) -> None:

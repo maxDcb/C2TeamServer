@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .grpcClient import TeamServerApi_pb2
+from .operations import TeamServerOperations
 from .env import env_int
 from .grpc_status import is_response_ok, operation_ack_text
 from .console_style import CONSOLE_COLORS
@@ -254,7 +255,8 @@ class ListenerMutationWorker(QRunnable):
 
     def run(self):
         try:
-            operation = self.grpc_client.addListener if self.action == "add" else self.grpc_client.stopListener
+            operations = TeamServerOperations(self.grpc_client)
+            operation = operations.add_listener if self.action == "add" else operations.stop_listener
             ack = operation(self.request)
             self.signals.finished.emit(self.action, ack, "")
         except Exception as exc:

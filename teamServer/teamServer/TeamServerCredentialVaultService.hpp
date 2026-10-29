@@ -62,11 +62,6 @@ public:
         const teamserverapi::CredentialSelector& selector,
         teamserverapi::OperationAck* response);
 
-    grpc::Status handleTerminalCommand(
-        const std::vector<std::string>& splitedCmd,
-        const teamserverapi::TerminalCommandRequest& command,
-        teamserverapi::TerminalCommandResponse* response);
-
 private:
     bool loadLocked(std::string& message);
     bool saveLocked(std::string& message) const;
@@ -86,8 +81,6 @@ private:
     const TeamServerCredentialRecord* findRecordLocked(const std::string& credentialId, bool* ambiguous = nullptr) const;
     std::string generateCredentialId() const;
     std::string currentTimestamp() const;
-    std::string terminalPayloadJson(const std::vector<std::string>& splitedCmd, const teamserverapi::TerminalCommandRequest& command, std::size_t tailIndex) const;
-    std::string listCredentialsJsonLocked(const teamserverapi::CredentialQuery& query) const;
     void appendAuditLocked(const std::string& action, const std::string& credentialId);
 
     std::shared_ptr<spdlog::logger> m_logger;

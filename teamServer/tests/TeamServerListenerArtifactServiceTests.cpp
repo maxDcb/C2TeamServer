@@ -96,6 +96,17 @@ void writeFile(const fs::path& path, const std::string& content)
     output << content;
 }
 
+std::string infoText(const teamserverapi::ListenerInfoResponse& response)
+{
+    if (response.status() != teamserverapi::OK) return response.message();
+    return response.type() + "\n" + response.address() + "\n" + response.port() + "\n" + response.download_uri();
+}
+
+std::string binaryText(const teamserverapi::BeaconBinaryResponse& response)
+{
+    return response.status() == teamserverapi::OK ? "ok" : response.message();
+}
+
 void testInfoListenerForPrimaryAndSecondary()
 {
     ScopedPath tempRoot(makeTempDirectory("info"));
@@ -111,51 +122,42 @@ void testInfoListenerForPrimaryAndSecondary()
 
     TeamServerListenerArtifactService service(makeLogger(), config, runtimeConfig, listeners);
 
-    teamserverapi::TerminalCommandResponse response;
-    teamserverapi::TerminalCommandRequest command;
-    command.set_command("infoListener listener-pri");
-    assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    teamserverapi::ListenerInfoResponse response;
+    service.getListenerInfo("listener-pri", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "https\nteam.example\n8443\n/drop.bin");
+    assert(infoText(response) == "https\nteam.example\n8443\n/drop.bin");
     assert(response.message().empty());
 
-    command.set_command("infoListener secondary");
-    assert(service.handleCommand("infoListener", {"infoListener", "secondary"}, command, &response).ok());
+    service.getListenerInfo("secondary", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "tcp\n10.0.0.1\n4455\nnone");
+    assert(infoText(response) == "tcp\n10.0.0.1\n4455\nnone");
 
-    command.set_command("infoListener missing");
-    assert(service.handleCommand("infoListener", {"infoListener", "missing"}, command, &response).ok());
+    service.getListenerInfo("missing", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Listener not found.");
+    assert(infoText(response) == "Error: Listener not found.");
     assert(response.message() == "Error: Listener not found.");
 
     listeners.push_back(std::make_shared<TestListener>("listener-primary-other"));
-    command.set_command("infoListener listener-pri");
-    assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    service.getListenerInfo("listener-pri", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Listener reference is ambiguous.");
+    assert(infoText(response) == "Error: Listener reference is ambiguous.");
 
-    command.set_command("infoListener listener-primary");
-    assert(service.handleCommand("infoListener", {"infoListener", "listener-primary"}, command, &response).ok());
+    service.getListenerInfo("listener-primary", &response);
     assert(response.status() == teamserverapi::OK);
 
     secondarySession->addListener("secondary-other", ListenerTcpType, "10.0.0.2", "4466");
-    command.set_command("infoListener secondary");
-    assert(service.handleCommand("infoListener", {"infoListener", "secondary"}, command, &response).ok());
+    service.getListenerInfo("secondary", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Listener reference is ambiguous.");
+    assert(infoText(response) == "Error: Listener reference is ambiguous.");
 
-    command.set_command("infoListener secondary-hash");
-    assert(service.handleCommand("infoListener", {"infoListener", "secondary-hash"}, command, &response).ok());
+    service.getListenerInfo("secondary-hash", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "tcp\n10.0.0.1\n4455\nnone");
+    assert(infoText(response) == "tcp\n10.0.0.1\n4455\nnone");
 
     listeners.push_back(std::make_shared<TestListener>("listener-primary"));
-    command.set_command("infoListener listener-primary");
-    assert(service.handleCommand("infoListener", {"infoListener", "listener-primary"}, command, &response).ok());
+    service.getListenerInfo("listener-primary", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Listener reference is ambiguous.");
+    assert(infoText(response) == "Error: Listener reference is ambiguous.");
 }
 
 void testInfoListenerAddressFallbacks()
@@ -181,18 +183,16 @@ void testInfoListenerAddressFallbacks()
             return "";
         });
 
-    teamserverapi::TerminalCommandResponse response;
-    teamserverapi::TerminalCommandRequest command;
-    command.set_command("infoListener listener-pri");
-    assert(service.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    teamserverapi::ListenerInfoResponse response;
+    service.getListenerInfo("listener-pri", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "https\n192.168.56.10\n8443\n/drop.bin");
+    assert(infoText(response) == "https\n192.168.56.10\n8443\n/drop.bin");
 
     config["ExposedIp"] = "203.0.113.10";
     TeamServerListenerArtifactService exposedService(makeLogger(), config, runtimeConfig, listeners);
-    assert(exposedService.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    exposedService.getListenerInfo("listener-pri", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "https\n203.0.113.10\n8443\n/drop.bin");
+    assert(infoText(response) == "https\n203.0.113.10\n8443\n/drop.bin");
 
     config["ExposedIp"] = "";
     config["IpInterface"] = "eth-test";
@@ -205,17 +205,17 @@ void testInfoListenerAddressFallbacks()
         {
             return interface == "eth-test" ? "10.10.10.10" : "";
         });
-    assert(interfaceService.handleCommand("infoListener", {"infoListener", "listener-pri"}, command, &response).ok());
+    interfaceService.getListenerInfo("listener-pri", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "https\n10.10.10.10\n8443\n/drop.bin");
+    assert(infoText(response) == "https\n10.10.10.10\n8443\n/drop.bin");
 
     auto wildcard = std::make_shared<TestListener>("wildcard-listener", ListenerHttpsType, "0.0.0.0", "8443");
     std::vector<std::shared_ptr<Listener>> wildcardListeners = {wildcard};
     config["IpInterface"] = "";
     TeamServerListenerArtifactService wildcardService(makeLogger(), config, runtimeConfig, wildcardListeners);
-    assert(wildcardService.handleCommand("infoListener", {"infoListener", "wildcard"}, command, &response).ok());
+    wildcardService.getListenerInfo("wildcard", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "https\n127.0.0.1\n8443\n/drop.bin");
+    assert(infoText(response) == "https\n127.0.0.1\n8443\n/drop.bin");
 
     auto ipv6 = std::make_shared<TestListener>("ipv6-listener", ListenerHttpsType, "::1", "8443");
     std::vector<std::shared_ptr<Listener>> ipv6Listeners = {ipv6};
@@ -243,64 +243,53 @@ void testGetBeaconBinaryForPrimaryAndSecondary()
 
     TeamServerListenerArtifactService service(makeLogger(), config, runtimeConfig, listeners);
 
-    teamserverapi::TerminalCommandResponse response;
-    teamserverapi::TerminalCommandRequest command;
-    command.set_command("getBeaconBinary listener-pri");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri"}, command, &response).ok());
+    teamserverapi::BeaconBinaryResponse response;
+    service.getBeaconBinary("listener-pri", "", "", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.data() == "HTTPBIN-X64");
 
-    command.set_command("getBeaconBinary listener-pri Windows x86");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "x86"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "Windows", "x86", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.data() == "HTTPBIN-X86");
 
-    command.set_command("getBeaconBinary listener-pri Windows amd64");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "amd64"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "Windows", "amd64", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.data() == "HTTPBIN-X64");
 
-    command.set_command("getBeaconBinary listener-pri Windows arm64");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "arm64"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "Windows", "arm64", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.data() == "HTTPBIN-ARM64");
 
-    command.set_command("getBeaconBinary listener-pri Windows sparc");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Windows", "sparc"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "Windows", "sparc", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Unsupported architecture.");
+    assert(binaryText(response) == "Error: Unsupported architecture.");
     assert(response.message() == "Error: Unsupported architecture.");
 
-    command.set_command("getBeaconBinary listener-pri Linux x64");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri", "Linux", "x64"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "Linux", "x64", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.data() == "LINUX-HTTPBIN-X64");
 
-    command.set_command("getBeaconBinary secondary");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary"}, command, &response).ok());
+    service.getBeaconBinary("secondary", "", "", &response);
     assert(response.status() == teamserverapi::OK);
-    assert(response.result() == "ok");
+    assert(binaryText(response) == "ok");
     assert(response.message().empty());
     assert(response.data() == "SMBBIN-X64");
 
-    command.set_command("getBeaconBinary secondary Linux x64");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "secondary", "Linux", "x64"}, command, &response).ok());
+    service.getBeaconBinary("secondary", "Linux", "x64", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: SMB is supported only on Windows.");
+    assert(binaryText(response) == "Error: SMB is supported only on Windows.");
 
     listeners.push_back(std::make_shared<TestListener>("listener-primary-other"));
-    command.set_command("getBeaconBinary listener-pri");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-pri"}, command, &response).ok());
+    service.getBeaconBinary("listener-pri", "", "", &response);
     assert(response.status() == teamserverapi::KO);
-    assert(response.result() == "Error: Listener reference is ambiguous.");
+    assert(binaryText(response) == "Error: Listener reference is ambiguous.");
 
-    command.set_command("getBeaconBinary listener-primary");
-    assert(service.handleCommand("getBeaconBinary", {"getBeaconBinary", "listener-primary"}, command, &response).ok());
+    service.getBeaconBinary("listener-primary", "", "", &response);
     assert(response.status() == teamserverapi::OK);
     assert(response.data() == "HTTPBIN-X64");
 }

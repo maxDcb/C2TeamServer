@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from dataclasses import replace
 
-from C2Client.assistant_agent.skills.catalog import SKILLS, SkillDefinition
+from C2Client.assistant_agent.skills.catalog import SKILLS
 from C2Client.assistant_agent.skills.panel import SkillsPanel, format_run_details
 
 
@@ -44,8 +45,8 @@ class FakeService:
     def get(self, run_id):
         return next(run for run in self.runs if run["run_id"] == run_id)
 
-    def start(self, skill_id, beacon_hash, listener_hash):
-        self.calls.append((skill_id, beacon_hash, listener_hash))
+    def start(self, skill_id, beacon_hash, listener_hash, additional_context):
+        self.calls.append((skill_id, beacon_hash, listener_hash, additional_context))
 
 
 def make_panel(qtbot, monkeypatch, sessions):
@@ -64,7 +65,7 @@ def test_task_auto_selects_only_live_session_and_starts_without_console(qtbot, m
     assert panel.startButton.isEnabled()
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("inventory_local", "beacon-1", "listener-1")]
+    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1", "")]
     panel.shutdown()
 
 
@@ -73,12 +74,80 @@ def test_agentic_skill_appears_and_uses_selected_session(qtbot, monkeypatch):
     skill_index = panel.skillSelector.findData("identify-user")
     assert skill_index >= 0
     panel.skillSelector.setCurrentIndex(skill_index)
-    assert "Agent ·" in panel.skillSelector.currentText()
+    assert "Skill ·" in panel.skillSelector.currentText()
     assert "SKILL.md" in panel.skillHelpButton.toolTip()
     assert "whoami" in panel.skillHelpButton.toolTip()
+    panel.contextInput.setPlainText("Focus on account identity.")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1")]
+    assert panel.service.calls == [("identify-user", "beacon-1", "listener-1", "Focus on account identity.")]
+    panel.shutdown()
+
+
+def test_recon_skill_appears_with_multiple_capabilities(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    skill_index = panel.skillSelector.findData("recon-host")
+    assert skill_index >= 0
+    panel.skillSelector.setCurrentIndex(skill_index)
+    assert "Skill ·" in panel.skillSelector.currentText()
+    assert "recon.host" in panel.skillHelpButton.toolTip()
+    assert "listC2Listeners" in panel.skillHelpButton.toolTip()
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("recon-host", "beacon-1", "listener-1", "") ]
+    panel.shutdown()
+
+
+def test_recon_network_appears_with_narrow_capabilities(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    skill_index = panel.skillSelector.findData("recon-network")
+    assert skill_index >= 0
+    panel.skillSelector.setCurrentIndex(skill_index)
+    help_text = panel.skillHelpButton.toolTip()
+    assert "recon.network" in help_text
+    assert "netstat" in help_text
+    assert "listC2Listeners" in help_text
+    assert "screenShot" not in help_text
+    panel.shutdown()
+
+
+def test_teamserver_skill_starts_without_beacon_session(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [])
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("teamserver-inspect"))
+    assert panel.sessionSelector.currentData() == ("*", "*")
+    assert "TeamServer" in panel.sessionSelector.currentText()
+    assert panel.startButton.isEnabled()
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("teamserver-inspect", "*", "*", "")]
+    panel.shutdown()
+
+
+def test_artifact_transfer_skill_uses_selected_session_and_shows_input_format(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
+    assert "in your own words" in panel.contextInput.placeholderText()
+    assert panel.sessionSelector.currentData() == ("beacon-1", "listener-1")
+    context = '{"source_file":"/tmp/sample.bin","remote_path":"/tmp/sample.bin"}'
+    panel.contextInput.setPlainText(context)
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
+    assert panel.service.calls == [("artifact-to-session", "beacon-1", "listener-1", context)]
+    panel.shutdown()
+
+
+def test_start_error_remains_visible_after_refresh(qtbot, monkeypatch):
+    panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
+    def reject(*_args):
+        raise ValueError("A complete session is required.")
+    panel.service.start = reject
+    panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("artifact-to-session"))
+    panel.contextInput.setPlainText("ok transfert /etc/hosts dans relative")
+    panel.startButton.click()
+    qtbot.waitUntil(lambda: "start" not in panel._inflight)
+    panel._refresh()
+    assert panel.startError.isVisibleTo(panel)
+    assert "complete session" in panel.startError.text()
     panel.shutdown()
 
 
@@ -100,7 +169,7 @@ def test_task_selects_from_multiple_sessions_and_preserves_choice(qtbot, monkeyp
     assert panel.sessionSelector.currentData() == ("beacon-2", "listener-2")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("inventory_local", "beacon-2", "listener-2")]
+    assert panel.service.calls == [("identify-user", "beacon-2", "listener-2", "")]
     panel.shutdown()
 
 
@@ -116,9 +185,8 @@ def test_any_session_is_visible_but_unavailable_for_single_session_skills(qtbot,
 
 
 def test_any_session_is_available_to_a_multi_session_skill(qtbot, monkeypatch):
-    monkeypatch.setitem(SKILLS, "multi-test", SkillDefinition(
-        skill_id="multi-test", version=1, title="Multi test", description="Test scope",
-        steps=(), supports_any_session=True,
+    monkeypatch.setitem(SKILLS, "multi-test", replace(
+        SKILLS["identify-user"], skill_id="multi-test", title="Multi test", supports_any_session=True,
     ))
     panel, grpc_client = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     panel.skillSelector.setCurrentIndex(panel.skillSelector.findData("multi-test"))
@@ -132,7 +200,7 @@ def test_any_session_is_available_to_a_multi_session_skill(qtbot, monkeypatch):
     assert panel.sessionSelector.currentData() == ("*", "*")
     panel.startButton.click()
     qtbot.waitUntil(lambda: len(panel.service.calls) == 1)
-    assert panel.service.calls == [("multi-test", "*", "*")]
+    assert panel.service.calls == [("multi-test", "*", "*", "") ]
     panel.shutdown()
 
 
@@ -152,7 +220,7 @@ def test_task_clears_stopped_session_and_accepts_console_selection(qtbot, monkey
 def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatch):
     panel, _ = make_panel(qtbot, monkeypatch, [session("beacon-1", "listener-1")])
     run = {
-        "run_id": "run-12345678", "status": "completed", "skill_id": "inventory_local",
+        "run_id": "run-12345678", "status": "completed", "skill_id": "identify-user",
         "beacon_hash": "beacon-1", "manual_failure": "",
         "steps": [{
             "step_id": "load-identity", "command": "loadModule whoami",
@@ -177,6 +245,7 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     visible = panel.details.toPlainText()
     assert "The beacon ran as operator." in visible
     assert "The account is operator." in visible
+    assert "What I found" in visible
     assert "load-job" not in visible
     assert '"evidence"' not in visible
 
@@ -185,8 +254,26 @@ def test_report_reads_as_prose_with_optional_execution_details(qtbot, monkeypatc
     assert "load-job" in technical
     assert "Server job state: failed" in technical
     assert "Output:\noperator" in technical
-    assert format_run_details(run) == visible
+    assert "Task run-1234" in visible
     panel.shutdown()
+
+
+def test_report_shows_warnings_without_hiding_findings():
+    run = {
+        "run_id": "run-1", "status": "completed", "steps": [],
+        "report": {
+            "outcome": "complete", "analysis_status": "available", "summary": "Network observed.",
+            "observations": [{"source_id": "job-1; terminal-1", "finding": "Port comparison."}],
+            "limitations": [], "validation_warnings": ["Finding 1 has an unusual source_id."],
+            "raw_output": '{"summary":"Network observed.","extra":"retained"}',
+            "evidence": [],
+        },
+    }
+    visible = format_run_details(run)
+    assert "Port comparison. (source: job-1; terminal-1)" in visible
+    assert "Report warnings" in visible
+    assert "partial" not in visible
+    assert "Original model response" in format_run_details(run, show_evidence=True)
 
 
 def test_run_dropdown_preserves_selection_and_report_scroll(qtbot, monkeypatch):
@@ -207,7 +294,7 @@ def test_run_dropdown_preserves_selection_and_report_scroll(qtbot, monkeypatch):
     panel.service.runs = [first, second]
     panel._refresh()
     assert panel.runSelector.count() == 2
-    assert panel.runSelector.itemText(0).startswith("Agent ·")
+    assert panel.runSelector.itemText(0).startswith("Skill ·")
     panel.runSelector.setCurrentIndex(1)
     assert "Another report" in panel.details.toPlainText()
     panel._on_run_changed(first)

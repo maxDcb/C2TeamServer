@@ -1,0 +1,15 @@
+tool_bundles:
+  - recon.network
+objective: Explain the selected beacon's network context and its relationship to TeamServer listeners using observed evidence.
+required_tools:
+  - ipConfig
+  - hostContext
+  - netstat
+  - listC2Listeners
+completion_tools:
+  - ipConfig
+  - hostContext
+  - netstat
+  - listC2Listeners
+max_tool_calls: 5
+max_iterations: 12

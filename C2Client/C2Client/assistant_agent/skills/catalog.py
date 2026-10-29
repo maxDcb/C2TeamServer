@@ -1,4 +1,4 @@
-"""Versioned fixed plans and Agent Skills instructions."""
+"""Versioned Agent Skills instructions and C2 capability declarations."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,22 +6,7 @@ import re
 
 import yaml
 
-
-@dataclass(frozen=True, slots=True)
-class SkillStep:
-    step_id: str
-    command_name: str
-    description: str
-
-
-@dataclass(frozen=True, slots=True)
-class SkillDefinition:
-    skill_id: str
-    version: int
-    title: str
-    description: str
-    steps: tuple[SkillStep, ...]
-    supports_any_session: bool = False
+from ..capabilities.bundles import TEAMSERVER_TOOL_NAMES, TOOL_BUNDLES, resolve_tool_bundles
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,13 +15,31 @@ class AgenticSkillDefinition:
     version: int
     title: str
     description: str
+    objective: str
     instructions: str
-    allowed_tools: tuple[str, ...]
+    tool_bundles: tuple[str, ...]
+    required_tools: tuple[str, ...]
+    completion_tools: tuple[str, ...]
+    declared_tools: tuple[str, ...]
+    max_tool_calls: int
+    max_iterations: int
     supports_any_session: bool = False
+    target_scope: str = "session"
+    input_kind: str = "text"
 
 
-def load_agentic_skill(path: Path, *, allowed_tools: tuple[str, ...]) -> AgenticSkillDefinition:
-    """Read standard SKILL.md instructions; tool permissions remain application-owned."""
+def _string_tuple(value: object, field_name: str, path: Path, *, optional: bool = False) -> tuple[str, ...]:
+    if optional and value is None:
+        return ()
+    if not isinstance(value, list) or (not optional and not value) or not all(
+        isinstance(item, str) and item.strip() for item in value
+    ):
+        raise ValueError(f"Invalid {field_name} in skill configuration: {path}")
+    return tuple(value)
+
+
+def load_agentic_skill(path: Path) -> AgenticSkillDefinition:
+    """Read portable instructions and the C2-owned capability configuration."""
     source = path.read_text(encoding="utf-8")
     parts = source.split("---\n", 2)
     if len(parts) != 3 or parts[0] != "":
@@ -60,28 +63,54 @@ def load_agentic_skill(path: Path, *, allowed_tools: tuple[str, ...]) -> Agentic
     except (TypeError, ValueError) as error:
         raise ValueError(f"Invalid skill version: {path}") from error
     instructions = parts[2].strip()
-    if version < 1 or not instructions or not allowed_tools:
+    config_path = path.parent / "skill.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError(f"Invalid skill configuration: {config_path}")
+    objective = config.get("objective", description)
+    if not isinstance(objective, str) or not objective.strip():
+        raise ValueError(f"Invalid objective in skill configuration: {config_path}")
+    bundles = _string_tuple(config.get("tool_bundles"), "tool_bundles", config_path)
+    required = _string_tuple(config.get("required_tools"), "required_tools", config_path, optional=True)
+    completion = _string_tuple(config.get("completion_tools"), "completion_tools", config_path, optional=True)
+    target_scope = config.get("target", "session")
+    if target_scope not in {"session", "teamserver"}:
+        raise ValueError(f"Invalid target in skill configuration: {config_path}")
+    input_kind = config.get("input_kind", "text")
+    if input_kind not in {"text", "artifact_transfer"} or \
+            (input_kind == "artifact_transfer" and target_scope != "session"):
+        raise ValueError(f"Invalid input_kind in skill configuration: {config_path}")
+    if type(config.get("max_tool_calls")) is not int or config["max_tool_calls"] < 1:
+        raise ValueError(f"Invalid max_tool_calls in skill configuration: {config_path}")
+    if type(config.get("max_iterations")) is not int or config["max_iterations"] < 1:
+        raise ValueError(f"Invalid max_iterations in skill configuration: {config_path}")
+    declared = {tool for bundle in TOOL_BUNDLES.values() for tool in bundle.tools}
+    resolution = resolve_tool_bundles(bundles, registered_tools=declared, required_tools=required)
+    if target_scope == "teamserver" and set(resolution.allowed_tools) - TEAMSERVER_TOOL_NAMES:
+        raise ValueError(f"TeamServer skill bundles contain beacon commands: {config_path}")
+    if set(completion) - set(resolution.allowed_tools):
+        raise ValueError(f"Completion tools are outside the selected bundles: {config_path}")
+    if version < 1 or not instructions:
         raise ValueError(f"Incomplete skill definition: {path}")
     return AgenticSkillDefinition(
         skill_id=name, version=version, title=name.replace("-", " ").title(),
-        description=description.strip(), instructions=instructions,
-        allowed_tools=allowed_tools,
+        description=description.strip(), objective=objective.strip(), instructions=instructions,
+        tool_bundles=bundles, required_tools=required, completion_tools=completion,
+        declared_tools=resolution.allowed_tools,
+        max_tool_calls=config["max_tool_calls"], max_iterations=config["max_iterations"],
+        supports_any_session=target_scope == "teamserver", target_scope=target_scope,
+        input_kind=input_kind,
     )
 
 
-INVENTORY_LOCAL = SkillDefinition(
-    skill_id="inventory_local",
-    version=2,
-    title="Local inventory",
-    description="Collects identity and network configuration from one beacon session.",
-    steps=(
-        SkillStep("identity", "whoami", "Beacon identity and groups"),
-        SkillStep("network", "ipConfig", "Network interfaces and addresses"),
-    ),
-)
+def discover_agentic_skills(root: Path) -> dict[str, AgenticSkillDefinition]:
+    discovered = {}
+    for path in sorted(root.glob("*/SKILL.md")):
+        skill = load_agentic_skill(path)
+        if skill.skill_id in discovered:
+            raise ValueError(f"Duplicate skill name: {skill.skill_id}")
+        discovered[skill.skill_id] = skill
+    return discovered
 
-IDENTIFY_USER = load_agentic_skill(
-    Path(__file__).parent / "identify-user" / "SKILL.md", allowed_tools=("whoami",),
-)
 
-SKILLS = {skill.skill_id: skill for skill in (INVENTORY_LOCAL, IDENTIFY_USER)}
+SKILLS = discover_agentic_skills(Path(__file__).parent)

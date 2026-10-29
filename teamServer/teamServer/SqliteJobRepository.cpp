@@ -271,6 +271,23 @@ JobExecution SqliteJobRepository::get(const std::string& jobId)
     return getUnlocked(jobId);
 }
 
+JobOutputChunk SqliteJobRepository::outputChunk(const std::string& jobId,
+    std::size_t offset, std::size_t maxBytes)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Statement query(m_db, "SELECT length(output_inline), substr(output_inline, ?, ?) "
+                          "FROM job_executions WHERE job_id=?");
+    query.integer(1, static_cast<std::int64_t>(offset + 1));
+    query.integer(2, static_cast<std::int64_t>(maxBytes));
+    query.text(3, jobId);
+    if (query.step() != SQLITE_ROW)
+        throw JobError(JobErrorCode::not_found, "Job not found.");
+    const auto totalSize = sqlite3_column_int64(query.get(), 0);
+    if (offset > static_cast<std::size_t>(totalSize))
+        throw JobError(JobErrorCode::invalid_argument, "Output chunk offset exceeds result size.");
+    return {columnBlob(query.get(), 1), totalSize};
+}
+
 std::pair<JobExecution, bool> SqliteJobRepository::create(const JobExecution& execution)
 {
     std::lock_guard<std::mutex> lock(m_mutex);

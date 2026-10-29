@@ -30,10 +30,19 @@ service TeamServerApi
   rpc GetCommandHelp(CommandHelpRequest) returns (CommandHelpResponse) {}
   rpc SubmitJob(SubmitJobRequest) returns (JobExecutionRecord) {}
   rpc GetJobExecution(GetJobExecutionRequest) returns (JobExecutionRecord) {}
+  rpc GetJobOutputChunk(GetJobOutputChunkRequest) returns (GetJobOutputChunkResponse) {}
   rpc ListJobExecutions(ListJobExecutionsRequest) returns (ListJobExecutionsResponse) {}
   rpc SubscribeJobEvents(SubscribeJobEventsRequest) returns (stream JobEventRecord) {}
 
-  rpc ExecuteTerminalCommand(TerminalCommandRequest) returns (TerminalCommandResponse) {}
+  rpc HostArtifact(HostArtifactRequest) returns (JobExecutionRecord) {}
+  rpc ControlSocks(SocksControlRequest) returns (JobExecutionRecord) {}
+  rpc ReloadModules(OperationRequest) returns (JobExecutionRecord) {}
+
+  rpc GetListenerInfo(ListenerSelector) returns (ListenerInfoResponse) {}
+  rpc GetBeaconBinary(BeaconBinaryRequest) returns (BeaconBinaryResponse) {}
+  rpc UploadListenerFile(ListenerFileRequest) returns (OperationAck) {}
+  rpc InstallTool(ToolFile) returns (OperationAck) {}
+  rpc InstallToolBundle(ToolBundleRequest) returns (OperationAck) {}
 }
 
 
@@ -77,6 +86,7 @@ message OperationAck
   string session_beacon_hash = 5;
   string session_listener_hash = 6;
   SessionState session_state = 7;
+  string artifact_id = 8;
 }
 
 
@@ -415,6 +425,21 @@ message JobExecutionRecord
   string origin = 14;
 }
 
+message GetJobOutputChunkRequest
+{
+  string job_id = 1;
+  int64 offset = 2;
+  uint32 max_bytes = 3;
+}
+
+message GetJobOutputChunkResponse
+{
+  bytes data = 1;
+  int64 total_size = 2;
+  int64 next_offset = 3;
+  bool complete = 4;
+}
+
 message ListJobExecutionsRequest
 {
   int64 after_created_at = 1;
@@ -448,18 +473,67 @@ message JobEventRecord
 }
 
 
-message TerminalCommandRequest
+message OperationRequest
 {
-  string command = 1;
+  string job_id = 1;
+  string origin = 2;
+}
+
+message HostArtifactRequest
+{
+  string job_id = 1;
+  string listener_hash = 2;
+  string artifact_reference = 3;
+  string hosted_filename = 4;
+  string origin = 5;
+}
+
+message SocksControlRequest
+{
+  string job_id = 1;
+  string action = 2;
+  string beacon_hash = 3;
+  string origin = 4;
+}
+
+message ListenerInfoResponse
+{
+  Status status = 1;
+  string message = 2;
+  string type = 3;
+  string address = 4;
+  string port = 5;
+  string download_uri = 6;
+}
+
+message BeaconBinaryRequest
+{
+  string listener_hash = 1;
+  string target_os = 2;
+  string target_arch = 3;
+}
+
+message BeaconBinaryResponse
+{
+  Status status = 1;
+  string message = 2;
+  bytes data = 3;
+}
+
+message ListenerFileRequest
+{
+  string listener_hash = 1;
+  string filename = 2;
+  bytes data = 3;
+}
+
+message ToolFile
+{
+  string filename = 1;
   bytes data = 2;
 }
 
-
-message TerminalCommandResponse
+message ToolBundleRequest
 {
-  Status status = 1;
-  string command = 2;
-  string result = 3;
-  bytes data = 4;
-  string message = 5;
+  repeated ToolFile files = 1;
 }

@@ -1,0 +1,10 @@
+# C2 execution policy lives beside the portable Agent Skills instructions.
+tool_bundles:
+  - recon.identity
+objective: Verify the user account running the selected beacon session.
+required_tools:
+  - whoami
+completion_tools:
+  - whoami
+max_tool_calls: 1
+max_iterations: 3

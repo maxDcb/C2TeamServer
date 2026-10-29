@@ -1,4 +1,4 @@
-#include "TeamServerTermLocalService.hpp"
+#include "TeamServerLocalOperationService.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -12,7 +12,6 @@
 #include <unistd.h>
 
 #include "TeamServerArtifactCatalog.hpp"
-#include "TeamServerCredentialVaultService.hpp"
 #include "TeamServerListenerArtifactService.hpp"
 #include "TeamServerModuleLoader.hpp"
 #include "listener/ListenerHttp.hpp"
@@ -21,29 +20,6 @@ namespace fs = std::filesystem;
 
 namespace
 {
-const std::string HostArtifactInstruction = "hostArtifact";
-const std::string PutIntoUploadDirInstruction = "putIntoUploadDir";
-const std::string ReloadModulesInstruction = "reloadModules";
-const std::string BatcaveInstruction = "batcaveUpload";
-const std::string BatcaveBundleInstruction = "batcaveUploadBundle";
-const std::string AddCredentialInstruction = "addCred";
-const std::string GetCredentialInstruction = "getCred";
-const std::string CredentialVaultInstruction = "cred";
-
-void setTerminalOk(teamserverapi::TerminalCommandResponse* response, const std::string& result)
-{
-    response->set_status(teamserverapi::OK);
-    response->set_result(result);
-    response->clear_message();
-}
-
-void setTerminalError(teamserverapi::TerminalCommandResponse* response, const std::string& result)
-{
-    response->set_status(teamserverapi::KO);
-    response->set_result(result);
-    response->set_message(result);
-}
-
 std::string basename(std::string value)
 {
     const auto slash = value.find_last_of("/\\");
@@ -128,26 +104,18 @@ void removeCommittedStage(const fs::path& stage, std::error_code& ec)
 }
 } // namespace
 
-TeamServerTermLocalService::TeamServerTermLocalService(
+TeamServerLocalOperationService::TeamServerLocalOperationService(
     std::shared_ptr<spdlog::logger> logger,
     const nlohmann::json& config,
     TeamServerRuntimeConfig runtimeConfig,
-    std::vector<std::shared_ptr<Listener>>& listeners,
-    nlohmann::json& credentials,
     std::vector<std::unique_ptr<ModuleCmd>>& moduleCmd,
     ModuleLoader moduleLoader,
-    std::shared_ptr<TeamServerCredentialVaultService> credentialVaultService,
-    std::shared_mutex* listenersMutex,
     TeamServerListenerArtifactService* listenerArtifactService,
     std::shared_mutex* moduleCmdMutex)
     : m_logger(std::move(logger)),
       m_config(config),
       m_runtimeConfig(std::move(runtimeConfig)),
-      m_listeners(listeners),
-      m_listenersMutex(listenersMutex ? listenersMutex : &m_localListenersMutex),
-      m_credentials(credentials),
       m_moduleCmd(moduleCmd),
-    m_credentialVaultService(std::move(credentialVaultService)),
       m_moduleLoader(std::move(moduleLoader)),
       m_listenerArtifactService(listenerArtifactService),
       m_moduleCmdMutex(moduleCmdMutex ? moduleCmdMutex : &m_localModuleCmdMutex)
@@ -155,7 +123,7 @@ TeamServerTermLocalService::TeamServerTermLocalService(
     recoverBatcaveBundles();
 }
 
-void TeamServerTermLocalService::recoverBatcaveBundles()
+void TeamServerLocalOperationService::recoverBatcaveBundles()
 {
     const fs::path toolsDirectory = fs::path(m_runtimeConfig.toolsDirectoryPath) / "Any" / "any";
     const fs::path stagingRoot = fs::path(m_runtimeConfig.toolsDirectoryPath) / ".batcave-staging";
@@ -257,66 +225,19 @@ void TeamServerTermLocalService::recoverBatcaveBundles()
         m_logger->error("Cannot inspect Batcave staging directory {}: {}", stagingRoot.string(), ec.message());
 }
 
-bool TeamServerTermLocalService::canHandle(const std::string& instruction) const
-{
-    return instruction == HostArtifactInstruction
-        || instruction == PutIntoUploadDirInstruction
-        || instruction == BatcaveInstruction
-        || instruction == BatcaveBundleInstruction
-        || instruction == AddCredentialInstruction
-        || instruction == GetCredentialInstruction
-        || instruction == CredentialVaultInstruction
-        || instruction == ReloadModulesInstruction;
-}
-
-grpc::Status TeamServerTermLocalService::handleCommand(
-    const std::string& instruction,
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
-{
-    response->set_status(teamserverapi::OK);
-    response->set_command(command.command());
-    response->set_result("");
-    response->set_data("");
-    response->clear_message();
-
-    if (instruction == HostArtifactInstruction)
-        return handleHostArtifact(splitedCmd, response);
-    if (instruction == PutIntoUploadDirInstruction)
-        return handlePutIntoUploadDir(splitedCmd, command, response);
-    if (instruction == BatcaveInstruction)
-        return handleBatcaveUpload(splitedCmd, command, response);
-    if (instruction == BatcaveBundleInstruction)
-        return handleBatcaveUploadBundle(splitedCmd, command, response);
-    if (instruction == CredentialVaultInstruction)
-        return handleCredentialVault(splitedCmd, command, response);
-    if (instruction == AddCredentialInstruction)
-        return handleAddCredential(command, response);
-    if (instruction == GetCredentialInstruction)
-        return handleGetCredential(response);
-    if (instruction == ReloadModulesInstruction)
-        return handleReloadModules(response);
-
-    response->set_status(teamserverapi::KO);
-    response->set_result("Error: not implemented.");
-    response->set_message("Terminal command not implemented.");
-    return grpc::Status::OK;
-}
-
-std::vector<std::unique_ptr<ModuleCmd>> TeamServerTermLocalService::loadModulesFromDisk() const
+std::vector<std::unique_ptr<ModuleCmd>> TeamServerLocalOperationService::loadModulesFromDisk() const
 {
     TeamServerModuleLoader loader(m_logger, m_runtimeConfig);
     return loader.loadModules();
 }
 
-bool TeamServerTermLocalService::isValidFilename(const std::string& filename) const
+bool TeamServerLocalOperationService::isValidFilename(const std::string& filename) const
 {
     return !filename.empty() && filename != "." && filename != ".."
         && filename.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890-_.") == std::string::npos;
 }
 
-std::string TeamServerTermLocalService::resolveDownloadFolderForListener(
+std::string TeamServerLocalOperationService::resolveDownloadFolderForListener(
     const std::string& listenerHash, std::shared_ptr<Listener>& listener, std::string& error) const
 {
     if (!m_listenerArtifactService)
@@ -351,28 +272,21 @@ std::string TeamServerTermLocalService::resolveDownloadFolderForListener(
     return folderIt->get<std::string>();
 }
 
-grpc::Status TeamServerTermLocalService::handleHostArtifact(
-    const std::vector<std::string>& splitedCmd,
-    teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerLocalOperationService::hostArtifact(
+    const std::string& listenerHash, const std::string& artifactReference,
+    const std::string& hostedFilename)
 {
     m_logger->debug("hostArtifact");
-
-    if (splitedCmd.size() != 3 && splitedCmd.size() != 4)
-    {
-        setTerminalError(response, "Error: hostArtifact takes a listener hash, an artifact reference, and an optional filename.");
-        return grpc::Status::OK;
-    }
-
-    const std::string& listenerHash = splitedCmd[1];
-    const std::string& artifactReference = splitedCmd[2];
+    if (listenerHash.empty() || artifactReference.empty())
+        return {false, "Error: listener hash and artifact reference are required."};
+    std::lock_guard<std::mutex> lock(m_uploadMutex);
     std::shared_ptr<Listener> listener;
     std::string listenerError;
     const std::string downloadFolder = resolveDownloadFolderForListener(listenerHash, listener, listenerError);
     if (downloadFolder.empty())
     {
-        setTerminalError(response, listenerError);
         m_logger->warn("Listener {0} has no download folder configured; unable to host artifact {1}", listenerHash, artifactReference);
-        return grpc::Status::OK;
+        return {false, listenerError};
     }
 
     TeamServerArtifactCatalog catalog(m_runtimeConfig);
@@ -382,211 +296,87 @@ grpc::Status TeamServerTermLocalService::handleHostArtifact(
         if (candidate.artifactId == artifactReference
             || candidate.name == artifactReference
             || candidate.displayName == artifactReference)
-        {
             matches.push_back(candidate);
-        }
     }
-
     if (matches.empty() && artifactReference.size() >= 8)
     {
         for (const TeamServerArtifactRecord& candidate : catalog.listArtifacts())
-        {
             if (candidate.artifactId.rfind(artifactReference, 0) == 0)
                 matches.push_back(candidate);
-        }
     }
-
     if (matches.empty())
-    {
-        setTerminalError(response, "Error: artifact not found.");
-        return grpc::Status::OK;
-    }
+        return {false, "Error: artifact not found."};
     if (matches.size() > 1)
-    {
-        setTerminalError(response, "Error: artifact reference is ambiguous.");
-        return grpc::Status::OK;
-    }
+        return {false, "Error: artifact reference is ambiguous."};
 
     TeamServerArtifactRecord artifact;
     std::string bytes;
     std::string message;
     if (!catalog.readArtifactPayload(matches.front().artifactId, artifact, bytes, message))
-    {
-        setTerminalError(response, "Error: " + message);
-        return grpc::Status::OK;
-    }
+        return {false, "Error: " + message};
 
-    std::string filename;
-    if (splitedCmd.size() == 4)
-    {
-        filename = splitedCmd[3];
-        if (!isValidFilename(filename))
-        {
-            setTerminalError(response, "Error: filename not allowed.");
-            return grpc::Status::OK;
-        }
-    }
-    else
-    {
-        filename = sanitizeHostedFilename(!artifact.displayName.empty() ? artifact.displayName : artifact.name);
-    }
+    const std::string filename = hostedFilename.empty()
+        ? sanitizeHostedFilename(!artifact.displayName.empty() ? artifact.displayName : artifact.name)
+        : hostedFilename;
+    if (!isValidFilename(filename))
+        return {false, "Error: filename not allowed."};
 
     const std::string hostedUrl = m_listenerArtifactService->hostedArtifactUrl(listener, filename);
     if (hostedUrl.empty())
-    {
-        setTerminalError(response, "Error: Listener has no public download URL configured.");
-        return grpc::Status::OK;
-    }
+        return {false, "Error: Listener has no public download URL configured."};
 
     const fs::path destinationPath = fs::path(downloadFolder) / filename;
-
-    if (!samePath(artifact.internalPath, destinationPath))
+    if (!samePath(artifact.internalPath, destinationPath) && !writeFileAtomically(destinationPath, bytes))
     {
-        if (!writeFileAtomically(destinationPath, bytes))
-        {
-            setTerminalError(response, "Error: Cannot write file.");
-            m_logger->warn("Failed to host artifact {0} at {1}", artifact.artifactId, destinationPath.string());
-            return grpc::Status::OK;
-        }
+        m_logger->warn("Failed to host artifact {0} at {1}", artifact.artifactId, destinationPath.string());
+        return {false, "Error: Cannot write file."};
     }
-
-    setTerminalOk(response, hostedUrl);
     m_logger->info("Hosted artifact {0} as {1} for listener {2}", artifact.artifactId, destinationPath.string(), listenerHash);
-    return grpc::Status::OK;
+    return {true, hostedUrl};
 }
 
-grpc::Status TeamServerTermLocalService::handlePutIntoUploadDir(
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerLocalOperationService::uploadListenerFile(
+    const std::string& listenerHash, const std::string& filename, const std::string& data)
 {
-    m_logger->debug("putIntoUploadDir {0}", command.command());
-
-    if (splitedCmd.size() != 3)
-    {
-        setTerminalError(response, "Error: putIntoUploadDir take tow arguements.");
-        return grpc::Status::OK;
-    }
-
-    const std::string& listenerHash = splitedCmd[1];
-    const std::string& filename = splitedCmd[2];
     if (!isValidFilename(filename))
-    {
-        setTerminalError(response, "Error: filename not allowed.");
-        return grpc::Status::OK;
-    }
-
+        return {false, "Error: filename not allowed."};
+    std::lock_guard<std::mutex> lock(m_uploadMutex);
     std::shared_ptr<Listener> listener;
     std::string listenerError;
     const std::string downloadFolder = resolveDownloadFolderForListener(listenerHash, listener, listenerError);
     if (downloadFolder.empty())
-    {
-        setTerminalError(response, listenerError);
-        m_logger->warn("Listener {0} has no download folder configured; unable to store {1}", listenerHash, filename);
-        return grpc::Status::OK;
-    }
-
+        return {false, listenerError};
     const fs::path filePath = fs::path(downloadFolder) / filename;
-    if (writeFileAtomically(filePath, command.data()))
-    {
-        setTerminalOk(response, "ok");
-        m_logger->info("Stored uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath.string());
-        return grpc::Status::OK;
-    }
-
-    setTerminalError(response, "Error: Cannot write file.");
-    m_logger->warn("Failed to store uploaded file '{0}' for listener {1} in {2}", filename, listenerHash, filePath.string());
-    return grpc::Status::OK;
+    if (!writeFileAtomically(filePath, data))
+        return {false, "Error: Cannot write file."};
+    m_logger->info("Stored uploaded file '{}' for listener {} in {}", filename, listenerHash, filePath.string());
+    return {true, "ok"};
 }
 
-grpc::Status TeamServerTermLocalService::handleBatcaveUpload(
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerLocalOperationService::installTool(
+    const std::string& filename, const std::string& data)
 {
-    m_logger->debug("batcaveUpload {0}", command.command());
-
-    if (splitedCmd.size() != 2)
-    {
-        setTerminalError(response, "Error: batcaveUpload take one arguement.");
-        return grpc::Status::OK;
-    }
-
-    const std::string& filename = splitedCmd[1];
-    m_logger->debug("batcaveUpload {0}", filename);
     if (!isValidFilename(filename))
-    {
-        setTerminalError(response, "Error: filename not allowed.");
-        return grpc::Status::OK;
-    }
-
+        return {false, "Error: filename not allowed."};
     const fs::path filePath = fs::path(m_runtimeConfig.toolsDirectoryPath) / "Any" / "any" / filename;
     std::lock_guard<std::mutex> lock(m_uploadMutex);
-    if (writeFileAtomically(filePath, command.data()))
-    {
-        setTerminalOk(response, "ok");
-        m_logger->info("Saved uploaded tool '{0}' to {1}", filename, filePath.string());
-        return grpc::Status::OK;
-    }
-
-    setTerminalError(response, "Error: Cannot write file.");
-    m_logger->warn("Failed to store uploaded tool '{0}' at {1}", filename, filePath.string());
-    return grpc::Status::OK;
+    if (!writeFileAtomically(filePath, data))
+        return {false, "Error: Cannot write file."};
+    m_logger->info("Saved uploaded tool '{}' to {}", filename, filePath.string());
+    return {true, "ok"};
 }
 
-grpc::Status TeamServerTermLocalService::handleBatcaveUploadBundle(
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerLocalOperationService::installToolBundle(
+    const std::vector<std::pair<std::string, std::string>>& files)
 {
-    if (splitedCmd.size() != 1)
-    {
-        setTerminalError(response, "Error: batcaveUploadBundle takes no arguments.");
-        return grpc::Status::OK;
-    }
-
-    // The payload is a JSON array of [filename, byte_length] pairs, followed
-    // by a newline and the concatenated raw file bytes.
-    const std::string& payload = command.data();
-    const std::size_t separator = payload.find('\n');
-    if (separator == std::string::npos || separator > 65536)
-    {
-        setTerminalError(response, "Error: Invalid Batcave bundle manifest.");
-        return grpc::Status::OK;
-    }
-    const json manifest = json::parse(payload.substr(0, separator), nullptr, false);
-    if (!manifest.is_array() || manifest.empty() || manifest.size() > 256)
-    {
-        setTerminalError(response, "Error: Invalid Batcave bundle manifest.");
-        return grpc::Status::OK;
-    }
-
-    std::vector<std::pair<std::string, std::string_view>> files;
+    if (files.empty() || files.size() > 256)
+        return {false, "Error: Invalid Batcave bundle manifest."};
     std::unordered_set<std::string> names;
-    std::size_t offset = separator + 1;
-    for (const auto& entry : manifest)
+    for (const auto& file : files)
     {
-        if (!entry.is_array() || entry.size() != 2 || !entry[0].is_string() || !entry[1].is_number_unsigned())
-        {
-            setTerminalError(response, "Error: Invalid Batcave bundle manifest.");
-            return grpc::Status::OK;
-        }
-        const std::string name = entry[0].get<std::string>();
-        const std::uint64_t length = entry[1].get<std::uint64_t>();
-        if (!isValidFilename(name) || !names.insert(name).second || length > payload.size() - offset)
-        {
-            setTerminalError(response, "Error: Invalid Batcave bundle manifest.");
-            return grpc::Status::OK;
-        }
-        files.emplace_back(name, std::string_view(payload.data() + offset, static_cast<std::size_t>(length)));
-        offset += static_cast<std::size_t>(length);
+        if (!isValidFilename(file.first) || !names.insert(file.first).second)
+            return {false, "Error: Invalid Batcave bundle manifest."};
     }
-    if (offset != payload.size())
-    {
-        setTerminalError(response, "Error: Invalid Batcave bundle payload length.");
-        return grpc::Status::OK;
-    }
-
     std::lock_guard<std::mutex> lock(m_uploadMutex);
     const fs::path toolsDirectory = fs::path(m_runtimeConfig.toolsDirectoryPath) / "Any" / "any";
     const fs::path stagingDirectory = temporarySibling(
@@ -599,8 +389,7 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUploadBundle(
     {
         std::error_code ignored;
         fs::remove_all(stagingDirectory, ignored);
-        setTerminalError(response, "Error: Cannot create Batcave staging directory.");
-        return grpc::Status::OK;
+        return {false, "Error: Cannot create Batcave staging directory."};
     }
 
     auto cleanup = [&]() { std::error_code ignored; fs::remove_all(stagingDirectory, ignored); };
@@ -612,22 +401,19 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUploadBundle(
         if (ec || (exists && !fs::is_regular_file(destination, ec)) || ec)
         {
             cleanup();
-            setTerminalError(response, "Error: Batcave destination is not a file.");
-            return grpc::Status::OK;
+            return {false, "Error: Batcave destination is not a file."};
         }
         if (!writeFileAtomically(stagingDirectory / "files" / name, bytes))
         {
             cleanup();
-            setTerminalError(response, "Error: Cannot stage Batcave bundle.");
-            return grpc::Status::OK;
+            return {false, "Error: Cannot stage Batcave bundle."};
         }
         recoveryJournal.push_back(json::array({name, exists}));
     }
     if (!writeFileAtomically(stagingDirectory / "recovery.json", recoveryJournal.dump()))
     {
         cleanup();
-        setTerminalError(response, "Error: Cannot journal Batcave bundle.");
-        return grpc::Status::OK;
+        return {false, "Error: Cannot journal Batcave bundle."};
     }
 
     struct CommittedFile { fs::path destination; fs::path backup; bool hadBackup; };
@@ -650,16 +436,15 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUploadBundle(
         }
         return restored;
     };
-    auto commitError = [&](bool restored) -> grpc::Status
+    auto commitError = [&](bool restored) -> TeamServerOperationResult
     {
         if (restored)
             cleanup();
         else
             m_logger->error("Batcave rollback incomplete; recovery files remain in {}", stagingDirectory.string());
-        setTerminalError(response, restored
+        return {false, restored
             ? "Error: Cannot replace Batcave bundle files."
-            : "Error: Batcave rollback incomplete; recovery files remain on TeamServer.");
-        return grpc::Status::OK;
+            : "Error: Batcave rollback incomplete; recovery files remain on TeamServer."};
     };
     for (const auto& file : files)
     {
@@ -694,65 +479,11 @@ grpc::Status TeamServerTermLocalService::handleBatcaveUploadBundle(
     removeCommittedStage(stagingDirectory, ec);
     if (ec)
         m_logger->warn("Batcave bundle installed but staging cleanup failed at {}: {}", stagingDirectory.string(), ec.message());
-    setTerminalOk(response, "Batcave bundle installed (" + std::to_string(files.size()) + " tools).");
     m_logger->info("Installed Batcave bundle with {} tools", files.size());
-    return grpc::Status::OK;
+    return {true, "Batcave bundle installed (" + std::to_string(files.size()) + " tools)."};
 }
 
-grpc::Status TeamServerTermLocalService::handleAddCredential(
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
-{
-    if (m_credentialVaultService)
-        return m_credentialVaultService->handleTerminalCommand({AddCredentialInstruction}, command, response);
-
-    m_logger->debug("AddCredentials command received");
-
-    json cred;
-    try
-    {
-        cred = json::parse(command.data());
-    }
-    catch (const json::parse_error&)
-    {
-        setTerminalError(response, "Error: invalid credential payload.");
-        return grpc::Status::OK;
-    }
-
-    m_credentials.push_back(cred);
-    m_logger->info("Stored credential entry. Total credentials: {0}", m_credentials.size());
-    setTerminalOk(response, "ok");
-    return grpc::Status::OK;
-}
-
-grpc::Status TeamServerTermLocalService::handleGetCredential(teamserverapi::TerminalCommandResponse* response)
-{
-    if (m_credentialVaultService)
-    {
-        teamserverapi::TerminalCommandRequest command;
-        command.set_command(GetCredentialInstruction);
-        return m_credentialVaultService->handleTerminalCommand({GetCredentialInstruction}, command, response);
-    }
-
-    m_logger->debug("GetCredentials command received");
-    setTerminalOk(response, m_credentials.dump());
-    return grpc::Status::OK;
-}
-
-grpc::Status TeamServerTermLocalService::handleCredentialVault(
-    const std::vector<std::string>& splitedCmd,
-    const teamserverapi::TerminalCommandRequest& command,
-    teamserverapi::TerminalCommandResponse* response)
-{
-    if (!m_credentialVaultService)
-    {
-        setTerminalError(response, "Error: credential vault service is not available.");
-        return grpc::Status::OK;
-    }
-    return m_credentialVaultService->handleTerminalCommand(splitedCmd, command, response);
-}
-
-grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::TerminalCommandResponse* response)
+TeamServerOperationResult TeamServerLocalOperationService::reloadModules()
 {
     m_logger->info("Reloading TeamServer modules from directory: {0}", m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
 
@@ -764,15 +495,13 @@ grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::Term
     catch (const std::exception& error)
     {
         m_logger->error("Module reload failed: {}", error.what());
-        setTerminalError(response, "Error: Module reload failed; previous modules remain active.");
-        return grpc::Status::OK;
+        return {false, "Error: Module reload failed; previous modules remain active."};
     }
     const std::size_t reloadedModules = reloaded.size();
     if (reloadedModules == 0)
     {
         m_logger->warn("No TeamServer modules loaded from {0}; keeping previous modules", m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
-        setTerminalError(response, "Error: No modules loaded; previous modules remain active.");
-        return grpc::Status::OK;
+        return {false, "Error: No modules loaded; previous modules remain active."};
     }
 
     {
@@ -780,7 +509,5 @@ grpc::Status TeamServerTermLocalService::handleReloadModules(teamserverapi::Term
         m_moduleCmd.swap(reloaded);
     }
     m_logger->info("Reloaded {0} TeamServer module(s) from {1}", reloadedModules, m_runtimeConfig.teamServerModulesDirectoryPath.c_str());
-
-    setTerminalOk(response, "");
-    return grpc::Status::OK;
+    return {true, "Reloaded " + std::to_string(reloadedModules) + " TeamServer module(s)."};
 }

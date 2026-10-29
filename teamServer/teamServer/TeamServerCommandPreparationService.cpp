@@ -459,6 +459,14 @@ int TeamServerCommandPreparationService::prepareMessage(
         (*it)->setWindowsArch(normalizedTargetArch);
         m_logger->debug("Preparing module command={0} isWindows={1} targetArch={2}", splitedCmd[0], isWindows, normalizedTargetArch);
         res = (*it)->init(splitedCmd, c2Message);
+        if (res == 0 && toLower(instruction) == "run")
+        {
+            // Run forwards a shell command. Tokenization validates the outer command,
+            // but removes quotes that the target shell still needs to interpret.
+            const auto commandStart = input.find_first_not_of(' ', instruction.size());
+            if (commandStart != std::string::npos)
+                c2Message.set_cmd(input.substr(commandStart));
+        }
         isModuleFound = true;
     }
 
