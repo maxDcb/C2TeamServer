@@ -56,6 +56,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Checkout Linux implant
+        uses: actions/checkout@v4
+        with:
+          repository: maxDcb/C2LinuxImplant
+          path: linux-implant
+          submodules: recursive
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -83,7 +90,9 @@ jobs:
             libxcb-xinerama0
 
       - name: Install Conan
-        run: python -m pip install --upgrade pip "conan==2.24.0"
+        run: |
+          python -m pip install --upgrade pip "conan==2.24.0"
+          conan profile detect --force
 
       - name: Cache Conan packages
         uses: actions/cache@v4
@@ -99,6 +108,22 @@ jobs:
           key: linux-gcc13-release-${{ hashFiles('conan.lock', 'conan/profiles/linux-gcc13') }}
           max-size: 500MB
 
+      - name: Build Linux beacon and reverse forwarding module
+        run: |
+          expected_core="$(git -C core rev-parse HEAD)"
+          actual_core="$(git -C linux-implant/core rev-parse HEAD)"
+          if [ "$expected_core" != "$actual_core" ]; then
+            git -C linux-implant/core fetch origin "$expected_core"
+            git -C linux-implant/core checkout --detach "$expected_core"
+          fi
+          cmake -S linux-implant -B linux-implant/build-ci \
+            -DCMAKE_BUILD_TYPE="${{ env.BUILD_TYPE }}" \
+            -DC2CORE_BUILD_TESTS=OFF \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES="${{ github.workspace }}/linux-implant/conan_provider.cmake" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build linux-implant/build-ci --target BeaconTcp ReversePortForward --parallel "$(nproc)"
+
       - name: Configure CMake
         run: >
           cmake -S "${{ github.workspace }}"
@@ -109,6 +134,8 @@ jobs:
           -DCONAN_HOST_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
           -DCONAN_BUILD_PROFILE="${{ github.workspace }}/conan/profiles/linux-gcc13"
           -DCONAN_LOCKFILE="${{ github.workspace }}/conan.lock"
+          -DC2_LINUX_BEACON_BINARY="${{ github.workspace }}/linux-implant/Release/Beacons/BeaconTcp"
+          -DC2_LINUX_RPF_MODULE="${{ github.workspace }}/linux-implant/Release/Modules/libReversePortForward.so"
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
@@ -120,6 +147,14 @@ jobs:
 
       - name: Run CTest
         run: ctest --test-dir "${{ env.BUILD_DIR }}" --build-config "${{ env.BUILD_TYPE }}" --output-on-failure --timeout 120
+
+      - name: Save beacon flow metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-flow-metrics
+          path: ${{ env.BUILD_DIR }}/beacon-flow-metrics.json
+          if-no-files-found: ignore
 
       - name: Run client tests
         env:

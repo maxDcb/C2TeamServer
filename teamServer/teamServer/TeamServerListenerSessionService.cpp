@@ -5,6 +5,7 @@
 #include <chrono>
 #include <charconv>
 #include <cctype>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <memory>
@@ -1305,6 +1306,11 @@ grpc::Status TeamServerListenerSessionService::sendSessionCommand(const teamserv
             markModuleLoading(beaconHash, listenerHash, moduleName, commandId, c2Message.inputfile());
         else if (instruction == UnloadC2ModuleCmd)
             markModuleUnloading(beaconHash, moduleName, commandId);
+        else if (instruction == "reversePortForward")
+        {
+            std::lock_guard<std::mutex> routeLock(m_recurringRoutesMutex);
+            m_recurringRoutes[instruction] = {beaconHash, listenerHash};
+        }
 
         {
             std::lock_guard<std::mutex> lock(m_sentCommandsMutex);
@@ -1464,6 +1470,55 @@ int TeamServerListenerSessionService::handleCmdResponse()
         listeners[i]->pruneStoppedSessions();
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    // The implant emits reverse-forwarded bytes through recurringExec. Its
+    // server-side peer must also be polled so replies can traverse the beacon.
+    std::unordered_map<std::string, std::pair<std::string, std::string>> recurringRoutes;
+    {
+        std::lock_guard<std::mutex> routeLock(m_recurringRoutesMutex);
+        recurringRoutes = m_recurringRoutes;
+    }
+    for (const auto& module : m_moduleCmd)
+    {
+        const auto route = recurringRoutes.find(module->getName());
+        if (route == recurringRoutes.end())
+            continue;
+        const auto& [beaconHash, listenerHash] = route->second;
+        for (int chunk = 0; chunk < 64; ++chunk)
+        {
+            C2Message response;
+            if (module->recurringExec(response) != 1)
+                break;
+            // Implant module dispatch accepts the command name, while the
+            // module's recurring output uses a numeric hash for responses.
+            response.set_instruction(module->getName());
+            bool queued = false;
+            for (const auto& listener : listeners)
+            {
+                if (listener->isSessionExist(beaconHash, listenerHash))
+                {
+                    queued = listener->queueTaskIfSessionAlive(beaconHash, listenerHash, response);
+                    break;
+                }
+            }
+            if (!queued)
+                m_logger->warn("Unable to queue recurring {} response for beacon {}", module->getName(), beaconHash);
+        }
+    }
+
+    static const int responsePollMs = []
+    {
+        const char* configured = std::getenv("C2_RESPONSE_POLL_INTERVAL_MS");
+        if (!configured)
+            return 1000;
+        const std::string value(configured);
+        int interval = 0;
+        const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), interval);
+        return error == std::errc{} && end == value.data() + value.size() && interval >= 0
+            ? interval : 1000;
+    }();
+    if (responsePollMs > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(responsePollMs));
+    else
+        std::this_thread::yield();
     return 0;
 }

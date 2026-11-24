@@ -61,3 +61,30 @@ add_test(NAME testsInstalledRuntimeE2E
     --release-root "${C2_INTEGRATION_RUNTIME_RELEASE_DIR}"
     --installer "${CMAKE_SOURCE_DIR}/packaging/exploration_install.py")
 set_tests_properties(testsInstalledRuntimeE2E PROPERTIES DEPENDS testsTeamServerRuntimeIntegration TIMEOUT 120)
+
+# A Linux implant checkout can supply the two binaries needed for a real
+# TeamServer -> parent beacon -> child beacon integration run.
+set(C2_LINUX_BEACON_BINARY "" CACHE FILEPATH "Linux BeaconTcp binary for beacon flow E2E")
+set(C2_LINUX_RPF_MODULE "" CACHE FILEPATH "Linux reverse port forward module for beacon flow E2E")
+set(C2_BEACON_FLOW_THRESHOLDS "" CACHE FILEPATH "Optional JSON performance limits for beacon flow E2E")
+if(NOT C2_LINUX_BEACON_BINARY AND EXISTS "${CMAKE_SOURCE_DIR}/../C2LinuxImplant/Release/Beacons/BeaconTcp")
+  set(C2_LINUX_BEACON_BINARY "${CMAKE_SOURCE_DIR}/../C2LinuxImplant/Release/Beacons/BeaconTcp")
+endif()
+if(NOT C2_LINUX_RPF_MODULE AND EXISTS "${CMAKE_SOURCE_DIR}/../C2LinuxImplant/Release/Modules/libReversePortForward.so")
+  set(C2_LINUX_RPF_MODULE "${CMAKE_SOURCE_DIR}/../C2LinuxImplant/Release/Modules/libReversePortForward.so")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND EXISTS "${C2_LINUX_BEACON_BINARY}" AND EXISTS "${C2_LINUX_RPF_MODULE}")
+  set(C2_BEACON_FLOW_THRESHOLD_ARGS "")
+  if(C2_BEACON_FLOW_THRESHOLDS)
+    set(C2_BEACON_FLOW_THRESHOLD_ARGS --thresholds "${C2_BEACON_FLOW_THRESHOLDS}")
+  endif()
+  add_test(NAME testsLinuxBeaconFlowE2E
+    COMMAND "${C2_JOB_TEST_PYTHON}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/BeaconFlowE2E.py"
+      --runtime "${C2_INTEGRATION_RUNTIME_RELEASE_DIR}"
+      --linux-beacon "${C2_LINUX_BEACON_BINARY}"
+      --linux-module "${C2_LINUX_RPF_MODULE}"
+      --output "${CMAKE_BINARY_DIR}/beacon-flow-metrics.json"
+      ${C2_BEACON_FLOW_THRESHOLD_ARGS})
+  set_tests_properties(testsLinuxBeaconFlowE2E PROPERTIES
+    DEPENDS testsTeamServerRuntimeIntegration TIMEOUT 240 RUN_SERIAL TRUE LABELS "integration;beacon-flow")
+endif()

@@ -110,4 +110,7 @@ private:
 
     mutable std::mutex m_loadedModulesMutex;
     std::unordered_map<std::string, std::unordered_map<std::string, BeaconModuleRecord>> m_loadedModulesByBeacon;
+    // Server-side recurring module output needs an explicit return route.
+    mutable std::mutex m_recurringRoutesMutex;
+    std::unordered_map<std::string, std::pair<std::string, std::string>> m_recurringRoutes;
 };
